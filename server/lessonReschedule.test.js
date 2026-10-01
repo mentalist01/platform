@@ -85,6 +85,19 @@ test('mini-group membership blocks individual transfers and pending approval, bu
   assert.equal((await req(`/${next.id}/approve`, 'teacher:t', {})).status, 'approved');
 });
 
+test('rescheduling offers late slots only when the whole lesson ends by 23:00',async t=>{
+  const {state,req}=await fixture(t);
+  assert.equal((await req('/availability')).days[0].slots.at(-1),'22:00');
+  state.entries=[{...source,durationMinutes:90}];
+  const sourceKey=occurrenceKey(state.entries[0]);
+  assert.equal((await req('/availability')).days[0].slots.at(-1),'21:30');
+  await req('','student:a',{lessonKey:sourceKey,date:'2026-09-28',time:'22:00'},400);
+  const row=await req('','student:a',{lessonKey:sourceKey,date:'2026-09-28',time:'21:30'});
+  state.entries.push({id:'conflict',studentId:'b',date:row.target.date,time:'22:30',durationMinutes:30});
+  await req(`/${row.id}/approve`,'teacher:t',{},409);
+  state.entries.pop(); assert.equal((await req(`/${row.id}/approve`,'teacher:t',{})).status,'approved');
+});
+
 test('joining a mini-group during transfer calendar lookup blocks availability, creation and approval', async t => {
   for (const action of ['availability', 'create', 'approve']) {
     let join = false;

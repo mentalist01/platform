@@ -348,10 +348,10 @@ test('Google group occurrences create one stable lesson and project independent 
       assert.ok(availability.blocked[googleSlot(day)], 'Other groups, individual lessons and ambiguous Google matches remain blocked');
     }
     const studentAvailability = await jsonRequest(baseUrl, availabilityPath, { token: studentA.token });
-    assert.equal(studentAvailability.blocked[googleSlot(activeDay)], undefined);
+    assert.deepEqual(studentAvailability.blocked, {});
     await jsonRequest(baseUrl, `${availabilityPath}/answer`, {
       token: studentA.token, method: 'POST',
-      body: { roundId: availability.poll.id, version: 0, choices: { [googleSlot(activeDay)]: 'yes' } },
+      body: { roundId: availability.poll.id, version: 0, choices: { [googleSlot(activeDay)]: 'yes', [googleSlot(individualDay)]: 'maybe' } },
     });
 
     const teacherSchedule = await jsonRequest(baseUrl, '/api/teacher-schedule', { token: teacher.token });

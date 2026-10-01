@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { calendarMutationLocks } from './calendarMutations.js';
-import { availabilitySlots, addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS } from '../src/utils/groupAvailability.js';
+import { availabilitySlots, addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS, AVAILABILITY_END_MINUTE } from '../src/utils/groupAvailability.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const text = (value, limit = 400) => String(value ?? '').trim().slice(0, limit);
@@ -16,7 +16,7 @@ export function availabilityConfig(value, now = Date.now()) {
   const startMinute = Number(value.startMinute); const endMinute = Number(value.endMinute);
   const days = [...new Set(Array.isArray(value.days) ? value.days : [])];
   if (![30, 45, 60, 90, 120].includes(durationMinutes) || !Number.isInteger(startMinute) || !Number.isInteger(endMinute)
-    || startMinute < 0 || endMinute > 1440 || startMinute % 30 || endMinute % 30 || endMinute - startMinute < durationMinutes
+    || startMinute < 0 || endMinute > AVAILABILITY_END_MINUTE || startMinute % 30 || endMinute % 30 || endMinute - startMinute < durationMinutes
     || days.length < 2 || days.some(d => !Number.isInteger(d) || d < 0 || d > 6)) fail('Проверьте длительность, рабочие часы и выберите хотя бы два дня');
   return { startDate, durationMinutes, startMinute, endMinute, days, weeks: 8, timezone: 'Europe/Moscow' };
 }
@@ -123,8 +123,10 @@ export function registerGroupAvailability(app, deps) {
     const canEdit = canManage(auth, group);
     if (!poll) return { poll: null, canManage: canEdit, closed: group.status === 'completed' };
     let blocked = {}; let calendarError = '';
-    try { if (poll.status === 'open') blocked = busySlots(poll.config, await busyEntries(group, poll.config)); }
-    catch { calendarError = 'Не удалось проверить календарь преподавателя. Выбор и утверждение временно недоступны. Попробуйте обновить позже.'; }
+    // Pupil availability is a preference, not a reservation. Only the teacher
+    // needs calendar conflicts; collecting answers does not depend on Google.
+    try { if (canEdit && poll.status === 'open') blocked = busySlots(poll.config, await busyEntries(group, poll.config)); }
+    catch { calendarError = 'Не удалось проверить календарь преподавателя. Ответы можно собирать, но утверждение временно недоступно. Попробуйте обновить позже.'; }
     return { canManage: canEdit, closed: group.status === 'completed', blocked, calendarError,
       poll: { ...poll, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
         answers: Object.fromEntries(memberIds.filter(id => poll.answers[id]).map(id => [id, poll.answers[id]])),
@@ -147,21 +149,22 @@ export function registerGroupAvailability(app, deps) {
         if (group.status === 'completed') fail('Группа завершена', 409);
       }
       let poll = store.get(group.id); const body = req.body || {};
-      if (poll?.status === 'open') poll.config = currentAvailabilityConfig(poll.config);
+      if (poll?.status === 'open') {
+        // Expand old rounds without discarding answers or changing their plan.
+        if (poll.hoursVersion !== 1) { poll.config = { ...poll.config, endMinute: AVAILABILITY_END_MINUTE }; poll.hoursVersion = 1; }
+        poll.config = currentAvailabilityConfig(poll.config);
+      }
       if (action === 'open') {
         if ((poll?.id || '') !== (body.previousRoundId || '')) fail('Подбор уже изменился. Обновите страницу.', 409);
         const config = availabilityConfig(body);
-        // Never publish selectable slots when the busy calendar is unavailable.
-        await busyEntries(group, config);
-        poll = { id: crypto.randomUUID(), config, status: 'open', answers: {}, proposal: null,
+        poll = { id: crypto.randomUUID(), config, hoursVersion: 1, status: 'open', answers: {}, proposal: null,
           plan: poll?.plan || null, updatedAt: Date.now() };
       } else if (action === 'reopen') {
         if (!poll || poll.id !== body.roundId || poll.status !== 'approved') fail('Расписание уже изменилось. Обновите страницу.', 409);
-        const config = currentAvailabilityConfig(poll.config);
-        await busyEntries(group, config);
+        const config = currentAvailabilityConfig(poll.hoursVersion === 1 ? poll.config : { ...poll.config, endMinute: AVAILABILITY_END_MINUTE });
         // Availability is independent of the approved pair. Preserve every
         // pupil's saved choices; a new round invalidates stale confirmations.
-        poll = { ...poll, id: crypto.randomUUID(), config, status: 'open', proposal: null };
+        poll = { ...poll, id: crypto.randomUUID(), config, hoursVersion: 1, status: 'open', proposal: null };
       } else if (action !== 'get') {
         if (!poll || poll.id !== body.roundId || poll.status !== 'open') fail('Этот подбор уже завершён или изменился. Обновите страницу.', 409);
         if (action === 'answer') {
@@ -170,11 +173,9 @@ export function registerGroupAvailability(app, deps) {
           if ((old?.version || 0) !== body.version) fail('Ваш ответ уже изменён в другой вкладке. Обновите страницу.', 409);
           if (!body.choices || Array.isArray(body.choices) || typeof body.choices !== 'object') fail('Выберите удобное время');
           const allowed = new Set(availabilitySlots(poll.config).map(s => s.id));
-          const blocked = busySlots(poll.config, await busyEntries(group, poll.config));
           const choices = {};
           for (const [id, value] of Object.entries(body.choices)) {
             if (!allowed.has(id) || !['yes', 'maybe'].includes(value)) fail('Некорректное время');
-            if (blocked[id]) fail('Часть выбранного времени теперь занята. Обновите календарь и уберите недоступные часы.', 409);
             choices[id] = value;
           }
           poll.answers[req.auth.id] = { version: (old?.version || 0) + 1, choices, updatedAt: Date.now() };
@@ -184,8 +185,6 @@ export function registerGroupAvailability(app, deps) {
           const slots = [...new Set(Array.isArray(body.slots) ? body.slots : [])];
           const all = availabilitySlots(poll.config);
           if (slots.length !== 2 || slots.some(id => !all.some(s => s.id === id)) || new Set(slots.map(id => all.find(s => s.id === id).day)).size !== 2) fail('Выберите два занятия в разные дни');
-          const blocked = busySlots(poll.config, await busyEntries(group, poll.config));
-          if (slots.some(id => blocked[id])) fail('Это время занято у преподавателя. Выберите другое.', 409);
           poll.proposal = { id: crypto.randomUUID(), slots, authorId: req.auth.id, authorRole: canManage(req.auth, group) ? 'teacher' : 'student',
             authorName: canManage(req.auth, group) ? 'Преподаватель' : getStudentName(req.auth.id, req.auth),
             comment: text(body.comment), votes: {}, createdAt: Date.now() };
@@ -197,6 +196,8 @@ export function registerGroupAvailability(app, deps) {
         } else if (action === 'approve') {
           const proposal = poll.proposal;
           if (!proposal || proposal.id !== body.proposalId) fail('Предложение изменилось. Обновите страницу.', 409);
+          const allowed = new Set(availabilitySlots(poll.config).map(slot => slot.id));
+          if (proposal.slots.some(id => !allowed.has(id))) fail('Выбранное занятие выходит за часы подбора. Предложите время с окончанием до 23:00.', 409);
           // Fetch remote calendar, then reread roster: an added pupil must not
           // be silently omitted while waiting for a network response.
           const busy = await busyEntries(group, poll.config, true);
@@ -204,7 +205,7 @@ export function registerGroupAvailability(app, deps) {
           const members = membersOf(group);
           if (!members.length || members.some(id => !['yes', 'maybe'].includes(proposal.votes[id]?.choice))) fail('Дождитесь согласия каждого участника группы', 409);
           const blocked = busySlots(poll.config, busy);
-          if (proposal.slots.some(id => blocked[id])) fail('Время занято у преподавателя. Предложите другую пару занятий.', 409);
+          if (proposal.slots.some(id => blocked[id])) fail('Время занято у преподавателя. Сначала перенесите пересекающиеся занятия или предложите другое время.', 409);
           poll.plan = { id: proposal.id, config: poll.config, slots: proposal.slots, approvedAt: Date.now() };
           poll.status = 'approved';
         }

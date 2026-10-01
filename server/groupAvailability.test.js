@@ -139,12 +139,12 @@ test('API isolates groups, rejects removed pupils, validates answers and preserv
   await call('answer',{roundId,version:0,choices:{}},'a','student','g',409);
   await call('answer',{roundId,version:1,choices:{'0-601':'yes'}},'a','student','g',400);
   state.entries=[{weekdayKey:'monday',time:'10:00'}];
-  await call('answer',{roundId,version:1,choices:{'0-600':'yes'}},'a','student','g',409);
+  await call('answer',{roundId,version:1,choices:{'0-600':'yes'}},'a','student');
   state.groups[0].members[0].status='removed';
   await call('',null,'a','student','g',403);
   assert.equal((await call()).poll.answers.a,undefined);
   state.down=true; assert.ok((await call()).calendarError);
-  await call('propose',{roundId,slots:['1-600','2-600']},'t','teacher','g',503);
+  assert.ok((await call('propose',{roundId,slots:['1-600','2-600']},'t','teacher')).calendarError);
 });
 test('proposal consensus is tied to current proposal, answers and roster; approval rechecks occupancy', async t=>{
   const {call,open,state}=await fixture(t); const roundId=await open();
@@ -196,8 +196,6 @@ test('reopening an approved plan retains availability and lessons, includes newc
   assert.equal((await call()).poll.members.length, 3);
   await call('reopen', { roundId }, 'a', 'student', 'g', 403);
   await call('reopen', { roundId: 'stale' }, 't', 'teacher', 'g', 409);
-  state.down = true;
-  await call('reopen', { roundId }, 't', 'teacher', 'g', 503);
   assert.equal(store.get('g').status, 'approved');
   state.down = false;
   const reopened = (await call('reopen', { roundId })).poll;
@@ -242,8 +240,48 @@ test('own Google lessons can be selected, approved and selected again; a new ind
   await call('answer', { roundId: reopened.poll.id, version: 1, choices }, 'a', 'student');
 });
 
-test('membership removed while external calendar is loading cannot submit an answer', async t=>{
+test('collecting pupil availability needs no calendar lookup and still rejects removed members', async t=>{
   const {call,open,state}=await fixture(t); const roundId=await open();
-  state.hook=async()=>{state.groups[0].members[0].status='removed';};
-  await call('answer',{roundId,version:0,choices:{}},'a','student','g',403);
+  state.hook=async()=>{throw Error('Pupil preferences must not fetch Google');};
+  assert.deepEqual((await call('',null,'a','student')).blocked,{});
+  await call('answer',{roundId,version:0,choices:{'0-600':'yes'}},'a','student');
+  state.groups[0].members[0].status='removed';
+  await call('answer',{roundId,version:1,choices:{}},'a','student','g',403);
+});
+
+test('occupied group preferences and proposals stay visible, but approval waits for calendar conflicts to be cleared', async t => {
+  const {call,open,state,store}=await fixture(t); const roundId=await open();
+  state.entries=[{weekdayKey:'monday',time:'10:00',durationMinutes:60,subject:'PRIVATE'}];
+  for(const id of ['a','b']) {
+    const answer=await call('answer',{roundId,version:0,choices:{'0-600':'yes','3-600':'maybe'}},id,'student');
+    assert.deepEqual(answer.blocked,{}); assert.equal(answer.calendarError,'');
+    assert.ok(!JSON.stringify(answer).includes('PRIVATE'));
+  }
+  const teacher=await call(); assert.ok(teacher.blocked['0-600']);
+  assert.deepEqual(suggestedPair(teacher.poll),['0-600','3-600']);
+  const proposalId=(await call('propose',{roundId,slots:['0-600','3-600']},'a','student')).poll.proposal.id;
+  for(const id of ['a','b']) await call('vote',{roundId,proposalId,choice:'yes'},id,'student');
+  await call('approve',{roundId,proposalId},'t','teacher','g',409);
+  assert.equal(store.get('g').plan,null); assert.equal(state.approved.length,0);
+  state.down=true;
+  await call('answer',{roundId,version:1,choices:{'0-600':'yes','3-600':'yes'}},'a','student');
+  await call('vote',{roundId,proposalId,choice:'yes'},'a','student');
+  await call('approve',{roundId,proposalId},'t','teacher','g',503);
+  state.down=false; state.entries=[];
+  assert.equal((await call('approve',{roundId,proposalId})).poll.status,'approved');
+});
+
+test('late group slots end at 23:00 and legacy rounds expand without clearing answers or the current plan', async t => {
+  const {call,open,store}=await fixture(t); const roundId=await open();
+  const old=store.get('g'); delete old.hoursVersion;
+  old.config={...old.config,endMinute:1260}; old.answers={a:{version:1,choices:{'0-600':'yes'}}};
+  old.plan={id:'previous-plan',config:{...old.config},slots:['0-600','3-600']}; store.put('g',old);
+  const expanded=(await call('',null,'a','student')).poll;
+  assert.equal(expanded.config.endMinute,1380); assert.deepEqual(expanded.answers,old.answers); assert.deepEqual(expanded.plan,old.plan);
+  assert.equal(availabilitySlots(expanded.config).filter(s=>s.day===0).at(-1).time,'22:00');
+  await call('answer',{roundId,version:1,choices:{'0-1320':'yes','3-1290':'maybe'}},'a','student');
+  await call('answer',{roundId,version:2,choices:{'0-1350':'yes'}},'a','student','g',400);
+  assert.equal(store.get('g').hoursVersion,1); assert.deepEqual(store.get('g').plan,old.plan);
+  assert.throws(()=>availabilityConfig(config({endMinute:1440})));
+  assert.equal(availabilitySlots({...expanded.config,durationMinutes:90}).filter(s=>s.day===0).at(-1).time,'21:30');
 });

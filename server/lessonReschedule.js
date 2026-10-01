@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { withTeacherCalendarLock } from './calendarMutations.js';
-import { addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS, clockTime } from '../src/utils/groupAvailability.js';
+import { addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS, AVAILABILITY_END_MINUTE, clockTime } from '../src/utils/groupAvailability.js';
 import { rescheduleWeek, lessonStart, lessonEnd, RESCHEDULE_LOOKBACK_DAYS } from '../src/utils/lessonReschedule.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -108,8 +108,8 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
   const checkTarget = (target, source) => {
     if (!isDate(target?.date) || !isTime(target?.time) || target.date < moscowDay(now()) || target.date > addCalendarDays(rescheduleWeek(12, now()), 6)
       || ![0,30].includes(Number(target.time.slice(3))) || Number(target.time.slice(0,2)) < 8
-      || Number(target.time.slice(0,2))*60 + Number(target.time.slice(3)) + source.durationMinutes > 1440
-      || lessonStart(target) <= now() || lessonStart(target) === lessonStart(source)) fail('Выберите другое будущее время с 08:00 до 24:00');
+      || Number(target.time.slice(0,2))*60 + Number(target.time.slice(3)) + source.durationMinutes > AVAILABILITY_END_MINUTE
+      || lessonStart(target) <= now() || lessonStart(target) === lessonStart(source)) fail('Выберите другое будущее время: начало с 08:00, окончание до 23:00');
   };
   const checkFree = (entries, source, target, teacherId, requestId, retry = false) => {
     const occupied = expandRescheduleOccurrences(entries, target.date, 1)
@@ -134,7 +134,7 @@ export function registerLessonReschedules(app, { store, getStudent, getEntries, 
     if (req.query.lessonKey && !source) fail('Занятие уже изменилось. Выберите его заново.',409);
     const occupied=expandRescheduleOccurrences(entries,week);
     const days=Array.from({length:7},(_,n)=>{const date=addCalendarDays(week,n); const slots=[];
-      if(source) for(let m=480;m+source.durationMinutes<=1440;m+=30) {
+      if(source) for(let m=480;m+source.durationMinutes<=AVAILABILITY_END_MINUTE;m+=30) {
         const target={date,time:clockTime(m),durationMinutes:source.durationMinutes};
         if(lessonStart(target)<=now() || lessonStart(target)===lessonStart(source)) continue;
         if(occupied.some(e=>overlaps(e,target) && !(e.studentId===source.studentId && e.date===source.date && e.time===source.time && !isGroup(e))) || reservations(student.teacherId).some(r=>overlaps(r.target,target))) continue;

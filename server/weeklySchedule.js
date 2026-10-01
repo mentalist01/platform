@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { withTeacherCalendarLock } from './calendarMutations.js';
 import { availabilityConfig, busySlots } from './groupAvailability.js';
-import { availabilitySlots, addCalendarDays, moscowDay, AVAILABILITY_WEEKDAYS, AVAILABILITY_DAY_NAMES } from '../src/utils/groupAvailability.js';
+import { availabilitySlots, addCalendarDays, moscowDay, AVAILABILITY_WEEKDAYS, AVAILABILITY_DAY_NAMES, AVAILABILITY_END_MINUTE } from '../src/utils/groupAvailability.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -57,7 +57,7 @@ export function registerWeeklySchedules(app, { store, getStudent, getSchedule, g
     studentName: getStudent(row.studentId)?.name || 'Ученик', config: row.config, slots: row.slots,
     status: row.status, comment: row.comment, createdAt: row.createdAt, resolvedAt: row.resolvedAt, resolutionNote: row.resolutionNote || '' });
   const configFor = body => availabilityConfig({ startDate: body?.startDate ?? addCalendarDays(moscowDay(now()), 1),
-    durationMinutes: body?.durationMinutes ?? 60, startMinute: 480, endMinute: 1440, days: [0,1,2,3,4,5,6] }, now());
+    durationMinutes: body?.durationMinutes ?? 60, startMinute: 480, endMinute: AVAILABILITY_END_MINUTE, days: [0,1,2,3,4,5,6] }, now());
   const validateSlots = (config, slots) => {
     if (!Array.isArray(slots) || !slots.length || slots.length > 7 || new Set(slots).size !== slots.length) fail('Выберите от одного до семи занятий');
     const allowed = availabilitySlots(config);
@@ -67,6 +67,7 @@ export function registerWeeklySchedules(app, { store, getStudent, getSchedule, g
   const check = (row, entries) => {
     if (row.config.startDate < moscowDay(now())) fail('Дата начала уже прошла. Отмените запрос и выберите новую дату.', 409);
     for (const s of availabilitySlots(row.config).filter(s => row.slots.includes(s.id))) {
+      if (s.minutes + row.config.durationMinutes > AVAILABILITY_END_MINUTE) fail('Занятие должно закончиться до 23:00. Попросите выбрать другой вариант.', 409);
       const weekday = (new Date(`${row.config.startDate}T12:00:00Z`).getUTCDay() + 6) % 7;
       const date = addCalendarDays(row.config.startDate, (s.day - weekday + 7) % 7);
       if (lessonStart({date,time:s.time}) <= now()) fail('Первое занятие уже началось. Выберите новую дату начала.', 409);

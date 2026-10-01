@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, CalendarDays, Check, CheckCheck, ChevronLeft, Clock3, Heart, Loader2, LockKeyhole, MessageCircle, Plus, RefreshCw, Send, Sparkles, Users, X } from 'lucide-react';
 import { api } from '../services/api';
-import { AVAILABILITY_DAYS, AVAILABILITY_DAY_NAMES, availabilitySlots, clockTime, moscowDay, addCalendarDays, rankedSlots, slotLabel, slotPeople, suggestedPair } from '../utils/groupAvailability';
+import { AVAILABILITY_DAYS, AVAILABILITY_DAY_NAMES, AVAILABILITY_END_MINUTE, availabilitySlots, clockTime, moscowDay, addCalendarDays, rankedSlots, slotLabel, slotPeople, suggestedPair } from '../utils/groupAvailability';
 import './GroupAvailability.css';
 
 const labels = { yes: 'Удобно', maybe: 'Могу подстроиться', no: 'Не подходит', pending: 'Ждём ответ' };
 const initials = name => name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 const dateLabel = day => new Date(`${day}T12:00:00Z`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-const defaultConfig = () => ({ startDate: addCalendarDays(moscowDay(), 1), durationMinutes: 60, startMinute: 600, endMinute: 1260, days: [0, 1, 2, 3, 4, 5, 6] });
+const defaultConfig = () => ({ startDate: addCalendarDays(moscowDay(), 1), durationMinutes: 60, startMinute: 600, endMinute: AVAILABILITY_END_MINUTE, days: [0, 1, 2, 3, 4, 5, 6] });
 // Reserve green for overlaps. The same roster gives every viewer the same colors.
 const memberHues = [260, 30, 205, 335, 55, 290, 185, 10, 230, 315, 45, 275, 195, 350, 65, 245, 20, 305, 215, 325];
 const Avatar = ({ member }) => <span className="ga-avatar ga-member-color" style={{ '--ga-member-hue': member.colorHue }} title={member.name}>{initials(member.name)}</span>;
@@ -21,7 +21,7 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
   const [setup, setSetup] = useState(false); const [config, setConfig] = useState(defaultConfig);
   const [draft, setDraft] = useState({}); const dirty = useRef(false); const [changed, setChanged] = useState(false);
   const myVersion = useRef(0); const round = useRef('');
-  const [showBusy, setShowBusy] = useState(false);
+  const [showBusy, setShowBusy] = useState(true);
   const [brush, setBrush] = useState('yes'); const [day, setDay] = useState(0); const [focusSlot, setFocusSlot] = useState('');
   const [composing, setComposing] = useState(false); const [pair, setPair] = useState([]); const [comment, setComment] = useState(''); const [voteComment, setVoteComment] = useState('');
   const apply = useCallback(next => {
@@ -73,26 +73,18 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
     finally { busyRef.current = false; if (alive.current) setBusy(false); }
   };
   const poll = data?.poll; const manage = data?.canManage ?? isTeacher;
-  const open = poll?.status === 'open' && !data?.closed; const blocked = data?.blocked || {};
+  const open = poll?.status === 'open' && !data?.closed; const blocked = manage ? data?.blocked || {} : {};
   const slots = availabilitySlots(poll?.config);
   const colorIds = (poll?.members || []).map(m => m.id).sort();
   const members = (poll?.members || []).map(m => ({ ...m, colorHue: memberHues[colorIds.indexOf(m.id) % memberHues.length] }));
   const answered = members.filter(m => poll.answers[m.id]).length;
-  const results = rankedSlots(poll, blocked); const proposal = poll?.proposal;
+  const results = rankedSlots(poll); const proposal = poll?.proposal;
   const agreed = members.filter(m => ['yes', 'maybe'].includes(proposal?.votes[m.id]?.choice)).length;
-  const canChoose = open && !data.calendarError && !busy;
+  const canChoose = open && !busy;
   const selected = slots.find(s => s.id === focusSlot);
   const choose = slot => {
     setFocusSlot(slot.id);
     if (!canChoose) return;
-    if (blocked[slot.id]) {
-      if ((composing || manage) && pair.includes(slot.id)) setPair(previous => previous.filter(id => id !== slot.id));
-      if (!manage && !composing && draft[slot.id]) {
-        setDraft(previous => { const next = { ...previous }; delete next[slot.id]; return next; });
-        dirty.current = true; setChanged(true);
-      }
-      return;
-    }
     if (composing || manage) {
       if (!composing) composeBase.current = proposal?.id || '';
       setComposing(true);
@@ -102,13 +94,13 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
     setDraft(previous => { const next = { ...previous }; if (brush === 'erase' || next[slot.id] === brush) delete next[slot.id]; else next[slot.id] = brush; return next; });
     dirty.current = true; setChanged(true); setNotice('');
   };
-  const beginProposal = () => { composeBase.current = proposal?.id || ''; setComposing(true); setPair(suggestedPair(poll, blocked)); setComment(''); };
+  const beginProposal = () => { composeBase.current = proposal?.id || ''; setComposing(true); setPair(suggestedPair(poll)); setComment(''); };
   const discardDraft = () => {
     dirty.current = false; setChanged(false); setError('');
     if (dataRef.current) apply(dataRef.current);
     void refresh();
   };
-  const openSetup = () => { setConfig(poll ? { ...poll.config, startDate: poll.config.startDate < moscowDay() ? addCalendarDays(moscowDay(), 1) : poll.config.startDate } : defaultConfig()); setSetup(true); };
+  const openSetup = () => { setConfig(poll ? { ...poll.config, ...(poll.hoursVersion !== 1 ? { endMinute: AVAILABILITY_END_MINUTE } : {}), startDate: poll.config.startDate < moscowDay() ? addCalendarDays(moscowDay(), 1) : poll.config.startDate } : defaultConfig()); setSetup(true); };
 
   if (!data) return <section className="ga-shell ga-loading">{error ? <><p role="alert">{error}</p><button onClick={refresh}><RefreshCw size={16} /> Попробовать ещё раз</button></> : <><Loader2 className="ga-spin" size={24} /><p>Собираем календарь группы…</p></>}</section>;
   return <section className={`ga-shell ${poll && !setup ? 'ga-compact' : ''}`}>
@@ -117,10 +109,10 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
       {error && <div className="ga-alert" role="alert">{error}<button onClick={refresh} disabled={busy}>Обновить</button></div>}
       {notice && <div className="ga-notice" role="status"><CheckCheck size={18} />{notice}</div>}
       {data.closed && <div className="ga-note">Группа завершена. Подбор времени доступен только для просмотра.</div>}
-      {!poll && !setup && <div className="ga-empty"><div className="ga-empty-illustration"><CalendarDays size={44} /><span><Users size={22} /></span></div><h3>{manage ? 'Два занятия. Одно общее расписание.' : 'Здесь договоримся о занятиях'}</h3><p>{manage ? 'Укажите рабочие часы. Мы закроем занятое время, а ребята увидят свободные варианты и выбор друг друга.' : 'Преподаватель откроет календарь, и каждый сможет отметить удобные часы. Ответы будут видны всей вашей группе.'}</p>{manage && !data.closed && <button className="ga-primary" onClick={openSetup}><Plus size={18} /> Открыть подбор времени</button>}</div>}
+      {!poll && !setup && <div className="ga-empty"><div className="ga-empty-illustration"><CalendarDays size={44} /><span><Users size={22} /></span></div><h3>{manage ? 'Два занятия. Одно общее расписание.' : 'Здесь договоримся о занятиях'}</h3><p>{manage ? 'Укажите часы для подбора. Ребята смогут отметить все удобные варианты; пересечения с вашим календарём будут видны вам.' : 'Преподаватель откроет календарь, и каждый сможет отметить удобные часы. Ответы будут видны всей вашей группе.'}</p>{manage && !data.closed && <button className="ga-primary" onClick={openSetup}><Plus size={18} /> Открыть подбор времени</button>}</div>}
       {setup && <form className="ga-setup" onSubmit={e => { e.preventDefault(); void act('open', { ...config, previousRoundId: poll?.id || '' }, 'Календарь открыт. Ученики могут выбирать удобное время.'); }}>
         <div className="ga-section-heading"><div><span className="ga-eyebrow">ШАГ 1 · УСЛОВИЯ ЗАНЯТИЙ</span><h3>Когда вы готовы преподавать?</h3></div><button type="button" className="ga-icon-button" aria-label="Закрыть настройку" onClick={() => setSetup(false)}><X size={20} /></button></div>
-        <div className="ga-form-grid"><label>Начать заниматься с<input required type="date" min={moscowDay()} max={addCalendarDays(moscowDay(), 90)} value={config.startDate} onChange={e => setConfig({ ...config, startDate: e.target.value })} /></label><label>Длительность занятия<select value={config.durationMinutes} onChange={e => setConfig({ ...config, durationMinutes: Number(e.target.value) })}>{[30, 45, 60, 90, 120].map(n => <option key={n} value={n}>{n} минут</option>)}</select></label><label>Можно начинать с<input required type="time" step="1800" value={clockTime(config.startMinute)} onChange={e => setConfig({ ...config, startMinute: Number(e.target.value.slice(0, 2)) * 60 + Number(e.target.value.slice(3)) })} /></label><label>Нужно закончить до<input required type="time" step="1800" value={clockTime(config.endMinute)} onChange={e => setConfig({ ...config, endMinute: Number(e.target.value.slice(0, 2)) * 60 + Number(e.target.value.slice(3)) })} /></label></div>
+        <div className="ga-form-grid"><label>Начать заниматься с<input required type="date" min={moscowDay()} max={addCalendarDays(moscowDay(), 90)} value={config.startDate} onChange={e => setConfig({ ...config, startDate: e.target.value })} /></label><label>Длительность занятия<select value={config.durationMinutes} onChange={e => setConfig({ ...config, durationMinutes: Number(e.target.value) })}>{[30, 45, 60, 90, 120].map(n => <option key={n} value={n}>{n} минут</option>)}</select></label><label>Можно начинать с<input required type="time" step="1800" value={clockTime(config.startMinute)} onChange={e => setConfig({ ...config, startMinute: Number(e.target.value.slice(0, 2)) * 60 + Number(e.target.value.slice(3)) })} /></label><label>Нужно закончить до<input required type="time" max="23:00" step="1800" value={clockTime(config.endMinute)} onChange={e => setConfig({ ...config, endMinute: Number(e.target.value.slice(0, 2)) * 60 + Number(e.target.value.slice(3)) })} /></label></div>
         <div className="ga-weekdays" aria-label="Рабочие дни">{AVAILABILITY_DAYS.map((label, i) => <button type="button" key={i} aria-pressed={config.days.includes(i)} className={config.days.includes(i) ? 'selected' : ''} onClick={() => setConfig({ ...config, days: config.days.includes(i) ? config.days.filter(d => d !== i) : [...config.days, i].sort() })}>{label}</button>)}</div>
         <p className="ga-note">Два занятия в неделю, в разные дни. Занятость проверяется на 8 недель с выбранной даты; проверка повторится перед утверждением. Регулярное расписание продолжится и после этого периода.</p>
         {poll && <p className="ga-note ga-note-amber">Начнётся новый подбор: ответы и предложение потребуется заполнить заново. Уже утверждённое расписание пока продолжит действовать.</p>}
@@ -131,30 +123,30 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
         <div className="ga-meta"><span><CalendarDays size={15} /> С {dateLabel(poll.config.startDate)}</span><span><Clock3 size={15} /> {poll.config.durationMinutes} минут</span><span><Users size={15} /> 2 раза в неделю</span></div>
         {poll.status === 'approved' && <div className="ga-approved"><span className="ga-approved-icon"><CheckCheck size={28} /></span><div><span className="ga-eyebrow">ДОГОВОРИЛИСЬ!</span><h3>Встречаемся каждую неделю</h3><div className="ga-pair-chips">{poll.plan.slots.map(id => <span key={id}>{slotLabel(id, poll.plan.config)}</span>)}</div><p>Расписание действует с {dateLabel(poll.plan.config.startDate)}. Занятия видны в группе и в календарях участников.</p></div></div>}
         {data.calendarError && <div className="ga-alert" role="alert">{data.calendarError}</div>}
-        {open && <p className="ga-note">Занятия этой группы, в том числе в Google Календаре, доступны для повторного выбора. Занятия других групп и индивидуальные уроки учитываются как занятое время.</p>}
+        {open && manage && <p className="ga-note">Ученики выбирают все удобные часы. Пересечения с другими группами и индивидуальными уроками видны только вам; их нужно устранить перед утверждением. Занятия этой группы доступны для повторного выбора.</p>}
         {poll.status === 'approved' && <p className="ga-note">Все сохранённые варианты ребят видны ниже. {manage ? 'Нажмите «Изменить расписание», чтобы новый участник отметил удобное время, а остальные могли дополнить ответы.' : 'Чтобы дополнить свой выбор, попросите преподавателя открыть подбор снова.'}</p>}
         {open && poll.plan && <p className="ga-note ga-note-amber">Пока вы договариваетесь, действует прежнее расписание: {poll.plan.slots.map(id => slotLabel(id, poll.plan.config)).join(' · ')}. Оно изменится после нового утверждения преподавателем.</p>}
           {open && proposal && <section className="ga-proposal ga-proposal-first"><div className="ga-section-heading"><div><span className="ga-eyebrow">ШАГ 2 · ДОГОВОРИМСЯ</span><h3>Как вам такое расписание?</h3><p>Предлагает {proposal.authorName}</p></div><span className="ga-consensus">{agreed} из {members.length} согласны</span></div><div className="ga-pair-chips">{proposal.slots.map(id => <span key={id}><CalendarDays size={17} />{slotLabel(id, poll.config)}</span>)}</div>{proposal.comment && <p className="ga-quote"><MessageCircle size={17} />{proposal.comment}</p>}
-            {proposal.slots.some(id => blocked[id]) && <div className="ga-alert">Время стало недоступно. Нужно предложить другую пару занятий.</div>}
+            {proposal.slots.some(id => blocked[id]) && <div className="ga-alert">Есть пересечения с вашим календарём. Перенесите эти занятия перед утверждением или предложите другое время.</div>}
             <div className="ga-votes">{members.map((m, i) => { const vote = proposal.votes[m.id]; return <div className="ga-person ga-vote" key={m.id}><Avatar member={m} index={i} /><div><strong>{m.name}</strong>{vote?.comment && <p>{vote.comment}</p>}</div><small className={`ga-choice-${vote?.choice || 'pending'}`}>{vote ? { yes: 'Подходит', maybe: 'Подстроюсь', no: 'Не могу' }[vote.choice] : 'Ждём ответ'}</small></div>; })}</div>
             {!manage && <div className="ga-your-vote"><label>Хотите что-то уточнить?<input value={voteComment} maxLength={400} onChange={e => setVoteComment(e.target.value)} placeholder="Например: в пятницу могу только после 18:00" /></label><div className="ga-vote-buttons">{[['yes', 'Подходит', Check], ['maybe', 'Могу подстроиться', Heart], ['no', 'Не могу', X]].map(([choice, label, Icon]) => <button key={choice} className={`ga-vote-${choice} ${proposal.votes[userId]?.choice === choice ? 'selected' : ''}`} disabled={busy || changed} onClick={() => act('vote', { roundId: poll.id, proposalId: proposal.id, choice, comment: voteComment }, 'Ваш ответ на предложение сохранён.')}>{React.createElement(Icon, { size: 17 })}{label}</button>)}</div>{changed && <p>Сначала сохраните выбор в календаре.</p>}</div>}
-            {manage && <div className="ga-approve"><p>{agreed === members.length && members.length ? 'Все согласны. Проверим занятость ещё раз и добавим занятия в расписание.' : 'Когда все участники согласятся, здесь можно будет утвердить расписание.'}</p><button className="ga-primary" disabled={!canChoose || !members.length || agreed !== members.length || proposal.slots.some(id => blocked[id])} onClick={() => act('approve', { roundId: poll.id, proposalId: proposal.id }, 'Расписание утверждено. Занятия добавлены в календарь группы.')}><CheckCheck size={18} /> Утвердить расписание</button></div>}
+            {manage && <div className="ga-approve"><p>{agreed === members.length && members.length ? 'Все согласны. Проверим занятость ещё раз и добавим занятия в расписание.' : 'Когда все участники согласятся, здесь можно будет утвердить расписание.'}</p><button className="ga-primary" disabled={!canChoose || !!data.calendarError || !members.length || agreed !== members.length || proposal.slots.some(id => blocked[id])} onClick={() => act('approve', { roundId: poll.id, proposalId: proposal.id }, 'Расписание утверждено. Занятия добавлены в календарь группы.')}><CheckCheck size={18} /> Утвердить расписание</button></div>}
           </section>}
           <div className="ga-workspace"><div className="ga-calendar-card">
             <div className="ga-section-heading"><div><span className="ga-eyebrow">{!open ? 'СОХРАНЁННЫЕ ОТВЕТЫ' : composing || manage ? 'ДВА ЗАНЯТИЯ В НЕДЕЛЮ' : 'ВАША ОБЫЧНАЯ НЕДЕЛЯ'}</span><h3>{!open ? 'Когда ребятам удобно заниматься' : composing || manage ? 'Выберите два полных занятия' : 'Какие занятия вам удобны?'}</h3></div>{open && !manage && <button onClick={() => { if (composing) setComposing(false); else beginProposal(); }} disabled={changed || busy}>{composing ? <ChevronLeft size={16} /> : <Plus size={16} />}{composing ? 'Моя доступность' : 'Предложить расписание'}</button>}</div>
             <p className="ga-hint">Одна карточка — целый урок на <strong>{poll.config.durationMinutes} минут</strong>, от начала до конца. {!open ? 'Нажмите вариант, чтобы посмотреть ответы каждого участника.' : composing || manage ? 'Выберите по одному занятию в два разных дня.' : 'Отметьте все варианты, которые вам подходят.'}</p>
             <div className="ga-calendar-tools">
               <details className="ga-explanation"><summary>Почему начало каждые полчаса?</summary><p>Время начала можно сдвигать: например, 19:00–{clockTime(1140 + poll.config.durationMinutes)} или 19:30–{clockTime(1170 + poll.config.durationMinutes)}. Это отдельные варианты одного занятия. Каждый длится {poll.config.durationMinutes} минут.</p></details>
-              {open && <button className="ga-busy-toggle" aria-pressed={showBusy} onClick={() => setShowBusy(value => !value)}><LockKeyhole size={14} />{showBusy ? 'Скрыть занятое время' : 'Показать занятое время'}</button>}
+              {open && manage && <button className="ga-busy-toggle" aria-pressed={showBusy} onClick={() => setShowBusy(value => !value)}><LockKeyhole size={14} />{showBusy ? 'Скрыть занятое время' : 'Показать занятое время'}</button>}
             </div>
             {open && !manage && !composing && <div className="ga-brushes" aria-label="Как отметить время">{[['yes', 'Удобно', Check], ['maybe', 'Могу подстроиться', Heart], ['erase', 'Убрать отметку', X]].map(([value, label, Icon]) => <button key={value} className={`ga-brush-${value} ${brush === value ? 'selected' : ''}`} aria-pressed={brush === value} onClick={() => setBrush(value)}>{React.createElement(Icon, { size: 16 })}{label}</button>)}</div>}
             {open && ((composing || manage) ? <div className="ga-selection-bar">
               <div className="ga-selection-main"><strong>Ваше предложение</strong><div className="ga-selection-pair">{[0, 1].map(i => pair[i] ? <button key={i} className={`ga-selection-chip ${blocked[pair[i]] ? 'ga-selection-blocked' : ''}`} disabled={busy} aria-label={`Убрать ${slotLabel(pair[i], poll.config)}`} onClick={() => setPair(previous => previous.filter(id => id !== pair[i]))}><span>{i + 1}</span>{slotLabel(pair[i], poll.config)}<X size={13} /></button> : <span className="ga-selection-empty" key={i}>{i + 1}. Выберите занятие</span>)}</div>
-                <button className="ga-primary" disabled={!canChoose || pair.length !== 2 || pair[0]?.split('-')[0] === pair[1]?.split('-')[0] || changed || pair.some(id => blocked[id])} onClick={() => act('propose', { roundId: poll.id, previousProposalId: composeBase.current, slots: pair, comment }, 'Предложение отправлено группе. Теперь каждый может подтвердить время.')}><Send size={16} /> Предложить группе</button>
+                <button className="ga-primary" disabled={!canChoose || pair.length !== 2 || pair[0]?.split('-')[0] === pair[1]?.split('-')[0] || changed} onClick={() => act('propose', { roundId: poll.id, previousProposalId: composeBase.current, slots: pair, comment }, 'Предложение отправлено группе. Теперь каждый может подтвердить время.')}><Send size={16} /> Предложить группе</button>
               </div>
               {pair.length > 0 && <details className="ga-proposal-comment"><summary>Добавить комментарий группе</summary><label>Комментарий группе<textarea value={comment} maxLength={400} onChange={e => setComment(e.target.value)} placeholder="Например: между занятиями успеем сделать домашку" /></label></details>}
               {pair.length === 2 && pair[0].split('-')[0] === pair[1].split('-')[0] && <p role="status">Выберите занятия в разные дни.</p>}
-              {pair.some(id => blocked[id]) && <p role="status">Выбранное время стало занято. Уберите его и выберите другой вариант.</p>}
+              {pair.some(id => blocked[id]) && <p role="status">Это время можно предложить группе. Перед утверждением перенесите пересекающиеся занятия.</p>}
               {proposal && pair.length > 0 && <p>Новое предложение заменит предыдущее; участники подтвердят его заново.</p>}
             </div> : <div className="ga-savebar ga-selection-bar"><div><strong>{Object.keys(draft).length ? `Выбрано вариантов: ${Object.keys(draft).length}` : 'Отметьте все удобные занятия'}</strong><small>{changed ? 'Есть несохранённые изменения' : poll.answers[userId] ? 'Ваш ответ виден группе' : 'Сохраните ответ, чтобы его увидела группа'}</small>{changed && <button className="ga-discard" disabled={busy} onClick={discardDraft}>Отменить мои изменения</button>}</div><button className="ga-primary" disabled={!canChoose || (!changed && !!poll.answers[userId])} onClick={() => act('answer', { roundId: poll.id, version: myVersion.current, choices: draft }, 'Ваш выбор сохранён и виден всей группе.')}><Check size={18} />{busy ? 'Сохраняем…' : 'Сохранить мой выбор'}</button></div>)}
             <div className="ga-member-legend" aria-label="Цвета участников">{members.map(member => <span key={member.id} className="ga-member-color" style={{ '--ga-member-hue': member.colorHue }}><i aria-hidden="true" />{member.name}{member.id === userId ? ' · вы' : ''}{!poll.answers[member.id] && <small>ждём ответ</small>}</span>)}</div>
@@ -166,31 +158,31 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
                 const freeCount = daySlots.filter(slot => !blocked[slot.id]).length;
                 const visibleSlots = daySlots.filter(slot => showBusy || !blocked[slot.id] || pair.includes(slot.id) || (!manage && draft[slot.id]));
                 return <section key={i} className={`ga-day-options ${day === i ? 'ga-mobile-active' : ''}`} aria-label={AVAILABILITY_DAY_NAMES[i]}>
-                  <div className="ga-options-day"><strong>{AVAILABILITY_DAYS[i]}</strong><small>{freeCount ? `Доступно: ${freeCount}` : 'Нет постоянного окна'}</small></div>
+                  <div className="ga-options-day"><strong>{AVAILABILITY_DAYS[i]}</strong><small>{manage ? freeCount ? `Свободно: ${freeCount}` : 'Все варианты с пересечениями' : `Вариантов: ${daySlots.length}`}</small></div>
                   <div className="ga-options-list">{visibleSlots.map(slot => {
                     const people = slotPeople(slot.id, members, poll.answers);
                     const can = people.filter(p => ['yes', 'maybe'].includes(p.choice)); const mine = draft[slot.id];
                     const all = can.length > 0 && can.length === members.length; const taken = !!blocked[slot.id]; const pairSelected = pair.includes(slot.id);
-                    const description = `${AVAILABILITY_DAY_NAMES[i]}, ${slot.time}–${slot.end}. ${taken ? 'Учитель занят' : `${can.length} из ${members.length} могут. ${can.map(p => `${p.name}: ${labels[p.choice]}`).join('. ')}. ${!manage && mine ? `Ваш выбор: ${labels[mine]}` : ''}`}`;
+                    const description = `${AVAILABILITY_DAY_NAMES[i]}, ${slot.time}–${slot.end}. ${taken ? 'Пересечение с вашим календарём. ' : ''}${can.length} из ${members.length} могут. ${can.map(p => `${p.name}: ${labels[p.choice]}`).join('. ')}. ${!manage && mine ? `Ваш выбор: ${labels[mine]}` : ''}`;
                     const shade = taken ? 'ga-taken' : all ? 'ga-unanimous' : can.length > 1 ? 'ga-overlap' : can.length === 1 ? 'ga-single-answer' : '';
                     return <button key={slot.id} type="button" className={`ga-slot ga-lesson-option ${shade} ${!manage && !composing && mine ? `ga-mine-${mine}` : ''} ${pairSelected && (composing || manage) ? 'ga-pair-selected' : ''} ${focusSlot === slot.id ? 'ga-focused' : ''}`} style={can.length === 1 ? { '--ga-slot-hue': can[0].colorHue } : undefined} aria-label={description} aria-pressed={composing || manage ? pairSelected : !!mine} disabled={open && !canChoose} onClick={() => choose(slot)} title={taken ? `Учитель занят: ${blocked[slot.id].map(dateLabel).join(', ')}` : people.map(p => `${p.name}: ${labels[p.choice]}`).join('\n')}>
                       <strong className="ga-option-time">{slot.time}–{slot.end}</strong>
                       <span className="ga-option-status">{taken ? <><LockKeyhole size={11} /> Занято</> : can.length ? <>{all ? <CheckCheck size={12} /> : <Users size={11} />}{all ? 'Могут все' : `Могут ${can.length}/${members.length}`}</> : open ? 'Можно выбрать' : 'Нет отметок'}</span>
-                      {!taken && can.length > 0 && <span className="ga-option-people" aria-hidden="true">{can.slice(0, 3).map(person => <i key={person.id} className={person.choice === 'maybe' ? 'ga-person-maybe' : ''} style={{ '--ga-member-hue': person.colorHue }} />)}{can.length > 3 && <small>+{can.length - 3}</small>}{can.length === 1 && <span>{can[0].name}{can[0].choice === 'maybe' ? ' · могу подстроиться' : ''}</span>}{can.length > 1 && can.some(p => p.choice === 'maybe') && <span>Есть «могу подстроиться»</span>}</span>}
-                      {!taken && (composing || manage) && pairSelected && <small className="ga-option-own"><Check size={11} />В предложении</small>}
+                      {can.length > 0 && <span className="ga-option-people" aria-hidden="true">{can.slice(0, 3).map(person => <i key={person.id} className={person.choice === 'maybe' ? 'ga-person-maybe' : ''} style={{ '--ga-member-hue': person.colorHue }} />)}{can.length > 3 && <small>+{can.length - 3}</small>}{can.length === 1 && <span>{can[0].name}{can[0].choice === 'maybe' ? ' · могу подстроиться' : ''}</span>}{can.length > 1 && can.some(p => p.choice === 'maybe') && <span>Есть «могу подстроиться»</span>}</span>}
+                      {(composing || manage) && pairSelected && <small className="ga-option-own"><Check size={11} />В предложении</small>}
                       {!taken && !manage && !composing && (mine || (changed && poll.answers[userId]?.choices[slot.id])) && <small className="ga-option-own">{mine ? <>{mine === 'yes' ? <Check size={11} /> : <Heart size={11} />}Вы: {labels[mine]}</> : 'Вы: отметка снята'}{draft[slot.id] !== poll.answers[userId]?.choices[slot.id] ? ' · не сохранено' : ''}</small>}
                     </button>;
                   })}{!visibleSlots.length && <div className="ga-day-unavailable"><LockKeyhole size={17} /><span>Есть пересечения в ближайшие 8 недель</span></div>}</div>
                 </section>;
               })}
             </div>
-            <div className="ga-legend"><span><i className="ga-legend-overlap" /> Совпадение нескольких</span><span><i className="ga-legend-common" /> Могут все</span><span>Контур точки — «могу подстроиться»</span><span>{showBusy ? 'Занятое время заштриховано' : 'Занятые варианты скрыты'}</span><span>Москва · {poll.config.durationMinutes} минут · проверяем 8 недель с {dateLabel(poll.config.startDate)}. Нажмите занятый вариант, чтобы увидеть даты пересечений.</span></div>
+            <div className="ga-legend"><span><i className="ga-legend-overlap" /> Совпадение нескольких</span><span><i className="ga-legend-common" /> Могут все</span><span>Контур точки — «могу подстроиться»</span>{manage && <span>{showBusy ? 'Занятое время заштриховано' : 'Занятые варианты скрыты'}</span>}<span>Москва · {poll.config.durationMinutes} минут{manage && ` · проверяем 8 недель с ${dateLabel(poll.config.startDate)}. Нажмите занятый вариант, чтобы увидеть даты пересечений.`}</span></div>
           </div>
           <aside className="ga-sidebar"><div className="ga-side-card"><span className="ga-eyebrow">СОВПАДЕНИЯ ГРУППЫ</span><h3>Ближе к общему времени <Sparkles size={18} /></h3>{results.filter(s => s.yes + s.maybe > 0).slice(0, 4).map(s => <button className="ga-match" key={s.id} onClick={() => { setFocusSlot(s.id); setDay(s.day); }}><span><strong>{slotLabel(s.id, poll.config)}</strong><small>{s.yes + s.maybe === members.length ? 'Подходит всем!' : `Могут ${s.yes + s.maybe} из ${members.length}`}{s.pending ? ` · ждём ${s.pending}` : ''}</small></span><span className="ga-match-count">{s.yes + s.maybe}<small>/{members.length}</small></span></button>)}{!results.some(s => s.yes + s.maybe > 0) && <p>Здесь появятся лучшие варианты, когда ребята сохранят свой выбор.</p>}{members.some(m => !poll.answers[m.id]) && <p className="ga-waiting">Ждём: {members.filter(m => !poll.answers[m.id]).map(m => m.name).join(', ')}.</p>}{open && !composing && <button className="ga-soft" onClick={beginProposal} disabled={!canChoose || changed}><Plus size={16} /> Предложить два занятия</button>}</div>
-            {selected && <div className="ga-side-card ga-detail"><span className="ga-eyebrow">КТО МОЖЕТ В ЭТО ВРЕМЯ</span><h3>{slotLabel(selected.id, poll.config)}</h3>{blocked[selected.id] ? <p>Учитель занят {blocked[selected.id].map(dateLabel).join(', ')}. Выберите другое время.</p> : slotPeople(selected.id, members, poll.answers).map((m, i) => <div className="ga-person" key={m.id}><Avatar member={m} index={i} /><span>{m.name}</span><small className={`ga-choice-${m.choice}`}>{labels[m.choice]}</small></div>)}</div>}
+            {selected && <div className="ga-side-card ga-detail"><span className="ga-eyebrow">КТО МОЖЕТ В ЭТО ВРЕМЯ</span><h3>{slotLabel(selected.id, poll.config)}</h3>{blocked[selected.id] && <p>Пересечения с вашим календарём: {blocked[selected.id].map(dateLabel).join(', ')}. Их нужно устранить перед утверждением.</p>}{slotPeople(selected.id, members, poll.answers).map((m, i) => <div className="ga-person" key={m.id}><Avatar member={m} index={i} /><span>{m.name}</span><small className={`ga-choice-${m.choice}`}>{labels[m.choice]}</small></div>)}</div>}
           </aside></div>
 
-        <p className="ga-footnote"><LockKeyhole size={14} /> Выбор виден только вашей группе и преподавателю. Занятость проверяется до {dateLabel(addCalendarDays(poll.config.startDate, 55))}. События из Google и отдельно созданные занятия сохраняются; новый подбор заменяет только ранее согласованное здесь расписание.</p>
+        <p className="ga-footnote"><LockKeyhole size={14} /> Выбор виден только вашей группе и преподавателю. {manage ? `Занятость проверяется до ${dateLabel(addCalendarDays(poll.config.startDate, 55))}. События из Google и отдельно созданные занятия сохраняются; новый подбор заменяет только ранее согласованное здесь расписание.` : 'Отметьте все удобные варианты. Расписание появится после согласования с группой и утверждения преподавателем.'}</p>
       </>}
     </div>
   </section>;

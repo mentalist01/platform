@@ -1,6 +1,7 @@
 export const AVAILABILITY_DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 export const AVAILABILITY_DAY_NAMES = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
 export const AVAILABILITY_WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+export const AVAILABILITY_END_MINUTE = 23 * 60;
 export const clockTime = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 export const moscowDay = (now = Date.now()) => new Date(now + 3 * 3600000).toISOString().slice(0, 10);
 export const addCalendarDays = (day, count) => new Date(Date.parse(`${day}T12:00:00Z`) + count * 86400000).toISOString().slice(0, 10);

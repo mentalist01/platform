@@ -10,6 +10,18 @@ import { resolveNextLessonStart } from '../src/utils/homeworkDueAt.js';
 import { expandLessonScheduleOccurrences } from './lessonTopics.js';
 
 const now = () => Date.parse('2026-09-28T09:00:00+03:00');
+
+test('weekly selection includes late lessons that finish by 23:00 and rejects later endings',async t=>{
+  const {req}=await fixture(t);
+  const hourly=await req('/availability?startDate=2026-10-05');
+  assert.equal(hourly.config.endMinute,1380);
+  await req('','student:a',{startDate:'2026-10-05',durationMinutes:60,slots:['0-1350'],baseSignature:'[]'},400);
+  const long=await req('/availability?startDate=2026-10-05&durationMinutes=90');
+  assert.equal(long.config.endMinute-long.config.durationMinutes,1290);
+  await req('','student:a',{startDate:'2026-10-05',durationMinutes:90,slots:['0-1320'],baseSignature:'[]'},400);
+  const row=await req('','student:a',{startDate:'2026-10-05',durationMinutes:90,slots:['0-1290'],baseSignature:'[]'});
+  assert.equal((await req(`/${row.id}/approve`,'teacher:t',{})).status,'approved');
+});
 async function fixture(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'weekly-'));
   const file = path.join(dir, 'requests.json'), store = createRescheduleStore(file);
