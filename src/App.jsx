@@ -11558,7 +11558,7 @@ const createLessonReplayBoardPayload = (items, previousState, forceSnapshot = fa
   };
 };
 
-const BoardSection = (props) => props.sandbox?.id ? <BoardCanvasSection {...props}/> : (
+const BoardSection = (props) => (
   <React.Suspense fallback={<div role="status">Загружаем доску…</div>}>
     <BoardPagesWorkspace {...props} Canvas={BoardCanvasSection} key={props.lessonId || `${props.teacherId}:${props.role==='teacher'?props.activeStudentId:props.userId}`}/>
   </React.Suspense>
@@ -11735,6 +11735,7 @@ const BoardCanvasSection = ({
   const boardBottomControlsRef = useRef(null);
   const selectionRef = useRef(null);
   const selectedIdsRef = useRef([]);
+  const boardClipboardActionsRef = useRef(null);
   const selectingRef = useRef({ active: false, start: null, current: null });
   const textBoxDrawRef = useRef({ active: false, start: null, current: null });
   const selectionDragRef = useRef({ active: false, startX: 0, startY: 0, items: null, baseSelection: null });
@@ -14114,31 +14115,6 @@ const BoardCanvasSection = ({
     }
   };
 
-  const copySelectedImage = (item) => {
-    if (sandboxReadOnlyRef.current || !item) return;
-    const copy = {
-      ...item,
-      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random()}`,
-      x: (Number(item.x) || 0) + 24,
-      y: (Number(item.y) || 0) + 24,
-      locked: false,
-      superLocked: false,
-      votes: 0,
-    };
-    const capacity = ensureBoardCanAddItems([copy]);
-    if (!capacity.ok) {
-      showImageNotice(capacity.error);
-      return;
-    }
-    docRef.current?.transact(() => yItemsRef.current?.push([copy]), localOriginRef.current);
-    undoManagerRef.current?.stopCapturing();
-    setSelectedImageId(copy.id);
-    setSelectedIds(tool === 'select' ? [copy.id] : []);
-    showImageNotice('Копия создана');
-  };
-
   const moveImageLayer = (id, direction) => {
     if (sandboxReadOnlyRef.current) return;
     const yItems = yItemsRef.current;
@@ -14521,22 +14497,8 @@ const BoardCanvasSection = ({
   };
 
   const getSelectionBoundsFromIds = (ids) => {
-    if (!ids?.length) return null;
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-    boardItemsRef.current.forEach((item) => {
-      if (!item || !ids.includes(item.id)) return;
-      const bounds = getItemBounds(item);
-      if (!bounds) return;
-      minX = Math.min(minX, bounds.minX);
-      minY = Math.min(minY, bounds.minY);
-      maxX = Math.max(maxX, bounds.maxX);
-      maxY = Math.max(maxY, bounds.maxY);
-    });
-    if (!Number.isFinite(minX)) return null;
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    const bounds = getBoardContentBounds(boardItemsRef.current.filter(item => ids?.includes(item?.id)));
+    return bounds ? { x: bounds.minX, y: bounds.minY, width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY } : null;
   };
 
   const buildSelectionSnapshot = (ids) => {
@@ -17567,6 +17529,13 @@ const BoardCanvasSection = ({
         }`}
       >
         {pages?.header}
+        {pages?.clipboard?.({
+          refs: { items: boardItemsRef, selected: selectedIdsRef, doc: docRef, yItems: yItemsRef, undo: undoManagerRef, origin: localOriginRef, actions: boardClipboardActionsRef },
+          target: { roomId, userId, studentId: effectiveStudentId, lessonId: learningLessonId, readOnly: boardReadOnly, sandbox: isSandbox },
+          view: { ids: selectedIds, imageId: selectedImageId, box: selectionBox, zoom, offset, width: boardSize.width, height: boardSize.height },
+          allowed: shouldHandleBoardImagePaste, point: getBoardPastePoint, capacity: ensureBoardCanAddItems, error: setPasteError,
+          select: (ids, box, imageId) => { setTool('select'); setSelectedIds(ids); setSelectionBox(box); setSelectedImageId(imageId); },
+        })}
         {!boardReadOnly && (
         <div className="board-tool-rail" role="toolbar" aria-label="Инструменты доски">
           <button
@@ -18295,7 +18264,7 @@ const BoardCanvasSection = ({
                   </button>
                   {isImageMoreOpen && (
                     <div className={`board-image-more-menu ${imageMoreMenuOpensLeft ? 'is-left' : ''} ${imageMoreMenuNeedsScroll ? 'is-scroll' : ''}`} role="menu" aria-label="Дополнительные действия">
-                      <button type="button" onClick={() => copySelectedImage(displaySelectedImage)}>
+                      <button type="button" onClick={() => boardClipboardActionsRef.current?.copy()}>
                         <Copy size={18} /><span>Скопировать</span><kbd>Ctrl + C</kbd>
                       </button>
                       <button
@@ -18497,7 +18466,6 @@ const BoardCanvasSection = ({
 
         <div ref={boardBottomControlsRef} className="board-bottom-controls">
           <div className="board-bottom-controls__pill board-bottom-controls__session" aria-label="Состояние доски">
-            {pages?.button}
             {!isSandbox && !boardReadOnly && roomId && (
               <React.Suspense fallback={null}>
                 <BoardTabletHost key={roomId} roomId={roomId} authorId={userId}

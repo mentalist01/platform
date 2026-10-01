@@ -12,13 +12,17 @@ const entrySource = fs.readFileSync(path.join(directory,initialJs.slice(1)),'utf
 const featureAssets = [...new Set(Array.from(entrySource.matchAll(/BoardPagesWorkspace-[A-Za-z0-9_-]+\.(?:js|css)/g),m=>`/assets/${m[0]}`))];
 const featureJs = featureAssets.find(a=>a.endsWith('.js'));
 const featureCss = featureAssets.find(a=>a.endsWith('.css'));
-if (!featureJs || !featureCss) throw new Error('Learning groups feature bundles not found in the current client');
+if (!featureJs || !featureCss) throw new Error('Board pages feature bundles not found in the current client');
 const js = fs.readFileSync(path.join(directory,featureJs.slice(1)),'utf8');
-for (const feature of ['Новая страница','Страницы доски','~page~']) {
+for (const feature of ['Новая страница','Страницы доски','~page~','Копировать выделенное','Вставить фрагмент','__IVAN100_BOARD_FRAGMENT_V1__:']) {
   if (!js.includes(feature)) throw new Error(`Missing feature: ${feature}`);
 }
-if (!fs.readFileSync(path.join(directory,featureCss.slice(1)),'utf8').includes('.board-pages-panel')) throw new Error('Board pages styles missing');
-console.log('Shared board pages JavaScript and CSS verified.');
+const css = fs.readFileSync(path.join(directory,featureCss.slice(1)),'utf8');
+for (const selector of ['.board-pages-panel.is-embedded','.board-fragment-copy','.board-fragment-paste']) {
+  if (!css.includes(selector)) throw new Error(`Missing board styles: ${selector}`);
+}
+if (js.includes('board-pages-toggle') || css.includes('.board-pages-toggle')) throw new Error('Duplicate bottom pages button is still present');
+console.log('Shared board pages and fragment clipboard JavaScript and CSS verified.');
 if (mode === 'verify') {
   const get = async pathname => {
     const response = await fetch(`https://ivan100.ru${pathname}`,{headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(20000)});
