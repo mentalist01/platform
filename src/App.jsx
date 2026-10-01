@@ -177,7 +177,7 @@ const CollabSolutionCompare = React.lazy(() => import('./components/CollabSoluti
 import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import useRecorderShare from './hooks/useRecorderShare';
 import useDesktopRecording from './hooks/useDesktopRecording';
-import LessonRecordingSection from './components/LessonRecordingSection';
+const LessonRecordingSection = React.lazy(() => import('./components/LessonRecordingSection'));
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
 import useWorkbookHelper from './hooks/useWorkbookHelper';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
@@ -456,8 +456,8 @@ const BOARD_TASK_MIN_WIDTH = 420;
 const BOARD_TASK_MAX_WIDTH = 920;
 const BOARD_TASK_DEFAULT_WIDTH = 720;
 const BOARD_TASK_MAX_HEIGHT = 2400;
-const BOARD_TASK_MIN_SCALE = 0.35;
-const BOARD_TASK_MAX_SCALE = 2.5;
+const BOARD_TASK_MIN_SCALE = 0.01;
+const BOARD_TASK_MAX_SCALE = 20;
 const BOARD_TASK_MAX_SCREENSHOTS = 8;
 const BOARD_TASK_MAX_ANSWERS = 50;
 const BOARD_TASK_CARD_PADDING = 22;
@@ -1134,7 +1134,7 @@ const normalizeBoardStoredItem = (rawValue) => {
       text,
       x: Number(source.x) || 0,
       y: Number(source.y) || 0,
-      fontSize: Math.max(10, Math.min(160, Number(source.fontSize) || BOARD_TEXT_FONT_SIZE)),
+      fontSize: Math.max(0.1, Math.min(10000, Number(source.fontSize) || BOARD_TEXT_FONT_SIZE)),
       width: Math.max(1, Number(source.width) || text.length * BOARD_TEXT_FONT_SIZE * 0.62),
       height: Math.max(1, Number(source.height) || BOARD_TEXT_FONT_SIZE * 1.25),
     };
@@ -13500,9 +13500,9 @@ const BoardCanvasSection = ({
     }, localOriginRef.current);
   };
 
-  const scheduleImageMove = (id, x, y) => {
+  const scheduleImageMove = (id, x, y, free) => {
     if (sandboxReadOnlyRef.current) return;
-    pendingImageMoveRef.current = { id, x, y };
+    pendingImageMoveRef.current = { id, ...(boardClipboardActionsRef.current?.moveImage?.(id,x,y,free) || {x,y}) };
     if (imageDragRafRef.current) return;
     imageDragRafRef.current = requestAnimationFrame(() => {
       imageDragRafRef.current = null;
@@ -14587,49 +14587,7 @@ const BoardCanvasSection = ({
     }, localOriginRef.current);
   };
 
-  const getSelectionDragPreviewItem = (item) => {
-    const drag = selectionDragRef.current;
-    const pending = pendingSelectionMoveRef.current;
-    if (!item || !drag.active || !Array.isArray(drag.items) || !pending) return item;
-    const snapshot = drag.items.find((entry) => entry?.id === item.id);
-    if (!snapshot) return item;
-    const dx = Number(pending.dx) || 0;
-    const dy = Number(pending.dy) || 0;
-    if (snapshot.type === 'stroke') {
-      return {
-        ...item,
-        points: (snapshot.points || []).map((pt) => {
-          const pressure = Number(pt?.pressure);
-          if (Number.isFinite(pressure)) {
-            return { x: (pt.x || 0) + dx, y: (pt.y || 0) + dy, pressure };
-          }
-          return { x: (pt.x || 0) + dx, y: (pt.y || 0) + dy };
-        }),
-      };
-    }
-    if (snapshot.type === 'line' || snapshot.type === 'arrow') {
-      return {
-        ...item,
-        start: { x: (snapshot.start?.x || 0) + dx, y: (snapshot.start?.y || 0) + dy },
-        end: { x: (snapshot.end?.x || 0) + dx, y: (snapshot.end?.y || 0) + dy },
-      };
-    }
-    if (snapshot.type === 'image') {
-      return {
-        ...item,
-        x: (snapshot.x || 0) + dx,
-        y: (snapshot.y || 0) + dy,
-      };
-    }
-    if (snapshot.type === 'shape' || snapshot.type === 'text' || snapshot.type === 'task') {
-      return {
-        ...item,
-        x: (snapshot.x || 0) + dx,
-        y: (snapshot.y || 0) + dy,
-      };
-    }
-    return item;
-  };
+  const getSelectionDragPreviewItem = (item) => boardClipboardActionsRef.current?.preview?.(item,selectionDragRef.current,pendingSelectionMoveRef.current,dragImageRef.current) || item;
 
   const scheduleSelectionMove = (dx, dy) => {
     pendingSelectionMoveRef.current = { dx, dy };
@@ -14875,7 +14833,7 @@ const BoardCanvasSection = ({
   const drawTextItem = (ctx, textItem) => {
     const text = String(textItem?.text || '');
     if (!text) return;
-    const fontSize = Math.max(10, Number(textItem.fontSize) || BOARD_TEXT_FONT_SIZE);
+    const fontSize = Math.max(0.1, Number(textItem.fontSize) || BOARD_TEXT_FONT_SIZE);
     const lineHeight = fontSize * 1.25;
     ctx.save();
     ctx.fillStyle = textItem.color || BOARD_DEFAULT_COLOR;
@@ -15143,7 +15101,7 @@ const BoardCanvasSection = ({
     items.forEach((item) => {
       drawBoardItemToScene(
         ctx,
-        resizePreview?.id === item?.id ? { ...item, ...resizePreview } : item
+        resizePreview?.id === item?.id ? { ...item, ...resizePreview } : getSelectionDragPreviewItem(item)
       );
     });
     ctx.restore();
@@ -16129,7 +16087,7 @@ const BoardCanvasSection = ({
         const pointer = getBoardPastePoint();
         const x = pointer.x - widthPx / 2;
         const y = pointer.y - heightPx / 2;
-        const entry = {
+        let entry = {
           id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random()}`,
@@ -16143,6 +16101,7 @@ const BoardCanvasSection = ({
           naturalHeight,
           authorId: userId,
         };
+        entry = boardClipboardActionsRef.current?.place?.(entry) || entry;
         const capacity = ensureBoardCanAddItems([entry]);
         if (!capacity.ok) {
           setPasteError(capacity.error);
@@ -16156,7 +16115,7 @@ const BoardCanvasSection = ({
           setSelectedImageId(entry.id);
           if (toolRef.current === 'select') {
             setSelectedIds([entry.id]);
-            setSelectionBox({ x, y, width: widthPx, height: heightPx });
+            setSelectionBox({ x:entry.x, y:entry.y, width: widthPx, height: heightPx });
           }
         }
         lastPointerRef.current = { x: pointer.x, y: pointer.y };
@@ -16676,13 +16635,13 @@ const BoardCanvasSection = ({
     if (dragImageRef.current.active) {
       const nextX = point.x - dragImageRef.current.offsetX;
       const nextY = point.y - dragImageRef.current.offsetY;
-      scheduleImageMove(dragImageRef.current.id, nextX, nextY);
+      scheduleImageMove(dragImageRef.current.id, nextX, nextY, event.ctrlKey);
       return;
     }
     if (selectionDragRef.current.active) {
-      const dx = point.x - selectionDragRef.current.startX;
-      const dy = point.y - selectionDragRef.current.startY;
       const baseSelection = selectionDragRef.current.baseSelection;
+      const move = { box:baseSelection, ids:selectedIdsRef.current, dx:point.x-selectionDragRef.current.startX, dy:point.y-selectionDragRef.current.startY, free:event.ctrlKey };
+      const {dx,dy} = boardClipboardActionsRef.current?.snap?.(move) || move;
       if (baseSelection) {
         setSelectionBox({
           x: baseSelection.x + dx,
@@ -17532,7 +17491,8 @@ const BoardCanvasSection = ({
         {pages?.clipboard?.({
           refs: { items: boardItemsRef, selected: selectedIdsRef, doc: docRef, yItems: yItemsRef, undo: undoManagerRef, origin: localOriginRef, actions: boardClipboardActionsRef },
           target: { roomId, userId, studentId: effectiveStudentId, lessonId: learningLessonId, readOnly: boardReadOnly, sandbox: isSandbox },
-          view: { ids: selectedIds, imageId: selectedImageId, box: selectionBox, zoom, offset, width: boardSize.width, height: boardSize.height },
+          view: { ids: selectedIds, imageId: selectedImageId, box: selectionBox, zoom, offset, width: boardSize.width, height: boardSize.height, tool, revision: boardRevision, dragging: selectionDragRef.current.active },
+          box: setSelectionBox, redraw: () => { renderBoard(); renderOverlay(); },
           allowed: shouldHandleBoardImagePaste, point: getBoardPastePoint, capacity: ensureBoardCanAddItems, error: setPasteError,
           select: (ids, box, imageId) => { setTool('select'); setSelectedIds(ids); setSelectionBox(box); setSelectedImageId(imageId); },
         })}

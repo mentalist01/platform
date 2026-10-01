@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { Copy, ClipboardPaste } from 'lucide-react';
+import { Copy } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api.js';
-import { BOARD_FRAGMENT_STORAGE, cloneBoardFragment, fragmentBounds, readBoardFragment, saveBoardFragment } from '../utils/boardFragmentClipboard.js';
+import { cloneBoardFragment, fragmentBounds, readBoardFragment, saveBoardFragment } from '../utils/boardFragmentClipboard.js';
 import './BoardSelectionClipboard.css';
+import { useBoardSelectionResize } from './BoardSelectionResize.jsx';
+import { useBoardAlignment } from './BoardAlignmentGuides.jsx';
+import { fitBoardFragmentToViewport } from '../utils/boardSelectionResize.js';
+import { selectionMovePreview } from '../utils/boardAlignment.js';
 
 const editable = target => target?.isContentEditable || Boolean(target?.closest?.('input,textarea,select,[contenteditable="true"]'));
 export default function BoardSelectionClipboard(props) {
   const latest = useRef(props); latest.current = props;
-  const [available, setAvailable] = useState(() => Boolean(readBoardFragment(null, props.target.userId)));
-  const [busy, setBusy] = useState(false), [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState('');
   const busyRef = useRef(false), mounted = useRef(true);
   const { refs, target, view } = props;
+  const resize = useBoardSelectionResize(props), alignment = useBoardAlignment(props);
 
   const copy = event => {
     const c = latest.current;
@@ -24,10 +28,10 @@ export default function BoardSelectionClipboard(props) {
         event.clipboardData.setData('text/plain', marker); event.preventDefault();
       } else {
         void navigator.clipboard?.writeText?.(marker)?.catch(() => {
-          if (mounted.current) setNotice('Фрагмент сохранён. Используйте кнопку «Вставить фрагмент».');
+          if (mounted.current) setNotice('Нажмите Ctrl+C, затем вставьте фрагмент через Ctrl+V.');
         });
       }
-      setAvailable(true); setNotice('Выделение скопировано');
+      setNotice('Выделение скопировано');
     } catch (error) { setNotice(error.message || 'Не удалось скопировать выделение'); }
   };
 
@@ -35,9 +39,9 @@ export default function BoardSelectionClipboard(props) {
     const c = latest.current, doc = c.refs.doc.current, yItems = c.refs.yItems.current;
     if (!payload || c.target.readOnly || !doc || !yItems || busyRef.current) return;
     const destination = c.point();
-    busyRef.current = true; setBusy(true); setNotice(''); c.error('');
+    busyRef.current = true; setNotice('Вставляем фрагмент…'); c.error('');
     try {
-      const entries = cloneBoardFragment(payload, destination, c.target.userId);
+      const entries = fitBoardFragmentToViewport(cloneBoardFragment(payload, destination, c.target.userId), c.view);
       const initial = c.capacity(entries); if (!initial.ok) throw new Error(initial.error);
       const uploads = new Map();
       const transfer = async image => {
@@ -63,19 +67,18 @@ export default function BoardSelectionClipboard(props) {
       }
       if (!mounted.current || latest.current.target.readOnly || latest.current.target.roomId !== c.target.roomId || c.refs.doc.current !== doc) return;
       const capacity = c.capacity(entries); if (!capacity.ok) throw new Error(capacity.error);
+      const placed = alignment.place(entries);
       c.refs.undo.current?.stopCapturing();
-      doc.transact(() => yItems.push(entries), c.refs.origin.current);
+      doc.transact(() => yItems.push(placed), c.refs.origin.current);
       c.refs.undo.current?.stopCapturing();
-      c.select(entries.map(item => item.id), fragmentBounds(entries), entries.length === 1 && entries[0].type === 'image' ? entries[0].id : null);
+      c.select(placed.map(item => item.id), fragmentBounds(placed), placed.length === 1 && placed[0].type === 'image' ? placed[0].id : null);
       setNotice('Фрагмент вставлен');
-    } catch (error) { if (mounted.current) c.error(error.message || 'Не удалось вставить фрагмент'); }
-    finally { busyRef.current = false; if (mounted.current) setBusy(false); }
+    } catch (error) { if (mounted.current) { setNotice(''); c.error(error.message || 'Не удалось вставить фрагмент'); } }
+    finally { busyRef.current = false; }
   };
 
   useEffect(() => {
     mounted.current = true;
-    const update = () => setAvailable(Boolean(readBoardFragment(null, latest.current.target.userId)));
-    const onStorage = event => { if (event.key === BOARD_FRAGMENT_STORAGE) update(); };
     const onCopy = event => latest.current.refs.actions.current?.copy(event);
     const onPaste = event => {
       const c = latest.current;
@@ -87,25 +90,23 @@ export default function BoardSelectionClipboard(props) {
     };
     window.addEventListener('copy', onCopy);
     window.addEventListener('paste', onPaste, true);
-    window.addEventListener('storage', onStorage);
-    const timer = window.setInterval(update, 60000);
     return () => {
       mounted.current = false;
       window.removeEventListener('copy', onCopy); window.removeEventListener('paste', onPaste, true);
-      window.removeEventListener('storage', onStorage); window.clearInterval(timer);
     };
   }, []);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 3500); return () => clearTimeout(timer); }, [notice]);
-  useEffect(() => { setAvailable(Boolean(readBoardFragment(null, target.userId))); }, [target.userId]);
-  refs.actions.current = { copy, paste };
+  refs.actions.current = { copy, paste, snap: alignment.snap, place: entry => alignment.place([entry])[0],
+    moveImage: (id,x,y,free) => { const item=latest.current.refs.items.current.find(item=>item.id===id); if(!item)return{x,y}; const delta=alignment.snap({box:{...item,x,y},ids:[id],free}); return{x:x+delta.dx,y:y+delta.dy}; },
+    preview: (item, drag, pending, imageDrag) => resize.preview(item) || selectionMovePreview(item,drag,pending,imageDrag) };
 
   if (target.readOnly) return null;
   const selected = Boolean(view.ids.length && view.box && (view.ids.length > 1 || !view.imageId));
-  const left = view.box ? Math.max(64, Math.min(view.width - 218, (view.box.x - view.offset.x) * view.zoom)) : 0;
+  const left = view.box ? Math.max(64, Math.min(view.width - 288, (view.box.x - view.offset.x) * view.zoom)) : 0;
   const top = view.box ? Math.max(58, Math.min(view.height - 130, (view.box.y - view.offset.y) * view.zoom - 42)) : 0;
   return <>
-    {selected && <div className="board-fragment-copy" style={{ left, top }} onPointerDown={event => event.stopPropagation()}><button type="button" onClick={() => copy()} aria-label="Копировать выделенное" title="Копировать выделенное (Ctrl+C)"><Copy size={16}/><span>Копировать выделенное</span></button></div>}
-    {available && <button type="button" className="board-fragment-paste" disabled={busy} onPointerDown={event => event.stopPropagation()} onClick={() => { void paste(readBoardFragment(null, target.userId)); }} aria-label="Вставить фрагмент" title="Наведите курсор на нужное место и нажмите Ctrl+V"><ClipboardPaste size={16}/><span>{busy ? 'Вставляем…' : 'Вставить фрагмент'}</span></button>}
+    {selected && <div className="board-fragment-copy" style={{ left, top }} role="toolbar" aria-label="Действия с выделением" onPointerDown={event => event.stopPropagation()}><button type="button" onClick={() => copy()} aria-label="Копировать выделенное" title="Копировать выделенное (Ctrl+C)"><Copy size={16}/><span>Копировать выделенное</span></button>{resize.buttons}</div>}
+    {resize.handles}{alignment.layer}
     {notice && <div className="board-fragment-notice" role="status">{notice}</div>}
   </>;
 }

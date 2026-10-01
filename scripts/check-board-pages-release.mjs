@@ -14,14 +14,15 @@ const featureJs = featureAssets.find(a=>a.endsWith('.js'));
 const featureCss = featureAssets.find(a=>a.endsWith('.css'));
 if (!featureJs || !featureCss) throw new Error('Board pages feature bundles not found in the current client');
 const js = fs.readFileSync(path.join(directory,featureJs.slice(1)),'utf8');
-for (const feature of ['Новая страница','Страницы доски','~page~','Копировать выделенное','Вставить фрагмент','__IVAN100_BOARD_FRAGMENT_V1__:']) {
+for (const feature of ['Новая страница','Страницы доски','~page~','Копировать выделенное','Изменить размер выделения:','Направляющие выравнивания','__IVAN100_BOARD_FRAGMENT_V1__:']) {
   if (!js.includes(feature)) throw new Error(`Missing feature: ${feature}`);
 }
 const css = fs.readFileSync(path.join(directory,featureCss.slice(1)),'utf8');
-for (const selector of ['.board-pages-panel.is-embedded','.board-fragment-copy','.board-fragment-paste']) {
+for (const selector of ['.board-pages-panel.is-embedded','.board-fragment-copy','.board-selection-resize','.board-alignment-guide']) {
   if (!css.includes(selector)) throw new Error(`Missing board styles: ${selector}`);
 }
 if (js.includes('board-pages-toggle') || css.includes('.board-pages-toggle')) throw new Error('Duplicate bottom pages button is still present');
+if (js.includes('board-fragment-paste') || css.includes('.board-fragment-paste')) throw new Error('Redundant fragment paste button is still present');
 console.log('Shared board pages and fragment clipboard JavaScript and CSS verified.');
 if (mode === 'verify') {
   const get = async pathname => {

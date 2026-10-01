@@ -2,16 +2,12 @@ import RutubeViewingHelp from './RutubeViewingHelp';
 import React, { useState } from 'react';
 import { Download, ExternalLink, Video, Monitor, CheckCircle2, Copy, RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
+import recorderPackage from '../../tools/lesson-recorder/package.json';
 
 const panelUrl = 'http://127.0.0.1:18765/';
 const status = { waiting: 'Ожидаем OBS', recording: 'Идёт запись', saved: 'Сохранено на компьютере', uploading: 'Загрузка в Rutube', processing: 'Обработка в Rutube', ready: 'Видео готово', error: 'Нужно действие в пульте' };
 const button = 'inline-flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50';
 const instructions = [
-  ['Демонстрация и случайная остановка', [
-    'В звонке на платформе включите демонстрацию окна, вкладки или экрана. OBS автоматически покажет именно выбранное изображение; после выключения демонстрации вернётся к платформе. В пульте должен быть включён автовыбор демонстрации.',
-    'Для Телемоста включите в пульте «Автоматически: платформа ↔ LibreOffice». Когда вы работаете в документе LibreOffice, он записывается крупно; вернулись на платформу — запись вернулась вместе с вами. Любой документ выбирается автоматически. «Перерыв» и ручной выбор источника имеют приоритет; кнопка «Платформа» возвращает автоматику.',
-    'Если случайно остановили запись посреди урока, нажмите «Продолжить запись урока». Помощник проверит текущее занятие и соединит части перед прикреплением. Не нужно создавать отдельную ручную запись без привязки.',
-  ]],
   ['Первая установка на Windows', [
     'Скачайте помощник кнопкой выше. Нажмите правой кнопкой по ZIP → «Извлечь всё». В распакованной папке дважды нажмите Install.cmd.',
     'Установщик проверит OBS Studio, Node.js, FFmpeg и Microsoft Edge. Если чего-то нет, предложит установить. Дождитесь окончания; если Windows запросит разрешение на установку компонента, подтвердите его. Затем откроется мастер настройки.',
@@ -38,6 +34,17 @@ const instructions = [
     'Начинайте следующий урок на платформе обычным способом. Он получит отдельную запись. Предыдущее видео загружается в фоне; останавливать и запускать OBS вручную не нужно.',
     'После последнего урока оставьте компьютер включённым, подключённым к интернету и без перехода в сон до статуса «Видео готово». Не закрывайте окно Rutube во время загрузки или модерации.',
     'Когда видео готово, оно автоматически прикрепляется к соответствующему занятию в расписании. Доступ в Rutube — «только по ссылке». Локальные MKV и MP4 остаются в выбранной папке и сами не удаляются.',
+  ]],
+  ['Найти объяснение и задать запись в домашку', [
+    'Откройте «Архив и теория» в пульте и нажмите «Обновить список». Здесь собраны записи с этого компьютера; рядом с количеством показан их общий размер. Старую папку с видео можно добавить в «Другая папка и настройка».',
+    'Отметьте записи, нажмите «Распознать выбранные» и дождитесь обработки. Для первого распознавания установите компонент кнопкой в настройках архива. Во время урока обработка приостанавливается и продолжится, когда пульт освободится.',
+    'Введите номер задания, тему или фразу в поиск. Откройте найденный урок целиком либо выберите фрагмент и проверьте его начало и конец. Нажмите «Подготовить весь урок для домашки» или «Подготовить фрагмент для домашки».',
+    'После подготовки нажмите «Задать в домашку», выберите ученика и сохраните задание на платформе. Ученик увидит запись как обычное видео в домашней работе.',
+  ]],
+  ['Демонстрация и случайная остановка', [
+    'В звонке на платформе включите демонстрацию окна, вкладки или экрана. OBS автоматически покажет именно выбранное изображение; после выключения демонстрации вернётся к платформе. В пульте должен быть включён автовыбор демонстрации.',
+    'Для Телемоста включите в пульте «Автоматически: платформа ↔ LibreOffice». Когда вы работаете в документе LibreOffice, он записывается крупно; вернулись на платформу — запись вернулась вместе с вами. Любой документ выбирается автоматически. «Перерыв» и ручной выбор источника имеют приоритет; кнопка «Платформа» возвращает автоматику.',
+    'Если случайно остановили запись посреди урока, нажмите «Продолжить запись урока». Помощник проверит текущее занятие и соединит части перед прикреплением. Не нужно создавать отдельную ручную запись без привязки.',
   ]],
   ['Если что-то не работает', [
     'Пульт не открывается: запустите ярлык помощника на этом компьютере. Если его нет — скачайте и установите помощник. Ссылка на пульт не управляет другим компьютером.',
@@ -68,7 +75,9 @@ export default function LessonRecordingSection({ recorder }) {
     finally { setBusy(false); }
   };
   const download = async () => {
-    const blob = await api.downloadDesktopRecorder();
+    const response = await fetch(`/assets/IVAN100-Recorder-Windows-${recorderPackage.version}.zip`);
+    if (!response.ok || !response.headers.get('Content-Type')?.includes('zip')) throw new Error('Не удалось скачать установщик. Обновите страницу и попробуйте ещё раз.');
+    const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a'); link.href = url; link.download = 'IVAN100-Recorder-Windows.zip';
     document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -80,10 +89,12 @@ export default function LessonRecordingSection({ recorder }) {
       <h1 className="text-3xl font-extrabold">Запись уроков</h1>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-violet-100">Помощник сохранит занятие на вашем компьютере, загрузит в Rutube и прикрепит к нужному уроку.</p>
       <div className="mt-5 flex flex-wrap gap-3">
-        <a className={button} href={panelUrl} target="_blank" rel="noreferrer"><ExternalLink size={17} /> Открыть пульт в новой вкладке</a>
-        <button className={button} disabled={busy} onClick={() => action(download)}><Download size={17} /> Скачать помощник для Windows</button>
+        <button className={button} disabled={busy} onClick={() => action(download)}><Download size={17} /> Скачать пульт для Windows</button>
+        <a className={button} href="#recording-instructions">Установка и инструкция ↓</a>
+        <a className={button} href={panelUrl} target="_blank" rel="noreferrer"><ExternalLink size={17} /> Открыть пульт</a>
+        <a className={button} href={`${panelUrl}archive`} target="_blank" rel="noreferrer"><ExternalLink size={17} /> Архив и теория</a>
       </div>
-      <p className="mt-3 text-xs leading-5 text-violet-100">Windows 10/11 · ZIP с установщиком · Пульт открывается на компьютере, где установлен помощник.</p>
+      <p className="mt-3 text-xs leading-5 text-violet-100">Windows 10/11 · Версия {recorderPackage.version} · Начните со скачивания и инструкции. После установки пульт запускается ярлыком «IVAN100 - Запись уроков» на вашем компьютере.</p>
     </header>
     {(error || recorder.error) && <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error || recorder.error}</p>}
     {notice && <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</p>}

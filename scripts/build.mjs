@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
+import { recorderPackage, recorderRelease } from '../server/recorderPackage.js';
 
 const gzipAsync = promisify(gzip);
 const buildArgs = process.argv.slice(2);
@@ -117,6 +118,9 @@ const verifyInitialBundle = async () => {
 };
 
 await copyMonacoAssets();
+const recorderInstaller = path.join(outDir, 'assets', `IVAN100-Recorder-Windows-${recorderRelease().manifest.version}.zip`);
+await fs.writeFile(recorderInstaller, recorderPackage());
+console.log(`[build] packaged Windows recorder ${recorderRelease().manifest.version}`);
 await verifyInitialBundle();
 await precompressDirectory(outDir);
 console.log(
