@@ -39,7 +39,7 @@ if(mode==='preflight') {
   if(!groups || !transfer) throw Error('Scheduling feature bundles missing');
   const groupSource=fs.readFileSync(path.join(directory,'assets',groups),'utf8');
   const transferSource=fs.readFileSync(path.join(directory,'assets',transfer),'utf8');
-  for(const text of ['Ученики выбирают все удобные часы','Перенесите эти занятия перед утверждением','max:"23:00"']) if(!groupSource.includes(text)) throw Error(`Missing group feature: ${text}`);
+  for(const text of ['Ученики выбирают все удобные часы','Перенесите эти занятия перед утверждением','max:"23:00"','Какие часы видят ученики','Все часы, включая занятые','Только свободные часы']) if(!groupSource.includes(text)) throw Error(`Missing group feature: ${text}`);
   if(!transferSource.includes('17–23') || !transferSource.includes('с окончанием до 23:00')) throw Error('Late rescheduling UI missing');
   console.log('Group preferences, teacher conflict controls and 23:00 UI verified.');
   if(mode==='verify') {
@@ -59,12 +59,12 @@ if(mode==='preflight') {
         const memberships=read(dataDir,'learning-groups.json',[]).filter(g=>!g.deletedAt && g.members?.some(m=>m.studentId===session.user.id && m.status==='active'));
         for(const group of memberships) {
           const value=await (await get(`/api/learning-groups/${encodeURIComponent(group.id)}/availability`,session)).json();
-          if(value.poll) { assert.deepEqual(value.blocked,{}); assert.equal(value.calendarError,''); if(value.poll.status==='open') assert.ok(value.poll.config.endMinute<=AVAILABILITY_END_MINUTE); groupVerified=true; break; }
+          if(value.poll) { assert.equal(typeof value.poll.includeBusyTimes,'boolean'); if(value.poll.includeBusyTimes) { assert.deepEqual(value.blocked,{}); assert.equal(value.calendarError,''); } if(value.poll.status==='open') assert.ok(value.poll.config.endMinute<=AVAILABILITY_END_MINUTE); groupVerified=true; break; }
         }
       }
       if(individualVerified && groupVerified) break;
     }
     if(!individualVerified || !groupVerified) throw Error('Current individual and group pupil sessions required to verify scheduling APIs');
-    console.log('Exact published bundles, individual 23:00 limit and unrestricted group preferences verified.');
+    console.log('Exact published bundles, individual 23:00 limit and configurable group preferences verified.');
   }
 }

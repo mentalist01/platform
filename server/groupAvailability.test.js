@@ -285,3 +285,60 @@ test('late group slots end at 23:00 and legacy rounds expand without clearing an
   assert.throws(()=>availabilityConfig(config({endMinute:1440})));
   assert.equal(availabilitySlots({...expanded.config,durationMinutes:90}).filter(s=>s.day===0).at(-1).time,'21:30');
 });
+
+test('teacher can switch between all hours and free hours without losing answers, proposal or votes',async t=>{
+  const {call,open,state,store,file}=await fixture(t); const roundId=await open();
+  assert.equal((await call('',null,'a','student')).poll.includeBusyTimes,true);
+  state.entries=[{weekdayKey:'monday',time:'10:00',durationMinutes:60,subject:'PRIVATE'}];
+  await call('answer',{roundId,version:0,choices:{'0-600':'yes','3-600':'maybe'}},'a','student');
+  const proposalId=(await call('propose',{roundId,slots:['0-600','3-600']})).poll.proposal.id;
+  await call('vote',{roundId,proposalId,choice:'yes'},'a','student');
+  const before=store.get('g');
+  const body={roundId,previousIncludeBusyTimes:true,includeBusyTimes:false};
+  await call('settings',body,'a','student','g',403);
+  await call('settings',{...body,includeBusyTimes:'false'},'t','teacher','g',400);
+  await call('settings',{...body,roundId:'stale'},'t','teacher','g',409);
+  const restricted=await call('settings',body);
+  assert.equal(restricted.poll.includeBusyTimes,false);
+  assert.deepEqual(restricted.poll.answers,before.answers); assert.deepEqual(restricted.poll.proposal,before.proposal);
+  const student=await call('',null,'a','student');
+  assert.ok(student.blocked['0-600']); assert.ok(!JSON.stringify(student).includes('PRIVATE'));
+  await call('answer',{roundId,version:1,choices:{'0-600':'yes'}},'a','student','g',409);
+  await call('propose',{roundId,previousProposalId:proposalId,slots:['0-600','3-600']},'a','student','g',409);
+  await call('propose',{roundId,previousProposalId:proposalId,slots:['0-600','3-600']},'t','teacher','g',409);
+  assert.deepEqual(createAvailabilityStore(file).get('g').answers,before.answers);
+  await call('settings',body,'t','teacher','g',409);
+  const restored=await call('settings',{roundId,previousIncludeBusyTimes:false,includeBusyTimes:true});
+  assert.deepEqual(restored.poll.answers,before.answers); assert.deepEqual(restored.poll.proposal,before.proposal);
+  assert.deepEqual((await call('',null,'a','student')).blocked,{});
+  await call('answer',{roundId,version:1,choices:{'0-600':'yes'}},'a','student');
+});
+
+test('free-hours mode rechecks calendar on writes, rejects revoked members and fails closed on calendar errors',async t=>{
+  const {call,open,state,store}=await fixture(t); const roundId=await open();
+  await call('settings',{roundId,previousIncludeBusyTimes:true,includeBusyTimes:false});
+  assert.deepEqual((await call('',null,'a','student')).blocked,{});
+  state.entries=[{weekdayKey:'monday',time:'10:00'}];
+  await call('answer',{roundId,version:0,choices:{'0-600':'yes'}},'a','student','g',409);
+  assert.equal(store.get('g').answers.a,undefined);
+  state.down=true;
+  assert.ok((await call('',null,'a','student')).calendarError);
+  await call('answer',{roundId,version:0,choices:{'3-600':'yes'}},'a','student','g',503);
+  state.down=false;
+  state.hook=async(_g,_cfg,force)=>{if(force)state.groups[0].members[0].status='removed';};
+  await call('answer',{roundId,version:0,choices:{'3-600':'yes'}},'a','student','g',403);
+  assert.equal(store.get('g').answers.a,undefined);
+});
+
+test('selection mode is retained for approved schedules, reopened polls and new rounds',async t=>{
+  const {call,open,state,store}=await fixture(t); const roundId=await open();
+  const proposalId=(await call('propose',{roundId,slots:['0-600','3-600']})).poll.proposal.id;
+  for(const id of ['a','b'])await call('vote',{roundId,proposalId,choice:'yes'},id,'student');
+  const approved=(await call('approve',{roundId,proposalId})).poll;
+  await call('settings',{roundId,previousIncludeBusyTimes:true,includeBusyTimes:false});
+  assert.deepEqual(store.get('g').plan,approved.plan); assert.equal(state.approved.length,1);
+  const reopened=(await call('reopen',{roundId})).poll; assert.equal(reopened.includeBusyTimes,false);
+  const fresh=(await call('open',{...config(),previousRoundId:reopened.id})).poll; assert.equal(fresh.includeBusyTimes,false);
+  state.groups[0].status='completed';
+  await call('settings',{roundId:fresh.id,previousIncludeBusyTimes:false,includeBusyTimes:true},'t','teacher','g',409);
+});

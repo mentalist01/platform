@@ -291,3 +291,8 @@
 .dark .ga-slot.ga-unanimous,[data-theme=dark] .ga-slot.ga-unanimous{--ga-slot-bg:#27533e}
 .dark .ga-slot.ga-taken,[data-theme=dark] .ga-slot.ga-taken{--ga-slot-bg:#282c3b}
 .dark .ga-option-time,[data-theme=dark] .ga-option-time{color:var(--ga-ink)}
+.ga-selection-policy{display:flex;align-items:center;gap:18px;margin:12px 0;padding:12px 14px;border:1px solid var(--ga-border,#e5e7eb);border-radius:14px;background:var(--ga-bg,#fff)}
+.ga-selection-policy label{display:grid;gap:6px;font-size:12px;font-weight:700;flex-shrink:0}
+.ga-selection-policy select{padding:8px 10px;border:1px solid var(--ga-border,#e5e7eb);border-radius:10px;background:var(--ga-bg,#fff);color:var(--ga-ink,#1e293b);font-size:13px;min-width:245px;max-width:100%}
+.ga-selection-policy p{margin:0;font-size:12px;line-height:1.5;color:var(--ga-muted,#64748b)}
+@media(max-width:640px){.ga-selection-policy{flex-direction:column;align-items:stretch;gap:8px}.ga-selection-policy select{min-width:0;width:100%}}

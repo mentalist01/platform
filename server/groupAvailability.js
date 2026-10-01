@@ -123,12 +123,15 @@ export function registerGroupAvailability(app, deps) {
     const canEdit = canManage(auth, group);
     if (!poll) return { poll: null, canManage: canEdit, closed: group.status === 'completed' };
     let blocked = {}; let calendarError = '';
-    // Pupil availability is a preference, not a reservation. Only the teacher
-    // needs calendar conflicts; collecting answers does not depend on Google.
-    try { if (canEdit && poll.status === 'open') blocked = busySlots(poll.config, await busyEntries(group, poll.config)); }
-    catch { calendarError = 'Не удалось проверить календарь преподавателя. Ответы можно собирать, но утверждение временно недоступно. Попробуйте обновить позже.'; }
+    const includeBusyTimes = poll.includeBusyTimes !== false;
+    // All-hours mode collects preferences independently of the calendar.
+    // Free-hours mode needs conflicts for pupils as well as the teacher.
+    try { if ((canEdit || !includeBusyTimes) && poll.status === 'open') blocked = busySlots(poll.config, await busyEntries(group, poll.config)); }
+    catch { calendarError = includeBusyTimes
+      ? 'Не удалось проверить календарь преподавателя. Ответы можно собирать, но утверждение временно недоступно. Попробуйте обновить позже.'
+      : 'Не удалось проверить свободное время. Выбор и утверждение временно недоступны. Попробуйте обновить позже.'; }
     return { canManage: canEdit, closed: group.status === 'completed', blocked, calendarError,
-      poll: { ...poll, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
+      poll: { ...poll, includeBusyTimes, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
         answers: Object.fromEntries(memberIds.filter(id => poll.answers[id]).map(id => [id, poll.answers[id]])),
         proposal: poll.proposal ? { ...poll.proposal,
           // Rebuild old saved names for this viewer; historical proposals may contain a private teacher label.
@@ -140,12 +143,12 @@ export function registerGroupAvailability(app, deps) {
     res.setHeader('Cache-Control', 'no-store');
     let release; let tail; let lockKey;
     try {
-      let group = access(req, ['open', 'reopen', 'approve'].includes(action));
+      let group = access(req, ['open', 'reopen', 'approve', 'settings'].includes(action));
       if (action !== 'get') {
         lockKey = group.teacherId;
         const previous = locks.get(lockKey) || Promise.resolve();
         tail = new Promise(resolve => { release = resolve; }); locks.set(lockKey, tail);
-        await previous; group = access(req, ['open', 'reopen', 'approve'].includes(action));
+        await previous; group = access(req, ['open', 'reopen', 'approve', 'settings'].includes(action));
         if (group.status === 'completed') fail('Группа завершена', 409);
       }
       let poll = store.get(group.id); const body = req.body || {};
@@ -157,7 +160,9 @@ export function registerGroupAvailability(app, deps) {
       if (action === 'open') {
         if ((poll?.id || '') !== (body.previousRoundId || '')) fail('Подбор уже изменился. Обновите страницу.', 409);
         const config = availabilityConfig(body);
-        poll = { id: crypto.randomUUID(), config, hoursVersion: 1, status: 'open', answers: {}, proposal: null,
+        if (body.includeBusyTimes !== undefined && typeof body.includeBusyTimes !== 'boolean') fail('Выберите режим подбора времени');
+        const includeBusyTimes = body.includeBusyTimes ?? (poll?.includeBusyTimes !== false);
+        poll = { id: crypto.randomUUID(), config, includeBusyTimes, hoursVersion: 1, status: 'open', answers: {}, proposal: null,
           plan: poll?.plan || null, updatedAt: Date.now() };
       } else if (action === 'reopen') {
         if (!poll || poll.id !== body.roundId || poll.status !== 'approved') fail('Расписание уже изменилось. Обновите страницу.', 409);
@@ -165,6 +170,12 @@ export function registerGroupAvailability(app, deps) {
         // Availability is independent of the approved pair. Preserve every
         // pupil's saved choices; a new round invalidates stale confirmations.
         poll = { ...poll, id: crypto.randomUUID(), config, hoursVersion: 1, status: 'open', proposal: null };
+      } else if (action === 'settings') {
+        if (!poll || poll.id !== body.roundId || !['open','approved'].includes(poll.status)) fail('Подбор уже изменился. Обновите страницу.', 409);
+        if (typeof body.includeBusyTimes !== 'boolean' || typeof body.previousIncludeBusyTimes !== 'boolean') fail('Выберите режим подбора времени');
+        if ((poll.includeBusyTimes !== false) !== body.previousIncludeBusyTimes) fail('Режим уже изменён в другой вкладке. Обновите страницу.', 409);
+        // Keep answers, proposal, votes and the approved schedule intact.
+        poll.includeBusyTimes = body.includeBusyTimes;
       } else if (action !== 'get') {
         if (!poll || poll.id !== body.roundId || poll.status !== 'open') fail('Этот подбор уже завершён или изменился. Обновите страницу.', 409);
         if (action === 'answer') {
@@ -173,9 +184,11 @@ export function registerGroupAvailability(app, deps) {
           if ((old?.version || 0) !== body.version) fail('Ваш ответ уже изменён в другой вкладке. Обновите страницу.', 409);
           if (!body.choices || Array.isArray(body.choices) || typeof body.choices !== 'object') fail('Выберите удобное время');
           const allowed = new Set(availabilitySlots(poll.config).map(s => s.id));
+          const blocked = poll.includeBusyTimes === false ? busySlots(poll.config, await busyEntries(group, poll.config, true)) : {};
           const choices = {};
           for (const [id, value] of Object.entries(body.choices)) {
             if (!allowed.has(id) || !['yes', 'maybe'].includes(value)) fail('Некорректное время');
+            if (blocked[id]) fail('Часть выбранного времени уже занята. Обновите календарь и выберите свободные часы.', 409);
             choices[id] = value;
           }
           poll.answers[req.auth.id] = { version: (old?.version || 0) + 1, choices, updatedAt: Date.now() };
@@ -185,6 +198,10 @@ export function registerGroupAvailability(app, deps) {
           const slots = [...new Set(Array.isArray(body.slots) ? body.slots : [])];
           const all = availabilitySlots(poll.config);
           if (slots.length !== 2 || slots.some(id => !all.some(s => s.id === id)) || new Set(slots.map(id => all.find(s => s.id === id).day)).size !== 2) fail('Выберите два занятия в разные дни');
+          if (poll.includeBusyTimes === false) {
+            const blocked = busySlots(poll.config, await busyEntries(group, poll.config, true));
+            if (slots.some(id => blocked[id])) fail('Это время уже занято. Выберите свободные часы.', 409);
+          }
           poll.proposal = { id: crypto.randomUUID(), slots, authorId: req.auth.id, authorRole: canManage(req.auth, group) ? 'teacher' : 'student',
             authorName: canManage(req.auth, group) ? 'Преподаватель' : getStudentName(req.auth.id, req.auth),
             comment: text(body.comment), votes: {}, createdAt: Date.now() };
@@ -210,7 +227,7 @@ export function registerGroupAvailability(app, deps) {
           poll.status = 'approved';
         }
       }
-      group = access(req, ['open', 'reopen', 'approve'].includes(action));
+      group = access(req, ['open', 'reopen', 'approve', 'settings'].includes(action));
       if (action !== 'get') {
         if (group.status === 'completed') fail('Группа завершена', 409);
         poll.updatedAt = Date.now(); store.put(group.id, poll); if (action === 'approve') materialize();
@@ -220,5 +237,5 @@ export function registerGroupAvailability(app, deps) {
     finally { if (release) { release(); if (locks.get(lockKey) === tail) locks.delete(lockKey); } }
   };
   app.get('/api/learning-groups/:groupId/availability', route('get'));
-  for (const action of ['open', 'reopen', 'answer', 'propose', 'vote', 'approve']) app.post(`/api/learning-groups/:groupId/availability/${action}`, route(action));
+  for (const action of ['open', 'reopen', 'settings', 'answer', 'propose', 'vote', 'approve']) app.post(`/api/learning-groups/:groupId/availability/${action}`, route(action));
 }

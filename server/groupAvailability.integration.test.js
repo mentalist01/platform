@@ -116,4 +116,14 @@ test('full server: pupil choices become group lessons and teacher/student calend
   assert.equal(resumed.poll.status, 'open');
   assert.deepEqual(resumed.poll.answers.a, reopened.answers.a);
   assert.equal(resumed.poll.answers.newcomer.choices['5-780'], 'yes');
+  const restricted=await req(`${base}/settings`,teacher,{roundId:resumed.poll.id,previousIncludeBusyTimes:true,includeBusyTimes:false});
+  assert.equal(restricted.poll.includeBusyTimes,false);
+  assert.deepEqual(restricted.poll.answers,resumed.poll.answers); assert.deepEqual(restricted.poll.plan,resumed.poll.plan);
+  const pupilRestricted=await req(base,tokens[0]); assert.ok(pupilRestricted.blocked[`${occupiedDay}-600`]);
+  await req(`${base}/answer`,tokens[0],{roundId:resumed.poll.id,version:resumed.poll.answers.a.version,choices:{[`${occupiedDay}-600`]:'yes'}},409);
+  await stop(); await boot();
+  const retained=await req(base,teacher); assert.equal(retained.poll.includeBusyTimes,false);
+  assert.deepEqual(retained.poll.answers,resumed.poll.answers);
+  await req(`${base}/settings`,teacher,{roundId:resumed.poll.id,previousIncludeBusyTimes:false,includeBusyTimes:true});
+  assert.deepEqual((await req(base,tokens[0])).blocked,{});
 });
