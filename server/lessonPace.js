@@ -18,13 +18,14 @@ export function createLessonPaceStore(file) {
   };
 }
 
-export function registerLessonPace(app, { store, lessons, groupById, canRead, canManage, studentName }) {
+export function registerLessonPace(app, { store, lessons, groupById, canRead, canManage, studentName, requiresFeedback = () => true }) {
   const ended = lesson => lesson?.status === 'completed';
   app.get('/api/learning-lesson-feedback/pending', (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (req.auth?.role !== 'student') return res.status(403).json({ error: 'Опрос доступен ученику' });
     const lesson = lessons().filter(lesson => ended(lesson)
       && lesson.participantIds.includes(req.auth.id)
+      && requiresFeedback(lesson,req.auth.id)
       && canRead(req.auth, lesson, groupById(lesson.groupId))
       && !store.get(lesson.id, req.auth.id))
       .sort((a, b) => Date.parse(b.completedAt || b.startAt) - Date.parse(a.completedAt || a.startAt))[0];
@@ -40,7 +41,7 @@ export function registerLessonPace(app, { store, lessons, groupById, canRead, ca
   app.put('/api/learning-groups/:groupId/lessons/:lessonId/pace', (req, res) => {
     const found = target(req, res); if (!found) return;
     const { lesson, group } = found;
-    if (req.auth?.role !== 'student' || !lesson.participantIds.includes(req.auth.id) || !canRead(req.auth, lesson, group)) {
+    if (req.auth?.role !== 'student' || !lesson.participantIds.includes(req.auth.id) || !canRead(req.auth, lesson, group) || !requiresFeedback(lesson,req.auth.id)) {
       return res.status(403).json({ error: 'Нет доступа к оценке этого занятия' });
     }
     if (!ended(lesson)) return res.status(409).json({ error: 'Оценить темп можно после окончания занятия' });
@@ -55,8 +56,9 @@ export function registerLessonPace(app, { store, lessons, groupById, canRead, ca
     const found = target(req, res); if (!found) return;
     if (!canManage(req.auth, found.group)) return res.status(403).json({ error: 'Ответы доступны преподавателю' });
     const responses = store.list(found.lesson.id).map(row => ({ ...row, name: studentName(row.studentId) }));
-    res.json({ responses, total: found.lesson.participantIds.length,
-      pendingStudents: found.lesson.participantIds.filter(id => !responses.some(row => row.studentId === id))
+    const participants = found.lesson.participantIds.filter(id=>requiresFeedback(found.lesson,id));
+    res.json({ responses, total: new Set([...participants,...responses.map(r=>r.studentId)]).size,
+      pendingStudents: participants.filter(id => !responses.some(row => row.studentId === id))
         .map(studentId => ({ studentId, name: studentName(studentId) })) });
   });
 }

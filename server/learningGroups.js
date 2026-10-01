@@ -1,5 +1,6 @@
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 import { normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
+import { normalizeParticipationPlans, participationOccurrence } from '../src/utils/groupParticipation.js';
 
 const GROUP_STATUSES = new Set(['forming', 'ready', 'active', 'completed']);
 const MEMBER_STATUSES = new Set(['active', 'removed']);
@@ -229,6 +230,7 @@ export const normalizeLearningGroupMember = (value) => {
     overrideReason: cleanText(value.overrideReason || value.lateAddReason, 1000),
     addedById: cleanText(value.addedById, 180),
     removedById: status === 'removed' ? cleanText(value.removedById, 180) : '',
+    ...(value.participationPlans ? {participationPlans: normalizeParticipationPlans(value.participationPlans)} : {}),
   };
 };
 
@@ -483,11 +485,13 @@ export const normalizeLearningLessonSession = (value) => {
     teacherId,
     participantIds,
     startAt,
+    ...(value.participationOverrides ? {participationOverrides: Object.fromEntries(Object.entries(value.participationOverrides).filter(([id, assigned]) => participantIds.includes(id) && typeof assigned === 'boolean'))} : {}),
     durationMinutes: normalizeDurationMinutes(value.durationMinutes),
     topic: cleanText(value.topic || value.subject, 500),
     note: cleanText(value.note, 2000),
     telemostUrl: normalizeTelemostUrl(value.telemostUrl),
     scheduleEntryId: cleanText(value.scheduleEntryId, 180),
+    ...(value.participationSlot ? {participationSlot:cleanText(value.participationSlot,40)} : {}),
     source: cleanText(value.source, 80),
     externalCalendarProvider: cleanText(value.externalCalendarProvider, 120),
     externalEventId: cleanText(value.externalEventId, 500),
@@ -554,6 +558,7 @@ export const updateLearningLessonSession = (sessionValue, patch = {}, options = 
     const startAt = normalizeIsoTimestamp(patch.startAt);
     if (!startAt) fail('Укажите корректное время занятия', 'invalid_lesson_start');
     next.startAt = startAt;
+    next.participationSlot = session.participationSlot || participationOccurrence(session).slot;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'durationMinutes')) {
     const duration = Math.round(Number(patch.durationMinutes));

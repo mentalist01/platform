@@ -1,5 +1,7 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
 import { LessonPaceResults } from './LessonPaceFeedback.jsx';
+import {GroupParticipationPanel, LessonParticipationEditor} from './GroupParticipation.jsx';
+import {participationPlanAt, participationSlotLabel} from '../utils/groupParticipation.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 const LearningGroupLessonReplay = React.lazy(() => import('./LearningGroupLessonReplay'));
 import {
@@ -1353,7 +1355,7 @@ const LearningGroupsSection = ({
             : (cleanString(record.studentName) || 'Ученик'),
         }));
       setAttendanceState({ loading: false, error: '', records });
-      setAttendanceDrafts(Object.fromEntries(records.map((record) => [
+      setAttendanceDrafts(Object.fromEntries(records.filter(record=>record.participationRequired!==false).map((record) => [
         record.studentId,
         {
           status: ['unknown', ''].includes(record.status) ? 'pending' : record.status,
@@ -1793,6 +1795,7 @@ const LearningGroupsSection = ({
                               <div className="mt-0.5 text-xs text-slate-500">
                                 {member.addedAfterStart ? 'Добавлен(а) после старта' : 'Участник группы'}
                               </div>
+                              <div className="mt-1 text-xs text-violet-700">{participationPlanAt(member).mode==='all' ? 'Все занятия группы' : `Обязательные занятия: ${participationPlanAt(member).slots.map(participationSlotLabel).join(' · ')}`}</div>
                             </div>
                             {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
                               <button
@@ -1810,8 +1813,8 @@ const LearningGroupsSection = ({
                       </div>
 
                       {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                        <form onSubmit={handleAddMember} className="mt-4 space-y-3 rounded-2xl border border-violet-100 bg-violet-50/60 p-3">
-                          <Field label="Добавить ученика">
+                        <><GroupParticipationPanel group={selectedGroup} onSaved={()=>loadGroupDetails(selectedGroup.id)}/><form onSubmit={handleAddMember} className="mt-4 space-y-3 rounded-2xl border border-violet-100 bg-violet-50/60 p-3">
+                            <Field label="Добавить ученика">
                             <select
                               value={addStudentId}
                               onChange={(event) => setAddStudentId(event.target.value)}
@@ -1846,7 +1849,7 @@ const LearningGroupsSection = ({
                           {!studentsLoading && availableStudents.length === 0 && (
                             <p className="text-xs text-slate-500">Нет доступных учеников для добавления.</p>
                           )}
-                        </form>
+                        </form></>
                       )}
                     </SectionCard>
 
@@ -2118,6 +2121,8 @@ const LearningGroupsSection = ({
                                   <Video size={16} /> Запись занятия
                                 </button>
                               )}
+                              {!isTeacher && lesson.participationRequired===false && <p className="mt-3 text-sm font-semibold text-slate-500">Не участвуешь по индивидуальному плану. Оплата за этот урок не требуется.</p>}
+                              {isTeacher && selectedGroup.status!=='completed' && <LessonParticipationEditor group={selectedGroup} lesson={lesson} onSaved={()=>loadGroupDetails(selectedGroup.id)}/>}
                               {isTeacher && lesson.status === 'completed' && <LessonPaceResults groupId={selectedGroup.id} lessonId={lessonId} />}
                               {isTeacher && isEditing && (
                                 <form onSubmit={(event) => void handleSaveLesson(event, lesson)} className="mt-4 rounded-2xl border border-violet-100 bg-violet-50/60 p-4">
@@ -2773,6 +2778,7 @@ const LearningGroupsSection = ({
                           ) : (
                             <div className="mt-4 space-y-3">
                               {attendanceState.records.map((record) => {
+                                if (record.participationRequired===false) return <div key={record.studentId} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5"><strong>{record.studentName}</strong><p className="mt-2 text-sm text-slate-500">Не участвует по расписанию</p></div>;
                                 const draft = attendanceDrafts[record.studentId] || {
                                   status: record.status || 'pending',
                                   presentSeconds: Number(record.presentSeconds ?? record.attendedSeconds) || 0,

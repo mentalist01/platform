@@ -471,6 +471,17 @@ test('Google group occurrences create one stable lesson and project independent 
     assert.ok(lessonsAfterRefresh.some((lesson) => lesson.id === activeEntry.lessonId));
     assert.ok(lessonsAfterRefresh.some((lesson) => lesson.id === readyEntry.lessonId));
 
+    const participationPath = `/api/learning-groups/group-active/lessons/${activeEntry.lessonId}/participation`;
+    await jsonRequest(baseUrl, participationPath, {token:teacher.token,method:'PUT',body:{studentId:'student-a',assigned:false},status:409});
+    await jsonRequest(baseUrl, participationPath, {token:studentB.token,method:'PUT',body:{studentId:'student-b',assigned:false},status:403});
+    await jsonRequest(baseUrl, participationPath, {token:teacher.token,method:'PUT',body:{studentId:'student-b',assigned:false}});
+    assert.equal((await jsonRequest(baseUrl,'/api/student-schedule',{token:studentB.token})).some(e=>e.groupId==='group-active'),false);
+    await jsonRequest(baseUrl, '/api/teacher-calendar-sync/refresh', {token:teacher.token,method:'POST',body:{}});
+    const excludedGoogle = (await jsonRequest(baseUrl,'/api/teacher-schedule',{token:teacher.token})).find(e=>e.externalEventId==='active-group@example.test');
+    assert.equal(excludedGoogle.memberPaymentStatuses.find(m=>m.studentId==='student-b').status,'not-required','Google refresh must preserve the individual exception');
+    assert.equal(excludedGoogle.memberPaymentStatuses.find(m=>m.studentId==='student-a').status,'paid','An exclusion must preserve another member payment');
+    await jsonRequest(baseUrl, participationPath, {token:teacher.token,method:'PUT',body:{studentId:'student-b',assigned:null}});
+
     await jsonRequest(baseUrl, '/api/learning-groups/group-active/members/student-b', {
       token: teacher.token,
       method: 'DELETE',

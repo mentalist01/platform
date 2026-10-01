@@ -12,6 +12,8 @@ import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './goog
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
 import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
+import { registerGroupParticipation } from './groupParticipation.js';
+import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import { addRecorderMaterial, recordingLibrary, addLessonRecordingMaterial } from './recorderMaterials.js';
@@ -10037,6 +10039,29 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
   };
 };
 
+const resolveGroupParticipationOccurrence = (entry) => {
+  const parts = participationOccurrence(entry);
+  const lesson = readResolvedGroupLessonSessions().find(l => l.groupId === entry.groupId && l.status !== 'cancelled'
+    && (entry.lessonId ? l.id === entry.lessonId : participationOccurrence(l).day === parts.day && participationOccurrence(l).time === parts.time));
+  return lesson ? {...entry, participationSlot:lesson.participationSlot,participationOverrides:lesson.participationOverrides || {}} : entry;
+};
+const isGroupEntryAssigned = (entry, studentId, groupValue = null) => {
+  if (!entry?.isLearningGroupEvent && !entry?.groupId) return true;
+  const group = groupValue || readLearningGroupsDb().find(g => g.id === entry.groupId);
+  return Boolean(group && isGroupLessonAssigned(group, studentId, resolveGroupParticipationOccurrence(entry)));
+};
+const getGroupEntryStudentSourceIds = (entry, studentId) => {
+  const teacherId = entry.teacherId || readLearningGroupsDb().find(g=>g.id===entry.groupId)?.teacherId;
+  const projected = buildStudentScheduleEntryFromGoogleCalendar(entry,{id:studentId,teacherId},null);
+  return [entry.id, `${entry.id}:${studentId}`, projected?.id].filter(Boolean);
+};
+const hasGroupEntryPaidMark = (entry, studentId) => {
+  const day = participationOccurrence(entry).day;
+  const teacherId = entry.teacherId || readLearningGroupsDb().find(g=>g.id===entry.groupId)?.teacherId;
+  const ids = getGroupEntryStudentSourceIds(entry,studentId);
+  const marks = readTeacherCalendarMarksDb()[teacherId];
+  return ids.some(id => marks?.[buildTeacherCalendarPaymentMarkKey(teacherId,{...entry,id,studentId},day,'paid')]);
+};
 const doesGoogleCalendarLearningGroupEntryIncludeStudent = (entry, student) => {
   const groupId = String(entry?.groupId || '').trim();
   const studentId = String(student?.id || '').trim();
@@ -10048,7 +10073,8 @@ const doesGoogleCalendarLearningGroupEntryIncludeStudent = (entry, student) => {
     && candidate.status !== 'completed'
   ));
   if (!group || normalizeTeacherId(group.teacherId) !== normalizeTeacherId(student.teacherId)) return false;
-  return getActiveLearningGroupMembers(group).some((member) => member.studentId === studentId);
+  return getActiveLearningGroupMembers(group).some((member) => member.studentId === studentId)
+    && (isGroupEntryAssigned(entry,studentId,group) || hasGroupEntryPaidMark(entry,studentId));
 };
 
 const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}) => {
@@ -16419,11 +16445,12 @@ const buildStudentSchedulePaymentState = ({
       || (dayNumber === nowInfo.todayNumber && endMinutes <= nowInfo.currentMinutes)
     );
   const finished = !cancelled && chronologicallyFinished;
+  const participationRequired = isGroupEntryAssigned(paymentEvent,eventStudentId);
   const status = cancelled
     ? 'cancelled'
     : (trialMarked
     ? 'trial'
-    : (paidMarked ? 'paid' : (finished ? 'unpaid' : 'pending')));
+    : (paidMarked ? 'paid' : (!participationRequired ? 'not-required' : (finished ? 'unpaid' : 'pending'))));
   return {
     date: normalizedDayKey,
     status,
@@ -16432,6 +16459,7 @@ const buildStudentSchedulePaymentState = ({
     paid: paidMarked,
     trial: trialMarked,
     cancelled,
+    participationRequired,
     paidMarkKey,
     trialMarkKey,
     cancelledMarkKey,
@@ -16544,7 +16572,7 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   const teacherMarks = normalizeTeacherCalendarMarks(marksDb[teacherId]);
   const baseSchedule = filterTeacherCalendarCancelledSchedule(
     teacherId,
-    rawBaseSchedule,
+    rawBaseSchedule.filter(entry=>!entry.isLearningGroupEvent || isGroupEntryAssigned(entry,studentId) || hasGroupEntryPaidMark({...entry,teacherId},studentId)),
     teacherMarks
   );
   const nowInfo = getStudentSchedulePaymentNowInfo();
@@ -16750,7 +16778,7 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry)
       const student = studentsById.get(studentId);
       if (!student) return null;
       const projectedEntry = projectGoogleCalendarEntryForPaymentStudent(entry, student);
-      if (!projectedEntry) return null;
+      if (!projectedEntry) return {studentId,studentName:String(student.name || 'Ученик'),status:'not-required',participationRequired:false,paid:false,lessonPrice:0};
       const payment = buildStudentSchedulePaymentState({
         teacherId: normalizedTeacherId,
         studentId,
@@ -16767,6 +16795,7 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry)
         studentId,
         studentName: String(student?.name || student?.nickname || 'Ученик').trim() || 'Ученик',
         status: payment.status,
+        participationRequired: payment.participationRequired,
         paid: payment.paid,
         trial: payment.trial,
         finished: payment.finished,
@@ -16799,7 +16828,8 @@ const getPaymentScheduleEntries = async (teacherId, options = {}) => {
       throwOnError: options.throwOnGoogleError === true,
     })
   );
-  return [...localEntries, ...agreedEntries, ...googleEntries];
+  return [...localEntries, ...agreedEntries, ...googleEntries].filter(entry => !entry.isLearningGroupEvent || !entry.studentId
+    || isGroupEntryAssigned(entry,entry.studentId) || hasGroupEntryPaidMark(entry,entry.studentId));
 };
 
 const doesTeacherCalendarEntryOccurOnDay = (entry, dayKey) => {
@@ -17067,6 +17097,23 @@ const buildTeacherFinanceProfitability = async (
   const nextLedger = { ...currentLedger };
   const ledgerUpdates = {};
   const ledgerDeletes = new Set();
+  // Old unpaid snapshots may survive after their schedule projection disappears.
+  // Match the original group source identity before removing an excluded charge.
+  const groupOccurrencesBySource = new Map();
+  availabilityCalendarEntries(normalizedTeacherId).forEach((entry) => {
+    (entry.participantIds || []).forEach((studentId) => {
+      getGroupEntryStudentSourceIds(entry,studentId).forEach((sourceId) => {
+        groupOccurrencesBySource.set(`${sourceId}:${studentId}:${entry.date}:${entry.time}`,entry);
+      });
+    });
+  });
+  Object.entries(currentLedger).forEach(([occurrenceKey,ledgerEntry]) => {
+    if (ledgerEntry.paid) return;
+    const entry = groupOccurrencesBySource.get(`${ledgerEntry.sourceEntryId}:${ledgerEntry.studentId}:${ledgerEntry.dayKey}:${ledgerEntry.time}`);
+    if (!entry || isGroupEntryAssigned(entry,ledgerEntry.studentId) || hasGroupEntryPaidMark(entry,ledgerEntry.studentId)) return;
+    delete nextLedger[occurrenceKey];
+    ledgerDeletes.add(occurrenceKey);
+  });
   const ledgerEntriesBySourceId = new Map();
   Object.values(currentLedger).forEach((entry) => {
     const sourceEntryId = String(entry?.sourceEntryId || '').trim();
@@ -23221,7 +23268,8 @@ const getLearningGroupNextLesson = (group, now = new Date(), auth = null) => {
     session.groupId === group.id && session.status !== 'cancelled'
   ));
   const nextSession = groupSessions
-    .filter((session) => Date.parse(session.startAt) >= now.getTime())
+    .filter((session) => Date.parse(session.startAt) >= now.getTime()
+      && (!isStudentRole(auth) || isGroupLessonAssigned(group,auth.id,session)))
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))[0] || null;
   if (nextSession) return serializeLearningLessonForAuth(nextSession, auth, group);
   if (groupSessions.length > 0) return null;
@@ -23271,6 +23319,8 @@ const serializeLearningLessonForAuth = (lesson, auth = null, groupValue = null) 
   const recording = getLessonReplaySummary(buildLearningGroupLessonReplayKey(lesson.id));
   return {
     ...lesson,
+    requiredParticipantIds: requiredGroupLessonParticipants(group,lesson),
+    ...(isStudentRole(auth) ? {participationRequired:isGroupLessonAssigned(group,auth.id,lesson)} : {}),
     recording: { available: recording.available === true, provider: recording.provider || 'platform', status: recording.status || '' },
     ...(names || {}),
     telemostUrl: telemostUrlOverride || groupTelemostUrl,
@@ -23932,6 +23982,7 @@ registerLessonPace(app, {
   canRead: (auth, lesson, group) => Boolean(group && !group.deletedAt
     && canStudentReadLearningGroupLesson(group, auth.id, lesson)),
   studentName: id => findStudentById(id, { allowDeleted: true })?.name || 'Ученик',
+  requiresFeedback: (lesson, studentId) => isGroupLessonAssigned(getLearningGroupById(lesson.groupId),studentId,lesson),
 });
 const availabilityStore = createAvailabilityStore(path.join(dataDir, 'group-availability.json'));
 let lastAvailabilityMaterialized = 0;
@@ -24234,6 +24285,26 @@ app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRou
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
+registerGroupParticipation(app, {
+  handle:handleLearningRoute, manageGroup:ensureLearningGroupManageAccess,
+  lessons:readResolvedGroupLessonSessions,
+  saveGroup:group => writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(),group)),
+  saveLesson:lesson => writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(),lesson)),
+  notify:notifyLearningGroupScheduleAccess,
+  payment:async (group,studentId,lesson) => {
+    const parts = participationOccurrence(lesson);
+    const entries = (await getPaymentScheduleEntries(group.teacherId)).filter(e => e.groupId===group.id && e.studentId===studentId
+      && participationOccurrence(e).day===parts.day && e.time===parts.time);
+    const fallback = {...lesson,id:`learning-group-session-${lesson.id}`,isLearningGroupEvent:true,date:parts.day,time:parts.time,studentId};
+    const states = (entries.length ? entries : [fallback]).map(entry => buildStudentSchedulePaymentState({
+      teacherId:group.teacherId,studentId,entry,sourceEntry:entry,dayKey:parts.day,
+      startMinutes:parseScheduleMinutes(parts.time),endMinutes:parseScheduleMinutes(parts.time)+lesson.durationMinutes,
+      teacherMarks:normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[group.teacherId]),nowInfo:getStudentSchedulePaymentNowInfo(),
+    }));
+    return states.find(s=>s?.paid) || states.find(s=>s?.status==='unpaid') || states[0] || {};
+  },
+});
+
 app.post('/api/learning-groups/:groupId/start', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!group) return;
@@ -24468,7 +24539,8 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLear
   if (!lesson) return;
   let records = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
   if (isStudentRole(req.auth)) records = records.filter((record) => record.studentId === req.auth.id);
-  return res.json({ records: records.map((record) => serializeLearningAttendanceForAuth(record, req.auth)) });
+  return res.json({ records: records.map((record) => ({...serializeLearningAttendanceForAuth(record, req.auth),
+    participationRequired:isGroupLessonAssigned(group,record.studentId,lesson)})) });
 }));
 
 app.put('/api/learning-groups/:groupId/lessons/:lessonId/attendance', handleLearningRoute((req, res) => {
@@ -25251,7 +25323,8 @@ app.get('/api/learning-groups/:groupId/progress', handleLearningRoute((req, res)
   const visibleAssignmentIds = new Set(visibleAssignments.map((assignment) => assignment.id));
   const visibleLessonIds = new Set(visibleLessons.map((lesson) => lesson.id));
   const visibleSubmissions = submissions.filter((submission) => visibleAssignmentIds.has(submission.assignmentId));
-  const visibleAttendance = attendance.filter((record) => visibleLessonIds.has(record.sessionId));
+  const visibleAttendance = attendance.filter((record) => visibleLessonIds.has(record.sessionId)
+    && isGroupLessonAssigned(group,record.studentId,lessons.find(l=>l.id===record.sessionId)));
   let memberIds = Array.from(new Set([
     ...group.members.map((member) => member.studentId),
     ...visibleLessons.flatMap((lesson) => lesson.participantIds),

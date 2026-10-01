@@ -399,7 +399,7 @@ const getGroupParticipantRows = (prompt, studentsById) => {
       || ['unpaid', 'overdue', 'pending'].includes(normalizedStatus);
     return {
       ...row,
-      paymentStatus: isPaid ? 'paid' : (isUnpaid ? 'unpaid' : 'unknown'),
+      paymentStatus: isPaid ? 'paid' : (payment?.participationRequired===false || normalizedStatus==='not-required' ? 'not-required' : (isUnpaid ? 'unpaid' : 'unknown')),
     };
   });
 };
@@ -846,7 +846,7 @@ const TeacherLessonStartPrompt = ({
                         {row.paymentStatus === 'paid' ? <CheckCircle size={11} /> : <Clock3 size={11} />}
                         {row.paymentStatus === 'paid'
                           ? 'Оплачено'
-                          : (row.paymentStatus === 'unpaid' ? 'Не оплачено' : 'Нет данных')}
+                          : (row.paymentStatus === 'not-required' ? 'Не участвует по расписанию' : (row.paymentStatus === 'unpaid' ? 'Не оплачено' : 'Нет данных'))}
                       </span>
                     </div>
                   ))}

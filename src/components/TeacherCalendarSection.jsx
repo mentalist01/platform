@@ -590,7 +590,7 @@ const getLearningGroupPaymentState = (
     );
     const status = cancelled
       ? 'cancelled'
-      : (trialMarked ? 'trial' : (paidMarked ? 'paid' : (finished ? 'unpaid' : 'pending')));
+      : (trialMarked ? 'trial' : (paidMarked ? 'paid' : (member.participationRequired===false ? 'not-required' : (finished ? 'unpaid' : 'pending'))));
     return {
       ...member,
       paidMarkKey,
@@ -600,22 +600,23 @@ const getLearningGroupPaymentState = (
       cancelled,
       finished,
       status,
-      shouldRemindPayment: !cancelled && finished && !paidMarked && !trialMarked,
+      shouldRemindPayment: member.participationRequired!==false && !cancelled && finished && !paidMarked && !trialMarked,
     };
   });
   const paidCount = members.filter((member) => member.status === 'paid').length;
   const trialCount = members.filter((member) => member.status === 'trial').length;
   const unpaidCount = members.filter((member) => member.status === 'unpaid').length;
   const settledCount = paidCount + trialCount;
+  const billableCount = members.filter(m=>m.status!=='not-required').length;
   return {
     members,
     paidCount,
     trialCount,
     unpaidCount,
     settledCount,
-    totalCount: members.length,
-    allSettled: members.length > 0 && settledCount === members.length,
-    partiallySettled: settledCount > 0 && settledCount < members.length,
+    totalCount: billableCount,
+    allSettled: billableCount > 0 && settledCount === billableCount,
+    partiallySettled: settledCount > 0 && settledCount < billableCount,
   };
 };
 
@@ -4999,7 +5000,7 @@ const TeacherCalendarSection = ({
                                 const paymentStateLabel = cancelled
                                   ? ' • занятие отменено'
                                   : (isGroupEvent
-                                  ? ` • оплачено ${groupPaymentState?.paidCount || 0} из ${groupPaymentState?.totalCount || groupParticipants.length}`
+                                  ? ` • оплачено ${groupPaymentState?.paidCount || 0} из ${groupPaymentState?.totalCount ?? groupParticipants.length}`
                                   : (trialMarked
                                     ? ' • пробное занятие'
                                     : (paidMarked
@@ -5065,7 +5066,7 @@ const TeacherCalendarSection = ({
                                         <Users size={10} />
                                         <span>{cancelled
                                           ? `${groupParticipants.length} уч. • отменено`
-                                          : `${groupParticipants.length} уч. • оплачено ${groupPaymentState?.paidCount || 0}/${groupPaymentState?.totalCount || groupParticipants.length}`}</span>
+                                          : `${groupParticipants.length} уч. • оплачено ${groupPaymentState?.paidCount || 0}/${groupPaymentState?.totalCount ?? groupParticipants.length}`}</span>
                                       </div>
                                     )}
                                     {cardShowSubject && (
@@ -5802,7 +5803,7 @@ const TeacherCalendarSection = ({
                       <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700">
                         {eventDetailsCancelled
                           ? 'Занятие отменено'
-                          : `${eventDetailsGroupPayment?.paidCount || 0}/${eventDetailsGroupPayment?.totalCount || eventDetailsGroupParticipants.length} оплачено`}
+                          : `${eventDetailsGroupPayment?.paidCount || 0}/${eventDetailsGroupPayment?.totalCount ?? eventDetailsGroupParticipants.length} оплачено`}
                       </span>
                     </div>
                     <div className="mt-2 space-y-1.5">
@@ -5816,14 +5817,14 @@ const TeacherCalendarSection = ({
                           ? 'Отменено'
                           : trial
                           ? 'Пробное'
-                          : (paid ? 'Оплатил(а)' : (status === 'unpaid' ? 'Не оплатил(а)' : 'Ожидаем оплату'));
+                          : (paid ? 'Оплатил(а)' : (status === 'not-required' ? 'Не участвует по расписанию' : (status === 'unpaid' ? 'Не оплатил(а)' : 'Ожидаем оплату')));
                         return (
                           <div key={`group-payment-${member.studentId}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
                             <span className="min-w-0 truncate text-xs font-semibold text-slate-800">{member.studentName || 'Ученик'}</span>
                             <button
                               type="button"
                               onClick={() => handleGroupMemberPaymentToggle(member)}
-                              disabled={cancelled || trial || eventDetailsCancelled || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
+                              disabled={status==='not-required' || cancelled || trial || eventDetailsCancelled || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
                               className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-60 ${
                                 cancelled
                                   ? 'border-slate-300 bg-slate-100 text-slate-600'
@@ -6124,4 +6125,3 @@ const TeacherCalendarSection = ({
 };
 
 export default TeacherCalendarSection;
-
