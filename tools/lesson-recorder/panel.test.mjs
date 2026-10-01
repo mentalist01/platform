@@ -9,7 +9,25 @@ const headline = vm.runInNewContext(`(${source})`);
 const job = { id: 'one', status: 'recording', lessonName: 'Олег', title: 'Урок 2026-09-26 17:00' };
 const live = { jobs: [job], obs: { outputActive: true, outputTimecode: '00:12:34.500' } };
 
-const startReason = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonStartReason('), panel.indexOf('function pythonButtons('))})`);
+const startReason = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonStartReason('), panel.indexOf('function pythonPauseView('))})`);
+const pauseView = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonPauseView('), panel.indexOf('function pythonButtons('))})`);
+
+test('Python controls distinguish recording, pause, pending command and lost confirmation', () => {
+  const state = { ...live, jobs: [{ ...job, pythonTheory: {} }] };
+  assert.equal(pauseView(live).visible, false);
+  assert.equal(pauseView(state).label, 'Пауза');
+  assert.equal(pauseView(state).disabled, false);
+  const paused = { ...state, obs: { ...state.obs, outputPaused: true } };
+  assert.equal(pauseView(paused).label, 'Продолжить');
+  assert.match(pauseView(paused).detail, /не записываются/);
+  assert.equal(pauseView(state, { paused: true }).label, 'Ставим на паузу…');
+  assert.equal(pauseView(paused, { paused: false }).label, 'Продолжаем…');
+  assert.equal(pauseView(state, { paused: true }).disabled, true);
+  assert.equal(pauseView(state, null, true).disabled, true);
+  assert.equal(pauseView({ ...state, obs: null }).disabled, true);
+  assert.equal(pauseView({ ...state, jobs: [{ ...state.jobs[0], status: 'stopping' }] }).disabled, true);
+  assert.equal(pauseView({ ...state, jobs: [{ ...state.jobs[0], status: 'saved' }] }).visible, false);
+});
 test('Python record button explains temporary blockers and re-enables once idle', () => {
   const idle = { jobs: [], obs: { outputActive: false }, paired: true, ready: true };
   assert.equal(startReason(idle, {}), '');

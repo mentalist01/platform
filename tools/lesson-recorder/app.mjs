@@ -37,6 +37,7 @@ const obs = new ObsClient(runtime.obs ? { executable: runtime.obs } : {});
 const uploader = new RutubeUploader(directory);
 const localKey = crypto.randomBytes(32).toString('base64url');
 let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBusy = false; let uploadingId = '';
+let recordingControlRevision = 0;
 let sourceWarnings = []; let lastSourceCheck = 0;
 const serialize = (fn) => { const next = chain.then(fn); chain = next.catch(() => {}); return next; };
 const ready = () => Boolean(state.config.recordDirectory && state.config.configured && state.config.platform && state.config.telemost && state.config.mic);
@@ -256,6 +257,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') return json(res, 404, { error: 'Not found' });
     if (updater.busy) return json(res, 409, { error: 'Пульт обновляется. Подождите завершения.' });
     const payload = await body(req);
+    if (req.url === '/python/pause') {
+      // Keep this local control out of the platform synchronization queue.
+      // The engine coordinates it with StopRecord and checks the exact job.
+      recordingControlRevision++;
+      const recording = await engine.setPythonPaused(payload.id, payload.paused);
+      recordingControlRevision++;
+      obsStatus = { ...obsStatus, ...recording };
+      return json(res, 200, { recording, id: payload.id });
+    }
     if (req.url === '/shutdown') {
       if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу и дождитесь завершения текущей операции');
       if (engine.active() || uploadingId || queueBusy || (obs.connected && (await obs.status()).outputActive)) throw new Error('Сначала дождитесь окончания записи и загрузки');
@@ -354,6 +364,7 @@ const server = http.createServer(async (req, res) => {
         if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');
         if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
         await startPythonTheory({ api, engine, payload });
+        obsStatus = await obs.status();
       } else if (req.url === '/manual-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
         await engine.startForCurrentLesson();
@@ -397,7 +408,11 @@ setInterval(() => {
     try {
       let platformError = '';
       try { await engine.tick(); } catch (failure) { platformError = failure.message; }
-      if (ready() || obs.connected) obsStatus = await obs.status();
+      if (ready() || obs.connected) {
+        const revision = recordingControlRevision;
+        const observed = await obs.status();
+        if (revision === recordingControlRevision) obsStatus = observed;
+      }
       if (ready() && Date.now() - lastSourceCheck > 10000) {
         const choices = await obs.choices();
         sourceWarnings = [];

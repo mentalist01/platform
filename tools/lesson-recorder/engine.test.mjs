@@ -9,22 +9,82 @@ import { ownedRecording } from './storage.mjs';
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recorder-engine-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  let recording = false; let name = ''; let startCount = 0; let stopCount = 0;
+  let recording = false; let paused = false; let name = ''; let startCount = 0; let stopCount = 0;
   let now = 100000; let offline = false; const reports = [];
   const state = { config: { token: 'test' }, jobs: {} };
   let remote = { enabled: true, jobs: [] };
   const obs = {
     launch: async () => {},
-    status: async () => ({ outputActive: recording }),
+    status: async () => ({ outputActive: recording, outputPaused: paused }),
     call: async () => ({ parameterValue: name }),
     start: async (id) => { recording = true; name = `lesson-${id}`; startCount++; },
     stop: async () => { stopCount++; recording = false; const file = path.join(root, `${name}.mkv`); fs.writeFileSync(file, 'video'); return file; },
+    setRecordPaused: async (id, value) => { assert.equal(name, `lesson-${id}`); paused = value; return { outputActive: recording, outputPaused: paused }; },
   };
   const engine = new RecorderEngine({ obs, state, save: () => {}, ready: () => true, recordDirectory: root,
     api: async (route, body) => { if (offline) throw new Error('offline'); if (route !== '/poll') reports.push(body); return route === '/poll' ? remote : {}; }, now: () => now });
   const job = { id: 'one', title: 'Урок', desired: 'record', cutoffAt: now + 1000 };
   return { engine, obs, state, root, job, reports, remote: (value) => { remote = value; }, offline: () => { offline = true; }, online: () => { offline = false; }, advance: (ms) => { now += ms; }, counts: () => [startCount, stopCount], foreign: () => { recording = true; name = 'foreign-output'; } };
 }
+
+test('Python pause and resume keep one active file, do not publish, and survive reconciliation', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {} });
+  const result = await f.engine.setPythonPaused('one', true);
+  assert.equal(result.outputPaused, true);
+  await f.engine.tick();
+  assert.equal((await f.obs.status()).outputPaused, true);
+  assert.equal(f.engine.active().status, 'recording');
+  assert.equal(f.engine.active().file, undefined);
+  assert.equal((await f.engine.setPythonPaused('one', false)).outputPaused, false);
+  assert.deepEqual(f.counts(), [1, 0]); assert.deepEqual(f.reports, []);
+  await f.engine.setPythonPaused('one', true);
+  await f.engine.stop(f.engine.active());
+  assert.equal(f.state.jobs.one.status, 'saved'); assert.deepEqual(f.counts(), [1, 1]);
+});
+
+test('Python local pause does not wait for an unfinished platform poll', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {} });
+  let releasePoll; let signalPoll;
+  const enteredPoll = new Promise(resolve => { signalPoll = resolve; });
+  const pendingPoll = new Promise(resolve => { releasePoll = resolve; });
+  f.engine.api = async () => { signalPoll(); return pendingPoll; };
+  const tick = f.engine.tick(); await enteredPoll;
+  assert.equal((await f.engine.setPythonPaused('one', true)).outputPaused, true);
+  releasePoll({ enabled: true, jobs: [] }); await tick;
+  assert.deepEqual(f.counts(), [1, 0]);
+});
+
+test('finish waits for an in-flight pause and blocks late or overlapping commands', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {} });
+  let release; f.obs.setRecordPaused = () => new Promise(resolve => { release = resolve; });
+  const pause = f.engine.setPythonPaused('one', true);
+  await assert.rejects(f.engine.setPythonPaused('one', false), /предыдущего нажатия/);
+  const finish = f.engine.stop(f.engine.active());
+  await assert.rejects(f.engine.setPythonPaused('one', true), /текущую запись/);
+  assert.deepEqual(f.counts(), [1, 0]);
+  release({ outputActive: true, outputPaused: true }); await pause; await finish;
+  assert.deepEqual(f.counts(), [1, 1]); assert.equal(f.state.jobs.one.status, 'saved');
+});
+
+test('pause rejects ordinary lessons, stale Python IDs, expired jobs and invalid state', async t => {
+  const f = fixture(t); await f.engine.start(f.job);
+  await assert.rejects(f.engine.setPythonPaused('one', true), /Python/);
+  f.state.jobs.one.pythonTheory = {};
+  await assert.rejects(f.engine.setPythonPaused('old', true), /текущую запись/);
+  await assert.rejects(f.engine.setPythonPaused('one', 'true'), /состояние паузы/);
+  f.advance(1001);
+  await assert.rejects(f.engine.setPythonPaused('one', false), /истекло/);
+  await f.engine.tick(); assert.equal(f.state.jobs.one.status, 'saved');
+});
+
+test('failed OBS pause releases the control for a safe retry', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {} });
+  const normal = f.obs.setRecordPaused; f.obs.setRecordPaused = async () => { throw Error('OBS disconnected'); };
+  await assert.rejects(f.engine.setPythonPaused('one', true), /disconnected/);
+  f.obs.setRecordPaused = normal;
+  assert.equal((await f.engine.setPythonPaused('one', true)).outputPaused, true);
+  assert.equal(f.state.jobs.one.status, 'recording');
+});
 test('repeated server polls start exactly once and explicit finish stops once', async (t) => {
   const f = fixture(t); f.remote({ enabled: true, jobs: [f.job] });
   await f.engine.tick(); await f.engine.tick(); assert.deepEqual(f.counts(), [1, 0]);

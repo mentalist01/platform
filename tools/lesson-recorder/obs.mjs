@@ -231,4 +231,17 @@ export class ObsClient {
     await this.call('StartRecord');
   }
   async stop() { await this.assertCollection(); return (await this.call('StopRecord')).outputPath; }
+  async setRecordPaused(id, paused) {
+    await this.assertCollection();
+    const [status, profile] = await Promise.all([
+      this.call('GetRecordStatus'),
+      this.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' }),
+    ]);
+    if (!status.outputActive) throw new Error('OBS уже завершил запись');
+    if (profile.parameterValue !== `lesson-${id}`) throw new Error('В OBS идёт другая запись');
+    if (Boolean(status.outputPaused) !== paused) await this.call(paused ? 'PauseRecord' : 'ResumeRecord');
+    const confirmed = await this.call('GetRecordStatus');
+    if (!confirmed.outputActive || Boolean(confirmed.outputPaused) !== paused) throw new Error('Не удалось подтвердить паузу. Проверьте состояние OBS.');
+    return confirmed;
+  }
 }

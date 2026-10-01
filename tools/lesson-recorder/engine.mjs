@@ -61,6 +61,9 @@ export class RecorderEngine {
   }
   async stop(job) {
     job.status = 'stopping'; this.save();
+    // A local pause is independent of slow platform polling, but StopRecord
+    // must wait for it before another lesson can take over the OBS output.
+    if (this.pauseOperation) await this.pauseOperation.catch(() => {});
     // Always verify that this is still our profile/output before issuing StopRecord.
     const status = await this.obs.status();
     const { parameterValue } = await this.obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' });
@@ -70,6 +73,17 @@ export class RecorderEngine {
     if (!fs.existsSync(job.file) || fs.statSync(job.file).size === 0) throw new Error('OBS не сохранил файл записи');
     job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
     await this.report(job, 'saved');
+  }
+  async setPythonPaused(id, paused) {
+    const job = this.active();
+    if (!job?.pythonTheory || job.id !== id || job.status !== 'recording') throw new Error('Выберите текущую запись урока Python');
+    if (typeof paused !== 'boolean') throw new Error('Укажите состояние паузы');
+    if (job.cutoffAt <= this.now()) throw new Error('Время записи истекло. Дождитесь сохранения файла.');
+    if (this.pauseOperation) throw new Error('Дождитесь подтверждения предыдущего нажатия');
+    const operation = this.obs.setRecordPaused(id, paused);
+    this.pauseOperation = operation;
+    try { return await operation; }
+    finally { if (this.pauseOperation === operation) this.pauseOperation = null; }
   }
   async startForCurrentLesson() {
     if (this.active()) throw new Error('Запись уже идёт');

@@ -23,6 +23,34 @@ function fixture() {
   return { obs, configured: () => configured };
 }
 
+test('native pause and resume verify output ownership, confirm state and tolerate retries', async () => {
+  const obs = new ObsClient(); obs.assertCollection = async () => {};
+  let paused = false; let owner = 'lesson-python'; let active = true; const calls = [];
+  obs.call = async type => {
+    calls.push(type);
+    if (type === 'GetProfileParameter') return { parameterValue: owner };
+    if (type === 'PauseRecord') paused = true;
+    if (type === 'ResumeRecord') paused = false;
+    return { outputActive: active, outputPaused: paused };
+  };
+  assert.equal((await obs.setRecordPaused('python', true)).outputPaused, true);
+  await obs.setRecordPaused('python', true);
+  assert.equal(calls.filter(type => type === 'PauseRecord').length, 1);
+  assert.equal((await obs.setRecordPaused('python', false)).outputPaused, false);
+  assert.equal(calls.filter(type => type === 'ResumeRecord').length, 1);
+  owner = 'lesson-other';
+  await assert.rejects(obs.setRecordPaused('python', true), /другая запись/);
+  active = false;
+  await assert.rejects(obs.setRecordPaused('python', true), /завершил/);
+  assert.equal(calls.filter(type => type === 'PauseRecord').length, 1);
+});
+
+test('OBS must confirm pause before the control can claim success', async () => {
+  const obs = new ObsClient(); obs.assertCollection = async () => {};
+  obs.call = async type => type === 'GetProfileParameter' ? { parameterValue: 'lesson-python' } : { outputActive: true, outputPaused: false };
+  await assert.rejects(obs.setRecordPaused('python', true), /подтвердить/);
+});
+
 test('a platform call uses platform audio even when the saved Telemost window is closed', async () => {
   const f = fixture(); const config = { platform: 'platform', telemost: 'closed', mic: 'mic' };
   await f.obs.prepare(config, 'unused', 'platform');
