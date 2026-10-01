@@ -1,3 +1,5 @@
+import {parseBoardPageRoom} from '../src/utils/boardPages.js';
+
 const MAX_ENTITY_ID_LENGTH = 160;
 const MAX_ROOM_ID_LENGTH = 760;
 const MAX_ATTENDANCE_COMMENT_LENGTH = 1000;
@@ -506,9 +508,10 @@ export const extractCollabDocNameFromRequestUrl = (requestUrl) => {
 export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) => {
   const docName = extractCollabDocNameFromRequestUrl(requestUrl);
   if (!docName) return { allowed: false, reason: 'invalid-room', target: null, docName: '' };
+  const pageRoom = parseBoardPageRoom(docName);
   const access = authorizeLearningRealtimeRoom({
     ...options,
-    roomId: docName,
+    roomId: pageRoom?.baseRoomId || docName,
     allowedKinds: ['board', 'board-private', 'collab', 'collab-private', 'python'],
     allowedSessionStatuses: Array.isArray(options.allowedSessionStatuses)
       ? options.allowedSessionStatuses
@@ -517,14 +520,16 @@ export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) 
   const role = normalizeText(options?.auth?.role, 40).toLowerCase();
   const readOnly = Boolean(
     access.allowed
-    && access.target?.targetType === 'lesson'
-    && (
+    && ((pageRoom?.book && !['teacher','admin'].includes(role))
+    || (access.target?.targetType === 'lesson' && (
       access.readOnly
       || normalizeText(access.target?.session?.status, 40) === 'completed'
       || (access.target?.kind === 'collab' && role === 'student')
-    )
+    )))
   );
-  return { ...access, readOnly, docName };
+  return { ...access, readOnly, docName,
+    ...(pageRoom && access.target ? {target:{...access.target,roomId:docName,boardPageId:pageRoom.pageId,boardPagesBook:pageRoom.book}} : {}),
+  };
 };
 
 const normalizeAttendanceStatus = (value, fallback = LEARNING_ATTENDANCE_STATUS.PENDING) => {

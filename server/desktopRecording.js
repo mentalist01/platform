@@ -25,7 +25,7 @@ export function privateRutubeVideo(value) {
 }
 
 // The server stores metadata only. Recording files and Rutube credentials stay on the PC.
-export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFor = () => '' } = {}) {
+export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFor = () => '', lessonTopicFor = () => null } = {}) {
   let db = { teachers: {}, devices: {}, jobs: {} };
   try { db = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   const pairs = new Map();
@@ -40,6 +40,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   const publicJob = (job) => job && ({
     id: job.id, occurrence: job.occurrence, title: job.title, status: job.status,
     lessonName: String(lessonNameFor(job) || '').trim().slice(0, 150),
+    lessonTopic: lessonTopicFor(job),
     desired: job.desired, cutoffAt: job.cutoffAt, startedAt: job.startedAt,
     stoppedAt: job.stoppedAt || '', updatedAt: job.updatedAt, video: job.video || null,
     previousJobId: job.previousJobId || '', error: job.error || '', deviceId: job.deviceId || '', audioMode: job.audioMode || '',
@@ -61,6 +62,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   const share = createRecordingShareRelay({ now, allowed: (teacherId, id) => enabled(teacherId) && db.jobs[id]?.teacherId === teacherId && db.jobs[id]?.desired === 'record' && db.jobs[id]?.cutoffAt > now() });
   return {
     enabled, settings, stop, share,
+    lessonJob: (teacherId,id) => db.jobs[id]?.teacherId===teacherId ? {...db.jobs[id]} : null,
     libraryJobs: teacherId => jobs(teacherId).map(publicJob),
     stopPlatformCall(teacherId, studentId) {
       // An explicit hangup must not wait for the reconnect grace. Scope it to
@@ -209,7 +211,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   };
 }
 
-export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, archiveStatus, archiveMaterial, pythonCatalog, pythonMaterial } = {}) {
+export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, archiveStatus, archiveMaterial, lessonTopic, pythonCatalog, pythonMaterial } = {}) {
   const handle = (fn) => (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось сохранить состояние записи' }); }
@@ -224,6 +226,10 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, arc
   app.post('/api/desktop-recorder/archive/status', handle((req, res) => {
     if (!archiveStatus) return res.status(503).json({ error: 'Добавление материалов из пульта ещё не настроено' });
     res.json(archiveStatus(req.recorderDevice.teacherId));
+  }));
+  app.post('/api/desktop-recorder/archive/lesson-topic', handle((req,res) => {
+    if(!lessonTopic)return res.status(503).json({error:'Темы занятий ещё не настроены'});
+    res.json(lessonTopic(req.recorderDevice.teacherId,req.body || {}));
   }));
   app.post('/api/desktop-recorder/python/catalog', handle((req, res) => {
     if (!pythonCatalog) return res.status(503).json({ error: 'Запись теории Python ещё не настроена' });

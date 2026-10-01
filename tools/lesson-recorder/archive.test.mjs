@@ -15,6 +15,29 @@ function fixture(t, options = {}) {
   t.after(() => { archive.close(); const resolved = fs.realpathSync(root); assert.equal(path.dirname(resolved), fs.realpathSync(os.tmpdir())); assert.match(path.basename(resolved), /^ivan-archive-test-/); fs.rmSync(resolved, { recursive: true, force: true }); });
   return { archive, root, recordings };
 }
+
+test('old completed catalog binds to ready remote jobs, syncs notes and keeps titles stable', async t=>{
+  const jobs=[{id:'lesson',status:'ready',title:'Анна · дата'}];let calls=[];
+  const f=fixture(t,{jobs:()=>jobs,topicSync:async payload=>{calls.push(payload);return {topic:{text:'Задание №7',source:'notes'}};}});
+  const file=path.join(f.recordings,'lesson.mp4');fs.writeFileSync(file,'original');jobs[0].file=file;await f.archive.scan();
+  const item=f.archive.data.items[0];item.status='done';delete item.remoteJobId;
+  fs.writeFileSync(f.archive.transcriptPath(item.id),JSON.stringify({segments:[{text:'Сегодня решаем третье задание.'}]}));f.archive.save();f.archive.close();
+  const reopened=new LessonArchive({directory:f.root,jobs:()=>jobs,topicSync:f.archive.topicSync,recordDirectory:()=>f.recordings});clearInterval(reopened.timer);t.after(()=>reopened.close());
+  const restored=reopened.data.items[0];assert.equal(restored.remoteJobId,'lesson');
+  await reopened.syncTopic(restored);assert.equal(calls[0].text,'Задание №3');assert.equal(restored.topic.source,'notes');
+  await reopened.syncTopic(restored);assert.equal(restored.title,'Задание №7 · Анна · дата');
+  assert.equal(restored.status,'done');assert.deepEqual(reopened.data.queue,[]);
+});
+test('offline topic sync preserves completed speech and retries; local manual edits remain editable',async t=>{
+  const f=fixture(t,{topicSync:async()=>{throw Error('offline');}});
+  fs.writeFileSync(path.join(f.recordings,'lesson.mp4'),'original');await f.archive.scan();
+  const item=f.archive.data.items[0];item.status='done';item.remoteJobId='remote';
+  fs.writeFileSync(f.archive.transcriptPath(item.id),JSON.stringify({segments:[{text:'Сегодня решаем третье задание.'}]}));
+  await f.archive.syncTopic(item);assert.equal(item.status,'done');assert.equal(item.topicError,'offline');
+  f.archive.topicSync=async()=>({topic:{text:'Задание №3',source:'transcript'}});await f.archive.syncTopic(item);assert.equal(item.topicError,'');
+  delete item.remoteJobId;await f.archive.syncTopic(item,'Первая тема');await f.archive.syncTopic(item,'Вторая тема');assert.equal(item.topic.text,'Вторая тема');
+  await f.archive.syncTopic(item);assert.equal(item.topic.text,'Вторая тема');
+});
 test('whole lessons reuse their ready private video without cutting/uploading or changing source; fragment limit remains', async t => {
   const url = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=private';
   let uploads = 0; let attached;

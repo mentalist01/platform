@@ -141,6 +141,7 @@ const officeFollower = new OfficeFollower({ obs, reader: foregroundReader, confi
   shareActive: () => Boolean(shareBridge.offer) });
 process.on('exit', () => foregroundReader.stop());
 archive = new LessonArchive({ directory, recordDirectory: () => state.config.recordDirectory,
+  topicSync: payload => api('/archive/lesson-topic',payload),
   platformUrl: () => state.config.platformUrl,
   jobs: () => Object.values(state.jobs), ffmpeg: runtime.ffmpeg || 'ffmpeg',
   isBusy: () => Boolean(engine.active() || obsStatus?.outputActive || uploadingId || queueBusy || updater.busy),

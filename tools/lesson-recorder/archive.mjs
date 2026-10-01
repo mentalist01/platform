@@ -9,6 +9,7 @@ import { searchArchive, topicTags } from './archive-search.mjs';
 import { publishArchiveClip } from './archive-publish.mjs';
 import { queueEstimate, rememberSpeed } from './archive-eta.mjs';
 import { privateVideo } from './rutube.mjs';
+import { inferLessonTopic,archiveTopicTitle } from './lesson-topic.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const extensions = new Set(['.mp4', '.mkv', '.mov', '.webm', '.m4v']);
@@ -48,8 +49,8 @@ export function byteRange(header, size) {
   return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && start <= end && start < size ? { start, end, status: 206 } : null;
 }
 export class LessonArchive {
-  constructor({ directory, recordDirectory, jobs = () => [], isBusy = () => false, ffmpeg = 'ffmpeg', publishClip, prepareMaterial, materialPublisher, platformUrl }) {
-    Object.assign(this, { directory, recordDirectory, jobs, isBusy, ffmpeg, publishClip, prepareMaterial, materialPublisher, platformUrl });
+  constructor({ directory, recordDirectory, jobs = () => [], isBusy = () => false, ffmpeg = 'ffmpeg', publishClip, prepareMaterial, materialPublisher, platformUrl,topicSync }) {
+    Object.assign(this, { directory, recordDirectory, jobs, isBusy, ffmpeg, publishClip, prepareMaterial, materialPublisher, platformUrl,topicSync });
     this.root = path.join(directory, 'archive');
     this.file = path.join(this.root, 'index.json');
     this.data = loadArchive(this.file);
@@ -62,6 +63,17 @@ export class LessonArchive {
     }
     fs.mkdirSync(path.join(this.root, 'transcripts'), { recursive: true });
     fs.mkdirSync(path.join(this.root, 'work'), { recursive: true });
+    // Upgrade existing catalogs too: ready jobs are no longer returned by the
+    // platform's recording poll, but remain in the recorder's local state.
+    const jobsById = new Map(this.jobs().map(job => [job.id, job]));
+    for (const item of this.data.items) {
+      const job = jobsById.get(item.jobId);
+      if (job && !job.local && !job.pythonTheory) item.remoteJobId = job.remoteJobId || job.id;
+      item.recordingTitle ||= item.title;
+      if (item.status === 'done' && !item.topic) item.topic = inferLessonTopic(this.transcript(item.id).segments);
+      item.title = archiveTopicTitle(item);
+    }
+    if (this.data.items.length) this.save();
     this.work = null; this.child = null; this.transcriber = null; this.setup = ''; this.scanning = false; this.blocked = false;
     this.timer = setInterval(() => this.runTick(), 2000); this.timer.unref();
   }
@@ -119,7 +131,7 @@ export class LessonArchive {
         for (const file of [job.mp4, job.file].filter(Boolean)) seen.add(fileKey(file));
         if (job.local && !job.manual || job.excludeFromUpload || activeStates.has(job.status)) continue;
         const file = [job.mp4, job.file].find(file => file && fs.existsSync(file));
-        if (file) found.push({ file, title: job.lessonName ? `${job.lessonName} · ${job.title}` : job.title, url: job.url || '', jobId: job.id });
+        if (file) found.push({ file, title: job.lessonName ? `${job.lessonName} · ${job.title}` : job.title, url: job.url || '', jobId: job.id,remoteJobId:!job.local && !job.pythonTheory ? job.remoteJobId || job.id : '' });
       }
       const knownIds = new Set(this.jobs().map(j => j.id));
       const walk = async (dir, depth = 0) => {
@@ -146,8 +158,9 @@ export class LessonArchive {
         const signature = `${fileKey(source.file)}:${stat.size}:${stat.mtimeMs}`;
         if (!item) { item = { id, status: 'new', duration: 0, processed: 0, tags: [] }; this.data.items.push(item); }
         if (this.work?.id === id) continue;
-        if (item.signature && item.signature !== signature) { item.status = 'new'; item.processed = 0; item.duration = 0; item.tags = []; atomicJson(this.transcriptPath(id), { segments: [] }); }
+        if (item.signature && item.signature !== signature) { item.status = 'new'; item.processed = 0; item.duration = 0; item.tags = []; item.topic=null;item.topicSyncedAt=0;atomicJson(this.transcriptPath(id), { segments: [] }); }
         Object.assign(item, source, { signature, bytes: stat.size, modified: stat.mtimeMs, missing: false });
+        item.recordingTitle=source.title;item.title=archiveTopicTitle(item);
       }
       const foundIds = new Set(found.map(s => identity(s.jobId || fileKey(s.file))));
       for (const item of this.data.items) if (!foundIds.has(item.id)) item.missing = !fs.existsSync(item.file);
@@ -184,6 +197,17 @@ export class LessonArchive {
     if (!Number.isFinite(item.duration) || item.duration <= 0) throw new Error('Не удалось определить длительность видео');
     this.save(); return item.duration;
   }
+  async syncTopic(item,manualText) {
+    item.recordingTitle ||= item.title;
+    const inferred=item.status==='done' ? inferLessonTopic(this.transcript(item.id).segments) : null;
+    const candidate=manualText===undefined ? inferred : {text:manualText,source:'teacher'};
+    if(!this.topicSync || !item.remoteJobId){if(candidate && (manualText!==undefined || item.topic?.source!=='teacher'))item.topic=candidate;item.title=archiveTopicTitle(item);this.save();return;}
+    item.topicSyncedAt=Date.now();
+    try {
+      const result=await this.topicSync({jobId:item.remoteJobId,...(candidate || {})});
+      item.topic=result.topic || inferred;item.topicError='';item.title=archiveTopicTitle(item);this.save();
+    } catch(error){item.topicError=String(error.message).slice(0,240);this.save();if(manualText!==undefined)throw error;}
+  }
   async measureQueue() {
     for (const id of [...this.data.queue]) {
       if (this.data.paused || this.isBusy()) throw new Error('paused');
@@ -200,6 +224,8 @@ export class LessonArchive {
     this.blocked = Boolean(this.isBusy());
     if (this.blocked && this.work?.kind === 'transcribe') this.child?.kill();
     if (this.work || this.setup || this.submitting || this.blocked) return;
+    const topicItem=this.data.items.find(item=>item.remoteJobId && Date.now()-(item.topicSyncedAt || 0)>60000);
+    if(topicItem && this.topicSync){this.work={kind:'topic',id:topicItem.id,title:'Обновляем тему урока'};try{await this.syncTopic(topicItem);}finally{this.work=null;}}
     const pending = this.data.clips.find(c => c.autoPublish && !c.materialId && ['queued', 'processing'].includes(c.materialStatus) && (c.nextPublishAt || 0) <= Date.now());
     if (pending && this.materialPublisher) {
       this.work = { kind: 'publish', id: pending.id, title: pending.title };
@@ -245,7 +271,7 @@ export class LessonArchive {
       this.data.speedSamples = rememberSpeed(this.data.speedSamples, { model: item.model || 'base', audioSeconds: length,
         wallSeconds: Math.max(0.001, (Date.now() - startedAt) / 1000 - (modelSeconds > 60 ? modelSeconds : 0)) });
       item.processed = Math.min(item.duration, start + length); item.tags = topicTags(combined);
-      if (item.processed >= item.duration - 0.1) { item.status = 'done'; this.data.queue.shift(); }
+      if (item.processed >= item.duration - 0.1) { item.status = 'done'; this.data.queue.shift();await this.syncTopic(item); }
       else item.status = 'queued';
     } catch (e) {
       if (this.data.paused || this.isBusy()) item.status = 'queued';
@@ -348,6 +374,11 @@ export class LessonArchive {
       else if (url.pathname === '/archive/enqueue') { if (!Array.isArray(payload.ids) || payload.ids.length > 2000) throw new Error('Выберите записи'); this.enqueue(payload.ids, payload.model); value = this.state(); }
       else if (url.pathname === '/archive/pause') { this.pause(); value = this.state(); }
       else if (url.pathname === '/archive/resume') { this.data.paused = false; this.save(); value = this.state(); }
+      else if (url.pathname === '/archive/lesson-topic') {
+        const text=String(payload.text || '').trim();if(!text || text.length>320)throw new Error('Укажите тему длиной до 320 символов');
+        if((this.work && this.work.kind!=='transcribe') || this.isBusy())throw new Error('Дождитесь окончания текущей операции');
+        const item=this.item(payload.id);await this.syncTopic(item,text);value={topic:item.topic,title:item.title};
+      }
       else if (url.pathname === '/archive/create-material') {
         const item = this.item(payload.id); if (payload.whole !== true) clipRange(payload.start, payload.end, item.duration || Infinity);
         if (!String(payload.title || '').trim() || String(payload.title).trim().length > 100) throw new Error('Укажите название длиной до 100 символов');

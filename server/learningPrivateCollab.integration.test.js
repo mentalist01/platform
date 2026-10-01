@@ -158,9 +158,8 @@ test('private boards, code and answer chat isolate students; legacy recording is
     }
 
     const connections = [];
-    const connectBoard = async (studentId, token) => {
+    const connectRoom = async (room, token) => {
       const doc = new Y.Doc();
-      const room = `board-lesson-${lesson.id}${studentId ? `~student~${studentId}` : ''}`;
       const provider = new WebsocketProvider(`${socketBase}/collab`, room, doc, {
         WebSocketPolyfill: WebSocket, params: { _auth: token }, disableBc: true,
       });
@@ -169,8 +168,10 @@ test('private boards, code and answer chat isolate students; legacy recording is
         const timeout = setTimeout(() => reject(new Error('Board sync timed out')), 5000);
         provider.on('sync', (synced) => { if (synced) { clearTimeout(timeout); resolve(); } });
       });
-      return doc.getArray('items');
+      return doc;
     };
+    const boardRoom = (studentId,pageId='') => `board-lesson-${lesson.id}${studentId ? `~student~${studentId}` : ''}${pageId ? `~page~${pageId}` : ''}`;
+    const connectBoard = async (studentId,token,pageId='') => (await connectRoom(boardRoom(studentId,pageId),token)).getArray('items');
     try {
       const annaTeacherBoard = await connectBoard('student-a', teacherLogin.token);
       annaTeacherBoard.push([{ id: 'stroke-a', type: 'stroke', points: [{ x: 1, y: 2 }] }]);
@@ -184,8 +185,66 @@ test('private boards, code and answer chat isolate students; legacy recording is
       assert.equal(commonBoard.length, 0);
       const reopened = await connectBoard('student-a', teacherLogin.token);
       assert.equal(reopened.get(0)?.id, 'stroke-a', 'Tab switches preserve private board data');
+      const pageId='page-test-02';
+      await assert.rejects(openSocket(`${socketBase}/collab/${boardRoom('',pageId)}?_auth=${teacherLogin.token}`),/403/,'An unlisted page cannot create an orphan canvas');
+      const teacherBook=await connectRoom(`board-lesson-${lesson.id}~pages`,teacherLogin.token);
+      teacherBook.getMap('pages').set(pageId,{title:'Вторая страница',createdAt:Date.now()});
+      teacherBook.getMap('pageControl').set('panel',{open:true,id:'teacher-panel'});
+      const annaBook=await connectRoom(`board-lesson-${lesson.id}~pages`,annaLogin.token);
+      assert.equal(annaBook.getMap('pages').get(pageId).title,'Вторая страница');
+      assert.equal(annaBook.getMap('pageControl').get('panel').open,true);
+      annaBook.getMap('pageControl').set('summon',{id:'forged',pageId});
+      annaBook.getMap('pages').set('forged-page',{title:'Forbidden'});
+      await new Promise(resolve=>setTimeout(resolve,100));
+      const verifiedBook=await connectRoom(`board-lesson-${lesson.id}~pages`,teacherLogin.token);
+      assert.equal(verifiedBook.getMap('pages').has('forged-page'),false,'Student writes do not reach the stored page manifest');
+      assert.equal(verifiedBook.getMap('pageControl').has('summon'),false,'Student cannot impersonate a teacher summon');
+      const newPrivate=await connectBoard('student-a',teacherLogin.token,pageId);
+      const newCommon=await connectBoard('',teacherLogin.token,pageId);
+      const newOther=await connectBoard('student-b',teacherLogin.token,pageId);
+      assert.equal(newPrivate.length,0);assert.equal(newCommon.length,0);assert.equal(newOther.length,0,'A new page starts with all windows empty');
+      newPrivate.push([{id:'private-page-2',type:'text',text:'Only Anna sees this'}]);
+      const annaPageTwo=await connectBoard('student-a',annaLogin.token,pageId);
+      assert.equal(annaPageTwo.get(0)?.id,'private-page-2');
+      await assert.rejects(openSocket(`${socketBase}/collab/${boardRoom('student-a',pageId)}?_auth=${ilyaLogin.token}`),/403/);
+      assert.equal((await connectBoard('student-a',teacherLogin.token)).get(0)?.id,'stroke-a','Returning to page one preserves its original content');
+      newCommon.push([{id:'shared-page-2',type:'text',text:'For everyone'}]);
+      assert.equal((await connectBoard('',ilyaLogin.token,pageId)).get(0)?.id,'shared-page-2');
+      const personalRoom=`board-${teacher.id}-${students[2].id}`;
+      const personalBook=await connectRoom(`${personalRoom}~pages`,teacherLogin.token);
+      personalBook.getMap('pages').set(pageId,{title:'Individual page',createdAt:Date.now()});
+      assert.equal((await connectRoom(`${personalRoom}~pages`,outsiderLogin.token)).getMap('pages').get(pageId).title,'Individual page');
+      const personalPage=await connectRoom(`${personalRoom}~page~${pageId}`,teacherLogin.token);
+      personalPage.getArray('items').push([{id:'personal-page-2',type:'text',text:'Individual only'}]);
+      assert.equal((await connectRoom(`${personalRoom}~page~${pageId}`,outsiderLogin.token)).getArray('items').get(0).id,'personal-page-2');
+      await assert.rejects(openSocket(`${socketBase}/collab/${personalRoom}~page~${pageId}?_auth=${annaLogin.token}`),/403/);
     } finally {
       for (const { provider, doc } of connections) { provider.destroy(); doc.destroy(); }
+    }
+
+    // Dedicated board snapshots also persist page metadata; a reconnect must
+    // recover both the manifest and each independent canvas after all tabs leave.
+    const snapshotDir=path.join(dataDir,'collab','board-snapshots');
+    const stored=[];
+    const snapshotDeadline=Date.now()+5000;
+    while (Date.now()<snapshotDeadline) {
+      stored.length=0;
+      for(const file of fs.readdirSync(snapshotDir)) {
+        const doc=new Y.Doc();Y.applyUpdate(doc,fs.readFileSync(path.join(snapshotDir,file)));
+        stored.push({pages:doc.getMap('pages').toJSON(),items:doc.getArray('items').toArray()});doc.destroy();
+      }
+      if(stored.some(d=>d.pages['page-test-02']) && stored.some(d=>d.items.some(i=>i.id==='private-page-2')))break;
+      await new Promise(resolve=>setTimeout(resolve,20));
+    }
+    assert.ok(stored.some(d=>d.pages['page-test-02']?.title==='Вторая страница'),'Page manifest is persisted to disk');
+    assert.ok(stored.some(d=>d.items.some(i=>i.id==='stroke-a')),'Original first page is persisted');
+    assert.ok(stored.some(d=>d.items.some(i=>i.id==='private-page-2')),'New private page is persisted separately');
+    assert.ok(stored.some(d=>d.items.some(i=>i.id==='shared-page-2')),'New shared page is persisted separately');
+    try {
+      assert.equal((await connectRoom(`board-lesson-${lesson.id}~pages`,teacherLogin.token)).getMap('pages').get('page-test-02').title,'Вторая страница');
+      assert.equal((await connectBoard('student-a',annaLogin.token,'page-test-02')).get(0).id,'private-page-2');
+    } finally {
+      for (const {provider,doc} of connections) {provider.destroy();doc.destroy();}
     }
 
     const chatPath = `/api/learning-groups/${group.id}/lessons/${lesson.id}/answer-chat`;

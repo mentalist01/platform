@@ -128,7 +128,12 @@ export const normalizeLessonTopicsStore = (value) => {
     })
     .sort((left, right) => Date.parse(left.occurredAt) - Date.parse(right.occurredAt))
     .slice(-LESSON_NOTE_ACTIVITY_LIMIT);
-  return { topics, activities };
+  const transcriptTopics = {};
+  Object.values(isPlainObject(source.transcriptTopics) ? source.transcriptTopics : {}).forEach(value => {
+    const record = normalizeLessonTopicRecord(value);
+    if (record) transcriptTopics[record.key] = record;
+  });
+  return { topics, activities, transcriptTopics };
 };
 
 const dayKeyToNumber = (value) => {
@@ -307,6 +312,7 @@ const getDerivedTopicText = (taskNumbers) => {
 export const resolveLessonTopicsForOccurrences = ({
   occurrences = [],
   manualTopics = {},
+  transcriptTopics = {},
   activities = [],
   files = [],
 } = {}) => {
@@ -384,7 +390,11 @@ export const resolveLessonTopicsForOccurrences = ({
         || left[0] - right[0]
       ))
       .map(([taskNumber]) => taskNumber);
-    if (taskNumbers.length === 0) return;
+    if (taskNumbers.length === 0) {
+      const transcript = normalizeLessonTopicRecord(transcriptTopics[key]);
+      if (transcript) resolved[key] = {text:transcript.text,source:'transcript',taskNumbers:[],updatedAt:transcript.updatedAt || ''};
+      return;
+    }
     const latestMs = Math.max(...Array.from(taskActivity.values()).map((entry) => entry.latestMs));
     resolved[key] = {
       text: getDerivedTopicText(taskNumbers),

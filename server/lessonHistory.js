@@ -84,7 +84,7 @@ const normalizeTopicSnapshot = (value) => {
   if (!isPlainObject(value)) return null;
   const text = normalizeLessonTopicText(value.text);
   if (!text) return null;
-  const source = value.source === 'teacher' ? 'teacher' : (value.source === 'notes' ? 'notes' : 'notes');
+  const source = ['teacher','notes','transcript'].includes(value.source) ? value.source : 'notes';
   const taskNumbers = Array.from(new Set(
     (Array.isArray(value.taskNumbers) ? value.taskNumbers : [])
       .map((entry) => Number(entry))

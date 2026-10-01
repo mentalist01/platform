@@ -1663,7 +1663,7 @@ const ScheduleSection = ({
 
   const getLessonTopicDisplayText = (topic) => {
     if (!topic || typeof topic !== 'object') return '';
-    if (topic.source === 'teacher') return String(topic.text || '').trim();
+    if (topic.source === 'teacher' || topic.source === 'transcript') return String(topic.text || '').trim();
     const taskNumbers = Array.from(new Set(
       (Array.isArray(topic.taskNumbers) ? topic.taskNumbers : [])
         .map((value) => Number(value))
@@ -1921,7 +1921,7 @@ const ScheduleSection = ({
                         title={lessonTopicText || emptyTopicText}
                       >
                         <BookOpen size={13} />
-                        <span>{lessonTopic?.source === 'teacher' ? 'Тема учителя' : (lessonTopic ? 'По конспектам' : 'Тема')}</span>
+                        <span>{lessonTopic?.source === 'teacher' ? 'Тема учителя' : (lessonTopic?.source==='transcript' ? 'По расшифровке' : (lessonTopic ? 'По конспектам' : 'Тема'))}</span>
                         <strong>{lessonTopicText || (lessonTopicsLoading ? 'Определяем тему…' : emptyTopicText)}</strong>
                       </div>
                     )}
@@ -2029,7 +2029,7 @@ const ScheduleSection = ({
                     const topicText = getLessonTopicDisplayText(topic);
                     const topicSourceLabel = topic?.source === 'teacher'
                       ? 'Тема учителя'
-                      : (topic ? 'По конспектам' : 'Тема');
+                      : (topic?.source==='transcript' ? 'По расшифровке' : (topic ? 'По конспектам' : 'Тема'));
                     const historyStudentName = String(
                       entry?.studentName || selectedStudent?.name || ''
                     ).trim();

@@ -123,10 +123,18 @@ test('real platform routes isolate devices and expose one group recording to its
   await request(`/desktop-recorder/jobs/${job.id}`, { token, body: { status: 'saved' } });
   const url = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Fixture_Key';
   await request(`/desktop-recorder/jobs/${job.id}`, { token, body: { status: 'ready', url } });
+  assert.equal((await request('/desktop-recorder/poll',{token,body:{ready:true}})).jobs.length,0,'Ready jobs no longer appear in poll');
+  await request('/desktop-recorder/archive/lesson-topic',{actor:'s1',body:{jobId:job.id},status:401});
+  const topicPayload={jobId:job.id,text:'Задание №7 · Кодирование звука',source:'transcript'};
+  assert.equal((await request('/desktop-recorder/archive/lesson-topic',{token,body:topicPayload})).topic.source,'transcript');
+  const storedTopics=fs.readFileSync(path.join(data,'lesson-topics.json'),'utf8');
+  await request('/desktop-recorder/archive/lesson-topic',{token,body:topicPayload});
+  assert.equal(fs.readFileSync(path.join(data,'lesson-topics.json'),'utf8'),storedTopics);
   for (const actor of ['s1', 's8']) {
     const history = await request(`/lesson-history?studentId=${actor}`, { actor });
     const lesson = history.items.find(item => item.lessonId === 'lesson1');
     assert.ok(lesson, `Missing group lesson for ${actor}: ${JSON.stringify(history)}`);
+    assert.equal(lesson.topic.text,topicPayload.text);assert.equal(lesson.topic.source,'transcript');
     const detail = await request(`/lesson-history/detail?studentId=${actor}&occurrenceKey=${encodeURIComponent(lesson.key)}`, { actor });
     assert.equal(detail.replay.provider, 'rutube'); assert.equal(detail.replay.available, true);
     assert.equal(detail.replay.video.url, url);

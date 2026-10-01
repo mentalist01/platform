@@ -178,6 +178,15 @@ test('mock exams accept answer variants and teacher corrections update the froze
     assert.equal(finishedAttempt.solved['8'], false);
     assert.ok(finishedAttempt.attemptId);
 
+    const notifications=async()=>{
+      const response=await request('/api/teacher-solved-events?teacherId=teacher-a',teacherAuthorization);await assertStatus(response,200);return response.json();
+    };
+    const firstNotifications=await notifications();assert.equal(firstNotifications.length,1);
+    assert.equal(firstNotifications[0].source,'mock-exam-completed');assert.equal(firstNotifications[0].secondaryScore,7);
+    const retryFinish=await request('/api/mock-exams/attempt',studentAuthorization,'PUT',{examId:'exam-a',mode:'classic',finishAttempt:true,answers:{7:'7656',8:'wrong'}});
+    await assertStatus(retryFinish,200);assert.equal((await notifications()).length,1);
+    await assertStatus(await request('/api/teacher-solved-events?teacherId=teacher-a',studentAuthorization),403);
+
     const beforeCorrection = JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json'), 'utf8'))['student-a'];
     assert.equal(beforeCorrection.mockTestingQueue.length, 1);
     const xpBefore = beforeCorrection.xpTotal;
@@ -204,6 +213,7 @@ test('mock exams accept answer variants and teacher corrections update the froze
     assert.equal(correction.attempt.resultOverrides['8'].correct, true);
     assert.equal(correction.primaryScore, 2);
     assert.equal(correction.secondaryScore, 14);
+    const correctedNotifications=await notifications();assert.equal(correctedNotifications.length,1);assert.equal(correctedNotifications[0].secondaryScore,14);
     assert.equal(correction.rewardsChanged, false);
     assert.equal(correction.history[0].primaryScore, 2);
     assert.equal(correction.history[0].secondaryScore, 14);
@@ -223,7 +233,9 @@ test('mock exams accept answer variants and teacher corrections update the froze
         examId: 'exam-games', mode: 'classic', answers, finishAttempt,
       });
       await assertStatus(response, 200);
-      return response.json();
+      const result=await response.json();
+      if(!finishAttempt)assert.equal((await notifications()).length,1,'Saving individual exam answers must not notify the teacher');
+      return result;
     };
     const firstOnly = await saveGames({ 19: '10', 20: ['11', ''], 21: 'wrong' });
     assert.deepEqual(firstOnly.solved, { 19: true, 20: false, 21: false });

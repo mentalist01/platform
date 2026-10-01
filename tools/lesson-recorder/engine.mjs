@@ -114,6 +114,7 @@ export class RecorderEngine {
       const local = this.state.jobs[wanted.id];
       // Refresh display metadata without changing the file name or lesson binding.
       if (local && typeof wanted.lessonName === 'string') local.lessonName = wanted.lessonName;
+      if (local) local.lessonTopic=wanted.lessonTopic || null;
       if (wanted.desired === 'stop' && local && !local.fallbackMode && ['starting', 'recording', 'stopping'].includes(local.status)) await this.stop(local);
     }
     for (const wanted of remote.jobs) {

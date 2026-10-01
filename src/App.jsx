@@ -230,6 +230,7 @@ const loadSessionManagementSection = () => import('./components/SessionManagemen
 
 const AdminPanel = React.lazy(loadAdminPanel);
 const BoardTabletHost = React.lazy(() => import('./components/BoardTabletHost.jsx'));
+const BoardPagesWorkspace = React.lazy(() => import('./components/BoardPagesWorkspace.jsx'));
 const CallSection = React.lazy(loadCallSection);
 const Editor = React.lazy(loadEditor);
 const FinalReviewSection = React.lazy(loadFinalReviewSection);
@@ -2047,23 +2048,23 @@ const getTeacherNotifStudentLabel = (note) => {
 
 const normalizeTeacherSolvedSource = (note) => {
   const raw = String(note?.source || note?.eventKind || '').trim().toLowerCase();
+  if (raw === 'mock-exam-completed') return raw;
   if (raw === 'mock-exam' || raw === 'mock-exam-task') return 'mock-exam';
   return 'testing';
 };
 
-const isMockExamTeacherSolvedNotif = (note) => normalizeTeacherSolvedSource(note) === 'mock-exam';
+const isMockExamTeacherSolvedNotif = (note) => normalizeTeacherSolvedSource(note).startsWith('mock-exam');
 
 const getTeacherSolvedNotifKicker = (note, archived = false) => {
-  if (isMockExamTeacherSolvedNotif(note)) return archived ? 'Пробник' : 'Ответ в пробнике';
+  if (isMockExamTeacherSolvedNotif(note)) return archived ? 'Пробник' : 'Пробник завершён';
   return archived ? 'Отметка' : 'Новая отметка';
 };
 
 const getTeacherSolvedNotifSummary = (note) => {
   if (isMockExamTeacherSolvedNotif(note)) {
     const examTitle = String(note?.mockExamTitle || '').trim() || 'Пробник';
-    const taskValue = note?.mockTaskNumber ?? note?.taskNumber;
-    const taskLabel = formatTaskNumber(taskValue) || String(taskValue || '').trim();
-    return `Решено в пробнике: ${examTitle}${taskLabel ? ` · задание ${taskLabel}` : ''}`;
+    if (normalizeTeacherSolvedSource(note) !== 'mock-exam-completed') return `${examTitle} · задание ${note?.mockTaskNumber ?? note?.taskNumber ?? ''}`;
+    return `Завершён пробник: ${examTitle} · ${Number(note?.secondaryScore) || 0} / 100 баллов`;
   }
   const levelLabel = note?.levelId === PYTHON_LEVEL_ID
     ? 'Python'
@@ -2368,6 +2369,7 @@ const normalizeTeacherNotifHistoryEntry = (entry) => {
     mockExamId: String(entry?.mockExamId || '').trim(),
     mockExamTitle: String(entry?.mockExamTitle || '').trim(),
     mockTaskNumber: entry?.mockTaskNumber ?? null,
+    secondaryScore: Number(entry?.secondaryScore) || 0,
     taskNumber: entry?.taskNumber,
     levelId: String(entry?.levelId || '').trim(),
     questionNumber,
@@ -11556,7 +11558,14 @@ const createLessonReplayBoardPayload = (items, previousState, forceSnapshot = fa
   };
 };
 
-const BoardSection = ({
+const BoardSection = (props) => props.sandbox?.id ? <BoardCanvasSection {...props}/> : (
+  <React.Suspense fallback={<div role="status">Загружаем доску…</div>}>
+    <BoardPagesWorkspace {...props} Canvas={BoardCanvasSection} key={props.lessonId || `${props.teacherId}:${props.role==='teacher'?props.activeStudentId:props.userId}`}/>
+  </React.Suspense>
+);
+
+const BoardCanvasSection = ({
+  pages = null,
   role,
   userId,
   userName,
@@ -11590,11 +11599,9 @@ const BoardSection = ({
       .filter(Boolean)
   )), [participantIds]);
   const isGroupLesson = Boolean(learningLessonId && learningGroupId);
-  const [selectedBoardTab, setSelectedBoardTab] = useState({ lessonId: '', studentId: '' });
   const boardStudentId = isGroupLesson && !sandbox?.id
-    && selectedBoardTab.lessonId === learningLessonId
-    && (isTeacher ? learningParticipantIds.includes(selectedBoardTab.studentId) : selectedBoardTab.studentId === userId)
-    ? selectedBoardTab.studentId : '';
+    && (isTeacher ? learningParticipantIds.includes(pages?.boardStudentId) : pages?.boardStudentId === userId)
+    ? pages.boardStudentId : '';
   const isSharedGroupBoard = isGroupLesson && !boardStudentId;
   const effectiveStudentId = boardStudentId || (isTeacher ? activeStudentId : userId);
   const canSaveToNotesTarget = isGroupLesson
@@ -11610,9 +11617,9 @@ const BoardSection = ({
   const sandboxReadOnlyViewportSignature = isSandbox && sandboxReadOnly
     ? JSON.stringify(sandbox?.viewport || null)
     : '';
-  const liveRoomId = isGroupLesson
+  const liveRoomId = pages ? pages.liveRoomId : (isGroupLesson
     ? `board-lesson-${learningLessonId}${boardStudentId ? `~student~${boardStudentId}` : ''}`
-    : (effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null);
+    : (effectiveStudentId && teacherId ? `board-${teacherId}-${effectiveStudentId}` : null));
   const roomId = isSandbox ? `sandbox-${sandboxSessionId}` : liveRoomId;
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const wsUrl = useMemo(() => getCollabWsUrl(), []);
@@ -11719,9 +11726,6 @@ const BoardSection = ({
   const imageResizePreviewRef = useRef(null);
   const imageActionNoticeTimeoutRef = useRef(null);
   const linkedBoardObjectRef = useRef('');
-  const lastSummonIdRef = useRef(null);
-  const summonTimeoutRef = useRef(null);
-  const summonNoticeTimeoutRef = useRef(null);
   const eraserStateRef = useRef({ active: false });
   const brushPaletteRef = useRef(null);
   const shapePaletteRef = useRef(null);
@@ -12184,7 +12188,6 @@ const BoardSection = ({
     selectionRef.current = null;
     lastCursorSyncAtRef.current = 0;
     lastPreviewSyncAtRef.current = 0;
-    lastSummonIdRef.current = null;
 
     if (typeof window !== 'undefined' && previewRafRef.current) {
       window.cancelAnimationFrame(previewRafRef.current);
@@ -12209,14 +12212,6 @@ const BoardSection = ({
     if (mobileRemoteCursorPeekTimerRef.current) {
       clearTimeout(mobileRemoteCursorPeekTimerRef.current);
       mobileRemoteCursorPeekTimerRef.current = null;
-    }
-    if (summonTimeoutRef.current) {
-      clearTimeout(summonTimeoutRef.current);
-      summonTimeoutRef.current = null;
-    }
-    if (summonNoticeTimeoutRef.current) {
-      clearTimeout(summonNoticeTimeoutRef.current);
-      summonNoticeTimeoutRef.current = null;
     }
 
     awarenessRef.current?.setLocalStateField('drawing', null);
@@ -12514,6 +12509,8 @@ const BoardSection = ({
       viewportHydratedRef.current = true;
       return;
     }
+    setZoom(1);
+    setOffset({x:0,y:0});
     try {
       const raw = window.localStorage.getItem(boardViewportStorageKey);
       if (raw) {
@@ -12542,6 +12539,16 @@ const BoardSection = ({
     sandboxReadOnlyViewportSignature,
     sandboxSessionId,
   ]);
+
+  useEffect(() => {
+    const navigation = pages?.navigation;
+    if (!navigation) return undefined;
+    setZoom(clamp(navigation.zoom, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM));
+    setOffset(navigation.offset);
+    setSummonNotice(true);
+    const timer = setTimeout(() => setSummonNotice(false),3500);
+    return () => clearTimeout(timer);
+  },[pages?.navigation]);
 
   useEffect(() => {
     if (!isSandbox || !sandboxReadOnly) {
@@ -13215,22 +13222,7 @@ const BoardSection = ({
     } catch { /* no-op */ }
   };
 
-  const handleSummonStudent = () => {
-    if (!awarenessRef.current || !roomId) return;
-    const summonPayload = {
-      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random()}`,
-      ts: Date.now(),
-      zoom: zoomRef.current || 1,
-      offset: { ...offsetRef.current },
-    };
-    if (summonTimeoutRef.current) clearTimeout(summonTimeoutRef.current);
-    awarenessRef.current.setLocalStateField('summon', summonPayload);
-    summonTimeoutRef.current = setTimeout(() => {
-      awarenessRef.current?.setLocalStateField('summon', null);
-    }, 4000);
-  };
+  const handleSummonStudent = () => pages?.summon({zoom:zoomRef.current || 1,offset:{...offsetRef.current}});
 
   const normalizeFileName = (value) => {
     const trimmed = String(value || '').replace(/\./g, '').trim();
@@ -15580,11 +15572,10 @@ const BoardSection = ({
     setStatus(isSandbox ? 'local' : 'connecting');
     const doc = new Y.Doc();
     const remoteCursorActivity = remoteCursorActivityRef.current;
-    lastSummonIdRef.current = null;
     docRef.current = doc;
     const provider = isSandbox
       ? null
-      : new WebsocketProvider(wsUrl, liveRoomId, doc, { params: wsParams });
+      : new WebsocketProvider(wsUrl, liveRoomId, doc, { params: wsParams, disableBc:true });
     providerRef.current = provider;
     awarenessRef.current = provider?.awareness || null;
     const yItems = doc.getArray('items');
@@ -15706,7 +15697,6 @@ const BoardSection = ({
       const cursors = [];
       const activePreviewClientIds = new Set();
       const activeCursorClientIds = new Set();
-      let incomingSummon = null;
       const taskCodePresenceById = {};
       states.forEach((state, clientId) => {
         if (clientId === provider.awareness.clientID) return;
@@ -15795,10 +15785,6 @@ const BoardSection = ({
             updatedAt,
           });
         }
-        const summon = state?.summon;
-        if (summon?.ts && (!incomingSummon || summon.ts > (incomingSummon.ts || 0))) {
-          incomingSummon = summon;
-        }
         const taskCodePresence = state?.taskCodePresence;
         const presenceTaskId = String(taskCodePresence?.taskId || '').trim();
         const presenceAction = String(taskCodePresence?.action || '').trim();
@@ -15828,28 +15814,12 @@ const BoardSection = ({
       setRemotePreviews(previews);
       setRemoteCursors(cursors);
       setRemoteTaskCodePresenceById(taskCodePresenceById);
-      if (!isTeacher && incomingSummon?.id && incomingSummon.id !== lastSummonIdRef.current) {
-        lastSummonIdRef.current = incomingSummon.id;
-        const nextZoom = clamp(Number(incomingSummon.zoom) || 1, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM);
-        const nextOffset = {
-          x: Number(incomingSummon?.offset?.x) || 0,
-          y: Number(incomingSummon?.offset?.y) || 0,
-        };
-        setZoom(nextZoom);
-        setOffset(nextOffset);
-        setSummonNotice(true);
-        if (summonNoticeTimeoutRef.current) clearTimeout(summonNoticeTimeoutRef.current);
-        summonNoticeTimeoutRef.current = setTimeout(() => {
-          setSummonNotice(false);
-        }, 3500);
-      }
     };
 
     if (provider) {
       provider.awareness.setLocalStateField('user', { name: localName, color: localColor });
       provider.awareness.setLocalStateField('drawing', null);
       provider.awareness.setLocalStateField('cursor', null);
-      provider.awareness.setLocalStateField('summon', null);
       provider.awareness.setLocalStateField('taskCodePresence', null);
       provider.on('connection-close', handleConnectionClose);
       provider.on('status', handleStatus);
@@ -15892,7 +15862,6 @@ const BoardSection = ({
         provider.off('sync', handleSync);
         provider.awareness.setLocalStateField('drawing', null);
         provider.awareness.setLocalStateField('cursor', null);
-        provider.awareness.setLocalStateField('summon', null);
         provider.awareness.setLocalStateField('taskCodePresence', null);
       }
       undoManagerRef.current = null;
@@ -16351,13 +16320,7 @@ const BoardSection = ({
     if (minimapRenderTimerRef.current) clearTimeout(minimapRenderTimerRef.current);
   }, []);
 
-  useEffect(() => () => {
-    if (summonTimeoutRef.current) clearTimeout(summonTimeoutRef.current);
-  }, []);
 
-  useEffect(() => () => {
-    if (summonNoticeTimeoutRef.current) clearTimeout(summonNoticeTimeoutRef.current);
-  }, []);
 
   const commitTextDraft = (draft = textDraft) => {
     if (sandboxReadOnlyRef.current) {
@@ -17564,7 +17527,7 @@ const BoardSection = ({
                   if (selected) return;
                   resetBoardInteractionState();
                   setSaveModalOpen(false);
-                  setSelectedBoardTab({ lessonId: learningLessonId, studentId });
+                  pages?.selectWindow(studentId);
                 }}>
                 {label}
               </button>
@@ -17584,6 +17547,9 @@ const BoardSection = ({
         <div className="mt-2 text-xs text-rose-600">{pasteError}</div>
       )}
 
+      {pages?.header}
+      <div className="board-pages-stage flex flex-1 min-h-0 relative gap-2">
+      {pages?.panel}
       <div
         ref={containerRef}
         tabIndex={roomId && !boardReadOnly ? 0 : -1}
@@ -18531,6 +18497,7 @@ const BoardSection = ({
 
         <div ref={boardBottomControlsRef} className="board-bottom-controls">
           <div className="board-bottom-controls__pill board-bottom-controls__session" aria-label="Состояние доски">
+            {pages?.button}
             {!isSandbox && !boardReadOnly && roomId && (
               <React.Suspense fallback={null}>
                 <BoardTabletHost key={roomId} roomId={roomId} authorId={userId}
@@ -18686,6 +18653,7 @@ const BoardSection = ({
             )}
           </div>
         </div>
+      </div>
       </div>
     </>
   );
@@ -20233,6 +20201,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           mockExamId: note?.mockExamId,
           mockExamTitle: note?.mockExamTitle,
           mockTaskNumber: note?.mockTaskNumber,
+          secondaryScore: note?.secondaryScore,
           taskNumber: note?.taskNumber,
           levelId: note?.levelId,
           questionNumber: note?.questionNumber,

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Never distribute state.json, browser profiles, or credentials.
-export const recorderFiles = ['archive.mjs', 'archive-eta.mjs', 'archive-publish.mjs', 'archive-search.mjs', 'archive-worker.py', 'archive-requirements.txt', 'archive.html', 'updater.mjs', 'update-worker.mjs', 'Install.cmd', 'install.ps1', 'dependencies.ps1', 'app.mjs', 'obs.mjs',
+export const recorderFiles = ['lesson-topic.mjs','archive.mjs', 'archive-eta.mjs', 'archive-publish.mjs', 'archive-search.mjs', 'archive-worker.py', 'archive-requirements.txt', 'archive.html', 'updater.mjs', 'update-worker.mjs', 'Install.cmd', 'install.ps1', 'dependencies.ps1', 'app.mjs', 'obs.mjs',
   'start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs', 'python-theory.mjs', 'fallback.mjs', 'storage.mjs', 'recording-storage.mjs', 'recovery-inbox.mjs', 'rutube.mjs',
   'panel.html', 'hotkeys.ps1', 'background.vbs', 'README.md', 'package.json', 'package-lock.json'];
 const directory = fileURLToPath(new URL('../tools/lesson-recorder/', import.meta.url));

@@ -12,8 +12,11 @@ import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './goog
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
 import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
+import { recorderLessonTopic } from './recorderLessonTopics.js';
+import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
+import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import { addRecorderMaterial, recordingLibrary, addLessonRecordingMaterial } from './recorderMaterials.js';
@@ -656,7 +659,13 @@ const teacherCalendarMarksFile = path.join(dataDir, 'teacher-calendar-marks.json
 const teacherCalendarGoogleFile = path.join(dataDir, 'teacher-calendar-google.json');
 const lessonTopicsFile = path.join(dataDir, 'lesson-topics.json');
 const lessonHistoryFile = path.join(dataDir, 'lesson-history.json');
+const recorderTopicCache = new Map();
+const recorderTopicContext = () => ({students:readStudentsDb(),lessons:LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [],read:readLessonTopicsStore,write:writeLessonTopicsStore,files:readFilesDb()});
 const desktopRecordings = createDesktopRecordingStore(path.join(dataDir, 'desktop-recordings.json'), {
+  lessonTopicFor: job => {
+    const cached=recorderTopicCache.get(job.id);if(cached && Date.now()-cached.at<30000)return cached.topic;
+    try{const topic=recorderLessonTopic(job.teacherId,job,{},recorderTopicContext()).topic;if(recorderTopicCache.size>1000)recorderTopicCache.clear();recorderTopicCache.set(job.id,{topic,at:Date.now()});return topic;}catch{return null;}
+  },
   lessonNameFor: (job) => {
     if (job.occurrence.lessonId) {
       const context = getLearningGroupReplayContext(job.occurrence.lessonId);
@@ -1779,6 +1788,23 @@ const getLoadedCollabDocs = () => (
     ? yWsUtils.docs
     : null
 );
+// A canvas can be opened only after its page was created in the teacher's
+// manifest. This prevents arbitrary page IDs from creating orphan snapshots.
+const isKnownBoardPage = (access) => {
+  if (!access?.target?.boardPageId) return true;
+  const pageRoom = parseBoardPageRoom(access.docName);
+  if (!pageRoom || pageRoom.book) return false;
+  const bookRoom = boardPageBookRoom(pageRoom.baseRoomId.split('~student~')[0]);
+  const loaded = getLoadedCollabDocEntry(bookRoom)?.doc;
+  if (loaded) return boardPagesList(loaded.getMap('pages')).some(page => page.id === pageRoom.pageId);
+  const snapshot = new Y.Doc();
+  try {
+    loadBoardDocSnapshot(bookRoom, snapshot);
+    return boardPagesList(snapshot.getMap('pages')).some(page => page.id === pageRoom.pageId);
+  } finally {
+    snapshot.destroy();
+  }
+};
 const resetCollabDoc = async (docName, options = {}) => {
   const normalized = normalizeCollabDocName(docName);
   if (!normalized) {
@@ -4956,11 +4982,13 @@ const hardDeleteStudentData = (studentIds = []) => {
     Object.entries(lessonTopicsStore.topics).filter(([, entry]) => !idSet.has(entry?.studentId))
   );
   const nextLessonActivities = lessonTopicsStore.activities.filter((entry) => !idSet.has(entry?.studentId));
+  const nextTranscriptTopics = Object.fromEntries(Object.entries(lessonTopicsStore.transcriptTopics).filter(([,topic])=>!idSet.has(topic.studentId)));
   if (
     Object.keys(nextLessonTopics).length !== Object.keys(lessonTopicsStore.topics).length
     || nextLessonActivities.length !== lessonTopicsStore.activities.length
+    || Object.keys(nextTranscriptTopics).length !== Object.keys(lessonTopicsStore.transcriptTopics).length
   ) {
-    writeLessonTopicsStore({ topics: nextLessonTopics, activities: nextLessonActivities });
+    writeLessonTopicsStore({ ...lessonTopicsStore,topics:nextLessonTopics,activities:nextLessonActivities,transcriptTopics:nextTranscriptTopics });
   }
 
   const usageDb = readUsageDb();
@@ -14648,6 +14676,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
       homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
+      mockCompletionEvents: normalizeMockCompletionEvents(raw.mockCompletionEvents),
       mockAttemptResults: normalizeMockExamFollowupHistory(raw.mockAttemptResults),
       monthlyMockCompletions: normalizeMonthlyMockCompletions(raw.monthlyMockCompletions),
       monthlyMockExemptions: normalizeMonthlyMockExemptions(raw.monthlyMockExemptions),
@@ -14740,6 +14769,7 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     nextLesson: data.nextLesson && typeof data.nextLesson === 'object' ? data.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
     homeworks: Array.isArray(data.homeworks) ? data.homeworks : [],
     mockAttempts: data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {},
+    mockCompletionEvents: normalizeMockCompletionEvents(data.mockCompletionEvents),
     mockAttemptResults: normalizeMockExamFollowupHistory(data.mockAttemptResults),
     monthlyMockCompletions: normalizeMonthlyMockCompletions(data.monthlyMockCompletions),
     monthlyMockExemptions: normalizeMonthlyMockExemptions(data.monthlyMockExemptions),
@@ -21871,6 +21901,11 @@ app.post('/api/payment-notifications/macrodroid', async (req, res) => {
 });
 
 registerDesktopDeviceRoutes(app, desktopRecordings, {
+  lessonTopic: (teacherId,payload) => {
+    const teacher=readTeachersDb().find(t=>t.id===teacherId);
+    if(!teacher || !isTeacherSubscriptionAccessAllowed({...teacher,role:'teacher'}))throw Object.assign(new Error('Доступ к платформе приостановлен'),{status:402});
+    return recorderLessonTopic(teacherId,desktopRecordings.lessonJob(teacherId,payload.jobId),payload,recorderTopicContext());
+  },
   pythonCatalog: (teacherId) => {
     const teacher = readTeachersDb().find(t => t.id === teacherId);
     if (!teacher) throw Object.assign(new Error('Преподаватель не найден'), { status: 404 });
@@ -22709,7 +22744,7 @@ const boardTabletService = createBoardTabletService({
       attendanceRecords: LEARNING_GROUPS_ENABLED ? readLearningAttendanceDb() : [],
       students: readStudentsDb(),
     });
-    return access.allowed && !access.readOnly;
+    return access.allowed && !access.readOnly && !access.target?.boardPagesBook && isKnownBoardPage(access);
   },
 });
 app.post('/api/board-tablet', boardTabletService.create);
@@ -23741,7 +23776,8 @@ const closeLearningLessonCollabConnections = (lesson) => {
   const bases = [roomNames.boardDocName, roomNames.collabDocName];
   const docNames = new Set(bases);
   for (const name of getLoadedCollabDocs()?.keys() || []) {
-    if (bases.some((base) => name.startsWith(`${base}~student~`))) docNames.add(name);
+    const room = String(name).split('/').pop();
+    if (bases.some((base) => room.startsWith(`${base}~`))) docNames.add(name);
   }
   docNames.forEach((docName) => {
     const entry = getLoadedCollabDocEntry(docName);
@@ -31627,6 +31663,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     ...data,
     mockAttempts: attempts,
     mockAttemptResults,
+    mockCompletionEvents: normalizeMockCompletionEvents([...(data.mockCompletionEvents || []),...(isAttemptFinishRequest ? [{attemptId,examId:String(examId),examTitle,finishedAt:savedAt,secondaryScore}] : [])]),
     monthlyMockCompletions: normalizeMonthlyMockCompletions([
       ...collectMonthlyMockCompletions(data, list),
       ...collectMonthlyMockCompletions({ mockAttempts: attempts, mockAttemptResults }, list),
@@ -32285,9 +32322,10 @@ app.get('/api/teacher-solved-events', (req, res) => {
   const sinceTime = Number.isFinite(sinceMs) ? sinceMs : 0;
   const events = [];
 
+  const mockExams = readMockExamsDb();
   students.forEach((student) => {
     const data = getStudentData(student.id);
-    const list = Array.isArray(data.solvedEvents) ? data.solvedEvents : [];
+    const list = [...(Array.isArray(data.solvedEvents) ? data.solvedEvents : []).filter(event=>!['mock-exam','mock-exam-task'].includes(String(event.source || event.eventKind || '').trim().toLowerCase())),...mockCompletionNotifications(data,student.id,mockExams,getMockSecondaryScoreFromSolved)];
     list.forEach((ev) => {
       const eventId = typeof ev?.id === 'string' ? ev.id.trim() : '';
       if (!eventId || readIds.has(eventId)) return;
@@ -32295,7 +32333,7 @@ app.get('/api/teacher-solved-events', (req, res) => {
       if (!Number.isFinite(ts) || ts <= sinceTime) return;
       if (readBeforeMs > 0 && ts <= readBeforeMs) return;
       const sourceRaw = String(ev?.source || ev?.eventKind || '').trim().toLowerCase();
-      const isMockExamEvent = sourceRaw === 'mock-exam' || sourceRaw === 'mock-exam-task';
+      const isMockExamEvent = sourceRaw === 'mock-exam-completed';
       const questionNumber = !isMockExamEvent && Number.isFinite(ev?.questionNumber)
         ? ev.questionNumber
         : (isMockExamEvent ? null : getQuestionNumberById(testsDb, ev?.taskNumber, ev?.levelId, ev?.questionId));
@@ -32304,7 +32342,8 @@ app.get('/api/teacher-solved-events', (req, res) => {
         studentId: student.id,
         studentName: student.name,
         studentNickname: normalizeStudentNickname(student.nickname),
-        source: isMockExamEvent ? 'mock-exam' : 'testing',
+        source: isMockExamEvent ? 'mock-exam-completed' : 'testing',
+        ...(isMockExamEvent ? {secondaryScore:ev.secondaryScore} : {}),
         mockExamId: isMockExamEvent ? String(ev?.mockExamId || '').trim() : '',
         mockExamTitle: isMockExamEvent ? String(ev?.mockExamTitle || '').trim() : '',
         mockTaskNumber: isMockExamEvent ? (ev?.mockTaskNumber ?? ev?.taskNumber) : null,
@@ -33193,6 +33232,7 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
   const resolvedTopics = resolveLessonTopicsForOccurrences({
     occurrences,
     manualTopics: topicStore.topics,
+    transcriptTopics: topicStore.transcriptTopics,
     activities: topicStore.activities,
     files: readFilesDb(),
   });
@@ -36058,6 +36098,7 @@ app.get('/api/lesson-topics', async (req, res) => {
   const topics = resolveLessonTopicsForOccurrences({
     occurrences,
     manualTopics: store.topics,
+    transcriptTopics: store.transcriptTopics,
     activities: store.activities,
     files: readFilesDb(),
   });
@@ -42676,6 +42717,10 @@ server.on('upgrade', (request, socket, head) => {
       rejectUpgrade(socket, statusCode, access.reason || 'Forbidden');
       return;
     }
+    if (!isKnownBoardPage(access)) {
+      rejectUpgrade(socket, 403, 'Unknown board page');
+      return;
+    }
     request.learningCollabAccess = access;
     request.learningCollabAuth = session.user;
     void waitForCollabDocumentState(request.url).then(() => {
@@ -42732,7 +42777,7 @@ collabWss.on('connection', (ws, request) => {
   if (access?.readOnly) {
     installReadOnlyYWebsocketMessageFilter(ws, previousMessageListeners);
   }
-  const lesson = access?.target?.targetType === 'lesson' ? access.target.session : null;
+  const lesson = access?.target?.targetType === 'lesson' && !access.target.boardPagesBook ? access.target.session : null;
   const connectionId = `collab:${crypto.randomUUID()}`;
   const attendanceJoined = applyLearningLessonConnectionAttendance({
     auth: request?.learningCollabAuth,
