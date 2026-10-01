@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
-import {PanelLeft,Plus,ChevronLeft,ChevronRight,X,Pencil,Users} from 'lucide-react';
+import {PanelLeft,Plus,ChevronLeft,ChevronRight,ChevronDown,X,Pencil,Users} from 'lucide-react';
 import {loadYjsRuntime} from '../utils/collaborationRuntime.js';
 import {getCollabWsUrl} from '../utils/runtimeUrls.js';
 import {getStoredAuthToken} from '../services/api.js';
@@ -74,12 +74,26 @@ export default function BoardPagesWorkspace(props) {
   const page=pages.find(p=>p.id===pageId)||pages[0],index=pages.findIndex(p=>p.id===pageId);
   const uniquePeers=Array.from(new Map(peers.map(p=>[p.userId,p])).values());
   const label=p=>`${p.name || 'Участник'} — ${pages.find(page=>page.id===p.pageId)?.title || 'Страница'}${group ? (p.studentId?' · личная доска':' · общая доска') : ''}`;
+  const together=p=>p.pageId===pageId && (!group || String(p.studentId || '')===boardStudentId);
+  const peerStatus=p=>together(p)?'С вами':(p.pageId===pageId?'Другая доска':`Стр. ${pages.findIndex(page=>page.id===p.pageId)+1 || '—'}`);
+  const samePlaceCount=uniquePeers.filter(together).length;
+  const initials=p=>String(p.name || 'У').trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('');
   const button=<button type="button" onClick={toggle} className={`board-bottom-controls__button board-pages-toggle ${open?'is-active':''}`} aria-label="Страницы доски" aria-expanded={open} data-tooltip="Страницы доски"><PanelLeft size={19}/><span>{index+1}/{pages.length}</span></button>;
-  const header=<div className="board-pages-heading"><span className="board-pages-heading__current">{page.title}</span>{uniquePeers.map(peer=><span className="board-pages-presence" key={peer.userId} title={label(peer)}><Users size={13}/>{label(peer)}</span>)}{notice && <span role="status" className="board-pages-notice">{notice}</span>}</div>;
-  const panel=open ? <aside className="board-pages-panel" aria-label="Страницы доски"><div className="board-pages-panel__head"><strong>Страницы · {pages.length}</strong><button type="button" onClick={toggle} aria-label="Свернуть страницы"><X size={17}/></button></div>
+  const header=<div className="board-pages-heading" onPointerDown={e=>e.stopPropagation()}>
+    <button type="button" onClick={toggle} className={`board-pages-current ${open?'is-active':''}`} aria-label={`Выбор страницы: ${page.title}`} aria-expanded={open} title={page.title}>
+      <PanelLeft size={16}/><span className="board-pages-current__title">{page.title}</span><span className="board-pages-current__count">{index+1}/{pages.length}</span><ChevronDown size={14}/>
+    </button>
+    {uniquePeers.length>0 && <details className="board-pages-peers"><summary aria-label="Участники на страницах" title={uniquePeers.map(label).join('\n')}>
+      <span className="board-pages-avatars" aria-hidden="true">{uniquePeers.slice(0,3).map(peer=><span className={`board-pages-avatar ${together(peer)?'is-together':''}`} key={peer.userId}>{initials(peer)}</span>)}</span>
+      {uniquePeers.length===1 ? <><span className="board-pages-peer-name">{uniquePeers[0].name || 'Участник'}</span><span className={`board-pages-peer-state ${together(uniquePeers[0])?'is-together':''}`}>{peerStatus(uniquePeers[0])}</span></> : <span className="board-pages-peer-name">{samePlaceCount===uniquePeers.length?`${samePlaceCount} с вами`:`${uniquePeers.length} онлайн`}</span>}
+      <ChevronDown size={13}/>
+    </summary><div className="board-pages-peers__list"><div className="board-pages-peers__caption"><Users size={14}/>Кто где находится</div>{uniquePeers.map(peer=><div className="board-pages-peer" key={peer.userId} title={label(peer)}><span className={`board-pages-avatar ${together(peer)?'is-together':''}`}>{initials(peer)}</span><span><strong>{peer.name || 'Участник'}</strong><small>{pages.find(page=>page.id===peer.pageId)?.title || 'Страница'}{group?` · ${peer.studentId?'личная доска':'общая доска'}`:''}</small></span><i className={together(peer)?'is-together':''} aria-label={peerStatus(peer)}/></div>)}</div></details>}
+    {notice && <span role="status" className="board-pages-notice">{notice}</span>}
+  </div>;
+  const panel=open ? <aside className="board-pages-panel" aria-label="Страницы доски"><div className="board-pages-panel__head"><span><PanelLeft size={17}/><strong>Страницы</strong><small>{pages.length}</small></span><button type="button" onClick={toggle} aria-label="Свернуть страницы"><X size={17}/></button></div>
     {teacher && !readOnly && <button type="button" onClick={create} disabled={!connected || pages.length>=MAX_BOARD_PAGES} className="board-pages-create"><Plus size={17}/>Новая страница</button>}
     {error && <p role="alert">{error}</p>}
-    <nav className="board-pages-list" aria-label="Выбор страницы">{pages.map((p,i)=><div className={`board-pages-row ${p.id===pageId?'is-active':''}`} key={p.id}>{editing===p.id ? <input aria-label="Название страницы" maxLength={80} value={title} autoFocus onChange={e=>setTitle(e.target.value)} onBlur={rename} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();rename();}if(e.key==='Escape')setEditing('');}}/> : <><button type="button" onClick={()=>choose(p.id)} aria-current={p.id===pageId?'page':undefined}><span className="board-pages-number">{i+1}</span><span>{p.title}</span></button>{teacher && !readOnly && <button type="button" className="board-pages-rename" disabled={!connected} aria-label={`Переименовать ${p.title}`} onClick={()=>{setTitle(p.title);setEditing(p.id);}}><Pencil size={13}/></button>}</>}{uniquePeers.some(peer=>peer.pageId===p.id) && <small>{uniquePeers.filter(peer=>peer.pageId===p.id).map(peer=>peer.name || 'Участник').join(', ')}</small>}</div>)}</nav>
+    <nav className="board-pages-list" aria-label="Выбор страницы">{pages.map((p,i)=><div className={`board-pages-row ${p.id===pageId?'is-active':''}`} key={p.id}>{editing===p.id ? <input aria-label="Название страницы" maxLength={80} value={title} autoFocus onChange={e=>setTitle(e.target.value)} onBlur={rename} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();rename();}if(e.key==='Escape')setEditing('');}}/> : <><button type="button" onClick={()=>choose(p.id)} aria-current={p.id===pageId?'page':undefined} title={p.title}><span className="board-pages-number">{i+1}</span><span>{p.title}</span></button>{teacher && !readOnly && <button type="button" className="board-pages-rename" disabled={!connected} aria-label={`Переименовать ${p.title}`} onClick={()=>{setTitle(p.title);setEditing(p.id);}}><Pencil size={13}/></button>}</>}{uniquePeers.some(peer=>peer.pageId===p.id) && <small><span className="board-pages-dot"/>{uniquePeers.filter(peer=>peer.pageId===p.id).map(peer=>peer.name || 'Участник').join(', ')}</small>}</div>)}</nav>
     <footer><button type="button" disabled={index<=0} onClick={()=>choose(pages[index-1].id)} aria-label="Предыдущая страница"><ChevronLeft size={18}/></button><span>{index+1} / {pages.length}</span><button type="button" disabled={index>=pages.length-1} onClick={()=>choose(pages[index+1].id)} aria-label="Следующая страница"><ChevronRight size={18}/></button></footer>
   </aside> : null;
   return <Canvas {...canvasProps} pages={{liveRoomId:boardPageRoom(base,pageId,boardStudentId),pageId,boardStudentId,selectWindow:next=>{setStudentId(next);setNavigation(null);},summon,navigation,button,header,panel}}/>;

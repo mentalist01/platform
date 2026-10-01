@@ -17547,7 +17547,6 @@ const BoardCanvasSection = ({
         <div className="mt-2 text-xs text-rose-600">{pasteError}</div>
       )}
 
-      {pages?.header}
       <div className="board-pages-stage flex flex-1 min-h-0 relative gap-2">
       {pages?.panel}
       <div
@@ -17567,6 +17566,7 @@ const BoardCanvasSection = ({
           summonNotice ? 'ring-2 ring-amber-400/70 ring-offset-2 ring-offset-white' : ''
         }`}
       >
+        {pages?.header}
         {!boardReadOnly && (
         <div className="board-tool-rail" role="toolbar" aria-label="Инструменты доски">
           <button
