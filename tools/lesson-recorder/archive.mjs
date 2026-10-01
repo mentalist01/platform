@@ -224,7 +224,8 @@ export class LessonArchive {
     this.blocked = Boolean(this.isBusy());
     if (this.blocked && this.work?.kind === 'transcribe') this.child?.kill();
     if (this.work || this.setup || this.submitting || this.blocked) return;
-    const topicItem=this.data.items.find(item=>item.remoteJobId && Date.now()-(item.topicSyncedAt || 0)>60000);
+    const topicItem=this.data.items.filter(item=>item.remoteJobId && Date.now()-(item.topicSyncedAt || 0)>60000)
+      .reduce((oldest,item)=>!oldest || (item.topicSyncedAt || 0)<(oldest.topicSyncedAt || 0) ? item : oldest,null);
     if(topicItem && this.topicSync){this.work={kind:'topic',id:topicItem.id,title:'Обновляем тему урока'};try{await this.syncTopic(topicItem);}finally{this.work=null;}}
     const pending = this.data.clips.find(c => c.autoPublish && !c.materialId && ['queued', 'processing'].includes(c.materialStatus) && (c.nextPublishAt || 0) <= Date.now());
     if (pending && this.materialPublisher) {

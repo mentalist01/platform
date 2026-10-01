@@ -38,6 +38,13 @@ test('offline topic sync preserves completed speech and retries; local manual ed
   delete item.remoteJobId;await f.archive.syncTopic(item,'Первая тема');await f.archive.syncTopic(item,'Вторая тема');assert.equal(item.topic.text,'Вторая тема');
   await f.archive.syncTopic(item);assert.equal(item.topic.text,'Вторая тема');
 });
+test('catalog larger than one refresh interval syncs the oldest pending topic first without starving old recordings',async t=>{
+  let now=1_000_000; t.mock.method(Date,'now',()=>now);const synced=[];
+  const f=fixture(t,{topicSync:async payload=>{synced.push(payload.jobId);return {topic:null};}});
+  f.archive.data.items=Array.from({length:40},(_,index)=>({id:index.toString(16).padStart(24,'0'),remoteJobId:`remote-${index}`,title:'Урок',status:'new'}));
+  for(let index=0;index<40;index++){await f.archive.tick();now+=2100;}
+  assert.equal(new Set(synced).size,40);assert.equal(synced[39],'remote-39');
+});
 test('whole lessons reuse their ready private video without cutting/uploading or changing source; fragment limit remains', async t => {
   const url = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=private';
   let uploads = 0; let attached;
