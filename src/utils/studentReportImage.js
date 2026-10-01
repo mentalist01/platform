@@ -178,10 +178,6 @@ export async function createStudentReportCanvas({ report, text, studentName, mon
   }
   context.fillStyle = '#ede9fe';
   context.fillRect(PAD, footerTop, CONTENT_WIDTH, 2);
-  context.fillStyle = '#64748b';
-  context.font = `400 22px ${FONT}`;
-  const footerText = ['Код не с первого раза?', 'Бывает. Разберёмся.'];
-  drawLines(context, footerText, WIDTH - PAD - (cat ? 520 : 300), footerTop + 64, 32);
   if (cat) {
     const imageWidth = 220;
     const imageHeight = imageWidth * cat.naturalHeight / cat.naturalWidth;
