@@ -17,3 +17,22 @@ test('start day checks storage first, preserves an ongoing recording, and never 
   calls.length = 0; obs.status = async () => ({ outputActive: false }); await startDay(options);
   assert.deepEqual(calls, ['disk', 'launch', 'setup', 'configure', 'platform']); assert.ok(cfg.dayStartedAt);
 });
+
+test('daily preparation finds the teacher app, ignores its recorder window, and follows the platform audio source', () => {
+  const app = item('IVAN100 Учитель:Chrome_WidgetWin_1:IVAN100-Teacher.exe', '[IVAN100-Teacher.exe]: IVAN100 Учитель');
+  const helper = item('helper', '[IVAN100-Teacher.exe]: IVAN100 — Пульт записи');
+  const sources = { ...choices, platform: [...choices.platform, helper, app], telemost: [item('old'), app] };
+  const result = refreshDaySources({ ...config, telemost: config.platform }, sources);
+  assert.equal(result.platform, app.itemValue);
+  assert.equal(result.telemost, app.itemValue);
+  assert.equal(refreshDaySources({ ...config, platform: 'new', telemost: 'new' }, sources).platform, 'new');
+  assert.throws(() => refreshDaySources(config, { ...sources, platform: [...sources.platform, { ...app, itemValue: 'another-app' }] }), /несколько/);
+});
+
+test('a saved desktop source does not fall back to the browser when the application is closed', () => {
+  const savedApp = 'IVAN100 Учитель:Chrome_WidgetWin_1:IVAN100-Teacher.exe';
+  assert.throws(() => refreshDaySources({ ...config, platform: savedApp }, choices), /Откройте приложение/);
+  const disabledApp = item(savedApp, '[IVAN100-Teacher.exe]: IVAN100 Учитель');
+  disabledApp.itemEnabled = false;
+  assert.throws(() => refreshDaySources({ ...config, platform: savedApp }, { ...choices, platform: [...choices.platform, disabledApp] }), /Откройте приложение/);
+});

@@ -101,7 +101,7 @@ export default function LessonRecordingSection({ recorder }) {
     {notice && <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</p>}
     <section className="rounded-3xl border border-violet-100 bg-white p-6">
       <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-lg font-bold text-slate-900">Приложение для преподавателя</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Кабинет, звонки и доска в отдельном окне Windows. Пульт записи и архив доступны в верхнем меню приложения.</p></div><a className={button} href={teacherDesktopDownload} target="_blank" rel="noreferrer"><Download size={17} /> Скачать приложение для Windows</a></div>
-      <p className="mt-3 text-xs leading-5 text-slate-500">Предварительная версия {teacherDesktopVersion} · Windows 10/11, 64 бит · Установщик пока без цифровой подписи издателя. Перед первым уроком выберите окно приложения в мастере пульта и проверьте тестовую запись. Для автоматического переключения из LibreOffice используйте пульт 1.4.7 или новее.</p>
+      <p className="mt-3 text-xs leading-5 text-slate-500">Предварительная версия {teacherDesktopVersion} · Windows 10/11, 64 бит · Установщик пока без цифровой подписи издателя. Перед первым уроком в пульте выберите «IVAN100 Учитель» в поле «Окно для режима “Платформа”» и проверьте тестовую запись. Выбор окна доступен на основном экране пульта 1.4.8 или новее; автоматическое переключение из LibreOffice работает с версии 1.4.7.</p>
     </section>
     <div className="grid gap-5 lg:grid-cols-2">
       <section className="rounded-3xl border border-slate-200 bg-white p-6">
