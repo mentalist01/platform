@@ -16,7 +16,7 @@ rollback_on_error() {
   exit "$status"
 }
 trap rollback_on_error EXIT
-node --test server/guestMeetings.test.js server/guestMeetings.integration.test.js server/publicMeetings.integration.test.js server/rtcRooms.test.js > "$backup/tests.log" 2>&1
+node --test server/guestMeetings.test.js server/guestMeetings.integration.test.js server/publicMeetings.integration.test.js src/utils/rtcRooms.test.js > "$backup/tests.log" 2>&1
 stage="dist-meeting-interface-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-guest-meetings-release.mjs local "$stage"
