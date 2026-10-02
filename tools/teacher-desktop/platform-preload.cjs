@@ -3,9 +3,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 // The remote cabinet can save a successful login or open the local chooser.
 // It cannot enumerate, decrypt or delete saved credentials or access local files.
 if (process.isMainFrame && location.origin === 'https://ivan100.ru') {
+  const appInfo = ipcRenderer.sendSync('teacher:app-info');
   contextBridge.exposeInMainWorld('teacherDesktop', Object.freeze({
     isDesktop: true,
-    version: process.versions.electron ? '0.1.1' : '',
+    version: appInfo.version || '',
+    autoUpdates: appInfo.autoUpdates === true,
     rememberTeacherCode: (code, label, account) => ipcRenderer.invoke('teacher:remember', code, label, String(account)),
     showSavedLogins: () => ipcRenderer.invoke('teacher:chooser')
   }));

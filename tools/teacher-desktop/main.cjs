@@ -7,12 +7,13 @@ const { spawn } = require('node:child_process');
 const policy = require('./policy.cjs');
 const { Downloads } = require('./downloads.cjs');
 const { TeacherCredentials } = require('./credentials.cjs');
+const { TeacherAppUpdates, readRecorderBusy } = require('./updates.cjs');
 const TITLE = 'IVAN100 Учитель';
 const SHELL_PAGE = path.join(__dirname, 'ui/shell.html');
 const PICKER_PAGE = path.join(__dirname, 'ui/sharing.html');
 const PANEL_PAGE = path.join(__dirname, 'ui/panel.html');
 const icon = path.join(__dirname, 'assets/icon.png');
-let mainWindow, platformView, recorderWindow, platformSession, utilityWindow, downloads, credentials;
+let mainWindow, platformView, recorderWindow, platformSession, utilityWindow, downloads, credentials, updates;
 let panelKind = 'downloads', panelOpen = false;
 let state = { version: app.getVersion(), page: 'loading', recorderReady: false, download: '' };
 let settings = {}, recorderOpening = null;
@@ -36,7 +37,11 @@ else {
   app.whenReady().then(start).catch(() => { dialog.showErrorBox(TITLE, 'Не удалось запустить приложение. Попробуйте открыть его снова.'); app.quit(); });
 }
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { utilityWindow?.destroy(); for (const entry of pickers.values()) entry.window.close(); });
+app.on('before-quit', event => {
+  if (updates?.deferQuit(event)) return;
+  updates?.stop();
+  utilityWindow?.destroy(); for (const entry of pickers.values()) entry.window.close();
+});
 
 function settingsFile() { return path.join(app.getPath('userData'), 'preferences.json'); }
 function saveSettings() {
@@ -229,6 +234,10 @@ ipcMain.handle('shell:action', async (event, action, value) => {
   if (action === 'downloads' || action === 'accounts') { if (panelOpen && panelKind === action) closePanel(); else showPanel(action); return; }
   if (action === 'help-open') { closePanel(); platformView.setVisible(false); return; }
   if (action === 'help-close') { platformView.setVisible(state.page === 'ready'); return; }
+  if (action === 'check-updates') return updates?.check();
+});
+ipcMain.on('teacher:app-info', event => {
+  event.returnValue = validPlatformEvent(event) ? { version: app.getVersion(), autoUpdates: true } : {};
 });
 ipcMain.handle('teacher:remember', (event, code, label, account) => {
   if (!validPlatformEvent(event)) throw new Error('Недоступно');
@@ -286,6 +295,8 @@ async function start() {
   mainWindow.on('restore', () => { updateBounds(); if (panelOpen) utilityWindow?.showInactive(); });
   mainWindow.on('close', () => { if (!mainWindow.isMaximized()) settings.bounds = mainWindow.getBounds(); settings.maximized = mainWindow.isMaximized(); saveSettings(); });
   mainWindow.on('closed', () => { if (platformView && !platformView.webContents.isDestroyed()) platformView.webContents.close(); utilityWindow?.destroy(); mainWindow = null; app.quit(); });
+  mainWindow.on('query-session-end', () => updates?.onSessionEnd());
+  mainWindow.on('session-end', () => updates?.onSessionEnd());
   platformView = new WebContentsView({ webPreferences: { session: platformSession, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: true, preload: path.join(__dirname, 'platform-preload.cjs') } });
   if (!app.isPackaged) {
     platformView.webContents.on('console-message', event => { if (event.level === 'error') console.error('[cabinet]', event.message.slice(0, 300)); });
@@ -317,6 +328,7 @@ async function start() {
       { label: 'Загрузки', accelerator: 'Ctrl+J', click: () => showPanel('downloads') },
       { label: 'Сохранённые входы', click: () => showPanel('accounts') },
       { label: 'Установка пульта', click: () => void openLink('https://ivan100.ru/?desktop=teacher&view=recording') },
+      { label: 'Обновления приложения', click: () => mainWindow.webContents.send('shell:show-updates') },
       { type: 'separator' },
       { label: 'Открыть текущую страницу в браузере', click: () => { const url = platformView.webContents.getURL(); if (policy.isPlatform(url)) void shell.openExternal(url); } },
       { label: 'Сбросить разрешения камеры и микрофона', click: () => { delete settings.audio; delete settings.video; saveSettings(); void dialog.showMessageBox(mainWindow, { message: 'Разрешения сброшены', detail: 'Уже начатый звонок продолжит работать. При следующем запросе приложение снова спросит разрешение.', buttons: ['ОК'] }); } },
@@ -333,4 +345,9 @@ async function start() {
   if (settings.maximized) mainWindow.maximize();
   void loadCabinet();
   void recorderIsOnline().then(ready => updateState({ recorderReady: ready }));
+  updates = new TeacherAppUpdates({ updater: require('electron-updater').autoUpdater, app,
+    report: update => updateState({ update }),
+    isBusy: async () => await readRecorderBusy() || [...ownedWebContents].some(id => require('electron').webContents.fromId(id)?.isCurrentlyAudible())
+  });
+  updates.start();
 }

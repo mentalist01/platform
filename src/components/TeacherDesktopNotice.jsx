@@ -6,7 +6,7 @@ export default function TeacherDesktopNotice({ teacherId, onDetails }) {
   const key = `teacher-desktop-notice:${teacherId}:${teacherDesktopVersion}`;
   const [dismissed, setDismissed] = useState(() => { try { return localStorage.getItem(key) === 'dismissed'; } catch { return false; } });
   const inApp = new URLSearchParams(window.location.search).get('desktop') === 'teacher' || window.teacherDesktop?.isDesktop;
-  if (dismissed || window.teacherDesktop?.version === teacherDesktopVersion) return null;
+  if (dismissed || window.teacherDesktop?.autoUpdates || window.teacherDesktop?.version === teacherDesktopVersion) return null;
   const dismiss = () => { setDismissed(true); try { localStorage.setItem(key, 'dismissed'); } catch { /* Device storage is optional. */ } };
   return <aside className="relative mb-5 flex flex-wrap items-center gap-4 rounded-2xl border border-violet-200 bg-white/90 p-5 shadow-sm" aria-label="Приложение преподавателя">
     <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-600"><Monitor size={23} /></div>
