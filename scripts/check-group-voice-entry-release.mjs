@@ -56,8 +56,9 @@ if (mode === 'preflight') {
     const sessions = sessionsFor(dataDir);
     const groups = read(dataDir, 'learning-groups.json');
     const lessons = read(dataDir, 'learning-lesson-sessions.json');
-    const group = groups.find(g => !g.deletedAt && g.status !== 'completed' && sessions.some(s => s.user?.role === 'teacher' && s.user.id === g.teacherId));
-    const lesson = lessons.find(l => l.groupId === group?.id && !l.deletedAt && ['scheduled', 'active'].includes(l.status));
+    const candidates = groups.filter(g => !g.deletedAt && g.status !== 'completed' && sessions.some(s => s.user?.role === 'teacher' && s.user.id === g.teacherId));
+    const lesson = lessons.find(l => candidates.some(g => g.id === l.groupId) && !l.deletedAt && ['scheduled', 'active'].includes(l.status));
+    const group = candidates.find(g => g.id === lesson?.groupId);
     assert.ok(group && lesson, 'A current group and lesson are required');
     const teacher = sessions.find(s => s.user?.role === 'teacher' && s.user.id === group.teacherId);
     const route = `/api/learning-groups/${encodeURIComponent(group.id)}/lessons/${encodeURIComponent(lesson.id)}/voice-channels`;
