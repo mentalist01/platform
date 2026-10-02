@@ -257,6 +257,8 @@ const TeacherLessonStartPrompt = React.lazy(loadTeacherLessonStartPrompt);
 const TeacherPanel = React.lazy(loadTeacherPanel);
 const TeacherStudentChatsSection = React.lazy(loadTeacherStudentChatsSection);
 const SessionManagementSection = React.lazy(loadSessionManagementSection);
+const loadGuestMeetingsSection = () => import('./components/GuestMeetingsSection.jsx');
+const GuestMeetingsSection = React.lazy(loadGuestMeetingsSection);
 
 const loadCallWorkspace = () => Promise.all([loadCallSection(), loadGroupTelemostSection()]);
 const loadCollabWorkspace = () => Promise.all([loadEditor(), loadCollaborativeEditorRuntime()]);
@@ -271,6 +273,7 @@ const VIEW_SECTION_LOADERS = Object.freeze({
   collab: loadCollabWorkspace,
   finance: loadTeacherFinanceSection,
   groups: loadLearningGroupsSection,
+  meetings: loadGuestMeetingsSection,
   notes: loadNotesSection,
   progress: loadProgressSection,
   python: loadPythonSection,
@@ -18775,6 +18778,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ? [
         'schedule',
         'groups',
+        'meetings',
         'recording',
         'teacher-calendar',
         'finance',
@@ -20220,6 +20224,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ? [
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'groups', label: 'Мини-группы', icon: Users },
+        { id: 'meetings', label: 'Встречи по ссылке', icon: Video },
         { id: 'recording', label: 'Запись уроков', icon: Video },
         { id: 'teacher-calendar', label: 'Общий календарь', icon: Users },
         { id: 'finance', label: 'Финансы', icon: Wallet },
@@ -20343,7 +20348,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : visibleNav;
   const teacherDesktopPrimaryNav = user.role === 'teacher'
     ? [
-      ...['schedule', 'groups', 'teacher-calendar', 'finance', 'progress', 'review', 'python', 'rating']
+      ...['schedule', 'groups', 'meetings', 'teacher-calendar', 'finance', 'progress', 'review', 'python', 'rating']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,
@@ -20361,6 +20366,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const mobileNavLabels = {
     schedule: 'График',
     groups: 'Группы',
+    meetings: 'Встречи',
     'teacher-calendar': 'Календ.',
     finance: 'Фин.',
     progress: 'Тесты',
@@ -20390,6 +20396,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const navToneById = {
     schedule: 'violet',
     groups: 'violet',
+    meetings: 'violet',
     'teacher-calendar': 'violet',
     finance: 'violet',
     progress: 'violet',
@@ -26417,6 +26424,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {view === 'recording' && user.role === 'teacher' && <LessonRecordingSection recorder={desktopRecorder} />}
+          {view === 'meetings' && user.role === 'teacher' && <GuestMeetingsSection user={user} theme={theme} />}
           {view === 'groups' && ['teacher', 'student'].includes(user.role) && (
             <LearningGroupsSection
               role={user.role}

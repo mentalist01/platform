@@ -638,6 +638,7 @@ const extractHttpErrorMessage = async (response, fallback) => {
 
 const formatRtcRoleLabel = (role) => {
   if (role === 'teacher') return 'Преподаватель';
+  if (role === 'guest') return 'Гость';
   if (role === 'student') return 'Ученик';
   if (role === 'admin') return 'Администратор';
   return 'Участник';
@@ -1301,23 +1302,35 @@ const CallSection = ({
   autoStartToken = 0,
   reloadCall = null,
   onReloadCallConsumed,
+  meetingId = '',
+  meetingToken = '',
+  onMeetingEnded,
+  onMeetingNotice,
 }) => {
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
   const effectiveTeacherId = String(teacherId || '').trim();
-  const rtcRoom = useMemo(() => resolveCallRtcRoom({
+  const rtcRoom = useMemo(() => meetingId ? {
+    isGroupLesson: true, roomId: `rtc:meeting:${meetingId}`, lessonId: '', mode: 'meeting',
+  } : resolveCallRtcRoom({
     lessonId,
     channelId,
     teacherId: effectiveTeacherId,
     studentId: effectiveStudentId,
-  }), [channelId, effectiveStudentId, effectiveTeacherId, lessonId]);
+  }), [channelId, effectiveStudentId, effectiveTeacherId, lessonId, meetingId]);
   const { isGroupLesson, roomId } = rtcRoom;
   const normalizedGroupId = String(groupId ?? '').trim();
   const normalizedParticipantIds = useMemo(
     () => normalizeRtcParticipantIds(participantIds),
     [participantIds]
   );
-  const rtcWsUrl = useMemo(() => withStoredAuthToken(getRtcWsUrl()), []);
+  const rtcWsUrl = useMemo(() => {
+    const base = getRtcWsUrl();
+    if (!meetingToken || !base) return withStoredAuthToken(base);
+    const url = new URL(base);
+    url.searchParams.set('_meetingAuth', meetingToken);
+    return url.toString();
+  }, [meetingToken]);
   const rtcIceConfig = useMemo(() => getRtcIceConfig(), []);
   const rtcPeerConnectionCtor = useMemo(() => getRtcPeerConnectionCtor(), []);
   const rtcIceServers = rtcIceConfig.servers;
@@ -3615,6 +3628,7 @@ const CallSection = ({
     );
     if (typeof pc.addTransceiver === 'function') {
       try {
+        if (meetingId) pc.addTransceiver('audio', { direction: 'recvonly' });
         const existingVideoTransceivers = typeof pc.getTransceivers === 'function'
           ? pc.getTransceivers().filter((transceiver) => transceiver?.receiver?.track?.kind === 'video').length
           : 0;
@@ -3745,7 +3759,7 @@ const CallSection = ({
     syncLocalTracksToPeer(peerState);
     refreshPeerConnectionSummary();
     return peerState;
-  }, [detachPeer, refreshPeerConnectionSummary, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers, userId, role]);
+  }, [detachPeer, meetingId, refreshPeerConnectionSummary, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers, userId, role]);
 
   const makeOfferToPeer = useCallback(async (peerId, { iceRestart = false } = {}) => {
     const peerState = peersRef.current.get(peerId);
@@ -3982,6 +3996,12 @@ const CallSection = ({
       return;
     }
 
+    if (type === 'host-mute') {
+      stopMicTrack();
+      onMeetingNotice?.('Преподаватель выключил ваш микрофон. Вы можете включить его снова.');
+      return;
+    }
+
     if (type === 'error' || type === 'session-ended' || type === 'channel-move') {
       const isChannelMove = type === 'channel-move' && isGroupLesson && typeof onChannelMove === 'function';
       const movingMicEnabled = Boolean(localAudioTrackRef.current?.enabled);
@@ -4018,6 +4038,7 @@ const CallSection = ({
         setSocketStatus('disconnected');
         roomResyncCooldownUntilRef.current = 0;
         applyStatus('idle');
+        if (type === 'session-ended' && meetingId) onMeetingEnded?.(normalizedError);
         if (isChannelMove) onChannelMove({ ...payload, micEnabled: movingMicEnabled });
       }
       return;
@@ -4101,7 +4122,7 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [isGroupLesson, onChannelMove, onChannelPresence, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [isGroupLesson, meetingId, onMeetingEnded, onMeetingNotice, onChannelMove, onChannelPresence, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
 
   const stopCall = useCallback(({ endRecording = false } = {}) => {
     callAttemptRef.current += 1;
@@ -4331,7 +4352,11 @@ const CallSection = ({
         || (localAudioTrackRef.current?.readyState === 'live'
           && !localAudioTrackRef.current.enabled)
       );
-      await ensureMicTrack();
+      // Guests may listen without granting microphone access. Turning on the
+      // microphone in the preparation screen still requests it explicitly.
+      if (!meetingId || localAudioTrackRef.current?.readyState === 'live' || options?.resumeMicEnabled === true) {
+        await ensureMicTrack();
+      }
       if (callAttempt !== callAttemptRef.current) {
         return;
       }
@@ -4457,7 +4482,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, isGroupLesson, isTeacher, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, isGroupLesson, isTeacher, meetingId, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -4499,7 +4524,7 @@ const CallSection = ({
   }, [isHiddenUi, onReloadCallConsumed, reloadCall, roomId]);
 
   useEffect(() => {
-    if (!callJoinedRef.current || !['connected', 'connecting'].includes(status)) return undefined;
+    if (meetingId || !callJoinedRef.current || !['connected', 'connecting'].includes(status)) return undefined;
     const save = () => {
       if (manualCloseRef.current || !callJoinedRef.current) return;
       saveCallResume({
@@ -4511,7 +4536,7 @@ const CallSection = ({
     const timer = setInterval(save, 10_000);
     window.addEventListener('pagehide', save);
     return () => { clearInterval(timer); window.removeEventListener('pagehide', save); };
-  }, [effectiveStudentId, effectiveTeacherId, micEnabled, role, roomId, rtcRoom.lessonId, status, userId]);
+  }, [effectiveStudentId, effectiveTeacherId, meetingId, micEnabled, role, roomId, rtcRoom.lessonId, status, userId]);
 
   useEffect(() => {
     const token = Number(autoStartToken) || 0;
@@ -4910,12 +4935,15 @@ const CallSection = ({
     const loadPresenceSnapshot = async ({ quiet = false } = {}) => {
       try {
         const cacheBust = Date.now();
-        const response = await fetch(resolveApiUrl(`/api/rtc/presence?roomId=${encodeURIComponent(roomId)}&_=${cacheBust}`), {
-          credentials: 'include',
+        const presenceUrl = meetingId ? `/api/guest-meetings/${encodeURIComponent(meetingId)}/presence?_=${cacheBust}`
+          : `/api/rtc/presence?roomId=${encodeURIComponent(roomId)}&_=${cacheBust}`;
+        const response = await fetch(resolveApiUrl(presenceUrl), {
+          credentials: meetingToken ? 'omit' : 'include',
           cache: 'no-store',
           headers: {
             'Cache-Control': 'no-cache',
             Pragma: 'no-cache',
+            ...(meetingToken ? { Authorization: `Bearer ${meetingToken}` } : {}),
           },
         });
         if (!response.ok) {
@@ -4923,6 +4951,10 @@ const CallSection = ({
           if (quiet && usingPresenceWebSocket) return;
           const fallbackMessage = `Не удалось обновить список участников (${response.status})`;
           const message = await extractHttpErrorMessage(response, fallbackMessage);
+          if (meetingId && [403, 410].includes(response.status)) {
+            onMeetingEnded?.(message);
+            return;
+          }
           setPresencePeers([]);
           setPresenceError(message);
           return;
@@ -4988,6 +5020,14 @@ const CallSection = ({
         lastPresencePongAtRef.current = Date.now();
         return;
       }
+      if (type === 'session-ended' && meetingId) {
+        clearFallbackBootTimeout();
+        stopHttpPolling();
+        usingPresenceWebSocket = false;
+        closePresenceSocket();
+        onMeetingEnded?.(payload.error || 'Встреча завершена.');
+        return;
+      }
       if (type === 'error') {
         clearFallbackBootTimeout();
         stopHttpPolling();
@@ -4995,6 +5035,10 @@ const CallSection = ({
         closePresenceSocket();
         const fallbackMessage = 'Presence fallback is unavailable on this server. Update backend and restart it.';
         const serverMessage = typeof payload?.error === 'string' ? payload.error.trim() : '';
+        if (meetingId && serverMessage) {
+          onMeetingEnded?.(serverMessage);
+          return;
+        }
         setPresencePeers([]);
         setPresenceError(serverMessage || fallbackMessage);
         return;
@@ -5093,7 +5137,7 @@ const CallSection = ({
       stopHttpPolling();
       closePresenceSocket();
     };
-  }, [closePresenceSocket, mapPresenceParticipants, onChannelPresence, roomId, rtcWsUrl, status]);
+  }, [closePresenceSocket, mapPresenceParticipants, meetingId, meetingToken, onMeetingEnded, onChannelPresence, roomId, rtcWsUrl, status]);
 
   useEffect(() => {
     if (status === 'connected') {
@@ -5548,7 +5592,7 @@ const CallSection = ({
   const lessonChatPlaceholder = 'Сообщение...';
   const lessonChatDisabled = Boolean(isTeacher && !effectiveStudentId);
   const groupRosterSize = normalizedParticipantIds.length;
-  const groupRosterLabel = groupRosterSize > 0
+  const groupRosterLabel = meetingId ? 'Встреча по ссылке' : groupRosterSize > 0
     ? `Мини-группа · ${groupRosterSize} учен.`
     : 'Мини-группа';
   const remoteParticipantTitle = isGroupLesson ? 'Участники' : (isTeacher ? 'Ученик' : 'Преподаватель');
@@ -5584,9 +5628,9 @@ const CallSection = ({
     : hasMediaConnectionIssue
       ? 'Связь требует внимания'
       : isConnected
-        ? 'Комната урока'
+        ? (meetingId ? 'Комната встречи' : 'Комната урока')
         : isConnecting
-          ? 'Подключаем к уроку'
+          ? (meetingId ? 'Подключаем к встрече' : 'Подключаем к уроку')
           : (isGroupLesson ? 'Подготовка к групповому уроку' : 'Подготовка к звонку');
   const callHeaderSubtitle = isMissingLegacyTeacherStudent
     ? 'Выберите ученика'
@@ -5608,10 +5652,10 @@ const CallSection = ({
         : prejoinHasProblem
           ? 'Проверьте настройки'
           : prejoinAllReady
-            ? 'Всё готово к уроку'
+            ? (meetingId ? 'Всё готово к встрече' : 'Всё готово к уроку')
             : hasRemoteParticipant
               ? (isGroupLesson ? 'Участники уже в комнате' : `${remoteParticipantName} уже в комнате`)
-              : 'Готовы к уроку?';
+              : (meetingId ? 'Готовы к встрече?' : 'Готовы к уроку?');
   const callHeroEyebrow = hasMediaConnectionIssue
     ? 'Проблема со связью'
     : isConnecting
@@ -5635,12 +5679,12 @@ const CallSection = ({
               ? 'Микрофон, камера и связь готовы.'
               : hasRemoteParticipant
                 ? (isGroupLesson ? 'Участники уже ждут в комнате.' : 'Второй участник уже ждёт в комнате.')
-                : 'Настройте звук и видео, затем присоединяйтесь к уроку.';
+                : (meetingId ? 'Настройте звук и видео, затем присоединяйтесь к встрече.' : 'Настройте звук и видео, затем присоединяйтесь к уроку.');
   const joinButtonLabel = isConnected
     ? 'Вы в звонке'
     : isConnecting
       ? 'Подключаем...'
-      : isTeacher
+      : meetingId ? 'Войти во встречу' : isTeacher
         ? (hasRemoteParticipant ? 'Начать урок' : 'Войти в комнату')
         : 'Войти в урок';
   const chatBadgeText = lessonChatMessages.length > 0 ? String(lessonChatMessages.length) : '';
@@ -5674,7 +5718,7 @@ const CallSection = ({
         ? 'good'
         : 'idle';
   const prejoinCheckButtonLabel = prejoinCheck.status === 'idle' ? 'Проверить подключение' : 'Проверить снова';
-  const prejoinWaitingCopy = isGroupLesson
+  const prejoinWaitingCopy = meetingId ? (hasRemoteParticipant ? 'Участники уже в комнате.' : 'Можно войти и дождаться остальных участников.') : isGroupLesson
     ? (hasRemoteParticipant
       ? 'Участники уже подключаются к уроку.'
       : (isTeacher ? 'Можно войти и подготовить групповую комнату.' : 'Можно войти в групповой урок сейчас.'))
@@ -6108,8 +6152,8 @@ const CallSection = ({
         : `call-panel-root call-panel-root--inline ${!isConnected ? 'call-panel-root--prejoin' : ''} animate-fadeIn ${showInlineLessonChat ? 'flex min-h-0 flex-col overflow-hidden pb-2' : 'pb-10'}`}
       style={isFloatingUi ? floatingPanelStyle : inlinePanelStyle}
       data-tour="call"
-      data-call-role={isTeacher ? 'teacher' : 'student'}
-      data-call-mode={isGroupLesson ? 'group' : 'individual'}
+      data-call-role={role}
+      data-call-mode={meetingId ? 'meeting' : isGroupLesson ? 'group' : 'individual'}
       data-call-lesson-id={isGroupLesson ? rtcRoom.lessonId || undefined : undefined}
       data-call-group-id={isGroupLesson ? normalizedGroupId || undefined : undefined}
       data-call-roster-size={isGroupLesson ? normalizedParticipantIds.length : undefined}

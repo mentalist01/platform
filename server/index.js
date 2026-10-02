@@ -15,6 +15,7 @@ import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
+import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId } from './guestMeetings.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
@@ -21962,6 +21963,25 @@ registerDesktopDeviceRoutes(app, desktopRecordings, {
   },
 });
 
+const guestMeetings = createGuestMeetingStore({ filePath: path.join(dataDir, 'guest-meetings.json') });
+const guestMeetingRouteOptions = {
+  resolveNormalAuth: (req) => getAuthSession(getAuthTokenFromRequest(req), req)?.user,
+  participants: (id) => Array.from(rtcRooms.get(meetingRoomId(id))?.values() || []).map(serializeRtcPeer),
+  control: (id, action, guestId) => {
+    rtcClientsBySocket.forEach((client) => {
+      const belongs = client.roomId === meetingRoomId(id) || client.watchedRoomId === meetingRoomId(id)
+        || (client.auth.role === 'guest' && client.auth.meetingId === id);
+      if (!belongs || (action !== 'close' && client.auth.id !== guestId)) return;
+      if (action === 'mute') sendRtcPayload(client.ws, { type: 'host-mute' });
+      if (action === 'close' || action === 'remove') {
+        sendRtcPayload(client.ws, { type: 'session-ended', error: action === 'close' ? 'Преподаватель завершил встречу.' : 'Преподаватель отключил вас от встречи.' });
+        cleanupRtcClient(client, { closeSocket: true, closeCode: 1008, closeReason: 'Meeting ended' });
+      }
+    });
+  },
+};
+registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: true });
+
 app.use('/api', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
   const session = getAuthSession(token, req);
@@ -21994,6 +22014,8 @@ app.use('/api', (req, res, next) => {
   }
   return next();
 });
+
+registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: false });
 
 registerDesktopRecordingRoutes(app, desktopRecordings, {
   legacyRecordingEnabled,
@@ -41929,6 +41951,8 @@ const normalizeRtcRoomPart = (value) => {
 const parseRtcRoomId = (value) => {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) return null;
+  const meetingTarget = parseMeetingRoomId(normalized);
+  if (meetingTarget) return meetingTarget;
   const lessonTarget = parseLearningLessonRoomTarget(normalized);
   if (lessonTarget?.kind === 'rtc') {
     return {
@@ -41955,6 +41979,11 @@ const parseRtcRoomId = (value) => {
 
 const getRtcRoomAccessError = (auth, roomMeta) => {
   if (!auth || !roomMeta) return 'Требуется авторизация';
+  if (roomMeta.targetType === 'meeting') {
+    if (isTeacherRole(auth) && !isTeacherSubscriptionAccessAllowed(auth)) return 'Доступ преподавателя приостановлен';
+    return guestMeetings.accessError(auth, roomMeta.meetingId);
+  }
+  if (auth.role === 'guest') return 'Гостевой доступ действует только для приглашённой встречи';
   if (roomMeta.targetType === 'lesson' && !LEARNING_GROUP_RTC_ENABLED) {
     return 'Групповые звонки доступны только в Яндекс Телемосте';
   }
@@ -42081,6 +42110,7 @@ const removeRtcPresenceFileByClientId = (clientId) => {
 const upsertRtcPresenceFileFromClient = (client) => {
   if (!RTC_PRESENCE_FS_ENABLED) return;
   if (!client || !client.roomId) return;
+  if (parseMeetingRoomId(client.roomId)) return;
   const clientId = normalizeRtcPresenceClientId(client.clientId);
   if (!clientId) return;
   const filePath = getRtcPresenceFilePath(clientId);
@@ -42388,6 +42418,20 @@ const leaveRtcRoom = (client) => {
 const joinRtcRoom = (client, roomMeta) => {
   if (!client || !roomMeta) return;
   const { roomId } = roomMeta;
+  if (roomMeta.targetType === 'meeting') {
+    const existing = rtcRooms.get(roomId);
+    const otherGuests = Array.from(existing?.values() || []).filter((other) => other.auth.role === 'guest' && other.auth.id !== client.auth.id);
+    // Reserve one of the twenty places for the host, including before they join.
+    if (client.auth.role === 'guest' && otherGuests.length >= 19) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'В комнате уже 20 участников, включая преподавателя. Попробуйте позже.' });
+      return;
+    }
+    Array.from(existing?.values() || []).forEach((other) => {
+      if (other === client || other.auth.id !== client.auth.id || other.auth.role !== client.auth.role) return;
+      sendRtcPayload(other.ws, { type: 'session-ended', error: 'Вы вошли во встречу в другой вкладке.' });
+      cleanupRtcClient(other, { closeSocket: true, closeCode: 1008, closeReason: 'Another tab joined' });
+    });
+  }
   if (roomMeta.targetType === 'lesson') {
     // One voice connection per account within a lesson, including other tabs.
     // The old browser must stop its peers, not reconnect into the previous channel.
@@ -42482,6 +42526,22 @@ const handleRtcMessage = (client, rawData, isBinary) => {
   const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
   if (!type) return;
   client.lastHeartbeatAt = Date.now();
+  if (client.auth.role === 'guest') {
+    const error = guestMeetings.accessError(client.auth, client.auth.meetingId);
+    if (error) {
+      sendRtcPayload(client.ws, { type: 'session-ended', error });
+      cleanupRtcClient(client, { closeSocket: true, closeCode: 1008, closeReason: 'Meeting access expired' });
+      return;
+    }
+    if (!['join', 'leave', 'watch-presence', 'unwatch-presence', 'signal', 'presence-state', 'ping'].includes(type)) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Действие недоступно гостю' });
+      return;
+    }
+  }
+  if (['code-sync', 'watch-code-sync'].includes(type) && parseMeetingRoomId(payload?.roomId)) {
+    sendRtcPayload(client.ws, { type: 'error', error: 'Во встрече нет совместного кода' });
+    return;
+  }
 
   if (type === 'watch-presence') {
     const roomMeta = parseRtcRoomId(payload?.roomId);
@@ -42711,12 +42771,17 @@ const runRtcClientSweep = () => {
       cleanupRtcClient(client, { closeSocket: false });
       return;
     }
-    const roomMeta = parseRtcRoomId(client.roomId);
-    if (roomMeta?.targetType === 'lesson') {
-      const accessError = getRtcRoomAccessError(client.auth, roomMeta);
+    const roomMeta = parseRtcRoomId(client.roomId) || parseMeetingRoomId(client.watchedRoomId);
+    if (roomMeta?.targetType === 'lesson' || roomMeta?.targetType === 'meeting' || client.auth.role === 'guest') {
+      const checkedRoom = roomMeta || parseMeetingRoomId(meetingRoomId(client.auth.meetingId));
+      const accessError = getRtcRoomAccessError(client.auth, checkedRoom);
       if (accessError) {
-        leaveRtcRoom(client);
         sendRtcPayload(client.ws, { type: 'session-ended', error: accessError });
+        if (client.auth.role === 'guest' || checkedRoom?.targetType === 'meeting') {
+          cleanupRtcClient(client, { closeSocket: true, closeCode: 1008, closeReason: 'Meeting access expired' });
+          return;
+        }
+        leaveRtcRoom(client);
       }
     }
     const lastHeartbeatAt = Number(client.lastHeartbeatAt) || 0;
@@ -42741,7 +42806,10 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
   const pathname = getUpgradePathname(request?.url);
-  const openingSession = getAuthSession(getAuthTokenFromRequest(request));
+  const meetingToken = (() => {
+    try { return new URL(request.url, 'http://localhost').searchParams.get('_meetingAuth'); } catch { return null; }
+  })();
+  const openingSession = pathname === '/rtc' && meetingToken !== null ? null : getAuthSession(getAuthTokenFromRequest(request));
   if (openingSession?.emailEnrollmentRequired && accountSecurity.enrollmentRequired(openingSession.user)) {
     rejectUpgrade(socket, 403, 'Email verification required');
     return;
@@ -42791,6 +42859,14 @@ server.on('upgrade', (request, socket, head) => {
   }
 
   if (pathname === '/rtc') {
+    if (meetingToken !== null) {
+      const guest = guestMeetings.resolveToken(meetingToken);
+      if (!guest) { rejectUpgrade(socket, 401, 'Unauthorized'); return; }
+      const connections = Array.from(rtcClientsBySocket.values()).filter((c) => c.auth.role === 'guest' && c.auth.id === guest.id);
+      if (connections.length >= 4) { rejectUpgrade(socket, 429, 'Too many connections'); return; }
+      rtcWss.handleUpgrade(request, socket, head, (ws) => rtcWss.emit('connection', ws, request, guest));
+      return;
+    }
     const token = getAuthTokenFromRequest(request);
     const session = getAuthSession(token, request);
     if (!session?.user) {
@@ -42852,7 +42928,7 @@ collabWss.on('connection', (ws, request) => {
 });
 
 rtcWss.on('connection', (ws, _request, user) => {
-  const auth = buildSessionUser(user);
+  const auth = user?.role === 'guest' ? user : buildSessionUser(user);
   if (!auth) {
     try {
       ws.close(1008, 'Unauthorized');
