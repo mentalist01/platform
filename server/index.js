@@ -186,7 +186,7 @@ import {
 } from './studentSearch.js';
 import {
   attachGoogleCalendarEntryStudentMatch,
-  googleCalendarTitleMatchesStudent,
+  googleCalendarEntryMatchesStudent,
   resolveGoogleCalendarStudentMatch as resolveGoogleCalendarStudentMatchFromTitle,
 } from './googleCalendarStudentMatch.js';
 import {
@@ -10149,11 +10149,15 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
         force: Boolean(options.force),
         throwOnError: true,
       });
+  const calendarRoster = readStudentsDb().filter((candidate) => (
+    isActiveStudent(candidate)
+    && normalizeTeacherId(candidate?.teacherId) === teacherId
+  ));
   const matchedEntries = googleEntries.filter((entry) => (
     isDayKeyWithinRange(entry?.date, syncRange.startDayKey, syncRange.endDayKey)
     && (
       doesGoogleCalendarLearningGroupEntryIncludeStudent(entry, student)
-      || (!entry?.isLearningGroupEvent && googleCalendarTitleMatchesStudent(entry?.subject, student))
+      || googleCalendarEntryMatchesStudent(entry, student, calendarRoster)
     )
   ));
   const existingGoogleEntriesById = new Map(
@@ -16733,6 +16737,15 @@ const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
   if (!studentId) return false;
   const entryStudentId = String(entry?.studentId || '').trim();
   if (entryStudentId) return entryStudentId === studentId;
+
+  if (isGoogleStudentScheduleEntry(entry)) {
+    const teacherId = normalizeTeacherId(student?.teacherId);
+    const roster = readStudentsDb().filter((candidate) => (
+      isActiveStudent(candidate)
+      && normalizeTeacherId(candidate?.teacherId) === teacherId
+    ));
+    return googleCalendarEntryMatchesStudent(entry, student, roster);
+  }
 
   const studentKeys = getPaymentStudentScheduleNameKeys(student);
   if (studentKeys.size === 0) return false;
@@ -33062,7 +33075,7 @@ const getTeacherCalendarHistorySchedule = (teacherId, schedule = [], marks = nul
   });
 };
 
-const persistStudentLessonHistory = (studentId, items = [], tombstones = {}) => {
+const persistStudentLessonHistory = (studentId, items = [], tombstones = {}, mismatchedCalendarSourceIds = new Set()) => {
   const normalizedStudentId = String(studentId || '').trim();
   if (!normalizedStudentId) return;
   const store = readLessonHistoryStore();
@@ -33074,6 +33087,16 @@ const persistStudentLessonHistory = (studentId, items = [], tombstones = {}) => 
   ).tombstones;
   const recordedAt = new Date().toISOString();
   let changed = false;
+  // Remove only snapshots positively identified as another pupil's Google
+  // occurrence. Financial ledger records and manual history remain separate.
+  Object.entries(nextOccurrences).forEach(([key, entry]) => {
+    if (entry?.studentId === normalizedStudentId
+      && isGoogleStudentScheduleEntry(entry)
+      && mismatchedCalendarSourceIds.has(String(entry.sourceEntryId || '').trim())) {
+      delete nextOccurrences[key];
+      changed = true;
+    }
+  });
   Object.values(normalizedTombstones || {}).forEach((tombstone) => {
     if (tombstone?.studentId !== normalizedStudentId) return;
     const previous = nextTombstones[tombstone.key];
@@ -33182,10 +33205,18 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
     .filter(Boolean);
   rawSchedule = [...rawSchedule, ...groupLessonSchedule];
 
+  const mismatchedCalendarSourceIds = new Set();
   if (options.includeGoogle !== false && student.teacherId) {
     try {
-      const googleEntries = (await fetchTeacherGoogleCalendarEntries(student.teacherId))
-        .filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
+      const calendarEntries = await fetchTeacherGoogleCalendarEntries(student.teacherId);
+      calendarEntries.forEach((entry) => {
+        const ownerId = String(entry?.studentId || '').trim();
+        if (!ownerId || ownerId === studentId || entry.isLearningGroupEvent) return;
+        const wrongImport = buildStudentScheduleEntryFromGoogleCalendar(entry, student, null);
+        if (wrongImport?.id) mismatchedCalendarSourceIds.add(wrongImport.id);
+        if (entry.id) mismatchedCalendarSourceIds.add(String(entry.id));
+      });
+      const googleEntries = calendarEntries.filter((entry) => doesPaymentScheduleEntryMatchStudent(entry, student));
       rawSchedule = [...rawSchedule, ...googleEntries];
     } catch {
       // Persisted schedule and previous history snapshots remain available offline.
@@ -33206,6 +33237,8 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
     .filter((entry) => String(entry?.studentId || '').trim() === studentId);
   const storedOccurrences = Object.values(historyStore.occurrences || {})
     .filter((entry) => String(entry?.studentId || '').trim() === studentId)
+    .filter((entry) => !isGoogleStudentScheduleEntry(entry)
+      || !mismatchedCalendarSourceIds.has(String(entry.sourceEntryId || '').trim()))
     .filter((entry) => !entry.lessonId || groupLessonSchedule.some((lesson) => lesson.lessonId === entry.lessonId));
   const currentTombstones = collectLessonHistoryTombstones({
     studentId,
@@ -33241,7 +33274,7 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
     ...occurrence,
     topic: resolvedTopics[occurrence.key] || occurrence.topic || null,
   }));
-  if (options.persist !== false) persistStudentLessonHistory(studentId, history, tombstones);
+  if (options.persist !== false) persistStudentLessonHistory(studentId, history, tombstones, mismatchedCalendarSourceIds);
   return history;
 };
 

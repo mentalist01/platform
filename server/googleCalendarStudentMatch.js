@@ -131,6 +131,20 @@ export const attachGoogleCalendarEntryStudentMatch = (entry, students = []) => {
   };
 };
 
+// Resolve a calendar event against the whole teacher roster, rather than
+// matching the same primary name independently for every namesake.
+export const googleCalendarEntryMatchesStudent = (entry, student, students = []) => {
+  const studentId = String(student?.id || '').trim();
+  if (!studentId || entry?.isLearningGroupEvent || String(entry?.groupId || '').trim()) return false;
+  const ownerId = String(entry?.studentId || '').trim();
+  if (ownerId) return ownerId === studentId;
+  const owner = resolveGoogleCalendarStudentMatch(
+    { summary: entry?.subject || entry?.summary || entry?.studentName },
+    students,
+  );
+  return String(owner?.id || '').trim() === studentId;
+};
+
 export const googleCalendarTitleMatchesStudent = (title, student) => {
   const normalizedTitle = normalizeCalendarEventText(stripCalendarEventParentheticalText(title));
   if (!normalizedTitle) return false;

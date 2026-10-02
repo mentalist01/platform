@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   attachGoogleCalendarEntryStudentMatch,
+  googleCalendarEntryMatchesStudent,
   googleCalendarTitleMatchesStudent,
   resolveGoogleCalendarStudentMatch,
   stripCalendarEventParentheticalText,
@@ -126,4 +127,25 @@ test('plain duplicate name selects the student without a different calendar nick
 
   assert.equal(resolveGoogleCalendarStudentMatch({ summary: 'Егор' }, namesakes)?.id, 'plain-egor');
   assert.equal(resolveGoogleCalendarStudentMatch({ summary: 'Егор1' }, namesakes)?.id, 'egor-with-alias');
+});
+
+test('individual schedule import honours the resolved owner of a namesake event', () => {
+  const namesakes = [
+    { id: 'group-egor', name: 'Егор', nickname: 'Егор1' },
+    { id: 'individual-egor', name: 'Егор' },
+  ];
+  const event = { subject: 'Егор', studentId: 'individual-egor' };
+  assert.equal(googleCalendarEntryMatchesStudent(event, namesakes[0], namesakes), false);
+  assert.equal(googleCalendarEntryMatchesStudent(event, namesakes[1], namesakes), true);
+  assert.equal(googleCalendarEntryMatchesStudent({ subject: 'Егор' }, namesakes[0], namesakes), false);
+  assert.equal(googleCalendarEntryMatchesStudent({ subject: 'Егор1' }, namesakes[0], namesakes), true);
+});
+
+test('unresolved ambiguous events and group events cannot become individual lessons', () => {
+  const namesakes = [{ id: 'one', name: 'Егор' }, { id: 'two', name: 'Егор' }];
+  for (const student of namesakes) {
+    assert.equal(googleCalendarEntryMatchesStudent({ subject: 'Егор' }, student, namesakes), false);
+    assert.equal(googleCalendarEntryMatchesStudent({ subject: 'Егор', groupId: 'group' }, student, namesakes), false);
+    assert.equal(googleCalendarEntryMatchesStudent({ subject: 'Егор', isLearningGroupEvent: true }, student, namesakes), false);
+  }
 });
