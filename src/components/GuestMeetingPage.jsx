@@ -10,6 +10,7 @@ export default function GuestMeetingPage() {
   const storageKey = meetingStorageKey(id);
   const [meeting, setMeeting] = useState(null);
   const [identity, setIdentity] = useState(null);
+  const [previousIdentity, setPreviousIdentity] = useState(null);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -28,7 +29,11 @@ export default function GuestMeetingPage() {
         try { previous = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch { /* Optional recovery. */ }
         if (previous?.token) {
           const resumed = await guestMeetingsApi.join(id, { resumeToken: previous.token });
-          if (!cancelled) setIdentity(resumed);
+          if (!cancelled) {
+            rememberMeeting(resumed, previous.entered !== false);
+            if (previous.entered === false) setPreviousIdentity(resumed);
+            else setIdentity(resumed);
+          }
         }
       } catch (e) { if (!cancelled) { setError(e.message); if (e.status === 410 || e.status === 403) setEnded(e.message); } }
       finally { if (!cancelled) setLoading(false); }
@@ -58,7 +63,16 @@ export default function GuestMeetingPage() {
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   };
-  const finish = useCallback((message) => { setEnded(message); setIdentity(null); }, []);
+  const finish = useCallback((message) => { setEnded(message); setIdentity(null); setPreviousIdentity(null); }, []);
+  const leave = () => { rememberMeeting(identity, false); setPreviousIdentity(identity); setIdentity(null); };
+  const returnToRoom = async () => {
+    setBusy(true); setError('');
+    try {
+      const resumed = await guestMeetingsApi.join(id, { resumeToken: previousIdentity.token });
+      rememberMeeting(resumed); setIdentity(resumed); setPreviousIdentity(null);
+    } catch (e) { setError(e.message); if ([403, 410].includes(e.status)) setEnded(e.message); }
+    finally { setBusy(false); }
+  };
   return <main className="guest-meeting-page"><div className="guest-meetings gm-page-inner">
     <nav className="gm-public-nav"><a href="/meetings" className="gm-brand">IVAN100 <span>Встречи</span></a><a href="/meetings" className="gm-platform-link">Создать свою встречу<ArrowRight size={16} /></a></nav>
     {identity?.user.role !== 'meeting-host' &&
@@ -66,19 +80,22 @@ export default function GuestMeetingPage() {
       <p className="gm-eyebrow">ВСТРЕЧА ПО ПРИГЛАШЕНИЮ</p><h1>{meeting?.title || 'Встреча по ссылке'}</h1>
       <p>{meeting ? `${meeting.hostName} · до ${meeting.maxParticipants} участников` : 'Подключение без регистрации'}</p>
     </div></header>}
-    {loading ? <div className="gm-card gm-empty" role="status">Открываем приглашение…</div> : ended || (!meeting && error) ? <div className="gm-card gm-ended"><h2>{ended ? 'Вход во встречу завершён' : 'Встреча недоступна'}</h2><p role="status">{ended || error}</p><a className="gm-button" href="/meetings">Создать свою встречу</a></div> : identity?.user.role === 'meeting-host' ? <PublicMeetingRoom identity={identity} onEnded={finish} /> : identity ? <>
+    {loading ? <div className="gm-card gm-empty" role="status">Открываем приглашение…</div> : ended || (!meeting && error) ? <div className="gm-card gm-ended"><h2>{ended ? 'Вход во встречу завершён' : 'Встреча недоступна'}</h2><p role="status">{ended || error}</p><a className="gm-button" href="/meetings">Создать свою встречу</a></div> : identity?.user.role === 'meeting-host' ? <PublicMeetingRoom identity={identity} onEnded={finish} onLeft={leave} /> : identity ? <>
       <p className="gm-identity"><Users size={17} />Вы вошли как <strong>{identity.user.name}</strong></p>
       {notice && <p role="status" className="gm-notice">{notice}</p>}
       <CallSection role="guest" userId={identity.user.id} userName={identity.user.name} meetingId={id}
-        meetingToken={identity.token} hideStudentPicker onMeetingEnded={finish} onMeetingNotice={setNotice} />
-    </> : <form className="gm-card gm-join-form" onSubmit={join}>
+        meetingToken={identity.token} hideStudentPicker initialMicEnabled={false} autoStartToken={1}
+        onMeetingEnded={finish} onMeetingNotice={setNotice} onMeetingLeft={leave} />
+    </> : previousIdentity ? <div className="gm-card gm-ended"><h2>Вы вышли из встречи</h2><p>Можно вернуться под именем {previousIdentity.user.name}.</p>
+      {error && <p role="alert" className="gm-error">{error}</p>}<button className="gm-button gm-primary" disabled={busy} onClick={returnToRoom}>{busy ? 'Возвращаемся…' : 'Вернуться во встречу'}<ArrowRight size={18} /></button>
+    </div> : <form className="gm-card gm-join-form" onSubmit={join}>
       <h2>Как вас зовут?</h2><p>Организатор и другие участники увидят это имя в звонке.</p>
       <label htmlFor="gm-guest-name">Ваше имя</label><input id="gm-guest-name" autoComplete="given-name" maxLength={80} required value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Александр" />
       {error && <p role="alert" className="gm-error">{error}</p>}
       {meeting?.locked && <p className="gm-notice">Организатор закрыл вход для новых участников.</p>}
       <button className="gm-button gm-primary" disabled={busy || !name.trim() || !meeting || meeting.locked}>
-        {busy ? 'Подключаем…' : 'Перейти к настройкам'}<ArrowRight size={18} /></button>
-      <small>На следующем шаге можно проверить микрофон и камеру.</small>
+        {busy ? 'Подключаем…' : 'Войти во встречу'}<ArrowRight size={18} /></button>
+      <small>Вы войдёте с выключенными камерой и микрофоном. Их можно включить во встрече.</small>
     </form>}
   </div></main>;
 }

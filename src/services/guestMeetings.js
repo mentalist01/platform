@@ -27,8 +27,8 @@ export const guestMeetingsApi = {
 };
 
 export const meetingStorageKey = (id) => `ivan100-guest-meeting:${id}`;
-export const rememberMeeting = (identity) => {
-  try { sessionStorage.setItem(meetingStorageKey(identity.meeting.id), JSON.stringify({ token: identity.token })); }
+export const rememberMeeting = (identity, entered = true) => {
+  try { sessionStorage.setItem(meetingStorageKey(identity.meeting.id), JSON.stringify({ token: identity.token, entered })); }
   catch { /* The current call also works without browser storage. */ }
 };
 

@@ -9,11 +9,11 @@ const html = fs.readFileSync(path.join(directory, 'index.html'), 'utf8');
 const initial = [...html.matchAll(/(?:src|href)="(\/assets\/[^" ]+\.(?:js|css))"/g)].map((m) => m[1]);
 const assets = fs.readdirSync(path.join(directory, 'assets'));
 const features = {
-  GuestMeetingPage: ['Как вас зовут?', 'Перейти к настройкам', 'ВСТРЕЧА ПО ПРИГЛАШЕНИЮ'],
-  GuestMeetingsSection: ['Встречи по ссылке', 'Завершить для всех', 'Закрыть вход'],
+  GuestMeetingPage: ['Как вас зовут?', 'Войти во встречу', 'Вернуться во встречу', 'ВСТРЕЧА ПО ПРИГЛАШЕНИЮ', 'autoStartToken:1'],
+  GuestMeetingsSection: ['Встречи по ссылке', 'ivan100-teacher-meeting:'],
   PublicMeetingsPage: ['Новая встреча', 'Создать встречу', 'Видеозвонки без регистрации'],
-  PublicMeetingRoom: ['Вы — организатор', 'Ссылка для друзей', 'Завершить для всех'],
-  CallSection: ['_meetingAuth', 'host-mute', 'Войти во встречу'],
+  GuestMeetings: ['Вы — организатор', 'Ссылка для друзей', 'Завершить для всех', 'Закрыть вход', 'Пригласить во встречу', 'autoStartToken:1'],
+  CallSection: ['_meetingAuth', 'host-mute', 'Войти во встречу', 'Подключаемся к встрече…', 'Включить звук', 'meeting-connection'],
 };
 const bundles = Object.keys(features).map((name) => {
   const file = assets.find((value) => value.startsWith(`${name}-`) && value.endsWith('.js'));

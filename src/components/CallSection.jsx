@@ -1174,21 +1174,30 @@ const RemoteAudioPlayer = ({
   stream,
   onSpeakingChange,
   volume = DEFAULT_PEER_VOLUME,
+  onPlaybackBlocked,
+  registerPlayback,
 }) => {
   const audioRef = useRef(null);
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
   const effectiveVolume = normalizePeerVolume(volume);
 
   useEffect(() => {
+    registerPlayback?.(peerId, audioRef.current);
+    return () => registerPlayback?.(peerId, null);
+  }, [peerId, registerPlayback]);
+
+  useEffect(() => {
     const audioNode = audioRef.current;
     if (!audioNode) return undefined;
     audioNode.srcObject = stream || null;
-    audioNode.play?.().catch(() => {});
+    audioNode.play?.().catch((error) => {
+      if (error?.name === 'NotAllowedError' && stream?.getAudioTracks?.().length) onPlaybackBlocked?.();
+    });
 
     return () => {
       audioNode.srcObject = null;
     };
-  }, [stream]);
+  }, [onPlaybackBlocked, stream]);
 
   useEffect(() => {
     const bumpVersion = () => {
@@ -1255,8 +1264,10 @@ const RemoteAudioPlayer = ({
   useEffect(() => {
     const audioNode = audioRef.current;
     if (!audioNode || !stream) return;
-    audioNode.play?.().catch(() => {});
-  }, [audioTrackVersion, stream]);
+    audioNode.play?.().catch((error) => {
+      if (error?.name === 'NotAllowedError' && stream?.getAudioTracks?.().length) onPlaybackBlocked?.();
+    });
+  }, [audioTrackVersion, onPlaybackBlocked, stream]);
 
   useEffect(() => {
     const audioNode = audioRef.current;
@@ -1307,6 +1318,7 @@ const CallSection = ({
   meetingToken = '',
   onMeetingEnded,
   onMeetingNotice,
+  onMeetingLeft,
 }) => {
   const isTeacher = role === 'teacher';
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
@@ -1354,6 +1366,7 @@ const CallSection = ({
   const [micEnabled, setMicEnabled] = useState(false);
   const [lessonReplayLocalAudioTrackVersion, setLessonReplayLocalAudioTrackVersion] = useState(0);
   const [micBusy, setMicBusy] = useState(false);
+  const [meetingAudioBlocked, setMeetingAudioBlocked] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
@@ -1476,6 +1489,17 @@ const CallSection = ({
   const wsReconnectTimerRef = useRef(null);
   const wsReconnectAttemptRef = useRef(0);
   const startCallRef = useRef(null);
+  const meetingAudioPlayersRef = useRef(new Map());
+  const registerMeetingAudio = useCallback((id, node) => {
+    if (node) meetingAudioPlayersRef.current.set(id, node);
+    else meetingAudioPlayersRef.current.delete(id);
+  }, []);
+  const reportMeetingAudioBlocked = useCallback(() => setMeetingAudioBlocked(true), []);
+  const enableMeetingAudio = useCallback(() => {
+    const players = [...meetingAudioPlayersRef.current.values()].filter((node) => node.srcObject?.getAudioTracks?.().length);
+    Promise.all(players.map((node) => node.play()))
+      .then(() => setMeetingAudioBlocked(false)).catch(() => setMeetingAudioBlocked(true));
+  }, []);
   const makeOfferRef = useRef(null);
   const callJoinedRef = useRef(false);
   const handledAutoStartTokenRef = useRef(0);
@@ -3651,6 +3675,11 @@ const CallSection = ({
       cameraSender: null,
       disconnectTimer: null,
     };
+    if (meetingId && typeof pc.createDataChannel === 'function') {
+      // Two guests can join with every device off. Keep an active SDP section
+      // so ICE connects before either of them enables a microphone or camera.
+      peerState.connectionChannel = pc.createDataChannel('meeting-connection');
+    }
 
     peersRef.current.set(normalizedPeerId, peerState);
     peerMetaRef.current.set(normalizedPeerId, peerMeta || {});
@@ -4553,9 +4582,18 @@ const CallSection = ({
 
     const callStarter = startCallRef.current;
     if (typeof callStarter !== 'function') return;
+    if (meetingId) {
+      // Defer to survive StrictMode mount cleanup without losing the join.
+      const timer = setTimeout(() => {
+        if (handledAutoStartTokenRef.current === token || statusRef.current !== 'idle') return;
+        handledAutoStartTokenRef.current = token;
+        callStarter({ resumeMicEnabled: initialMicEnabled });
+      }, 0);
+      return () => clearTimeout(timer);
+    }
     handledAutoStartTokenRef.current = token;
     callStarter({ resumeMicEnabled: initialMicEnabled });
-  }, [initialMicEnabled, autoStartToken, effectiveStudentId, isGroupLesson, isHiddenUi, roomId, status]);
+  }, [initialMicEnabled, autoStartToken, effectiveStudentId, isGroupLesson, isHiddenUi, meetingId, roomId, status]);
 
   useEffect(() => {
     const hasOnlyPendingPeerConnections = status === 'connected'
@@ -6231,13 +6269,21 @@ const CallSection = ({
             </div>
           )}
 
-          {alertSoundError && (
+          {!meetingId && alertSoundError && (
             <div className={errorBoxClass} role="status">
               <Volume2 size={16} className="mt-0.5 shrink-0" />
               <p>{alertSoundError}</p>
               <button type="button" onClick={testAlertSound} className="shrink-0 underline underline-offset-2">
                 Проверить звук
               </button>
+            </div>
+          )}
+
+          {meetingId && meetingAudioBlocked && (
+            <div className={errorBoxClass} role="status">
+              <Volume2 size={16} className="mt-0.5 shrink-0" />
+              <p>Браузер ждёт разрешения на звук.</p>
+              <button type="button" onClick={enableMeetingAudio} className="shrink-0 underline underline-offset-2">Включить звук</button>
             </div>
           )}
 
@@ -6250,10 +6296,21 @@ const CallSection = ({
                   stream={peer.stream || null}
                   onSpeakingChange={handlePeerSpeakingChange}
                   volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
+                  registerPlayback={meetingId ? registerMeetingAudio : undefined}
+                  onPlaybackBlocked={meetingId ? reportMeetingAudioBlocked : undefined}
                 />
               ))}
 
-              {!isConnected ? (
+              {!isConnected && meetingId && autoStartToken ? (
+                <section className={`${heroPanelClass} p-8 flex flex-col items-center justify-center gap-4 min-h-[220px]`} role="status">
+                  <Loader2 size={24} className="animate-spin text-violet-500" />
+                  <p>{isConnecting || !resolvedError ? 'Подключаемся к встрече…' : 'Не удалось подключиться к встрече'}</p>
+                  <div className="flex gap-3">
+                    {!isConnecting && resolvedError && <button type="button" className={prejoinSecondaryActionClass} onClick={() => startCall({ resumeMicEnabled: false })}>Подключиться снова</button>}
+                    <button type="button" className={ghostButtonClass} onClick={() => { stopCall(); onMeetingLeft?.(); }}>Выйти</button>
+                  </div>
+                </section>
+              ) : !isConnected ? (
                 <section
                   className={`${heroPanelClass} call-prejoin-stage`}
                   data-state={statusTone}
@@ -6693,7 +6750,7 @@ const CallSection = ({
                 <div className="call-controls-group call-controls-group--danger">
                   <button
                     type="button"
-                    onClick={() => stopCall({ endRecording: true })}
+                    onClick={() => { stopCall({ endRecording: true }); if (meetingId) onMeetingLeft?.(); }}
                     disabled={!canStop}
                     className={`${compactControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
                     aria-label="Завершить звонок"

@@ -10,6 +10,7 @@ export default function PublicMeetingsPage() {
   const [invitation, setInvitation] = useState('');
   const [config, setConfig] = useState(null);
   const [identity, setIdentity] = useState(null);
+  const [previousIdentity, setPreviousIdentity] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [joinError, setJoinError] = useState('');
@@ -42,10 +43,20 @@ export default function PublicMeetingsPage() {
     window.location.assign(guestMeetingLink(id));
   };
   const finish = useCallback((message) => { setEnded(message); setIdentity(null); }, []);
+  const leave = () => { rememberMeeting(identity, false); setPreviousIdentity(identity); setIdentity(null); };
+  const returnToRoom = async () => {
+    setBusy(true); setError('');
+    try {
+      const data = await guestMeetingsApi.join(previousIdentity.meeting.id, { resumeToken: previousIdentity.token });
+      rememberMeeting(data); setIdentity(data); setPreviousIdentity(null);
+    } catch (e) { setError(e.message); if ([403, 410].includes(e.status)) setEnded(e.message); }
+    finally { setBusy(false); }
+  };
   return <main className="guest-meeting-page"><div className="guest-meetings gm-page-inner">
     <nav className="gm-public-nav"><a href="/meetings" className="gm-brand">IVAN100 <span>Встречи</span></a><a className="gm-platform-link" href="/">Учебная платформа<ArrowRight size={16} /></a></nav>
     {ended ? <div className="gm-card gm-ended"><h1>Встреча завершена</h1><p>{ended}</p><a className="gm-button gm-primary" href="/meetings">Создать новую встречу</a></div>
-      : identity ? <PublicMeetingRoom identity={identity} onEnded={finish} /> : <>
+      : identity ? <PublicMeetingRoom identity={identity} onEnded={finish} onLeft={leave} />
+      : previousIdentity ? <div className="gm-card gm-ended"><h1>Вы вышли из встречи</h1><p>Остальные участники могут продолжать разговор.</p>{error && <p className="gm-error" role="alert">{error}</p>}<button className="gm-button gm-primary" disabled={busy} onClick={returnToRoom}>Вернуться во встречу</button><a className="gm-button" href="/meetings">Новая встреча</a></div> : <>
         <div className="gm-public-hero"><header><span className="gm-public-kicker"><Video size={16} />Видеозвонки без регистрации</span>
           <h1>Соберите друзей.<br /><span>Отправьте ссылку.</span></h1><p className="gm-public-intro">Общайтесь, включайте камеры и делитесь экраном. Для встречи достаточно имени — вашим друзьям тоже не нужен аккаунт.</p>
           <div className="gm-public-features"><span><Users size={18} />До 20 человек</span><span><MonitorUp size={18} />Показ экрана</span><span><Link2 size={18} />Одна ссылка для всех</span></div>
