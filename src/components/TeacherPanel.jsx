@@ -1,10 +1,11 @@
 import { LESSON_PRICING_OPTIONS, lessonPricingLabel, isDurationPricing, calculateLessonPrice } from '../utils/lessonPricing.js';
 import MonthlyMockExamBadge from './MonthlyMockExamBadge';
+import TeacherStudentRoster from './TeacherStudentRoster';
 import MonthlyMockExamStatus from './MonthlyMockExamStatus';
 import { useMonthlyMockRoster } from '../hooks/useMonthlyMockRoster';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, EyeOff, FileText, GripVertical, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, X } from 'lucide-react';
+import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, EyeOff, FileText, GripVertical, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import useStudentNameAvailability from '../hooks/useStudentNameAvailability';
 import { buildDownloadUrl } from '../utils/downloadUrl';
@@ -3004,7 +3005,7 @@ const TeacherPanel = ({
                 : 'В списке «Не учатся» пока никого нет.'}
             </div>
           ) : (
-            visibleStudentsList.map((student) => {
+            <TeacherStudentRoster students={visibleStudentsList} teacherId={teacherId} activeStudentId={activeStudentId} renderStudent={(student, studentGroups) => {
               const studentIsCurrent = isCurrentStudent(student);
               const monthlyReportSent = Boolean(student?.monthlyReportSentMonths?.[monthlyReportStatusMonth]);
               const studentXpTotal = normalizeXpTotal(student?.xpTotal);
@@ -3327,7 +3328,10 @@ const TeacherPanel = ({
                       </div>
                     ) : (
                       <>
-                        <p className="teacher-student-card__name font-medium text-gray-800 truncate">{student.name}</p>
+                        <div className="teacher-student-card__heading">
+                          <p className="teacher-student-card__name font-medium text-gray-800 truncate">{student.name}</p>
+                          {studentGroups.map(group => <span key={group.id} className="teacher-student-card__group" title={`Мини-группа: ${group.name}`}><Users size={13} aria-hidden="true" /><span>{group.name}</span></span>)}
+                        </div>
                         {student.nickname && (
                           <p className="teacher-student-card__nickname text-xs text-purple-600 truncate">Имя2: {student.nickname}</p>
                         )}
@@ -3550,7 +3554,7 @@ const TeacherPanel = ({
                   </div>
                 </div>
               );
-            })
+            }} />
           )}
         </div>
 
