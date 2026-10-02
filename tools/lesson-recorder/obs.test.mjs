@@ -63,6 +63,12 @@ test('a Telemost lesson selects its open meeting window', async () => {
   await f.obs.prepare({ platform: 'platform', telemost: 'platform', mic: 'mic' }, 'unused', 'telemost');
   assert.equal(f.configured().telemost, 'meeting');
 });
+test('desktop lesson captures the selected application window for both video and conversation audio', async () => {
+  const f = fixture(); const config = { platform: 'IVAN100 Учитель:Qt5152QWindowIcon:IVAN100-Teacher.exe', telemost: 'old-chrome', mic: 'mic' };
+  f.obs.choices = async () => ({ platform: [{ itemEnabled: true, itemValue: config.platform }], telemost: [{ itemEnabled: true, itemValue: config.platform }], mic: [{ itemEnabled: true, itemValue: 'mic' }] });
+  await f.obs.prepare(config, 'unused', 'platform');
+  assert.equal(f.configured().platform, config.platform); assert.equal(f.configured().telemost, config.platform);
+});
 
 test('Python theory mutes conversation, then an ordinary lesson restores it', async () => {
   const f = fixture(); const original = f.obs.call; const mutes = [];

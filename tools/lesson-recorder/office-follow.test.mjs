@@ -10,6 +10,17 @@ const writer = windowItem('writer-window', 'soffice.bin', 'Урок.odt - LibreO
 const calcFocus = { exe: 'soffice.bin', title: 'Задача.ods - LibreOffice Calc' };
 const writerFocus = { exe: 'soffice.bin', title: 'Урок.odt - LibreOffice Writer' };
 const platformFocus = { exe: 'chrome.exe', title: 'Платформа - Google Chrome' };
+test('desktop platform returns from LibreOffice without following recorder or archive windows', async () => {
+  const desktop = windowItem('teacher-app', 'IVAN100-Teacher.exe', 'IVAN100 Учитель');
+  const archive = windowItem('teacher-archive', 'IVAN100-Teacher.exe', 'IVAN100 — Пульт записи');
+  let foreground = calcFocus, scene = SCENES.platform; const calls = [];
+  const follower = new OfficeFollower({ config: () => ({ autoOffice: true, platform: desktop.itemValue }), shareActive: () => false,
+    reader: { start() {}, stop() {}, current: () => foreground },
+    obs: { call: async type => type === 'GetCurrentProgramScene' ? { currentProgramSceneName: scene } : { propertyItems: [desktop, archive, calc] }, select: async (mode, window) => { calls.push([mode, window]); scene = SCENES[mode]; } } });
+  await follower.tick(); assert.deepEqual(calls.pop(), ['office', calc.itemValue]);
+  foreground = { exe: 'IVAN100-Teacher.exe', title: 'IVAN100 — Пульт записи' }; await follower.tick(); assert.equal(calls.length, 0);
+  foreground = { exe: 'IVAN100-Teacher.exe', title: 'IVAN100 Учитель' }; await follower.tick(); assert.deepEqual(calls.pop(), ['platform', undefined]);
+});
 
 test('only the configured platform or an unambiguous LibreOffice document can be followed', () => {
   const items = [platform, calc, writer];

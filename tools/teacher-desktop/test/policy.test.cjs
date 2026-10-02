@@ -4,6 +4,14 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const policy = require('../policy.cjs');
+test('browser compatibility preserves the real Chromium version without application tokens', () => {
+  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ivan100-teacher/0.1.1 Chrome/152.0.7977.130 Electron/44.5.1 Safari/537.36';
+  assert.equal(policy.browserUserAgent(ua), 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.7977.130 Safari/537.36');
+});
+test('only downloads initiated by the platform can reach local disk', () => {
+  assert.equal(policy.canDownload('https://ivan100.ru/', 'https://ivan100.ru'), true);
+  for (const origin of ['https://rutube.ru', '', 'file://', 'https://ivan100.ru.evil.example']) assert.equal(policy.canDownload('https://ivan100.ru/', origin), false);
+});
 test('only the platform and the exact recorder origin stay inside the application', () => {
   assert.equal(policy.classifyNavigation('https://ivan100.ru/?view=recording'), 'platform');
   assert.equal(policy.classifyNavigation('http://127.0.0.1:18765/archive'), 'recorder');

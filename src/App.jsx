@@ -40,6 +40,7 @@ import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
 import MockChestOpeningOverlay from './components/MockChestOpeningOverlay';
 import StudentPaymentReminder from './components/StudentPaymentReminder';
 import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './components/TeacherSubscriptionGate';
+import TeacherDesktopNotice from './components/TeacherDesktopNotice';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
@@ -25887,6 +25888,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           data-tour="main"
         >
           <div className={mainContentShellClass}>
+            {user.role === 'teacher' && !['lesson', 'board', 'collab', 'call'].includes(view) && <TeacherDesktopNotice key={user.id} teacherId={user.id} onDetails={() => setView('recording')} />}
           <React.Suspense fallback={(
             <div className="surface-panel rounded-2xl p-6 text-sm font-semibold text-slate-500">
               Загружаем раздел...

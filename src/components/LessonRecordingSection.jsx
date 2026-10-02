@@ -1,5 +1,6 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
 import React, { useState } from 'react';
+import { teacherDesktopDownload, teacherDesktopVersion } from '../utils/teacherDesktop';
 import { Download, ExternalLink, Video, Monitor, CheckCircle2, Copy, RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
 import recorderPackage from '../../tools/lesson-recorder/package.json';
@@ -11,7 +12,7 @@ const instructions = [
   ['Первая установка на Windows', [
     'Скачайте помощник кнопкой выше. Нажмите правой кнопкой по ZIP → «Извлечь всё». В распакованной папке дважды нажмите Install.cmd.',
     'Установщик проверит OBS Studio, Node.js, FFmpeg и Microsoft Edge. Если чего-то нет, предложит установить. Дождитесь окончания; если Windows запросит разрешение на установку компонента, подтвердите его. Затем откроется мастер настройки.',
-    'В мастере выберите диск и папку для видео. Далее откройте платформу в отдельном окне с одной вкладкой, запустите настройку OBS и выберите окно, микрофон и источник звука разговора. Для звонка на платформе выберите её окно; для Телемоста — окно Телемоста.',
+    'В мастере выберите диск и папку для видео, запустите настройку OBS и выберите окно, микрофон и источник звука разговора. В приложении выбирайте окно «IVAN100 Учитель» (IVAN100-Teacher.exe) вместо Chrome — для изображения платформы и звука разговора. В браузере откройте платформу в отдельном окне с одной вкладкой. Для Телемоста выберите его окно.',
     'Получите код подключения в этом разделе и вставьте его в шаг «Платформа» в пульте. Код действует 5 минут. Один преподаватель может подключить один активный компьютер.',
     'Сделайте минутную пробную запись с собеседником. Прослушайте её: должны быть слышны вы и собеседник, а выбранное окно должно быть видно. Тест автоматически закончится и останется на компьютере.',
     'Нажмите «Войти в свой Rutube» в пульте. Войдите в отдельном окне Edge, которое откроет помощник, затем нажмите «Проверить вход» и включите автозагрузку. Вход в другом браузере не подходит.',
@@ -99,8 +100,8 @@ export default function LessonRecordingSection({ recorder }) {
     {(error || recorder.error) && <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error || recorder.error}</p>}
     {notice && <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</p>}
     <section className="rounded-3xl border border-violet-100 bg-white p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-lg font-bold text-slate-900">Приложение для преподавателя</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Кабинет, звонки и доска в отдельном окне Windows. Пульт записи и архив доступны в верхнем меню приложения.</p></div><a className={button} href="https://github.com/mentalist01/platform/releases/download/teacher-desktop-v0.1.0/IVAN100-Teacher-0.1.0-Setup.exe" target="_blank" rel="noreferrer"><Download size={17} /> Скачать приложение для Windows</a></div>
-      <p className="mt-3 text-xs leading-5 text-slate-500">Предварительная версия 0.1.0 · Windows 10/11, 64 бит · Установщик пока без цифровой подписи издателя. Перед первым уроком выберите окно приложения в мастере пульта и проверьте тестовую запись. Для автоматического переключения из LibreOffice используйте пульт 1.4.7 или новее.</p>
+      <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-lg font-bold text-slate-900">Приложение для преподавателя</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Кабинет, звонки и доска в отдельном окне Windows. Пульт записи и архив доступны в верхнем меню приложения.</p></div><a className={button} href={teacherDesktopDownload} target="_blank" rel="noreferrer"><Download size={17} /> Скачать приложение для Windows</a></div>
+      <p className="mt-3 text-xs leading-5 text-slate-500">Предварительная версия {teacherDesktopVersion} · Windows 10/11, 64 бит · Установщик пока без цифровой подписи издателя. Перед первым уроком выберите окно приложения в мастере пульта и проверьте тестовую запись. Для автоматического переключения из LibreOffice используйте пульт 1.4.7 или новее.</p>
     </section>
     <div className="grid gap-5 lg:grid-cols-2">
       <section className="rounded-3xl border border-slate-200 bg-white p-6">

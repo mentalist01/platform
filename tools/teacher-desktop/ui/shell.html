@@ -5,7 +5,7 @@
   <header class="appbar">
     <a class="brand" href="#" id="brand" aria-label="Открыть кабинет"><img src="../assets/icon.png" alt=""><span>IVAN100<small>Учитель</small></span></a>
     <nav aria-label="Инструменты преподавателя"><button data-action="cabinet" class="active">Кабинет</button><button data-action="recorder">Пульт записи <span class="dot" id="recorder-dot"></span></button><button data-action="archive">Архив и теория</button></nav>
-    <span id="download" role="status"></span><button data-action="help" class="help" title="Как пользоваться приложением" aria-label="Инструкция">?</button>
+    <div class="tools"><button data-action="accounts" class="tool" title="Сохранённые коды преподавателей">Входы</button><button data-action="downloads" class="tool" title="Загрузки (Ctrl+J)"><span class="download-icon">↓</span> Загрузки <span id="download" role="status"></span></button><button data-action="help" class="help" title="Как пользоваться приложением" aria-label="Инструкция">?</button></div>
   </header>
   <main class="overlay" id="overlay">
     <section class="welcome"><span class="eyebrow">IVAN100 / РАБОЧЕЕ МЕСТО</span><h1 id="heading">Открываем ваш кабинет</h1><p id="message">Расписание, ученики и уроки — в одном окне.</p><div id="loading" class="spinner" aria-label="Загрузка"></div><div class="actions" id="error-actions" hidden><button data-action="retry" class="primary">Попробовать ещё раз</button><button data-action="recorder">Открыть пульт</button></div></section>

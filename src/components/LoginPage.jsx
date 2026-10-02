@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LoaderCircle, Mail, ShieldCheck } from 'lucide-react';
 import VerificationCodeInput from './VerificationCodeInput';
 import { LogoMark } from './Identity';
@@ -61,6 +61,13 @@ const LoginPage = ({ onLogin }) => {
   const teacherDesktop = new URLSearchParams(window.location.search).get('desktop') === 'teacher';
   const [mode, setMode] = useState(teacherDesktop ? MODE_STUDENT : MODE_CHOICE);
   const [code, setCode] = useState('');
+  const pendingTeacherCode = useRef('');
+  const completeLogin = async (user) => {
+    if (user.role === 'teacher' && window.teacherDesktop?.rememberTeacherCode && pendingTeacherCode.current) {
+      try { await window.teacherDesktop.rememberTeacherCode(pendingTeacherCode.current, user.name, user.id); } catch { /* Local save must not block login. */ }
+    }
+    pendingTeacherCode.current = ''; onLogin(user);
+  };
   const [emailChallenge, setEmailChallenge] = useState(null);
   const [emailCode, setEmailCode] = useState('');
   const [isCodeVisible, setIsCodeVisible] = useState(false);
@@ -85,6 +92,7 @@ const LoginPage = ({ onLogin }) => {
   const handleBack = () => {
     resetState();
     setEmailChallenge(null); setEmailCode('');
+    pendingTeacherCode.current = '';
     setCode('');
     setIsCodeVisible(false);
     setName('');
@@ -100,13 +108,15 @@ const LoginPage = ({ onLogin }) => {
     setLoading(true);
     setError('');
     try {
+      pendingTeacherCode.current = code.trim();
       const user = await api.login(code.trim());
       setCode(''); setIsCodeVisible(false);
       if (user.emailVerificationRequired) {
         setEmailChallenge(user); setEmailCode(''); return;
       }
-      onLogin(user);
+      await completeLogin(user);
     } catch (err) {
+      pendingTeacherCode.current = '';
       setError(err?.message || String(err));
     } finally {
       setLoading(false);
@@ -115,7 +125,7 @@ const LoginPage = ({ onLogin }) => {
 
   const handleEmailSubmit = async (event) => {
     event.preventDefault(); setLoading(true); setError('');
-    try { onLogin(await api.verifyEmailLogin(emailChallenge.challengeId, emailCode)); }
+    try { await completeLogin(await api.verifyEmailLogin(emailChallenge.challengeId, emailCode)); }
     catch (failure) { setError(failure.message); }
     finally { setLoading(false); }
   };
@@ -290,6 +300,7 @@ const LoginPage = ({ onLogin }) => {
             </div>
             <div className="relative">
               <input
+                data-teacher-desktop-code={teacherDesktop ? '' : undefined}
                 type={isCodeVisible ? 'text' : 'password'}
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
@@ -318,6 +329,7 @@ const LoginPage = ({ onLogin }) => {
                 {isCodeVisible ? <Eye size={18} /> : <EyeOff size={18} />}
               </button>
             </div>
+            {teacherDesktop && window.teacherDesktop?.showSavedLogins && <button type="button" className="w-full rounded-xl border border-purple-100 bg-purple-50 py-2.5 text-sm font-semibold text-purple-700 hover:bg-purple-100" onClick={() => window.teacherDesktop.showSavedLogins()}>Выбрать сохранённый код</button>}
             {error && <div className="text-red-500 text-sm text-center">{error}</div>}
             <Button type="submit" className="w-full py-3" disabled={loading || !code.trim()}>
               {loading ? 'Вход...' : (mode === MODE_PARENT ? 'Открыть кабинет' : 'Войти')}

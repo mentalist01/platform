@@ -8,6 +8,7 @@ const links = [
 ];
 
 export default function RutubeViewingHelp() {
+  if (window.teacherDesktop?.isDesktop) return <details className="m-3 rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs leading-5 text-slate-700"><summary className="cursor-pointer font-semibold text-violet-800">Мешает реклама в видео?</summary><p className="mt-3">Расширения браузера в приложение не переносятся. Чтобы смотреть с вашим блокировщиком рекламы, откройте видео по ссылке «Открыть на Rutube» в браузере, где установлено расширение.</p></details>;
   return <details className="m-3 rounded-xl border border-violet-200 bg-violet-50 p-3 text-xs leading-5 text-slate-700">
     <summary className="cursor-pointer font-semibold text-violet-800">Мешает реклама в видео?</summary>
     <p className="mt-3">Можно попробовать блокировщик рекламы. Выберите свой браузер — ссылки ведут в официальные магазины расширений.</p>

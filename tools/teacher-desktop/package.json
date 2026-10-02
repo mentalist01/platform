@@ -1,7 +1,7 @@
 {
   "name": "ivan100-teacher",
   "productName": "IVAN100 Учитель",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Кабинет преподавателя IVAN100 для Windows",
   "author": "IVAN100",
   "private": true,
@@ -22,10 +22,27 @@
     "productName": "IVAN100 Учитель",
     "executableName": "IVAN100-Teacher",
     "asar": true,
-    "directories": { "output": "../../output/teacher-desktop/release", "buildResources": "assets" },
-    "files": ["*.cjs", "ui/**/*", "assets/icon.png", "assets/icon.ico", "README.md", "package.json"],
+    "directories": {
+      "output": "../../output/teacher-desktop/release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "*.cjs",
+      "ui/**/*",
+      "assets/icon.png",
+      "assets/icon.ico",
+      "README.md",
+      "package.json"
+    ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "assets/icon.ico",
       "artifactName": "IVAN100-Teacher-${version}-Setup.${ext}"
     },
@@ -36,7 +53,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "IVAN100 Учитель",
-      "installerLanguages": ["ru_RU"],
+      "installerLanguages": [
+        "ru_RU"
+      ],
       "language": "1049",
       "runAfterFinish": false,
       "deleteAppDataOnUninstall": false

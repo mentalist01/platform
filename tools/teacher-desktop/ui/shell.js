@@ -13,7 +13,7 @@ document.querySelectorAll('[data-action]').forEach(button => button.addEventList
 function render(state) {
   document.getElementById('version').textContent = `Версия ${state.version}`;
   document.getElementById('recorder-dot').classList.toggle('ready', state.recorderReady);
-  document.getElementById('download').textContent = state.download || '';
+  document.getElementById('download').textContent = state.download || (state.downloadCount ? `· ${state.downloadCount}` : '');
   document.getElementById('overlay').hidden = state.page === 'ready';
   document.getElementById('heading').textContent = state.page === 'error' ? 'Не удалось открыть кабинет' : 'Открываем ваш кабинет';
   document.getElementById('message').textContent = state.page === 'error' ? 'Проверьте подключение к интернету и попробуйте снова. Пульт и записи на компьютере доступны отдельно.' : 'Расписание, ученики и уроки — в одном окне.';

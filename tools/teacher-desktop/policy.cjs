@@ -36,6 +36,13 @@ function safeDownloadName(value) {
   if (!name || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = `Файл-${name || 'скачивание'}`;
   return name;
 }
+function browserUserAgent(value) {
+  const match = String(value).match(/^(Mozilla\/5\.0 .+?AppleWebKit\/[\d.]+ \(KHTML, like Gecko\)).*?\b(Chrome\/[\d.]+)\b.*?\b(Safari\/[\d.]+)\b/);
+  return match ? `${match[1]} ${match[2]} ${match[3]}` : String(value);
+}
+function canDownload(topUrl, initiatorOrigin) {
+  return (isPlatform(topUrl) || isPlatformBlob(topUrl)) && isPlatform(initiatorOrigin);
+}
 function sharingResult({ sources, sourceId, withAudio, request }) {
   // Electron frame properties may throw after the requesting page is closed.
   try { if (!request.videoRequested || !request.frame || request.frame !== request.frame.top) return {}; } catch { return {}; }
@@ -44,4 +51,4 @@ function sharingResult({ sources, sourceId, withAudio, request }) {
   if (!source) return {};
   return { video: source, ...(withAudio && request.audioRequested ? { audio: 'loopback' } : {}) };
 }
-module.exports = { PLATFORM_URL, RECORDER_URL, isPlatform, isRecorder, isPlatformBlob, isExternal, classifyNavigation, isLocalPage, canRequestPermission, safeDownloadName, sharingResult };
+module.exports = { PLATFORM_URL, RECORDER_URL, isPlatform, isRecorder, isPlatformBlob, isExternal, classifyNavigation, isLocalPage, canRequestPermission, safeDownloadName, browserUserAgent, canDownload, sharingResult };
