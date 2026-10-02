@@ -2,6 +2,17 @@ import { createHash } from 'node:crypto';
 import { buildLessonRtcRoomId } from '../src/utils/rtcRooms.js';
 
 export const MAX_CUSTOM_VOICE_CHANNELS = 12;
+
+// Voice is available before the lesson; automatic recording starts only in its
+// scheduled window. Opening a channel must not start a future lesson.
+export const canAutoStartLearningVoiceLesson = (lesson, { nowMs = Date.now(), earlyStartMs = 0, overrunGraceMs = 0 } = {}) => {
+  if (lesson?.status !== 'scheduled') return false;
+  const startMs = Date.parse(lesson.startAt);
+  const durationMs = Math.max(15, Number(lesson.durationMinutes) || 60) * 60_000;
+  return Number.isFinite(startMs)
+    && nowMs >= startMs - earlyStartMs
+    && nowMs < startMs + durationMs + overrunGraceMs;
+};
 export const normalizeVoiceChannelName = (value) => String(value ?? '')
   // eslint-disable-next-line no-control-regex -- Strip invisible controls from user-visible names.
   .replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 60);

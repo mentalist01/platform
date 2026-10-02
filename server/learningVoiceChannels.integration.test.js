@@ -169,6 +169,9 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
     const initial = await request(url);
     assert.equal(initial.channels.length, 21);
     assert.equal(initial.canJoin, true);
+    assert.equal(initial.lessonStatus, 'scheduled');
+    assert.equal(initial.canStartLesson, true);
+    assert.equal((await request(url, { token: first.token })).canStartLesson, false);
     assert.equal(initial.channels[0].name, 'Общий канал');
     assert.equal(initial.channels[1].name, 'Student 1');
     const renameUrl = `${url}/${initial.channels[1].id}`;
@@ -270,11 +273,19 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
     const futureLesson = await request(`${root}/lessons`, { method: 'POST', status: 201, body: { startAt: new Date(Date.now() + 60 * 60_000).toISOString(), durationMinutes: 60 } });
     const futureChannels = await request(`${root}/lessons/${futureLesson.lesson.id}/voice-channels`);
     assert.equal(futureChannels.canJoin, true);
+    assert.equal(futureChannels.lessonStatus, 'scheduled');
+    assert.equal(futureChannels.canStartLesson, false);
+    assert.equal((await request(`${root}/lessons/${futureLesson.lesson.id}/voice-channels`, { token: first.token })).canJoin, true);
     t.send({ type: 'join', roomId: futureChannels.channels[0].roomId });
     await t.take('joined');
     const earlyStudent = await open(first.token);
     earlyStudent.send({ type: 'join', roomId: futureChannels.channels[0].roomId });
     await earlyStudent.take('joined');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'learning-lesson-sessions.json'), 'utf8'))
+      .find(entry => entry.id === futureLesson.lesson.id).status, 'scheduled');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'learning-attendance.json'), 'utf8'))
+      .some(entry => entry.sessionId === futureLesson.lesson.id
+        && (entry.firstJoinedAt || entry.activeConnectionIds?.length || entry.presentSeconds)), false);
     const futureUrl = `${root}/lessons/${futureLesson.lesson.id}/voice-channels`;
     assert.equal((await request(`${futureUrl}/distribute`, { method: 'POST', body: {} })).movedCount, 1);
     await earlyStudent.take('channel-move');

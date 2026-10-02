@@ -1,10 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getLearningVoiceChannels, normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
+import { canAutoStartLearningVoiceLesson, getLearningVoiceChannels, normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
 import { normalizeLearningGroup, updateLearningGroup } from './learningGroups.js';
 import { authorizeLearningRealtimeRoom, parseLearningLessonRoomTarget } from './learningLessonAccess.js';
 import { normalizeLessonHistoryRecord } from './lessonHistory.js';
 import { normalizeLessonReplay } from './lessonReplay.js';
+
+test('automatic lesson start waits for the recording window independently of voice access', () => {
+  const startMs = Date.parse('2026-10-03T17:00:00Z');
+  const lesson = { status: 'scheduled', startAt: new Date(startMs).toISOString(), durationMinutes: 60 };
+  const options = { earlyStartMs: 5 * 60_000, overrunGraceMs: 15 * 60_000 };
+  const check = (nowMs, value = lesson) => canAutoStartLearningVoiceLesson(value, { ...options, nowMs });
+  assert.equal(check(startMs - 3 * 60 * 60_000), false);
+  assert.equal(check(startMs - options.earlyStartMs - 1), false);
+  assert.equal(check(startMs - options.earlyStartMs), true);
+  assert.equal(check(startMs), true);
+  assert.equal(check(startMs + 75 * 60_000 - 1), true);
+  assert.equal(check(startMs + 75 * 60_000), false);
+  for (const status of ['active', 'completed', 'cancelled']) assert.equal(check(startMs, { ...lesson, status }), false);
+  assert.equal(check(startMs, { ...lesson, startAt: '' }), false);
+});
 
 test('history and existing group replays retain access for all 20 participants', () => {
   const participantIds = Array.from({ length: 20 }, (_, index) => `student-${index + 1}`);

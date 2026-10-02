@@ -25,10 +25,11 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const [notice, setNotice] = useState('');
   const refreshRef = useRef(null);
   const presenceRevisionRef = useRef(0);
+  const lessonStartAttemptRef = useRef(false);
   const isTeacher = user.role === 'teacher' || user.role === 'admin';
   const { groupId, lessonId } = lesson;
   const recorder = useDesktopRecording({ user, learningLessonId: lessonId, audioMode: 'platform',
-    active: recordingRequested && snapshot?.canJoin !== false });
+    active: recordingRequested && snapshot?.canJoin === true && snapshot?.lessonStatus === 'active' });
   useRecorderShare({ enabled: recorder.enabled && isTeacher, jobId: recorder.jobId, track: desktopShareTrack });
 
   useEffect(() => {
@@ -85,6 +86,26 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     void refreshRef.current?.();
   }, [isTeacher]);
 
+  useEffect(() => {
+    if (callStatus !== 'connected') {
+      lessonStartAttemptRef.current = false;
+      return;
+    }
+    if (!isTeacher || !snapshot?.canStartLesson || lessonStartAttemptRef.current) return;
+    lessonStartAttemptRef.current = true;
+    let cancelled = false;
+    void api.updateLearningGroupLesson(groupId, lessonId, { status: 'active' }).then(() => {
+      if (!cancelled) {
+        setActionError('');
+        void refreshRef.current?.();
+        window.dispatchEvent(new Event('learning-groups-changed'));
+      }
+    }).catch(error => {
+      if (!cancelled) setActionError(error?.message || 'Вы вошли в канал, но не удалось начать запись занятия.');
+    });
+    return () => { cancelled = true; };
+  }, [callStatus, groupId, isTeacher, lessonId, snapshot?.canStartLesson]);
+
   const leave = useCallback(() => {
     setSelectedId('');
     setCallStatus('idle');
@@ -92,13 +113,10 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     void refreshRef.current?.();
   }, []);
 
-  const join = async (channelId) => {
+  const join = (channelId) => {
     if (!snapshot?.canJoin) return;
     if (selectedId === channelId && callStatus !== 'idle') return;
-    if (isTeacher && lesson.status !== 'active') {
-      try { await api.updateLearningGroupLesson(groupId, lessonId, { status: 'active' }); }
-      catch (error) { setActionError(error?.message || 'Не удалось начать занятие'); return; }
-    }
+    setActionError('');
     setSelectedId(channelId);
     setConnectionKey((key) => key + 1);
     setCallStatus('connecting');
@@ -172,10 +190,13 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     <div className="group-voice" data-theme={theme}>
       <div hidden={!visible}>
         {(loadError || actionError) && <p className="group-voice__error" role="alert">{actionError || loadError}</p>}
-        {isTeacher && recordingRequested && recorder.enabled && <p className="group-voice__notice" role="status">
+        {isTeacher && recordingRequested && snapshot?.lessonStatus === 'active' && recorder.enabled && <p className="group-voice__notice" role="status">
           {recorder.error || (recorder.settings?.jobs?.find(job => job.id === recorder.jobId)?.status === 'recording'
             ? 'Занятие записывается. Запись продолжится при переходе между каналами.'
             : 'Запись занятия включена. Проверьте её состояние в локальном пульте.')}
+        </p>}
+        {isTeacher && callStatus === 'connected' && snapshot?.lessonStatus === 'scheduled' && !snapshot?.canStartLesson && <p className="group-voice__notice" role="status">
+          Вы в голосовом канале вне времени занятия. Запись урока сейчас не запущена.
         </p>}
         {notice && <p className="group-voice__notice" role="status">{notice}</p>}
         {snapshot && !canConnect && <p className="group-voice__notice">{snapshot.joinError || 'Голосовая связь недоступна для завершённого занятия.'}</p>}

@@ -29,7 +29,7 @@ import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallenge
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { getLearningVoiceChannels, MAX_CUSTOM_VOICE_CHANNELS, normalizeVoiceChannelName } from './learningVoiceChannels.js';
+import { canAutoStartLearningVoiceLesson, getLearningVoiceChannels, MAX_CUSTOM_VOICE_CHANNELS, normalizeVoiceChannelName } from './learningVoiceChannels.js';
 import { createLessonReplayEventLog } from './lessonReplayEventLog.js';
 import { createLessonReplayReceipts } from './lessonReplayReceipts.js';
 import { writeDurableReplayFile } from './lessonReplayFiles.js';
@@ -24536,6 +24536,11 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handle
     enabled: LEARNING_GROUP_RTC_ENABLED,
     canJoin: !joinError,
     joinError,
+    lessonStatus: lesson.status,
+    canStartLesson: !joinError && canManageLearningGroup(req.auth, group) && canAutoStartLearningVoiceLesson(lesson, {
+      earlyStartMs: LEARNING_LESSON_EARLY_JOIN_MS,
+      overrunGraceMs: LEARNING_LESSON_OVERRUN_GRACE_MS,
+    }),
     gatherRequestedAt: lesson.voiceGatheredAt || '',
     channels: channels.map((channel) => ({
       ...channel,
