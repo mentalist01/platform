@@ -9,7 +9,7 @@ cp -a dist "$backup/dist"
 cp -a ecosystem.config.cjs "$backup/"
 cp -a /root/platform-data/group-availability.json /root/platform-data/teachers.json "$backup/"
 if [ -f /root/platform-data/guest-meetings.json ]; then cp -a /root/platform-data/guest-meetings.json "$backup/"; fi
-node --test server/groupAvailability.test.js server/groupAvailability.integration.test.js server/teacherMockNotifications.test.js server/guestMeetings.test.js server/guestMeetings.integration.test.js server/learningGroups.integration.test.js > "$backup/tests.log" 2>&1
+node --test server/groupAvailability.test.js server/groupAvailability.integration.test.js server/teacherMockNotifications.test.js server/guestMeetings.test.js server/guestMeetings.integration.test.js server/publicMeetings.integration.test.js server/learningGroups.integration.test.js > "$backup/tests.log" 2>&1
 stage="dist-group-availability-notifications-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-group-availability-notifications-release.mjs local "$stage"

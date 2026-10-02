@@ -11,6 +11,8 @@ const assets = fs.readdirSync(path.join(directory, 'assets'));
 const features = {
   GuestMeetingPage: ['Как вас зовут?', 'Перейти к настройкам', 'ВСТРЕЧА ПО ПРИГЛАШЕНИЮ'],
   GuestMeetingsSection: ['Встречи по ссылке', 'Завершить для всех', 'Закрыть вход'],
+  PublicMeetingsPage: ['Новая встреча', 'Создать встречу', 'Видеозвонки без регистрации'],
+  PublicMeetingRoom: ['Вы — организатор', 'Ссылка для друзей', 'Завершить для всех'],
   CallSection: ['_meetingAuth', 'host-mute', 'Войти во встречу'],
 };
 const bundles = Object.keys(features).map((name) => {
@@ -41,5 +43,10 @@ if (mode === 'verify') {
   const missing = await fetch('https://ivan100.ru/api/guest-meetings/00000000-0000-0000-0000-000000000000', { signal: AbortSignal.timeout(20_000) });
   assert.equal(missing.status, 404, 'Public guest endpoint is unavailable');
   assert.match((await missing.json()).error, /не найдена/);
+  const config = await fetch('https://ivan100.ru/api/public-meetings/config', { signal: AbortSignal.timeout(20_000) });
+  assert.equal(config.status, 200, 'Public meeting creation endpoint is unavailable');
+  assert.equal((await config.json()).maxParticipants, 20);
+  const publicPage = (await read('/meetings')).toString();
+  assert.ok(initial.every((asset) => publicPage.includes(asset)), 'Public meeting page is unavailable');
   console.log('Public guest endpoint and published client verified without creating a meeting.');
 }

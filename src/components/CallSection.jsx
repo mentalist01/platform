@@ -638,6 +638,7 @@ const extractHttpErrorMessage = async (response, fallback) => {
 
 const formatRtcRoleLabel = (role) => {
   if (role === 'teacher') return 'Преподаватель';
+  if (role === 'meeting-host') return 'Организатор';
   if (role === 'guest') return 'Гость';
   if (role === 'student') return 'Ученик';
   if (role === 'admin') return 'Администратор';
@@ -3998,7 +3999,7 @@ const CallSection = ({
 
     if (type === 'host-mute') {
       stopMicTrack();
-      onMeetingNotice?.('Преподаватель выключил ваш микрофон. Вы можете включить его снова.');
+      onMeetingNotice?.('Организатор выключил ваш микрофон. Вы можете включить его снова.');
       return;
     }
 
@@ -6541,7 +6542,7 @@ const CallSection = ({
                   })}
                 </div>
                 {voiceCallParticipants.length <= 1 && (
-                  <p className={waitingTextClass}>{`Ждём ${remoteParticipantName} в звонке`}</p>
+                  <p className={waitingTextClass}>{meetingId ? 'Ждём остальных участников' : `Ждём ${remoteParticipantName} в звонке`}</p>
                 )}
               </section>
             )}

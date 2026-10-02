@@ -257,6 +257,9 @@ const LoginPage = ({ onLogin }) => {
             >
               {loading ? 'Подключаем...' : (hasStoredSignupGuestKey ? 'Вернуться в чат' : 'Я хочу записаться')}
             </Button>
+            <a href="/meetings" className="flex items-center justify-center gap-2 w-full py-3 text-purple-700 font-semibold rounded-2xl border border-purple-200 hover:bg-purple-50">
+              Создать созвон без регистрации <ArrowRight size={17} />
+            </a>
           </div>
         )}
 

@@ -15,7 +15,7 @@ import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
-import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId } from './guestMeetings.js';
+import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
@@ -21963,18 +21963,22 @@ registerDesktopDeviceRoutes(app, desktopRecordings, {
   },
 });
 
-const guestMeetings = createGuestMeetingStore({ filePath: path.join(dataDir, 'guest-meetings.json') });
+const guestMeetings = createGuestMeetingStore({
+  filePath: path.join(dataDir, 'guest-meetings.json'),
+  publicEnabled: process.env.PUBLIC_MEETINGS_ENABLED !== '0',
+  maxPublicMeetings: Math.max(1, Math.min(100, Number(process.env.PUBLIC_MEETINGS_MAX_ACTIVE) || 10)),
+});
 const guestMeetingRouteOptions = {
   resolveNormalAuth: (req) => getAuthSession(getAuthTokenFromRequest(req), req)?.user,
   participants: (id) => Array.from(rtcRooms.get(meetingRoomId(id))?.values() || []).map(serializeRtcPeer),
   control: (id, action, guestId) => {
     rtcClientsBySocket.forEach((client) => {
       const belongs = client.roomId === meetingRoomId(id) || client.watchedRoomId === meetingRoomId(id)
-        || (client.auth.role === 'guest' && client.auth.meetingId === id);
+        || (isMeetingIdentity(client.auth) && client.auth.meetingId === id);
       if (!belongs || (action !== 'close' && client.auth.id !== guestId)) return;
       if (action === 'mute') sendRtcPayload(client.ws, { type: 'host-mute' });
       if (action === 'close' || action === 'remove') {
-        sendRtcPayload(client.ws, { type: 'session-ended', error: action === 'close' ? 'Преподаватель завершил встречу.' : 'Преподаватель отключил вас от встречи.' });
+        sendRtcPayload(client.ws, { type: 'session-ended', error: action === 'close' ? 'Организатор завершил встречу.' : 'Организатор отключил вас от встречи.' });
         cleanupRtcClient(client, { closeSocket: true, closeCode: 1008, closeReason: 'Meeting ended' });
       }
     });
@@ -41983,7 +41987,7 @@ const getRtcRoomAccessError = (auth, roomMeta) => {
     if (isTeacherRole(auth) && !isTeacherSubscriptionAccessAllowed(auth)) return 'Доступ преподавателя приостановлен';
     return guestMeetings.accessError(auth, roomMeta.meetingId);
   }
-  if (auth.role === 'guest') return 'Гостевой доступ действует только для приглашённой встречи';
+  if (isMeetingIdentity(auth)) return 'Доступ действует только для этой встречи';
   if (roomMeta.targetType === 'lesson' && !LEARNING_GROUP_RTC_ENABLED) {
     return 'Групповые звонки доступны только в Яндекс Телемосте';
   }
@@ -42423,7 +42427,7 @@ const joinRtcRoom = (client, roomMeta) => {
     const otherGuests = Array.from(existing?.values() || []).filter((other) => other.auth.role === 'guest' && other.auth.id !== client.auth.id);
     // Reserve one of the twenty places for the host, including before they join.
     if (client.auth.role === 'guest' && otherGuests.length >= 19) {
-      sendRtcPayload(client.ws, { type: 'error', error: 'В комнате уже 20 участников, включая преподавателя. Попробуйте позже.' });
+      sendRtcPayload(client.ws, { type: 'error', error: 'В комнате уже 20 участников, включая организатора. Попробуйте позже.' });
       return;
     }
     Array.from(existing?.values() || []).forEach((other) => {
@@ -42526,7 +42530,7 @@ const handleRtcMessage = (client, rawData, isBinary) => {
   const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
   if (!type) return;
   client.lastHeartbeatAt = Date.now();
-  if (client.auth.role === 'guest') {
+  if (isMeetingIdentity(client.auth)) {
     const error = guestMeetings.accessError(client.auth, client.auth.meetingId);
     if (error) {
       sendRtcPayload(client.ws, { type: 'session-ended', error });
@@ -42772,12 +42776,12 @@ const runRtcClientSweep = () => {
       return;
     }
     const roomMeta = parseRtcRoomId(client.roomId) || parseMeetingRoomId(client.watchedRoomId);
-    if (roomMeta?.targetType === 'lesson' || roomMeta?.targetType === 'meeting' || client.auth.role === 'guest') {
+    if (roomMeta?.targetType === 'lesson' || roomMeta?.targetType === 'meeting' || isMeetingIdentity(client.auth)) {
       const checkedRoom = roomMeta || parseMeetingRoomId(meetingRoomId(client.auth.meetingId));
       const accessError = getRtcRoomAccessError(client.auth, checkedRoom);
       if (accessError) {
         sendRtcPayload(client.ws, { type: 'session-ended', error: accessError });
-        if (client.auth.role === 'guest' || checkedRoom?.targetType === 'meeting') {
+        if (isMeetingIdentity(client.auth) || checkedRoom?.targetType === 'meeting') {
           cleanupRtcClient(client, { closeSocket: true, closeCode: 1008, closeReason: 'Meeting access expired' });
           return;
         }
@@ -42862,8 +42866,10 @@ server.on('upgrade', (request, socket, head) => {
     if (meetingToken !== null) {
       const guest = guestMeetings.resolveToken(meetingToken);
       if (!guest) { rejectUpgrade(socket, 401, 'Unauthorized'); return; }
-      const connections = Array.from(rtcClientsBySocket.values()).filter((c) => c.auth.role === 'guest' && c.auth.id === guest.id);
+      const connections = Array.from(rtcClientsBySocket.values()).filter((c) => isMeetingIdentity(c.auth) && c.auth.id === guest.id);
       if (connections.length >= 4) { rejectUpgrade(socket, 429, 'Too many connections'); return; }
+      const roomConnections = Array.from(rtcClientsBySocket.values()).filter((c) => isMeetingIdentity(c.auth) && c.auth.meetingId === guest.meetingId);
+      if (roomConnections.length >= 80) { rejectUpgrade(socket, 429, 'Too many meeting connections'); return; }
       rtcWss.handleUpgrade(request, socket, head, (ws) => rtcWss.emit('connection', ws, request, guest));
       return;
     }
@@ -42928,7 +42934,7 @@ collabWss.on('connection', (ws, request) => {
 });
 
 rtcWss.on('connection', (ws, _request, user) => {
-  const auth = user?.role === 'guest' ? user : buildSessionUser(user);
+  const auth = isMeetingIdentity(user) ? user : buildSessionUser(user);
   if (!auth) {
     try {
       ws.close(1008, 'Unauthorized');

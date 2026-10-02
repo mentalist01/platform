@@ -9,12 +9,13 @@ const hashToken = (token) => crypto.createHash('sha256').update(String(token || 
 const safeText = (value, limit) => String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, limit);
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 export const meetingRoomId = (id) => `rtc:meeting:${id}`;
+export const isMeetingIdentity = (auth) => ['guest', 'meeting-host'].includes(auth?.role);
 export const parseMeetingRoomId = (value) => {
   const match = /^rtc:meeting:([a-f0-9-]{36})$/.exec(String(value || ''));
   return match ? { roomId: match[0], meetingId: match[1], targetType: 'meeting', legacy: false } : null;
 };
 
-export const createGuestMeetingStore = ({ filePath, now = Date.now }) => {
+export const createGuestMeetingStore = ({ filePath, now = Date.now, publicEnabled = true, maxPublicMeetings = 10 }) => {
   const read = () => {
     if (!fs.existsSync(filePath)) return { meetings: [], guests: [] };
     const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -23,7 +24,7 @@ export const createGuestMeetingStore = ({ filePath, now = Date.now }) => {
   };
   const save = (state) => {
     const cutoff = now() - 30 * DAY;
-    state.meetings = state.meetings.filter((m) => Date.parse(m.expiresAt) > cutoff);
+    state.meetings = state.meetings.filter((m) => Date.parse(m.expiresAt) > (m.hostType === 'public' ? now() - DAY : cutoff));
     const ids = new Set(state.meetings.map((m) => m.id));
     state.guests = state.guests.filter((g) => ids.has(g.meetingId) && Date.parse(g.expiresAt) > now());
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -39,23 +40,71 @@ export const createGuestMeetingStore = ({ filePath, now = Date.now }) => {
   const requireOpen = (state, id) => {
     const meeting = state.meetings.find((m) => m.id === id);
     if (!meeting) fail('Встреча не найдена', 404);
-    if (!isOpen(meeting)) fail('Встреча завершена. Попросите преподавателя прислать новую ссылку.', 410);
+    if (!isOpen(meeting)) fail('Встреча завершена. Попросите организатора прислать новую ссылку.', 410);
     return meeting;
   };
   const publicMeeting = (m) => ({
     id: m.id, title: m.title, hostName: m.hostName, roomId: meetingRoomId(m.id),
     maxParticipants: m.maxParticipants, createdAt: m.createdAt, expiresAt: m.expiresAt,
-    closedAt: m.closedAt, locked: m.locked, open: isOpen(m),
+    closedAt: m.closedAt, locked: m.locked, open: isOpen(m), hostType: m.hostType || 'teacher',
   });
-  const guestAuth = (g) => ({ id: g.id, name: g.name, role: 'guest', meetingId: g.meetingId });
+  const guestAuth = (g) => ({ id: g.id, name: g.name, role: g.role === 'meeting-host' ? 'meeting-host' : 'guest', meetingId: g.meetingId });
+  const createIdentity = (state, meeting, name, role = 'guest') => {
+    const token = crypto.randomBytes(32).toString('base64url');
+    const identity = { id: crypto.randomUUID(), meetingId: meeting.id, name, role, tokenHash: hashToken(token),
+      expiresAt: meeting.expiresAt, revokedAt: '' };
+    state.guests.push(identity);
+    return { identity, token };
+  };
+  const resolveIdentity = (state, token) => {
+    if (typeof token !== 'string' || !token || token.length > 100) return null;
+    const identity = state.guests.find((g) => g.tokenHash === hashToken(token));
+    const meeting = state.meetings.find((m) => m.id === identity?.meetingId);
+    if (!identity || identity.revokedAt || Date.parse(identity.expiresAt) <= now() || !isOpen(meeting)) return null;
+    if (identity.role === 'meeting-host' && (meeting.hostType !== 'public' || meeting.hostId !== identity.id)) return null;
+    return identity;
+  };
+  const mutate = (state, meeting, action, guestId) => {
+    if (action === 'close') meeting.closedAt = new Date(now()).toISOString();
+    else if (action === 'lock') meeting.locked = true;
+    else if (action === 'unlock') meeting.locked = false;
+    else if (action === 'remove' || action === 'mute') {
+      const guest = state.guests.find((g) => g.id === guestId && g.meetingId === meeting.id && g.role !== 'meeting-host' && !g.revokedAt);
+      if (!guest) fail('Участник не найден', 404);
+      if (action === 'remove') guest.revokedAt = new Date(now()).toISOString();
+    } else fail('Неизвестное действие');
+    save(state);
+    return publicMeeting(meeting);
+  };
   return {
+    publicConfig() { return { enabled: publicEnabled, maxParticipants: 20, lifetimeHours: 24 }; },
+    createPublic({ name, title } = {}, source = '') {
+      if (!publicEnabled) fail('Создание встреч временно недоступно.', 503);
+      const hostName = safeText(name, 80);
+      if (!hostName) fail('Введите ваше имя');
+      const state = read();
+      const active = state.meetings.filter((m) => m.hostType === 'public' && isOpen(m));
+      if (active.length >= maxPublicMeetings) fail('Сейчас все комнаты заняты. Попробуйте создать встречу чуть позже.', 503);
+      const sourceKey = hashToken(source);
+      if (active.filter((m) => m.sourceKey === sourceKey).length >= 3) fail('В этой сети уже созданы три встречи. Завершите одну из них.', 429);
+      const meeting = {
+        id: crypto.randomUUID(), hostType: 'public', hostName, sourceKey,
+        title: safeText(title, 120) || 'Встреча с друзьями', maxParticipants: 20,
+        createdAt: new Date(now()).toISOString(), expiresAt: new Date(now() + DAY).toISOString(), closedAt: '', locked: false,
+      };
+      const { identity, token } = createIdentity(state, meeting, hostName, 'meeting-host');
+      meeting.hostId = identity.id;
+      state.meetings.push(meeting);
+      save(state);
+      return { meeting: publicMeeting(meeting), user: guestAuth(identity), token };
+    },
     create(teacher, title) {
       const state = read();
       if (state.meetings.filter((m) => m.teacherId === teacher.id && isOpen(m)).length >= 10) {
         fail('Завершите одну из открытых встреч, чтобы создать новую.', 409);
       }
       const meeting = {
-        id: crypto.randomUUID(), teacherId: teacher.id, hostName: safeText(teacher.name, 80) || 'Преподаватель',
+        id: crypto.randomUUID(), hostType: 'teacher', teacherId: teacher.id, hostName: safeText(teacher.name, 80) || 'Преподаватель',
         title: safeText(title, 120) || 'Пробное занятие', maxParticipants: 20,
         createdAt: new Date(now()).toISOString(), expiresAt: new Date(now() + DAY).toISOString(), closedAt: '', locked: false,
       };
@@ -71,62 +120,55 @@ export const createGuestMeetingStore = ({ filePath, now = Date.now }) => {
     owned(id, teacherId) {
       const m = read().meetings.find((entry) => entry.id === id);
       if (!m) fail('Встреча не найдена', 404);
-      if (m.teacherId !== teacherId) fail('Нет доступа к этой встрече', 403);
+      if (!teacherId || m.hostType === 'public' || m.teacherId !== teacherId) fail('Нет доступа к этой встрече', 403);
       return publicMeeting(m);
     },
     join(id, { name, resumeToken } = {}) {
       const state = read();
       const meeting = requireOpen(state, id);
       if (resumeToken) {
-        const guest = state.guests.find((g) => g.tokenHash === hashToken(resumeToken) && g.meetingId === id);
-        if (!guest || guest.revokedAt || Date.parse(guest.expiresAt) <= now()) fail('Вход больше недоступен. Обратитесь к преподавателю.', 403);
+        const guest = resolveIdentity(state, resumeToken);
+        if (!guest || guest.meetingId !== id) fail('Вход больше недоступен. Обратитесь к организатору.', 403);
         return { meeting: publicMeeting(meeting), user: guestAuth(guest), token: resumeToken };
       }
-      if (meeting.locked) fail('Преподаватель закрыл вход для новых участников.', 403);
+      if (meeting.locked) fail('Организатор закрыл вход для новых участников.', 403);
       const guestName = safeText(name, 80);
       if (!guestName) fail('Введите ваше имя');
       if (state.guests.filter((g) => g.meetingId === id && Date.parse(g.expiresAt) > now()).length >= 400) {
-        fail('Слишком много входов в эту встречу. Обратитесь к преподавателю.', 429);
+        fail('Слишком много входов в эту встречу. Обратитесь к организатору.', 429);
       }
-      const token = crypto.randomBytes(32).toString('base64url');
-      const guest = { id: crypto.randomUUID(), meetingId: id, name: guestName, tokenHash: hashToken(token),
-        expiresAt: meeting.expiresAt, revokedAt: '' };
-      state.guests.push(guest);
+      const { identity: guest, token } = createIdentity(state, meeting, guestName);
       save(state);
       return { meeting: publicMeeting(meeting), user: guestAuth(guest), token };
     },
     resolveToken(token) {
-      if (!token || String(token).length > 100) return null;
-      const state = read();
-      const guest = state.guests.find((g) => g.tokenHash === hashToken(token));
-      return guest && !guest.revokedAt && Date.parse(guest.expiresAt) > now()
-        && isOpen(state.meetings.find((m) => m.id === guest.meetingId)) ? guestAuth(guest) : null;
+      const identity = resolveIdentity(read(), token);
+      return identity ? guestAuth(identity) : null;
     },
     accessError(auth, meetingId) {
       const state = read();
       const meeting = state.meetings.find((m) => m.id === meetingId);
       if (!isOpen(meeting)) return 'Встреча завершена';
-      if (auth?.role === 'teacher' && auth.id === meeting.teacherId) return '';
-      if (auth?.role === 'guest' && auth.meetingId === meetingId) {
+      if (auth?.role === 'teacher' && meeting.teacherId && auth.id === meeting.teacherId) return '';
+      if (isMeetingIdentity(auth) && auth.meetingId === meetingId) {
         const guest = state.guests.find((g) => g.id === auth.id && g.meetingId === meetingId);
-        if (guest && !guest.revokedAt && Date.parse(guest.expiresAt) > now()) return '';
+        if (guest && guestAuth(guest).role === auth.role && !guest.revokedAt && Date.parse(guest.expiresAt) > now()
+          && (auth.role !== 'meeting-host' || meeting.hostId === auth.id)) return '';
       }
       return 'Нет доступа к этой встрече';
     },
     control(id, teacherId, action, guestId) {
       const state = read();
       const meeting = requireOpen(state, id);
-      if (meeting.teacherId !== teacherId) fail('Нет доступа к этой встрече', 403);
-      if (action === 'close') meeting.closedAt = new Date(now()).toISOString();
-      else if (action === 'lock') meeting.locked = true;
-      else if (action === 'unlock') meeting.locked = false;
-      else if (action === 'remove' || action === 'mute') {
-        const guest = state.guests.find((g) => g.id === guestId && g.meetingId === id && !g.revokedAt);
-        if (!guest) fail('Участник не найден', 404);
-        if (action === 'remove') guest.revokedAt = new Date(now()).toISOString();
-      } else fail('Неизвестное действие');
-      save(state);
-      return publicMeeting(meeting);
+      if (!teacherId || meeting.hostType === 'public' || meeting.teacherId !== teacherId) fail('Нет доступа к этой встрече', 403);
+      return mutate(state, meeting, action, guestId);
+    },
+    controlPublic(id, token, action, guestId) {
+      const state = read();
+      const meeting = requireOpen(state, id);
+      const host = resolveIdentity(state, token);
+      if (!host || host.role !== 'meeting-host' || host.meetingId !== id || meeting.hostId !== host.id) fail('Управлять встречей может только её организатор.', 403);
+      return mutate(state, meeting, action, guestId);
     },
   };
 };
@@ -145,15 +187,29 @@ export const registerGuestMeetingRoutes = (app, store, { publicRoutes, resolveNo
   };
   if (publicRoutes) {
     const attempts = new Map();
+    const creationAttempts = new Map();
+    const limit = (map, key, max, windowMs, message) => {
+      const time = Date.now();
+      for (const [entry, value] of map) if (value.until <= time) map.delete(entry);
+      const attempt = map.get(key) || { count: 0, until: time + windowMs };
+      attempt.count += 1;
+      map.set(key, attempt);
+      if (attempt.count > max) fail(message, 429);
+    };
+    app.get('/api/public-meetings/config', handle((_req, res) => res.json(store.publicConfig())));
+    app.post('/api/public-meetings', handle((req, res) => {
+      limit(creationAttempts, req.ip, 10, 60 * 60_000, 'Слишком много попыток создания встречи. Попробуйте позже.');
+      res.status(201).json(store.createPublic(req.body, req.ip));
+    }));
+    app.post('/api/public-meetings/:id/control', handle((req, res) => {
+      const token = /^Bearer (.+)$/.exec(String(req.headers.authorization || ''))?.[1];
+      const meeting = store.controlPublic(req.params.id, token, req.body?.action, req.body?.guestId);
+      control(req.params.id, req.body?.action, req.body?.guestId);
+      res.json({ meeting });
+    }));
     app.get('/api/guest-meetings/:id', handle((req, res) => res.json({ meeting: store.get(req.params.id) })));
     app.post('/api/guest-meetings/:id/join', handle((req, res) => {
-      const time = Date.now();
-      for (const [key, value] of attempts) if (value.until <= time) attempts.delete(key);
-      const key = req.ip;
-      const attempt = attempts.get(key) || { count: 0, until: time + 60_000 };
-      attempt.count += 1;
-      attempts.set(key, attempt);
-      if (attempt.count > 40) fail('Слишком много попыток входа. Подождите минуту.', 429);
+      limit(attempts, req.ip, 40, 60_000, 'Слишком много попыток входа. Подождите минуту.');
       res.json(store.join(req.params.id, req.body));
     }));
     app.get('/api/guest-meetings/:id/presence', handle((req, res) => {

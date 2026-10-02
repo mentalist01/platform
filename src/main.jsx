@@ -4,6 +4,7 @@ import './index.css'
 import App from './App.jsx'
 const BoardTabletPage = lazy(() => import('./components/BoardTabletPage.jsx'))
 const GuestMeetingPage = lazy(() => import('./components/GuestMeetingPage.jsx'))
+const PublicMeetingsPage = lazy(() => import('./components/PublicMeetingsPage.jsx'))
 import {
   cleanupOfflineServiceWorkerForDevelopment,
   registerOfflineServiceWorker,
@@ -14,6 +15,8 @@ const renderApp = () => {
     <StrictMode>
       {new URLSearchParams(window.location.search).has('meeting')
         ? <Suspense fallback={<div role="status">Открываем встречу…</div>}><GuestMeetingPage /></Suspense>
+        : /^\/meetings\/?$/.test(window.location.pathname)
+        ? <Suspense fallback={<div role="status">Открываем встречи…</div>}><PublicMeetingsPage /></Suspense>
         : window.location.hash.startsWith('#tablet=')
         ? <Suspense fallback={<div role="status">Подключаем планшет…</div>}><BoardTabletPage /></Suspense>
         : <App />}

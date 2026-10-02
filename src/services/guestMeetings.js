@@ -21,6 +21,15 @@ export const guestMeetingsApi = {
   info: (id) => request(`/api/guest-meetings/${encodeURIComponent(id)}`, { guest: true }),
   join: (id, data) => request(`/api/guest-meetings/${encodeURIComponent(id)}/join`, { guest: true, body: data }),
   presence: (id, options) => request(`/api/guest-meetings/${encodeURIComponent(id)}/presence`, options),
+  publicConfig: () => request('/api/public-meetings/config', { guest: true }),
+  createPublic: (name, title) => request('/api/public-meetings', { guest: true, body: { name, title } }),
+  controlPublic: (id, token, action, guestId) => request(`/api/public-meetings/${encodeURIComponent(id)}/control`, { guest: true, token, body: { action, guestId } }),
+};
+
+export const meetingStorageKey = (id) => `ivan100-guest-meeting:${id}`;
+export const rememberMeeting = (identity) => {
+  try { sessionStorage.setItem(meetingStorageKey(identity.meeting.id), JSON.stringify({ token: identity.token })); }
+  catch { /* The current call also works without browser storage. */ }
 };
 
 export const guestMeetingLink = (id) => {

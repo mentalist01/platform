@@ -67,7 +67,7 @@ export default function GuestMeetingsSection({ user, theme = 'light' }) {
   return <section className={`guest-meetings ${theme === 'dark' ? 'guest-meetings-dark' : ''}`}>
     <header className="gm-heading"><span className="gm-icon"><Video size={26} /></span><div>
       <p className="gm-eyebrow">СОЗВОНЫ БЕЗ РЕГИСТРАЦИИ</p><h2>Встречи по ссылке</h2>
-      <p>Пригласите на пробное занятие или общий созвон — достаточно ссылки и имени.</p>
+      <p>Пригласите на пробное занятие или общий созвон — достаточно ссылки и имени. <a href="/meetings">Открытый раздел встреч</a></p>
     </div></header>
     {error && <p role="alert" className="gm-error">{error}</p>}
     {notice && <p role="status" className="gm-notice">{notice}</p>}
