@@ -29,8 +29,8 @@ test('full server: pupil choices become group lessons and teacher/student calend
     for(let i=0;i<180;i++) {if(child.exitCode!==null)throw Error(logs);try {if((await fetch(`http://127.0.0.1:${port}/api/client-build-version`)).ok)return;}catch{}await new Promise(r=>setTimeout(r,100));}
     throw Error(logs);
   };
-  const req=async(url,token='',body,expected=200)=>{
-    const r=await fetch(`http://127.0.0.1:${port}/api${url}`,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{})});
+  const req=async(url,token='',body,expected=200,method=body?'POST':'GET')=>{
+    const r=await fetch(`http://127.0.0.1:${port}/api${url}`,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},...(body?{body:JSON.stringify(body)}:{})});
     const value=await r.json();assert.equal(r.status,expected,`${url}: ${JSON.stringify(value)}\n${r.status>=500?logs:''}`);return value;
   };
   await boot(); const teacher=(await req('/login','',{code:'110001'})).token;
@@ -57,10 +57,30 @@ test('full server: pupil choices become group lessons and teacher/student calend
   assertPublicNames(publicPoll);
   assert.deepEqual(publicPoll.poll.members.map(m=>m.name).sort(),['a','b']);
   const roundId=opened.poll.id; const slots=['0-720','3-720'];
+  const notificationsPath = '/teacher-solved-events?teacherId=t';
+  assert.deepEqual(await req(notificationsPath, teacher), []);
   for(const token of tokens.slice(0,2)) await req(`${base}/answer`,token,{roundId,version:0,choices:{...Object.fromEntries(slots.map(s=>[s,'yes'])),[`${occupiedDay}-600`]:'maybe','0-1320':'yes'}});
   const teacherAnswers=await req(base,teacher);
   assert.ok(teacherAnswers.blocked[`${occupiedDay}-600`]);
   assert.equal(teacherAnswers.poll.answers.a.choices[`${occupiedDay}-600`],'maybe');
+  const notes = await req(notificationsPath, teacher);
+  assert.equal(notes.length, 2);
+  assert.ok(notes.every(note => note.source === 'group-availability' && note.groupId === group.id && note.groupName === 'Together'));
+  assert.ok(notes.every(note => note.convenientCount === 3 && note.flexibleCount === 1));
+  const firstNote = notes.find(note => note.studentId === 'a');
+  assert.equal(firstNote.studentNickname, 'PRIVATE_ALIAS_a');
+  await req(notificationsPath, tokens[0], undefined, 403);
+  const otherTeacher = (await req('/login', '', { code: '220001' })).token;
+  assert.deepEqual(await req('/teacher-solved-events?teacherId=other', otherTeacher), []);
+  await req('/teacher-solved-events?teacherId=t', otherTeacher, undefined, 403);
+  await req('/teacher-solved-events/read', teacher, { teacherId: 't', eventIds: [firstNote.id] }, 200, 'PATCH');
+  assert.ok(!(await req(notificationsPath, teacher)).some(note => note.id === firstNote.id));
+  await req(`${base}/answer`, tokens[0], { roundId, version: 1, choices: teacherAnswers.poll.answers.a.choices });
+  assert.ok(!(await req(notificationsPath, teacher)).some(note => note.studentId === 'a'), 'No repeat alert for unchanged preferences');
+  await req(`${base}/answer`, tokens[0], { roundId, version: 2, choices: { ...teacherAnswers.poll.answers.a.choices, '0-1320': 'maybe' } });
+  const updatedNote = (await req(notificationsPath, teacher)).find(note => note.studentId === 'a');
+  assert.equal(updatedNote.availabilityUpdated, true);
+  assert.notEqual(updatedNote.id, firstNote.id);
   const p=(await req(`${base}/propose`,tokens[0],{roundId,slots})).poll.proposal;
   assert.equal(p.authorName,'a'); assertPublicNames(p);
   assert.equal((await req(base,teacher)).poll.proposal.authorName,'PRIVATE_ALIAS_a');
@@ -89,6 +109,7 @@ test('full server: pupil choices become group lessons and teacher/student calend
   seed('learning-group-chat.json',['a','removed-student'].map(id=>({id:`legacy-${id}`,groupId:group.id,
     senderId:id,senderRole:'student',senderName:`PRIVATE_ALIAS_${id}`,type:'text',text:'Old message',createdAt,updatedAt:createdAt})));
   await boot();
+  assert.ok((await req(notificationsPath, teacher)).some(note => note.id === updatedNote.id), 'Unread notification survives server restart');
   const historicalPoll=await req(base,tokens[1]); assertPublicNames(historicalPoll);
   assert.equal(historicalPoll.poll.proposal.authorName,'a');
   const historicalChat=await req(`/learning-groups/${group.id}/chat`,tokens[1]); assertPublicNames(historicalChat);

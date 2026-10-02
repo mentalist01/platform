@@ -14,6 +14,7 @@ import { createAvailabilityStore, registerGroupAvailability, materializeAvailabi
 import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
+import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
@@ -24193,6 +24194,20 @@ registerGroupAvailability(app, {
     exposeStudentNicknames: isAdminRole(auth) || isTeacherRole(auth),
   }),
   materialize: () => materializeAvailabilitySchedules(true),
+  notifyAnswer: (group, _poll, { studentId, answer }) => {
+    const student = findStudentById(studentId);
+    if (!student || student.teacherId !== group.teacherId) return;
+    const event = buildGroupAvailabilityAnswerNotification(group, student, answer);
+    if (!event) return;
+    notifyScheduleSyncUpdate({ scope: 'group-availability', action: 'answered', teacherId: group.teacherId, studentId, entryId: group.id });
+    const target = `teacher:${group.teacherId}`;
+    sendPushNotificationToUserKey(target, {
+      title: event.availabilityUpdated ? 'Ученик изменил удобное время' : 'Ученик выбрал удобное время',
+      body: `${event.studentNickname || event.studentName} · ${group.name}. Удобно: ${event.convenientCount}; могу подстроиться: ${event.flexibleCount}.`,
+      icon: '/favicon.ico', tag: `group-availability-${group.id}-${studentId}`, renotify: true,
+      data: { url: `/?view=groups&groupId=${encodeURIComponent(group.id)}&tab=availability`, type: 'group-availability', view: 'groups', groupId: group.id },
+    }, { logTarget: target }).catch(error => console.warn('[group-availability] push failed:', error.message));
+  },
   getBusyEntries: async (group, config, force = false) => {
     materializeAvailabilitySchedules();
     const endMonth = new Date(Date.parse(`${config.startDate}T12:00:00Z`) + config.weeks * 7 * 86400000).toISOString().slice(0, 7);
@@ -32369,6 +32384,11 @@ app.get('/api/teacher-solved-events', (req, res) => {
     });
   });
 
+  groupAvailabilityAnswerNotifications(availabilityStore.polls(), readLearningGroupsDb(), students, teacher.id)
+    .forEach(event => {
+      const timestamp = Date.parse(event.solvedAt);
+      if (!readIds.has(event.id) && timestamp > sinceTime && (!readBeforeMs || timestamp > readBeforeMs)) events.push(event);
+    });
   const limitNum = Number(limit);
   const maxLimit = Number.isFinite(limitNum) && limitNum > 0 ? Math.min(limitNum, 200) : 200;
   events.sort((a, b) => new Date(a.solvedAt) - new Date(b.solvedAt));

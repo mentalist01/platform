@@ -454,6 +454,8 @@ const LearningGroupsSection = ({
   students = [],
   studentsLoading = false,
   activeLearningLesson = null,
+  openAvailabilityRequest = null,
+  onAvailabilityRequestHandled = null,
   onOpenLessonRoom,
   onOpenLearningGroupTelemost = null,
   onOpenStudentHomework,
@@ -630,6 +632,17 @@ const LearningGroupsSection = ({
   useEffect(() => {
     void refreshGroups();
   }, [refreshGroups]);
+
+  useEffect(() => {
+    if (!isTeacher || !openAvailabilityRequest?.groupId || loading) return;
+    if (groups.some(group => group.id === openAvailabilityRequest.groupId)) {
+      setSelectedGroupId(openAvailabilityRequest.groupId);
+      setTab('availability');
+    } else {
+      setError('Мини-группа из уведомления больше недоступна.');
+    }
+    onAvailabilityRequestHandled?.();
+  }, [groups, isTeacher, loading, onAvailabilityRequestHandled, openAvailabilityRequest]);
 
   const loadGroupDetails = useCallback(async (groupId) => {
     const normalizedGroupId = cleanString(groupId);

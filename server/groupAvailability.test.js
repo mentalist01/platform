@@ -110,7 +110,7 @@ test('approved schedule survives reload, derives stable occurrences, preserves h
 async function fixture(t) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ga-api-'));
   const store=createAvailabilityStore(path.join(dir,'polls.json'));
-  const state={groups:[group('g'),group('g2')],entries:[],down:false,approved:[], hook:null};
+  const state={groups:[group('g'),group('g2')],entries:[],down:false,approved:[], hook:null, notifications:[]};
   const app=express(); app.use(express.json());
   app.use((req,_res,next)=>{req.auth={id:req.headers['x-user'],role:req.headers['x-role']};next();});
   registerGroupAvailability(app,{store,getGroup:id=>state.groups.find(g=>g.id===id),canManage:(a,g)=>a.role==='teacher'&&a.id===g.teacherId,
@@ -118,7 +118,7 @@ async function fixture(t) {
       if(state.down) throw Error('offline');
       if(state.hook) await state.hook(g,c,force);
       return state.entries;
-    },materialize:()=>{state.approved=store.plans();}});
+    },materialize:()=>{state.approved=store.plans();},notifyAnswer:(group,poll,event)=>state.notifications.push({groupId:group.id,roundId:poll.id,...structuredClone(event)})});
   const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
   t.after(async()=>{await new Promise(resolve=>server.close(resolve));fs.rmSync(dir,{recursive:true,force:true});});
   const call=async(action='',body=null,id='t',role='teacher',gid='g',status=200)=>{
@@ -181,6 +181,29 @@ test('simultaneous approvals of two groups cannot reserve the same teacher time'
   state.hook=async()=>{state.entries=state.approved.length?[{weekdayKey:'monday',time:'10:00'}]:[];};
   await Promise.all(requests.map((r,i)=>call('approve',r.body,'t','teacher',r.gid,i?409:200)));
   assert.equal(state.approved.length,1);
+});
+
+test('saved preference changes notify once; rejected saves and unchanged reordered choices do not notify', async t => {
+  const { call, open, state, store, file } = await fixture(t);
+  const roundId = await open();
+  assert.equal(state.notifications.length, 0);
+  await call('answer', { roundId, version: 0, choices: { '0-600': 'yes', '3-600': 'maybe' } }, 'a', 'student');
+  assert.equal(state.notifications.length, 1);
+  const first = state.notifications[0].answer.teacherNotification;
+  assert.equal(first.updated, false);
+  await call('answer', { roundId, version: 1, choices: { '3-600': 'maybe', '0-600': 'yes' } }, 'a', 'student');
+  assert.equal(state.notifications.length, 1);
+  assert.deepEqual(store.get('g').answers.a.teacherNotification, first);
+  await call('answer', { roundId, version: 1, choices: {} }, 'a', 'student', 'g', 409);
+  await call('answer', { roundId, version: 2, choices: { '0-601': 'yes' } }, 'a', 'student', 'g', 400);
+  await call('answer', { roundId, version: 0, choices: {} }, 'outsider', 'student', 'g', 403);
+  assert.equal(state.notifications.length, 1);
+  await call('answer', { roundId, version: 2, choices: {} }, 'a', 'student');
+  assert.equal(state.notifications.length, 2);
+  const updated = state.notifications[1].answer.teacherNotification;
+  assert.equal(updated.updated, true);
+  assert.notEqual(updated.id, first.id);
+  assert.deepEqual(createAvailabilityStore(file).get('g').answers.a.teacherNotification, updated);
 });
 
 test('reopening an approved plan retains availability and lessons, includes newcomers and requires fresh consent', async t => {

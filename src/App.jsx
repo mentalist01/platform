@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
+import { subscribeScheduleSync } from './services/scheduleSync';
+import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
 import { GROUP_SHARED_CODE_ID, groupCodeTabs, groupCodeRoom } from './utils/groupCodeRooms.js';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
@@ -318,6 +320,7 @@ const parseNativePushLaunchUrl = (value) => {
       view: read('view'),
       chatId: read('chatId'),
       studentId: read('studentId'),
+      groupId: read('groupId'),
     };
   } catch {
     return null;
@@ -2049,6 +2052,7 @@ const getTeacherNotifStudentLabel = (note) => {
 
 const normalizeTeacherSolvedSource = (note) => {
   const raw = String(note?.source || note?.eventKind || '').trim().toLowerCase();
+  if (raw === 'group-availability') return raw;
   if (raw === 'mock-exam-completed') return raw;
   if (raw === 'mock-exam' || raw === 'mock-exam-task') return 'mock-exam';
   return 'testing';
@@ -2057,11 +2061,13 @@ const normalizeTeacherSolvedSource = (note) => {
 const isMockExamTeacherSolvedNotif = (note) => normalizeTeacherSolvedSource(note).startsWith('mock-exam');
 
 const getTeacherSolvedNotifKicker = (note, archived = false) => {
+  if (isGroupAvailabilityNotification(note)) return archived ? 'Выбор времени' : (note.availabilityUpdated ? 'Обновлён выбор времени' : 'Выбрано удобное время');
   if (isMockExamTeacherSolvedNotif(note)) return archived ? 'Пробник' : 'Пробник завершён';
   return archived ? 'Отметка' : 'Новая отметка';
 };
 
 const getTeacherSolvedNotifSummary = (note) => {
+  if (isGroupAvailabilityNotification(note)) return groupAvailabilityNotificationSummary(note);
   if (isMockExamTeacherSolvedNotif(note)) {
     const examTitle = String(note?.mockExamTitle || '').trim() || 'Пробник';
     if (normalizeTeacherSolvedSource(note) !== 'mock-exam-completed') return `${examTitle} · задание ${note?.mockTaskNumber ?? note?.taskNumber ?? ''}`;
@@ -2367,6 +2373,11 @@ const normalizeTeacherNotifHistoryEntry = (entry) => {
     studentName: String(entry?.studentName || '').trim(),
     studentNickname: String(entry?.studentNickname || '').trim(),
     source: normalizeTeacherSolvedSource(entry),
+    groupId: String(entry?.groupId || '').trim(),
+    groupName: String(entry?.groupName || '').trim(),
+    availabilityUpdated: Boolean(entry?.availabilityUpdated),
+    convenientCount: Number(entry?.convenientCount) || 0,
+    flexibleCount: Number(entry?.flexibleCount) || 0,
     mockExamId: String(entry?.mockExamId || '').trim(),
     mockExamTitle: String(entry?.mockExamTitle || '').trim(),
     mockTaskNumber: entry?.mockTaskNumber ?? null,
@@ -19011,6 +19022,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const chatLiveSocketClosedManuallyRef = useRef(false);
   const prevGoalCollapsedRef = useRef(goalCollapsed);
   const [teacherSolvedNotifs, setTeacherSolvedNotifs] = useState([]);
+  const [pendingGroupAvailabilityRequest, setPendingGroupAvailabilityRequest] = useState(() => (
+    user.role === 'teacher' && normalizedUrlRequestedView === 'groups' && urlParams?.get('groupId')
+      ? { id: 'launch-group-availability', groupId: urlParams.get('groupId') } : null
+  ));
   const [teacherSignupNotifs, setTeacherSignupNotifs] = useState([]);
   const [telemostJoinAlerts, setTelemostJoinAlerts] = useState([]);
   const telemostJoinAlertTimersRef = useRef(new Map());
@@ -20127,6 +20142,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           studentName: note?.studentName,
           studentNickname: note?.studentNickname,
           source: normalizeTeacherSolvedSource(note),
+          groupId: note?.groupId,
+          groupName: note?.groupName,
+          availabilityUpdated: note?.availabilityUpdated,
+          convenientCount: note?.convenientCount,
+          flexibleCount: note?.flexibleCount,
           mockExamId: note?.mockExamId,
           mockExamTitle: note?.mockExamTitle,
           mockTaskNumber: note?.mockTaskNumber,
@@ -20151,9 +20171,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const currentUrl = new URL(window.location.href);
     const hasView = currentUrl.searchParams.has('view');
     const hasChatId = currentUrl.searchParams.has('chatId');
-    if (!hasView && !hasChatId) return;
+    const hasGroupId = currentUrl.searchParams.has('groupId');
+    if (!hasView && !hasChatId && !hasGroupId) return;
     currentUrl.searchParams.delete('view');
     currentUrl.searchParams.delete('chatId');
+    if (hasGroupId) { currentUrl.searchParams.delete('groupId'); currentUrl.searchParams.delete('tab'); }
     const nextSearch = currentUrl.searchParams.toString();
     const nextUrl = `${currentUrl.pathname}${nextSearch ? `?${nextSearch}` : ''}${currentUrl.hash || ''}`;
     window.history.replaceState(window.history.state, '', nextUrl);
@@ -22281,6 +22303,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       if (!payload) return;
 
       const requestedView = String(payload.view || '').trim();
+      if (user.role === 'teacher' && requestedView === 'groups' && payload.groupId) {
+        setPendingGroupAvailabilityRequest({ id: `native-group:${Date.now()}`, groupId: payload.groupId });
+        navigateToView('groups');
+        return;
+      }
       const isTeacherCommsPushView = requestedView === 'signup-chats'
         || requestedView === 'student-chats'
         || requestedView === 'notifications';
@@ -23078,9 +23105,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
     fetchEvents();
     const interval = setInterval(fetchEvents, BACKGROUND_NOTIFICATIONS_REFRESH_INTERVAL_MS);
+    const unsubscribe = subscribeScheduleSync(event => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload?.scope === 'group-availability' && payload.teacherId === user.id) void fetchEvents();
+      } catch { /* Ignore unrelated or malformed stream messages. */ }
+    });
+    const handleFocus = () => void fetchEvents();
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      unsubscribe();
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
     };
   }, [user.role, user.id]);
 
@@ -24737,6 +24776,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
   const handleOpenHomeworkReviewFromNotification = (note) => {
     if (user.role !== 'teacher' || note?.type !== 'solved') return;
+    if (isGroupAvailabilityNotification(note) && note.groupId) {
+      setPendingGroupAvailabilityRequest({ id: `${note.id}:${Date.now()}`, groupId: note.groupId });
+      dismissTeacherNotif(note);
+      navigateToView('groups');
+      setMenuOpen(false);
+      return;
+    }
     const targetStudentId = normalizeTeacherStudentId(note?.studentId);
     if (!targetStudentId) return;
     handleSelectStudent(targetStudentId);
@@ -24751,6 +24797,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const handleHomeworkReviewRequestHandled = useCallback(() => {
     setPendingHomeworkReviewRequest(null);
   }, []);
+  const handleGroupAvailabilityRequestHandled = useCallback(() => setPendingGroupAvailabilityRequest(null), []);
   const isTeacherCommsView = PLATFORM_CHATS_ENABLED && user.role === 'teacher'
     && (view === TEACHER_COMMS_VIEW || TEACHER_COMMS_TABS.includes(view));
   const activeTeacherCommsTab = isTeacherCommsView
@@ -24985,7 +25032,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   disabled={teacherSolvedBulkReadBusy}
                   className="rounded-xl border border-purple-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-purple-700 shadow-sm hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть все решения'}
+                  {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть ответы учеников'}
                 </button>
               )}
             </div>
@@ -25046,7 +25093,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           {solvedSummary}
                         </div>
                         <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-purple-600">
-                          Посмотреть сделанную домашку <ChevronRight size={14} />
+                          {teacherNotificationActionLabel(note)} <ChevronRight size={14} />
                         </div>
                         {timestampLabel && (
                           <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>
@@ -26378,6 +26425,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               students={currentStudentsWithNicknames}
               studentsLoading={studentsLoading}
               activeLearningLesson={activeLearningLesson}
+              openAvailabilityRequest={pendingGroupAvailabilityRequest}
+              onAvailabilityRequestHandled={handleGroupAvailabilityRequestHandled}
               onOpenLessonRoom={handleOpenLearningGroupLesson}
               onOpenLearningGroupTelemost={handleOpenLearningGroupTelemost}
               onOpenStudentHomework={handleOpenLearningGroupStudentHomework}
@@ -27126,7 +27175,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           disabled={teacherSolvedBulkReadBusy}
                           className="rounded-xl border border-purple-200 bg-white px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-70"
                         >
-                          {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть все решения'}
+                          {teacherSolvedBulkReadBusy ? 'Закрываю...' : 'Закрыть ответы учеников'}
                         </button>
                       )}
                     </div>
@@ -27186,7 +27235,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                     {solvedSummary}
                                   </div>
                                   <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-purple-600">
-                                    Посмотреть сделанную домашку <ChevronRight size={14} />
+                                    {teacherNotificationActionLabel(note)} <ChevronRight size={14} />
                                   </div>
                                   {timestampLabel && <div className="mt-1 text-[11px] text-gray-400">{timestampLabel}</div>}
                                 </>
@@ -27250,7 +27299,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                   </div>
                                   {note.studentId && (
                                     <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-purple-600">
-                                      Посмотреть сделанную домашку <ChevronRight size={14} />
+                                      {teacherNotificationActionLabel(note)} <ChevronRight size={14} />
                                     </div>
                                   )}
                                   {timestampLabel && <div className="mt-1 text-[11px] text-slate-400">{timestampLabel}</div>}

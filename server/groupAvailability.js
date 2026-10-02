@@ -72,6 +72,7 @@ export function createAvailabilityStore(file) {
   let db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   return {
     get: id => db[id] ? structuredClone(db[id]) : null,
+    polls: () => Object.entries(db).map(([groupId, poll]) => ({ groupId, ...structuredClone(poll) })),
     plans: () => Object.entries(db).filter(([, p]) => p.plan).map(([groupId, p]) => ({ groupId, ...structuredClone(p.plan) })),
     put(id, value) {
       const next = { ...db, [id]: value }; fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -141,7 +142,7 @@ export function registerGroupAvailability(app, deps) {
   };
   const route = action => async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    let release; let tail; let lockKey;
+    let release; let tail; let lockKey; let answerNotification = null;
     try {
       let group = access(req, ['open', 'reopen', 'approve', 'settings'].includes(action));
       if (action !== 'get') {
@@ -191,7 +192,16 @@ export function registerGroupAvailability(app, deps) {
             if (blocked[id]) fail('Часть выбранного времени уже занята. Обновите календарь и выберите свободные часы.', 409);
             choices[id] = value;
           }
-          poll.answers[req.auth.id] = { version: (old?.version || 0) + 1, choices, updatedAt: Date.now() };
+          const changed = !old || Object.keys(old.choices || {}).length !== Object.keys(choices).length
+            || Object.entries(choices).some(([id, value]) => old.choices?.[id] !== value);
+          const version = (old?.version || 0) + 1;
+          const updatedAt = Date.now();
+          const teacherNotification = changed ? {
+            id: `group-availability:${poll.id}:${req.auth.id}:${version}`,
+            occurredAt: new Date(updatedAt).toISOString(), updated: Boolean(old),
+          } : old.teacherNotification;
+          poll.answers[req.auth.id] = { version, choices, updatedAt, ...(teacherNotification ? { teacherNotification } : {}) };
+          if (changed) answerNotification = { studentId: req.auth.id, answer: poll.answers[req.auth.id] };
           if (poll.proposal) delete poll.proposal.votes[req.auth.id];
         } else if (action === 'propose') {
           if ((poll.proposal?.id || '') !== (body.previousProposalId || '')) fail('В группе уже другое предложение. Обновите страницу.', 409);
@@ -231,6 +241,10 @@ export function registerGroupAvailability(app, deps) {
       if (action !== 'get') {
         if (group.status === 'completed') fail('Группа завершена', 409);
         poll.updatedAt = Date.now(); store.put(group.id, poll); if (action === 'approve') materialize();
+        if (answerNotification && deps.notifyAnswer) {
+          try { await deps.notifyAnswer(group, poll, answerNotification); }
+          catch (error) { console.warn('[group-availability] answer notification failed:', error.message); }
+        }
       }
       res.json(await snapshot(group, poll, req.auth));
     } catch (error) { res.status(error.status || 503).json({ error: error.status ? error.message : 'Не удалось проверить или сохранить расписание. Попробуйте ещё раз.' }); }
