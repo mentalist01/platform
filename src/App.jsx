@@ -20348,7 +20348,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : visibleNav;
   const teacherDesktopPrimaryNav = user.role === 'teacher'
     ? [
-      ...['schedule', 'groups', 'meetings', 'teacher-calendar', 'finance', 'progress', 'review', 'python', 'rating']
+      ...['schedule', 'groups', 'meetings', 'teacher-calendar', 'recording', 'finance', 'progress', 'review', 'python', 'rating']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       teacherLessonNavItem,

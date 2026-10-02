@@ -58,7 +58,8 @@ const getStoredSignupGuestKey = () => {
 const LoginPage = ({ onLogin }) => {
   const nativeRuntime = isNativeAppRuntime();
   const initialApiBaseUrl = getConfiguredApiBaseUrl();
-  const [mode, setMode] = useState(MODE_CHOICE);
+  const teacherDesktop = new URLSearchParams(window.location.search).get('desktop') === 'teacher';
+  const [mode, setMode] = useState(teacherDesktop ? MODE_STUDENT : MODE_CHOICE);
   const [code, setCode] = useState('');
   const [emailChallenge, setEmailChallenge] = useState(null);
   const [emailCode, setEmailCode] = useState('');
@@ -87,7 +88,7 @@ const LoginPage = ({ onLogin }) => {
     setCode('');
     setIsCodeVisible(false);
     setName('');
-    setMode(MODE_CHOICE);
+    setMode(teacherDesktop ? MODE_STUDENT : MODE_CHOICE);
   };
 
   const handleStudentSubmit = async (event) => {
@@ -218,7 +219,7 @@ const LoginPage = ({ onLogin }) => {
             <span className="md:hidden"><LogoMark /></span>
             <span className="hidden md:inline">Иван на сотку</span>
           </h1>
-          <p className="text-gray-500 mt-2">{emailChallenge ? 'Ещё один шаг для безопасного входа' : 'Выберите, как хотите зайти'}</p>
+          <p className="text-gray-500 mt-2">{emailChallenge ? 'Ещё один шаг для безопасного входа' : teacherDesktop ? 'Вход в приложение преподавателя' : 'Выберите, как хотите зайти'}</p>
         </div>
 
         {mode === MODE_CHOICE && (
@@ -279,12 +280,12 @@ const LoginPage = ({ onLogin }) => {
           >
             <div className="rounded-2xl border border-purple-100 bg-purple-50/70 px-4 py-3 text-left">
               <p className="text-sm font-bold text-purple-900">
-                {mode === MODE_PARENT ? 'Кабинет родителя' : 'Кабинет ученика'}
+                {mode === MODE_PARENT ? 'Кабинет родителя' : teacherDesktop ? 'Кабинет преподавателя' : 'Кабинет ученика'}
               </p>
               <p className="mt-0.5 text-xs leading-relaxed text-purple-700/75">
                 {mode === MODE_PARENT
                   ? 'Введите код, который вам отправил преподаватель.'
-                  : 'Введите персональный код доступа, который выдал учитель.'}
+                  : teacherDesktop ? 'Введите код доступа своего аккаунта преподавателя.' : 'Введите персональный код доступа, который выдал учитель.'}
               </p>
             </div>
             <div className="relative">
@@ -321,13 +322,13 @@ const LoginPage = ({ onLogin }) => {
             <Button type="submit" className="w-full py-3" disabled={loading || !code.trim()}>
               {loading ? 'Вход...' : (mode === MODE_PARENT ? 'Открыть кабинет' : 'Войти')}
             </Button>
-            <button
+            {!teacherDesktop && <button
               type="button"
               className="w-full text-xs text-gray-500 hover:text-purple-600"
               onClick={handleBack}
             >
               Назад к выбору
-            </button>
+            </button>}
           </form>
         )}
 
@@ -358,7 +359,7 @@ const LoginPage = ({ onLogin }) => {
         <p className="text-center text-xs text-gray-400 mt-4">
           {mode === MODE_SIGNUP
             ? 'После входа вы сможете сразу написать преподавателю.'
-            : (mode === MODE_PARENT ? 'Здесь вы сможете следить за занятиями и прогрессом ученика.' : 'Код доступа выдаёт учитель.')}
+            : (mode === MODE_PARENT ? 'Здесь вы сможете следить за занятиями и прогрессом ученика.' : teacherDesktop ? 'Используйте тот же код, с которым входите на сайт.' : 'Код доступа выдаёт учитель.')}
         </p>
         {nativeRuntime && (
           <form onSubmit={handleSaveServerUrl} className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 space-y-3">

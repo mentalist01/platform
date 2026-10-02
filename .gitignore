@@ -48,6 +48,7 @@ server/data/collab/
 .remote-access/
 diagnostics-output/
 output/desktop-recorder/
+output/teacher-desktop/
 .git2/
 repo.tar
 tmp-test-upload.txt

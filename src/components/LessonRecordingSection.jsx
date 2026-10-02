@@ -98,6 +98,10 @@ export default function LessonRecordingSection({ recorder }) {
     </header>
     {(error || recorder.error) && <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error || recorder.error}</p>}
     {notice && <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</p>}
+    <section className="rounded-3xl border border-violet-100 bg-white p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-lg font-bold text-slate-900">Приложение для преподавателя</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Кабинет, звонки и доска в отдельном окне Windows. Пульт записи и архив доступны в верхнем меню приложения.</p></div><a className={button} href="https://github.com/mentalist01/platform/releases/download/teacher-desktop-v0.1.0/IVAN100-Teacher-0.1.0-Setup.exe" target="_blank" rel="noreferrer"><Download size={17} /> Скачать приложение для Windows</a></div>
+      <p className="mt-3 text-xs leading-5 text-slate-500">Предварительная версия 0.1.0 · Windows 10/11, 64 бит · Установщик пока без цифровой подписи издателя. Перед первым уроком выберите окно приложения в мастере пульта и проверьте тестовую запись. Для автоматического переключения из LibreOffice используйте пульт 1.4.7 или новее.</p>
+    </section>
     <div className="grid gap-5 lg:grid-cols-2">
       <section className="rounded-3xl border border-slate-200 bg-white p-6">
         <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Мой компьютер</h2><button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Обновить состояние" disabled={busy} onClick={() => action(() => recorder.refresh())}><RefreshCw size={17} /></button></div>

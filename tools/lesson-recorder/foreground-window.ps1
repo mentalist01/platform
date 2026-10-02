@@ -21,7 +21,7 @@ while (Get-Process -Id $RecorderProcessId -ErrorAction SilentlyContinue) {
     $processName = $windowProcess.ProcessName
     # Only LibreOffice and possible platform browsers are relevant. No titles
     # of unrelated apps are sent to the helper, logged, or stored.
-    if ($processName -in @('soffice', 'soffice.bin', 'chrome', 'msedge', 'firefox', 'browser')) {
+    if ($processName -in @('soffice', 'soffice.bin', 'chrome', 'msedge', 'firefox', 'browser', 'IVAN100-Teacher')) {
       $textBuffer = New-Object System.Text.StringBuilder 2048
       [void][RecorderForeground]::GetWindowText($handle, $textBuffer, $textBuffer.Capacity)
       $windowTitle = $textBuffer.ToString()

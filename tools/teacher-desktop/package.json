@@ -1,0 +1,45 @@
+{
+  "name": "ivan100-teacher",
+  "productName": "IVAN100 Учитель",
+  "version": "0.1.0",
+  "description": "Кабинет преподавателя IVAN100 для Windows",
+  "author": "IVAN100",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "icons": "node scripts/icons.cjs",
+    "pack": "npm test && electron-builder --win --x64 --dir",
+    "dist": "npm test && electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "ru.ivan100.teacher",
+    "productName": "IVAN100 Учитель",
+    "executableName": "IVAN100-Teacher",
+    "asar": true,
+    "directories": { "output": "../../output/teacher-desktop/release", "buildResources": "assets" },
+    "files": ["*.cjs", "ui/**/*", "assets/icon.png", "assets/icon.ico", "README.md", "package.json"],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.ico",
+      "artifactName": "IVAN100-Teacher-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "IVAN100 Учитель",
+      "installerLanguages": ["ru_RU"],
+      "language": "1049",
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}
