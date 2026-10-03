@@ -64,6 +64,9 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     enabled, settings, stop, share,
     lessonJob: (teacherId,id) => db.jobs[id]?.teacherId===teacherId ? {...db.jobs[id]} : null,
     libraryJobs: teacherId => jobs(teacherId).map(publicJob),
+    recentLessonJobs: (teacherId, since) => jobs(teacherId)
+      .filter(job => job.startedAt >= since)
+      .map(({ occurrence, status, startedAt, stoppedAt }) => ({ occurrence, status, startedAt, stoppedAt })),
     stopPlatformCall(teacherId, studentId) {
       // An explicit hangup must not wait for the reconnect grace. Scope it to
       // this individual platform call, never a group or Telemost recording.

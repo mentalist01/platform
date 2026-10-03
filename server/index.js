@@ -16,6 +16,7 @@ import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
+import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
@@ -1793,6 +1794,7 @@ const getLoadedCollabDocs = () => (
     ? yWsUtils.docs
     : null
 );
+const homeworkReminders = new HomeworkReminderStore(path.join(dataDir, 'homework-reminders.json'));
 // A canvas can be opened only after its page was created in the teacher's
 // manifest. This prevents arbitrary page IDs from creating orphan snapshots.
 const isKnownBoardPage = (access) => {
@@ -2713,6 +2715,9 @@ const reconcileLessonReplayStorageSummary = async (occurrenceKey) => {
   ]);
   const latestIndexed = lessonReplayStorageIndexByHash.get(occurrenceHash);
   lessonReplayStorageReconciledHashes.add(occurrenceHash);
+  try { homeworkReminders.observeReplay(normalized); } catch (error) {
+    console.error('[homework-reminders] failed to track lesson:', error?.message || error);
+  }
   return updateLessonReplayStorageIndex(normalizedKey, {
     dataBytes: Math.max(dataBytes, Number(latestIndexed?.dataBytes) || 0),
     snapshotBytes: Math.max(snapshotUsage.bytes, Number(latestIndexed?.snapshotBytes) || 0),
@@ -22031,6 +22036,42 @@ app.use('/api', (req, res, next) => {
 
 registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: false });
 
+registerHomeworkReminderRoutes(app, homeworkReminders, {
+  observe: (teacherId) => {
+    for (const job of desktopRecordings.recentLessonJobs(teacherId, homeworkReminders.data.since)) {
+      if (!['waiting', 'error'].includes(job.status) && job.startedAt) {
+        homeworkReminders.observeLesson(teacherId, job.occurrence, Number(job.startedAt), Number(job.stoppedAt) || 0);
+      }
+    }
+  },
+  isActive: (lesson) => {
+    if (!lesson.groupId) {
+      const student = findStudentById(lesson.studentId);
+      return Boolean(student && (hasActivePlatformLessonCall(student) || getTelemostLessonReplayEntry(student.id)));
+    }
+    for (const [roomId, clients] of rtcRooms) {
+      if (parseLearningLessonRoomTarget(roomId)?.sessionId !== lesson.lessonId) continue;
+      if (Array.from(clients.values()).some(client => client.auth?.role === 'teacher' && client.auth.id === lesson.teacherId)) return true;
+    }
+    return false;
+  },
+  getTarget: (lesson) => {
+    if (!lesson.groupId) {
+      const student = findStudentById(lesson.studentId);
+      return student?.teacherId === lesson.teacherId && !student.deletedAt ? { name: student.name } : null;
+    }
+    const group = readLearningGroupsDb().find(entry => entry.id === lesson.groupId && entry.teacherId === lesson.teacherId && !entry.deletedAt);
+    if (!group) return null;
+    const activeIds = new Set(getActiveLearningGroupMembers(group).map(member => member.studentId));
+    return { name: group.name || group.title || 'Мини-группа', participantIds: lesson.participantIds.filter(id => activeIds.has(id)) };
+  },
+  getHomeworks: (lesson) => {
+    if (lesson.groupId) return readLearningAssignmentsDb().filter(entry => entry.groupId === lesson.groupId && entry.teacherId === lesson.teacherId);
+    const data = getStudentData(lesson.studentId);
+    return [...(data.homeworks || []), ...(data.nextLesson?.issuedAt ? [data.nextLesson] : [])];
+  },
+});
+
 registerDesktopRecordingRoutes(app, desktopRecordings, {
   legacyRecordingEnabled,
   teacherFor: (auth) => findStudentById(isParentRole(auth) ? auth.studentId : auth.id)?.teacherId,
@@ -24517,6 +24558,13 @@ app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute
     earlyStartMs: LEARNING_LESSON_EARLY_JOIN_MS,
   });
   writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(), updated));
+  if (updated.status !== lesson.status) {
+    const occurrence = buildLearningGroupReplayOccurrence({ group, lesson: updated });
+    try {
+      if (updated.status === 'active') homeworkReminders.observeLesson(group.teacherId, occurrence, Date.now());
+      if (updated.status === 'completed') homeworkReminders.finishLesson(group.teacherId, occurrence);
+    } catch (error) { console.error('[homework-reminders] failed to track group lesson:', error?.message || error); }
+  }
   if (updated.status === 'completed' && lesson.status !== 'completed') {
     const finalized = createLearningAttendanceRoster(updated, readLearningAttendanceDb())
       .map((record) => finalizeLearningAttendanceRecord(record, updated.completedAt || updated.updatedAt))
@@ -33629,6 +33677,9 @@ const activateTelemostLessonReplay = async ({
     requestId: String(requestId || '').trim(),
   };
   activeTelemostLessonReplayByStudentId.set(studentId, entry);
+  try { homeworkReminders.observeLesson(entry.teacherId, occurrence, Number(nowMs)); } catch (error) {
+    console.error('[homework-reminders] failed to track Telemost:', error?.message || error);
+  }
   activeLessonReplayOccurrenceByStudentId.set(studentId, {
     occurrence,
     lastSeenAt: Number(nowMs),
@@ -34644,6 +34695,11 @@ const finishTelemostLessonReplay = async (studentId, options = {}) => {
   if (!occurrenceKey) {
     activeTelemostLessonReplayByStudentId.delete(normalizedStudentId);
     return { finishedSessions: 0 };
+  }
+  if (entry?.occurrence) {
+    try { homeworkReminders.finishLesson(entry.teacherId, entry.occurrence, Number(options.nowMs) || Date.now()); } catch (error) {
+      console.error('[homework-reminders] failed to finish Telemost:', error?.message || error);
+    }
   }
   const sessions = Array.from(activeLessonReplaySessions.values()).filter((session) => (
     session.studentId === normalizedStudentId && session.occurrenceKey === occurrenceKey
@@ -42465,6 +42521,25 @@ const leaveRtcRoom = (client) => {
   broadcastRtcPresenceUpdate(roomId);
 };
 
+const observeHomeworkRtcLesson = async (roomMeta) => {
+  if (roomMeta.targetType === 'meeting') return;
+  if (roomMeta.sessionId) {
+    const context = getLearningGroupReplayContext(roomMeta.sessionId);
+    if (!context || context.lesson.status !== 'active') return;
+    const occurrence = buildLearningGroupReplayOccurrence(context);
+    homeworkReminders.observeLesson(context.group.teacherId, occurrence, Date.now());
+    return;
+  }
+  const student = findStudentById(roomMeta.studentId);
+  if (!student || !hasActivePlatformLessonCall(student)) return;
+  const teacherClient = Array.from(rtcRooms.get(roomMeta.roomId)?.values() || [])
+    .find(client => client.auth?.role === 'teacher' && client.auth.id === student.teacherId);
+  if (!teacherClient) return;
+  const startedAt = Date.now();
+  const occurrence = await resolveCurrentLessonReplayOccurrence(student, teacherClient.auth, startedAt, { preferActive: true, allowFallback: true });
+  if (occurrence && hasActivePlatformLessonCall(student)) homeworkReminders.observeLesson(student.teacherId, occurrence, startedAt);
+};
+
 const joinRtcRoom = (client, roomMeta) => {
   if (!client || !roomMeta) return;
   const { roomId } = roomMeta;
@@ -42529,6 +42604,7 @@ const joinRtcRoom = (client, roomMeta) => {
   client.screenTrackId = '';
   client.cameraTrackId = '';
   client.joinedAt = Date.now();
+  void observeHomeworkRtcLesson(roomMeta).catch(error => console.error('[homework-reminders] failed to track call:', error?.message || error));
   applyLearningRtcAttendance(client, roomId, 'join', new Date(client.joinedAt).toISOString());
   upsertRtcPresenceFileFromClient(client);
 

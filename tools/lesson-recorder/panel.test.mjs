@@ -49,6 +49,15 @@ test('headline shows the actual recording student and OBS elapsed time', () => {
   assert.equal(headline({ ...live, currentLesson: { lessonName: 'Другой ученик' } }).name, 'Олег');
 });
 
+test('crash recovery explains the preserved first part without claiming a running recording', () => {
+  const recovering = { jobs: [{ ...job, status: 'saved', resumeAfterRestart: true }], obs: { outputActive: false } };
+  const view = headline(recovering);
+  assert.equal(view.status, 'Готовы продолжить запись');
+  assert.match(view.detail, /Первая часть сохранена/);
+  assert.equal(view.time, '');
+  assert.equal(headline({ ...recovering, ...live }).status, 'Идёт запись');
+});
+
 test('a stale job, offline helper, or lost OBS connection cannot claim recording is running', () => {
   assert.equal(headline({ ...live, obs: { outputActive: false } }).status, 'Запись не идёт');
   for (const view of [headline(live, true), headline({ ...live, obs: null })]) {

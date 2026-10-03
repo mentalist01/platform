@@ -8,6 +8,7 @@ backup=$(mktemp -d /root/monthly-mock-backup-XXXXXX)
 cp -a dist "$backup/dist"
 cp -a ecosystem.config.cjs "$backup/"
 cp -a /root/platform-data/mock-exams.json "$backup/"
+if [[ -f /root/platform-data/homework-reminders.json ]]; then cp -a /root/platform-data/homework-reminders.json "$backup/"; fi
 published=0
 rollback_on_error() {
   status=$?
@@ -20,9 +21,11 @@ rollback_on_error() {
 }
 trap rollback_on_error EXIT
 node --test src/utils/monthlyMockExam.test.js server/monthlyMockAssignment.integration.test.js server/monthlyMockStatus.integration.test.js server/mockExamMode.test.js server/mockExamCorrections.integration.test.js src/utils/mockExamVersioning.test.js > "$backup/tests.log" 2>&1
+node --test server/homeworkReminders.test.js server/homeworkReminders.integration.test.js src/utils/boardMinimap.test.js tools/lesson-recorder/engine.test.mjs tools/lesson-recorder/restart.test.mjs tools/lesson-recorder/segments.test.mjs tools/lesson-recorder/panel.test.mjs tools/lesson-recorder/updater.test.mjs server/desktopRecording.test.js server/recorderPackage.test.js > "$backup/lesson-tools-tests.log" 2>&1
 stage="dist-monthly-mock-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-monthly-mock-release.mjs local "$stage"
+node scripts/check-lesson-tools-release.mjs local "$stage"
 node scripts/check-teacher-desktop-release.mjs local "$stage"
 node scripts/check-board-pages-release.mjs local "$stage"
 node scripts/check-recorder-ui-release.mjs local "$stage"
@@ -43,6 +46,7 @@ published=1
 mv dist/index.html.next dist/index.html
 mv dist/index.html.gz.next dist/index.html.gz
 node scripts/check-monthly-mock-release.mjs verify "$stage" /root/platform-data
+node scripts/check-lesson-tools-release.mjs verify "$stage" /root/platform-data
 node scripts/check-teacher-desktop-release.mjs verify "$stage"
 node scripts/check-board-pages-release.mjs verify "$stage"
 node scripts/check-recorder-ui-release.mjs verify "$stage"

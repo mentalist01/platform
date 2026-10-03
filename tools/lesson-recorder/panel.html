@@ -112,6 +112,8 @@ function recordingHeadline(state,unavailable=false){
   const detail=lesson?[lesson.lessonName?lesson.title:'',lesson.previousJobId?'Продолжение урока':''].filter(Boolean).join(' · '):state?.ready?'Подключитесь к занятию на платформе — запись начнётся автоматически.':'Перед уроком нажмите «Начать сегодняшний день» и проверьте готовность пульта.';
   if(unavailable||!state?.obs)return{tone:'warning',status:'Статус записи неизвестен',name:lesson?name:'Нет связи с OBS',detail:'Не можем проверить запись. Проверьте подключение пульта и OBS.',time:''};
   const obs=state.obs;
+  const recovering=(state.jobs||[]).find(job=>job.resumeAfterRestart);
+  if(!active&&!obs.outputActive&&recovering)return{tone:'warning',status:'Готовы продолжить запись',name:recovering.lessonName||recovering.title||'Продолжение урока',detail:'Первая часть сохранена. Подключитесь к этому уроку — запись продолжится автоматически.',time:''};
   const time=obs.outputActive?String(obs.outputTimecode||'').split('.')[0]:'';
   if(obs.outputActive){
     if(!active)return{tone:'warning',status:obs.outputPaused?'Запись на паузе':'OBS записывает',name:'Урок не определён',detail:'Эта запись не привязана к уроку в пульте.',time};

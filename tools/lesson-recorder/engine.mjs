@@ -5,6 +5,7 @@ import { ownedRecording } from './storage.mjs';
 export class RecorderEngine {
   constructor({ obs, state, save, api, recordDirectory, ready, now = Date.now }) {
     Object.assign(this, { obs, state, save, api, recordDirectory, ready, now });
+    this.restartJobs = new Set(Object.values(state.jobs).filter(job => ['starting', 'recording', 'stopping'].includes(job.status)).map(job => job.id));
   }
   active() { return Object.values(this.state.jobs).find((j) => ['starting', 'recording', 'stopping'].includes(j.status)); }
   async report(job, status, extra = {}) {
@@ -45,10 +46,13 @@ export class RecorderEngine {
     const ourOutput = parameterValue === `lesson-${job.id}`;
     if (status.outputActive) {
       if (!ourOutput) throw new Error('OBS пишет другую запись; пульт не будет её останавливать');
+      delete job.resumeAfterRestart;
       job.status = job.status === 'stopping' ? 'stopping' : 'recording'; this.save(); return;
     }
     const file = ownedRecording(this.recordDirectory, job.id);
     if (fs.existsSync(file) && fs.statSync(file).size > 0) {
+      if (this.restartJobs.has(job.id) && job.status !== 'stopping' && !job.local && !job.manual && !job.fallbackMode
+        && job.desired === 'record' && job.cutoffAt > this.now()) job.resumeAfterRestart = true;
       job.file = file; job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
       await this.report(job, 'saved');
     } else if (job.status === 'starting') {
@@ -60,6 +64,7 @@ export class RecorderEngine {
     }
   }
   async stop(job) {
+    delete job.resumeAfterRestart;
     job.status = 'stopping'; this.save();
     // A local pause is independent of slow platform polling, but StopRecord
     // must wait for it before another lesson can take over the OBS output.
@@ -86,6 +91,7 @@ export class RecorderEngine {
     finally { if (this.pauseOperation === operation) this.pauseOperation = null; }
   }
   async startForCurrentLesson() {
+    if (this.active() && this.restartJobs.has(this.active().id)) await this.reconcileActive();
     if (this.active()) throw new Error('Запись уже идёт');
     // A network error must not silently turn a bound lesson into a local-only recording.
     if (this.state.config.token) {
@@ -93,23 +99,54 @@ export class RecorderEngine {
       const remote = await this.api('/poll', { ready: this.ready() });
       if (remote.enabled && remote.currentLesson) {
         const next = await this.api('/resume', { id: remote.currentLesson.id });
-        await this.start(next); return;
+        await this.start(next);
+        this.clearRestartResume(remote.currentLesson.occurrence?.key);
+        return;
       }
     }
     throw new Error('Активный урок не найден. Подключитесь к занятию на платформе; запись начнётся автоматически.');
   }
-  async tick() {
+  clearRestartResume(occurrenceKey) {
+    for (const job of Object.values(this.state.jobs)) {
+      if (job.resumeAfterRestart && job.occurrence?.key === occurrenceKey) delete job.resumeAfterRestart;
+    }
+    this.save();
+  }
+  async reconcileActive() {
     const active = this.active();
     // A network outage does not bypass the local safety cutoff.
     if (active) {
+      // A persisted active job is not proof that OBS survived a PC restart.
+      // Launch is idempotent and leaves an already-running OBS output intact.
+      if (this.restartJobs.has(active.id)) await this.obs.launch();
       if (active.cutoffAt <= this.now() || active.status === 'stopping') await this.stop(active);
       else await this.recover(active);
+      this.restartJobs.delete(active.id);
     }
+  }
+  async tick() {
+    await this.reconcileActive();
     if (!this.state.config.token) return;
+    for (const job of Object.values(this.state.jobs)) if (job.pendingReport && job.status !== 'recording') await this.flushReport(job);
     const remote = await this.api('/poll', { ready: this.ready() });
     // Complete the old file before considering the next lesson, regardless of
     // server ordering. Uploading that file is independent of the next capture.
     this.currentLesson = remote.currentLesson || null;
+    for (const job of Object.values(this.state.jobs)) {
+      if (!job.resumeAfterRestart) continue;
+      if (job.cutoffAt <= this.now() || (remote.currentLesson && remote.currentLesson.occurrence?.key !== job.occurrence?.key)) {
+        delete job.resumeAfterRestart; this.save(); continue;
+      }
+      // Wait until the teacher rejoins the same lesson. The server validates
+      // the live call and returns an idempotent, bound continuation.
+      if (this.active() || !remote.enabled || !this.ready() || !job.occurrence?.key
+        || remote.currentLesson?.occurrence?.key !== job.occurrence.key) continue;
+      const next = await this.api('/resume', { id: remote.currentLesson.id });
+      try { await this.start(next); }
+      finally {
+        if (['starting', 'recording'].includes(this.state.jobs[next.id]?.status)) this.clearRestartResume(job.occurrence.key);
+      }
+    }
     for (const wanted of remote.jobs) {
       const local = this.state.jobs[wanted.id];
       // Refresh display metadata without changing the file name or lesson binding.

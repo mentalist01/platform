@@ -45602,12 +45602,17 @@ html[data-theme='dark'] .board-image-selection__lock {
 }
 
 .board-canvas-surface .board-minimap-shell--bottom .board-minimap-canvas {
+  cursor: grab;
+  touch-action: none;
   width: 15rem;
   height: 8.75rem;
   border: 1px dashed rgba(100, 116, 139, 0.62) !important;
   border-radius: 0.7rem;
   background: #f8f9fa !important;
 }
+
+.board-minimap-canvas.is-dragging { cursor: grabbing; }
+.board-minimap-canvas:focus-visible { outline: 2px solid #00a9d2; outline-offset: 2px; }
 
 html[data-theme='dark'] .board-bottom-controls__pill,
 html[data-theme='dark'] .board-bottom-controls__help,

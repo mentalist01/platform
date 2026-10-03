@@ -455,6 +455,8 @@ const LearningGroupsSection = ({
   studentsLoading = false,
   activeLearningLesson = null,
   openAvailabilityRequest = null,
+  openHomeworkRequest = null,
+  onHomeworkRequestHandled = null,
   onAvailabilityRequestHandled = null,
   onOpenLessonRoom,
   onOpenLearningGroupTelemost = null,
@@ -477,6 +479,7 @@ const LearningGroupsSection = ({
   const [groups, setGroups] = useState([]);
   const groupsRef = useRef([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
+  const homeworkRequestHandledRef = useRef('');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
@@ -670,6 +673,7 @@ const LearningGroupsSection = ({
       const progressPayload = successfulValue(4) || detailPayload;
       const nextGroup = decorateGroup({
         ...detail,
+        homeworkDetailsLoaded: true,
         lessons: parseLessonsPayload(lessonsPayload),
         replayStorage: parseReplayStoragePayload(lessonsPayload),
         assignments: parseAssignmentsPayload(assignmentsPayload),
@@ -886,6 +890,22 @@ const LearningGroupsSection = ({
     setAssignmentComposerEditing(null);
     setAssignmentComposerError('');
   };
+
+  useEffect(() => {
+    if (!isTeacher || !openHomeworkRequest?.id || loading || homeworkRequestHandledRef.current === openHomeworkRequest.id) return;
+    const group = groups.find(entry => entry.id === openHomeworkRequest.groupId);
+    if (!group || group.status === LEARNING_GROUP_STATUS_COMPLETED) {
+      setError('Мини-группа из напоминания больше недоступна для выдачи домашки.');
+      homeworkRequestHandledRef.current = openHomeworkRequest.id;
+      onHomeworkRequestHandled?.();
+      return;
+    }
+    if (selectedGroupId !== group.id) { setSelectedGroupId(group.id); return; }
+    if (detailLoading || !group.homeworkDetailsLoaded) return;
+    homeworkRequestHandledRef.current = openHomeworkRequest.id;
+    setTab('assignments');
+    void openAssignmentComposer().finally(() => onHomeworkRequestHandled?.());
+  }, [detailLoading, groups, isTeacher, loading, onHomeworkRequestHandled, openHomeworkRequest, selectedGroupId]);
 
   const updateAssignmentComposerGoal = (index, patch) => {
     setAssignmentComposerForm((current) => {

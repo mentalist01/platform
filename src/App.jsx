@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
+import BoardMinimap from './components/BoardMinimap.jsx';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
 import { GROUP_SHARED_CODE_ID, groupCodeTabs, groupCodeRoom } from './utils/groupCodeRooms.js';
@@ -50,6 +51,7 @@ import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
 const TeacherRescheduleInbox = React.lazy(() => import('./components/LessonReschedule').then(module => ({default:module.TeacherRescheduleInbox})));
+const TeacherHomeworkReminders = React.lazy(() => import('./components/TeacherHomeworkReminders'));
 import StudentWeeklyRecap from './components/StudentWeeklyRecap';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import CoinGuideIcon from './components/CoinGuideTooltip';
@@ -11795,6 +11797,8 @@ const BoardCanvasSection = ({
   });
   const dragImageRef = useRef({ active: false, id: null, offsetX: 0, offsetY: 0, x: null, y: null });
   const minimapRef = useRef(null);
+  const minimapGeometryRef = useRef(null);
+  const minimapInteractionRef = useRef(null);
   const minimapRenderTimerRef = useRef(null);
   const viewportHydratedRef = useRef(false);
   const viewportPersistTimerRef = useRef(null);
@@ -16985,6 +16989,8 @@ const BoardCanvasSection = ({
     includePoint(offsetRef.current.x, offsetRef.current.y);
     includePoint(offsetRef.current.x + viewWidth, offsetRef.current.y + viewHeight);
 
+    if (minimapInteractionRef.current) Object.assign(bounds, minimapInteractionRef.current);
+
     if (!Number.isFinite(bounds.minX)) {
       bounds.minX = 0;
       bounds.minY = 0;
@@ -16996,6 +17002,7 @@ const BoardCanvasSection = ({
     const mapWidth = Math.max(1, bounds.maxX - bounds.minX);
     const mapHeight = Math.max(1, bounds.maxY - bounds.minY);
     const scale = Math.min((width - pad * 2) / mapWidth, (height - pad * 2) / mapHeight);
+    minimapGeometryRef.current = { ...bounds, scale, pad, viewWidth, viewHeight, offset: { ...offsetRef.current } };
 
     const toMiniX = (x) => pad + (x - bounds.minX) * scale;
     const toMiniY = (y) => pad + (y - bounds.minY) * scale;
@@ -18427,12 +18434,14 @@ const BoardCanvasSection = ({
         ))}
         {isMinimapOpen && (
           <div className="board-minimap-shell board-minimap-shell--bottom absolute z-30">
-            <canvas
-              ref={minimapRef}
-              width={240}
-              height={140}
-              className="board-minimap-canvas block"
-            />
+            <BoardMinimap canvasRef={minimapRef} getGeometry={() => minimapGeometryRef.current}
+              onNavigate={nextOffset => {
+                stopFollowingRemoteCursor();
+                offsetRef.current = nextOffset;
+                setOffset(nextOffset);
+                renderMinimap();
+              }}
+              onInteraction={geometry => { minimapInteractionRef.current = geometry; renderMinimap(); }} />
           </div>
         )}
 
@@ -18957,6 +18966,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     () => (user.role === 'student' ? initialMockExamId : null)
   );
   const [pendingHomeworkPrefill, setPendingHomeworkPrefill] = useState(null);
+  const [pendingGroupHomeworkRequest, setPendingGroupHomeworkRequest] = useState(null);
   const [pendingHomeworkReviewRequest, setPendingHomeworkReviewRequest] = useState(null);
   const [homeworkLessonBaskets, setHomeworkLessonBaskets] = useState(() => (
     user.role === 'teacher' ? loadHomeworkLessonBaskets(user.id) : null
@@ -23674,6 +23684,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setMenuOpen(false);
   };
 
+  const handleHomeworkReminderOpen = (reminder) => {
+    if (user.role !== 'teacher') return;
+    setActiveLearningLesson(null);
+    const id = `homework-reminder-${reminder.id}-${Date.now()}`;
+    if (reminder.groupId) {
+      setPendingGroupHomeworkRequest({ id, groupId: reminder.groupId });
+      navigateToView('groups');
+    } else {
+      handleSelectStudent(reminder.studentId);
+      setPendingHomeworkPrefill({ id, source: 'reminder', studentId: reminder.studentId });
+      navigateToView('schedule');
+    }
+    setMenuOpen(false);
+  };
+
   const handleOpenMonthlyMocks = (studentId) => {
     if (user.role === 'student') { handleOpenMockGoal(); return; }
     if (user.role !== 'teacher') return;
@@ -25143,6 +25168,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </div>
       )}
       {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherRescheduleInbox userId={user.id} showEmpty={isTeacherNotificationsTabOpen} /></React.Suspense>}
+      {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherHomeworkReminders key={user.id} userId={user.id} onOpen={handleHomeworkReminderOpen} paused={callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status))} /></React.Suspense>}
       {user.role === 'student' && !studentTourActive && (
         <StudentNotificationsCenter
           user={user}
@@ -26440,6 +26466,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               activeLearningLesson={activeLearningLesson}
               openAvailabilityRequest={pendingGroupAvailabilityRequest}
+              openHomeworkRequest={pendingGroupHomeworkRequest}
+              onHomeworkRequestHandled={() => setPendingGroupHomeworkRequest(null)}
               onAvailabilityRequestHandled={handleGroupAvailabilityRequestHandled}
               onOpenLessonRoom={handleOpenLearningGroupLesson}
               onOpenLearningGroupTelemost={handleOpenLearningGroupTelemost}
