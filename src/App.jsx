@@ -25663,10 +25663,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 <ChevronsLeft size={16} />
               </button>
             </div>
-            <nav className={`flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav ${user.role === 'student' ? 'sidebar-nav--student' : ''}`} data-tour="nav">
-              <div className="sidebar-nav-title mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
+            <nav className={`flex-1 px-4 pb-7 pr-2 pt-5 overflow-y-auto sidebar-nav ${user.role === 'student' ? 'sidebar-nav--student' : user.role === 'teacher' ? 'sidebar-nav--teacher' : ''}`} data-tour="nav">
+              {user.role !== 'teacher' && <div className="sidebar-nav-title mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500/85">
                 {user.role === 'student' ? 'Главное' : 'Навигация'}
-              </div>
+              </div>}
               <div className="space-y-2.5 sidebar-nav-stack">
                 {user.role === 'teacher' ? <TeacherNavigation
                   groups={teacherNavGroups}

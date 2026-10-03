@@ -17,7 +17,7 @@ rollback_on_error() {
   exit "$status"
 }
 trap rollback_on_error EXIT
-node --test src/utils/boardPages.test.js tools/teacher-desktop/test/*.test.cjs tools/lesson-recorder/office-follow.test.mjs tools/lesson-recorder/obs.test.mjs > "$backup/tests.log" 2>&1
+node --test src/utils/teacherNavigation.test.js src/utils/boardPages.test.js tools/teacher-desktop/test/*.test.cjs tools/lesson-recorder/office-follow.test.mjs tools/lesson-recorder/obs.test.mjs > "$backup/tests.log" 2>&1
 stage="dist-teacher-desktop-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-teacher-desktop-release.mjs local "$stage"

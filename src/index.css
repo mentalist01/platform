@@ -31992,7 +31992,7 @@ html[data-theme='dark'] .python-learning-shell .python-learning-task-card[data-s
   box-shadow: none !important;
 }
 
-.sidebar-nav button[aria-expanded] {
+.sidebar-nav button[aria-expanded]:not(.teacher-navigation__heading) {
   border-radius: 0.85rem !important;
   padding: 0.55rem 0.7rem !important;
   letter-spacing: 0.06em !important;
@@ -32112,7 +32112,7 @@ html[data-theme='dark'] .sidebar-nav .sidebar-nav-arrow.is-active {
   color: rgb(237, 233, 254) !important;
 }
 
-html[data-theme='dark'] .sidebar-nav button[aria-expanded] {
+html[data-theme='dark'] .sidebar-nav button[aria-expanded]:not(.teacher-navigation__heading) {
   border-color: rgba(129, 140, 248, 0.3) !important;
   background: rgba(15, 23, 42, 0.58) !important;
   color: rgba(203, 213, 225, 0.9) !important;
@@ -32293,7 +32293,7 @@ html[data-theme='dark'] .sidebar-logout:hover {
   opacity: 1 !important;
 }
 
-.sidebar-nav button[aria-expanded] {
+.sidebar-nav button[aria-expanded]:not(.teacher-navigation__heading) {
   min-height: 2.25rem;
   margin-top: 0.3rem;
   border: 0 !important;
@@ -32374,7 +32374,7 @@ html[data-theme='dark'] .sidebar-nav {
 }
 
 html[data-theme='dark'] .sidebar-nav-title,
-html[data-theme='dark'] .sidebar-nav button[aria-expanded] {
+html[data-theme='dark'] .sidebar-nav button[aria-expanded]:not(.teacher-navigation__heading) {
   color: var(--sidebar-muted) !important;
 }
 

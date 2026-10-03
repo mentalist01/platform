@@ -18,6 +18,7 @@ const loginPath = `/assets/${login}`;
 const loginSource = fs.readFileSync(path.join(directory, loginPath.slice(1)), 'utf8');
 for (const marker of ['Вход в приложение преподавателя', 'Кабинет преподавателя', 'Введите код доступа своего аккаунта преподавателя.']) assert.ok(loginSource.includes(marker), `Missing ${marker}`);
 for (const marker of ['nav-schedule', 'nav-students', 'nav-materials', 'nav-management', 'teacher-students', 'teacher-settings', 'Записи и архив', 'Разделы преподавателя']) assert.ok(source.includes(marker), `Teacher navigation missing: ${marker}`);
+for (const marker of ['Найти раздел', 'Сейчас открыто', 'Поиск по разделам', 'Раздел не найден', 'Финансы и настройки']) assert.ok(source.includes(marker), `Teacher navigation orientation missing: ${marker}`);
 const feature = source.match(/LessonRecordingSection-[A-Za-z0-9_-]+\.js/)?.[0];
 assert.ok(feature, 'Recording onboarding missing');
 const featurePath = `/assets/${feature}`;
