@@ -6,9 +6,10 @@ const { TeacherAppUpdates, recorderBusy } = require('../updates.cjs');
 
 function fixture({ busy = false, enabled = true } = {}) {
   const updater = new EventEmitter();
-  const state = { checks: 0, downloads: 0, quits: 0, prevents: 0, reports: [] };
+  const state = { checks: 0, downloads: 0, quits: 0, prevents: 0, reports: [], installs: [] };
   updater.checkForUpdates = async () => { state.checks++; updater.emit('checking-for-update'); updater.emit('update-available', { version: '0.1.3' }); };
   updater.downloadUpdate = async () => { state.downloads++; updater.emit('download-progress', { percent: 27.9 }); updater.emit('update-downloaded', { version: '0.1.3' }); };
+  updater.quitAndInstall = (...args) => state.installs.push(args);
   const app = { isPackaged: enabled, quit: () => state.quits++ };
   const controller = new TeacherAppUpdates({ updater, app, report: update => state.reports.push({ ...update }), isBusy: async () => typeof busy === 'function' ? busy() : busy });
   const event = { preventDefault: () => state.prevents++ };
@@ -81,4 +82,28 @@ test('active, paused, starting, stopping and uploading recordings all block inst
   for (const status of ['starting', 'recording', 'stopping']) assert.equal(recorderBusy({ ...idle, jobs: [{ status }] }), true);
   for (const value of [{ obs: { outputActive: true, outputPaused: true } }, { uploadingId: 'upload' }, { preparingUpload: true }, { updater: { busy: true } }]) assert.equal(recorderBusy({ ...idle, ...value }), true);
   assert.throws(() => recorderBusy({ error: 'offline' }));
+});
+test('the update button checks for a version, then installs and restarts only when idle', async () => {
+  let busy = false;
+  const f = fixture({ busy: () => busy });
+  await f.controller.apply(); assert.equal(f.state.downloads, 1); assert.equal(f.state.installs.length, 0);
+  busy = true; await f.controller.apply();
+  assert.equal(f.controller.state.waitingToInstall, true); assert.equal(f.state.installs.length, 0);
+  busy = false; await f.controller.apply();
+  assert.deepEqual(f.state.installs, [[true, true]]); assert.equal(f.updater.autoInstallOnAppQuit, false);
+  await f.controller.apply(); assert.equal(f.state.installs.length, 1);
+});
+test('the update button does not close the app when recorder state is unknown', async () => {
+  const f = fixture(); await f.controller.check();
+  f.controller.isBusy = async () => { throw new Error('unavailable'); };
+  await f.controller.apply(); assert.equal(f.state.installs.length, 0); assert.equal(f.state.quits, 0);
+  assert.equal(f.controller.state.status, 'error');
+});
+
+test('an asynchronous installer error leaves the running app able to retry', async () => {
+  const f = fixture(); await f.controller.check(); await f.controller.apply();
+  f.updater.emit('error', new Error('installer could not start'));
+  assert.equal(f.controller.state.status, 'error'); assert.equal(f.controller.quitApproved, false);
+  await f.controller.apply(); assert.equal(f.state.checks, 2);
+  await f.controller.apply(); assert.equal(f.state.installs.length, 2);
 });

@@ -64,6 +64,7 @@ function saveSettings() {
 }
 function updateState(changes) {
   state = { ...state, ...changes };
+  if (Object.hasOwn(changes, 'update')) updateBounds();
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('shell:state-update', state);
 }
 function validShell(event) {
@@ -79,10 +80,11 @@ function trustedRequester(contents, requestUrl, isMainFrame) {
 function ownedPlatform(contents) {
   return !!contents && !contents.isDestroyed() && ownedWebContents.has(contents.id) && policy.isPlatform(contents.getURL());
 }
+function showUpdateNotice() { return ['available', 'waiting', 'downloading', 'ready', 'installing'].includes(state.update?.status) || (state.update?.status === 'error' && Boolean(state.update?.version)); }
 function updateBounds() {
   if (!mainWindow || !platformView) return;
   const [width, height] = mainWindow.getContentSize();
-  const offset = mainWindow.isFullScreen() ? 0 : 64;
+  const offset = mainWindow.isFullScreen() ? 0 : 64 + (showUpdateNotice() ? 64 : 0);
   platformView.setBounds({ x: 0, y: offset, width, height: Math.max(0, height - offset) });
   const content = mainWindow.getContentBounds();
   utilityWindow?.setBounds({ x: content.x + Math.max(0, width - 438), y: content.y + offset + 8, width: Math.min(430, width), height: Math.max(1, Math.min(610, height - offset - 16)) });
@@ -257,6 +259,7 @@ ipcMain.handle('shell:action', async (event, action, value) => {
   if (action === 'help-open') { closePanel(); platformView.setVisible(false); return; }
   if (action === 'help-close') { platformView.setVisible(state.page === 'ready'); return; }
   if (action === 'check-updates') return updates?.check();
+  if (action === 'apply-update') return updates?.apply();
 });
 ipcMain.on('teacher:app-info', event => {
   event.returnValue = validPlatformEvent(event) ? { version: app.getVersion(), autoUpdates: true } : {};

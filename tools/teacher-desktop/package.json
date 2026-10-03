@@ -1,7 +1,7 @@
 {
   "name": "ivan100-teacher",
   "productName": "IVAN100 Учитель",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Кабинет преподавателя IVAN100 для Windows",
   "author": "IVAN100",
   "private": true,
@@ -11,7 +11,7 @@
     "test": "node --test test/*.test.cjs",
     "icons": "node scripts/icons.cjs",
     "pack": "npm test && electron-builder --win --x64 --dir",
-    "dist": "npm test && electron-builder --win nsis --x64 --publish never",
+    "dist": "npm test && node scripts/prepare-installer.cjs && electron-builder --win nsis --x64 --publish never",
     "publish-release": "node scripts/publish.cjs"
   },
   "devDependencies": {
@@ -19,7 +19,12 @@
     "electron-builder": "26.15.3"
   },
   "build": {
-    "publish": [{ "provider": "generic", "url": "https://github.com/mentalist01/platform/releases/download/teacher-desktop-updates" }],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/mentalist01/platform/releases/download/teacher-desktop-updates"
+      }
+    ],
     "electronUpdaterCompatibility": ">=2.16",
     "appId": "ru.ivan100.teacher",
     "productName": "IVAN100 Учитель",
@@ -61,7 +66,8 @@
       ],
       "language": "1049",
       "runAfterFinish": false,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "../../output/teacher-desktop/nsis/overrides.nsh"
     }
   },
   "dependencies": {

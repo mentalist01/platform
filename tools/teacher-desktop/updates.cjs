@@ -1,5 +1,5 @@
 'use strict';
-const http = require('node:http');
+const { readRecorderState } = require('./recorder-status.cjs');
 
 const UPDATE_FEED = 'https://github.com/mentalist01/platform/releases/download/teacher-desktop-updates';
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -12,21 +12,9 @@ function recorderBusy(state) {
 }
 
 // Read only the local helper. Never stop OBS, an upload, or the recorder to update the app.
-function readRecorderBusy() {
-  return new Promise((resolve, reject) => {
-    const request = http.get('http://127.0.0.1:18765/state', response => {
-      let text = '';
-      if (response.statusCode !== 200) { response.resume(); reject(new Error('Recorder unavailable')); return; }
-      response.on('data', chunk => {
-        text += chunk;
-        if (text.length > 1024 * 1024) request.destroy(new Error('Recorder response too large'));
-      });
-      response.on('error', reject);
-      response.on('end', () => { try { resolve(recorderBusy(JSON.parse(text))); } catch (error) { reject(error); } });
-    });
-    request.setTimeout(1500, () => request.destroy(new Error('Recorder timeout')));
-    request.on('error', error => error.code === 'ECONNREFUSED' ? resolve(false) : reject(error));
-  });
+async function readRecorderBusy() {
+  const state = await readRecorderState();
+  return state ? recorderBusy(state) : false;
 }
 
 class TeacherAppUpdates {
@@ -52,7 +40,7 @@ class TeacherAppUpdates {
     updater.on('update-available', info => { this.available = true; this.setState({ status: 'available', version: info.version, percent: 0 }); });
     updater.on('download-progress', progress => this.setState({ status: 'downloading', percent: Math.max(0, Math.min(100, Math.round(progress.percent || 0))) }));
     updater.on('update-downloaded', info => { this.available = false; this.setState({ status: 'ready', version: info.version, percent: 100 }); });
-    updater.on('error', () => this.setState({ status: 'error' }));
+    updater.on('error', () => { this.quitApproved = false; this.setState({ status: 'error' }); });
   }
   setState(value) { this.state = { ...this.state, ...value }; this.report(this.state); }
   start() {
@@ -80,6 +68,17 @@ class TeacherAppUpdates {
       await this.updater.downloadUpdate();
     } catch { this.setState({ status: 'error' }); }
     finally { this.downloading = false; }
+  }
+  async apply() {
+    if (!this.enabled || this.quitPreparing || this.quitApproved) return;
+    if (this.state.status !== 'ready') { await this.check(); return; }
+    try {
+      if (await this.isBusy()) { this.setState({ status: 'ready', waitingToInstall: true }); return; }
+      this.setState({ status: 'installing', waitingToInstall: false });
+      this.updater.autoInstallOnAppQuit = false;
+      this.quitApproved = true;
+      this.updater.quitAndInstall(true, true);
+    } catch { this.quitApproved = false; this.setState({ status: 'error' }); }
   }
   onSessionEnd() { this.sessionEnding = true; this.updater.autoInstallOnAppQuit = false; }
   deferQuit(event) {

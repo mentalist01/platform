@@ -1,6 +1,7 @@
 'use strict';
 const help = document.getElementById('help');
 const updates = document.getElementById('updates');
+let latestState;
 async function showUpdates() { if (help.open) help.close(); await window.teacherApp.action('help-open'); if (!updates.open) updates.showModal(); }
 updates.addEventListener('close', () => { if (!help.open) window.teacherApp.action('help-close'); });
 window.teacherApp.onUpdates(showUpdates);
@@ -13,9 +14,10 @@ document.querySelectorAll('[data-action]').forEach(button => button.addEventList
   if (button.dataset.action === 'updates') { await showUpdates(); return; }
   if (button.dataset.action === 'recording-settings') help.close();
   button.disabled = true;
-  try { await window.teacherApp.action(button.dataset.action); } finally { button.disabled = false; }
+  try { await window.teacherApp.action(button.dataset.action); } finally { button.disabled = false; if (latestState) render(latestState); }
 }));
 function render(state) {
+  latestState = state;
   document.getElementById('version').textContent = `Версия ${state.version}`;
   document.getElementById('recorder-dot').classList.toggle('ready', state.recorderReady);
   document.getElementById('download').textContent = state.download || (state.downloadCount ? `· ${state.downloadCount}` : '');
@@ -32,7 +34,8 @@ function render(state) {
     available: ['Есть новая версия', 'Готовим загрузку обновления.'],
     waiting: ['Загрузим после урока', 'Пульт занят или в приложении воспроизводится звук. Обновление подождёт.'],
     downloading: ['Скачиваем обновление', `${update.percent || 0}% · Приложение продолжает работать.`],
-    ready: ['Обновление готово', `Версия ${update.version} установится при обычном закрытии приложения. Если пульт занят, установка отложится.`],
+    ready: ['Обновление готово', update.waitingToInstall ? 'Завершите запись, загрузку или воспроизведение звука, затем нажмите «Обновить».' : `Версия ${update.version} установится при закрытии приложения или по кнопке «Обновить».`],
+    installing: ['Устанавливаем обновление', 'Приложение закроется и откроется снова после установки.'],
     error: ['Сейчас не удалось обновиться', 'Рабочая версия сохранена. Проверьте интернет — приложение попробует позже.'],
     development: ['Режим разработки', 'Автоматические обновления работают в установленном приложении.']
   };
@@ -45,6 +48,14 @@ function render(state) {
   document.getElementById('update-progress').hidden = update.status !== 'downloading';
   document.getElementById('update-progress').value = update.percent || 0;
   document.getElementById('check-updates').disabled = ['checking', 'downloading', 'ready', 'development'].includes(update.status);
+  document.getElementById('update-install').hidden = update.status !== 'ready';
+  const notice = document.getElementById('update-notice');
+  notice.hidden = !['available', 'waiting', 'downloading', 'ready', 'installing'].includes(update.status) && !(update.status === 'error' && update.version);
+  document.body.classList.toggle('has-update-notice', !notice.hidden);
+  document.getElementById('notice-title').textContent = update.status === 'ready' ? `Готово обновление ${update.version}` : update.status === 'error' ? 'Обновление не установлено' : `Доступна новая версия ${update.version}`;
+  document.getElementById('notice-message').textContent = update.status === 'ready' && !update.waitingToInstall ? 'Нажмите «Обновить»: приложение перезапустится, ваши данные сохранятся.' : message;
+  document.getElementById('notice-update').textContent = update.status === 'downloading' ? `Загрузка ${update.percent || 0}%` : update.status === 'installing' ? 'Установка…' : update.status === 'error' ? 'Повторить' : 'Обновить';
+  document.getElementById('notice-update').disabled = ['downloading', 'installing'].includes(update.status);
 }
 window.teacherApp.onState(render);
 window.teacherApp.state().then(render);

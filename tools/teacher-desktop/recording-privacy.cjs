@@ -5,26 +5,11 @@ const MESSAGE = 'Преподаватель готовит материалы';
 const AUDIO = ['IVAN100: микрофон', 'IVAN100: Телемост'];
 const CAPTURES = ['IVAN100: платформа', 'IVAN100: программа', 'IVAN100: монитор', 'IVAN100: LibreOffice', 'IVAN100: демонстрация'];
 const FILTER = 'IVAN100: скрыть личные разделы';
-const http = require('node:http');
+const { readRecorderState } = require('./recorder-status.cjs');
 
-function readRecording() {
-  return new Promise((resolve, reject) => {
-    const request = http.get('http://127.0.0.1:18765/state', response => {
-      let text = '';
-      if (response.statusCode !== 200) { response.resume(); reject(new Error('Неизвестное состояние записи')); return; }
-      response.on('data', chunk => { text += chunk; if (text.length > 1024 * 1024) request.destroy(new Error('Некорректное состояние записи')); });
-      response.on('error', reject);
-      response.on('end', () => {
-        try {
-          const state = JSON.parse(text);
-          if (!Array.isArray(state.jobs)) throw new Error('Неизвестное состояние записи');
-          resolve(Boolean(state.obs?.outputActive || state.jobs.some(job => ['starting', 'recording', 'stopping'].includes(job.status))));
-        } catch (error) { reject(error); }
-      });
-    });
-    request.setTimeout(1500, () => request.destroy(new Error('Пульт не отвечает')));
-    request.on('error', error => error.code === 'ECONNREFUSED' ? resolve(false) : reject(error));
-  });
+async function readRecording() {
+  const state = await readRecorderState();
+  return Boolean(state && (state.obs?.outputActive || state.jobs.some(job => ['starting', 'recording', 'stopping'].includes(job.status))));
 }
 
 // OBS alone changes; capture filters prevent another automatic scene from revealing a private window.
