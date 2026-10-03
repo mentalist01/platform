@@ -8,10 +8,12 @@ assert.ok(['local', 'verify'].includes(mode) && directory, 'Usage: local|verify 
 const html = fs.readFileSync(path.join(directory, 'index.html'), 'utf8');
 const initial = [...html.matchAll(/(?:src|href)="(\/assets\/[^" ]+\.(?:js|css))"/g)].map(match => match[1]);
 const files = fs.readdirSync(path.join(directory, 'assets')).filter(file => /\.(js|css)$/.test(file));
-const featureFiles = files.filter(file => /^(?:ScheduleSection|ProgressSection|StudentMonthlyMockHomework|MonthlyMockAssignmentCheckbox|monthlyMockExam)-/.test(file));
+// Shared CSS can be emitted under the name of another importing component.
+const styleFiles = files.filter(file => file.endsWith('.css') && fs.readFileSync(path.join(directory, 'assets', file), 'utf8').includes('.student-monthly-mock'));
+const featureFiles = [...new Set([...files.filter(file => /^(?:ScheduleSection|ProgressSection|StudentMonthlyMockHomework|MonthlyMockAssignmentCheckbox|monthlyMockExam)-/.test(file)), ...styleFiles])];
 const source = featureFiles.filter(file => file.endsWith('.js')).map(file => fs.readFileSync(path.join(directory, 'assets', file), 'utf8')).join('\n');
 for (const marker of ['Пробник месяца', 'monthlyAssignment', 'monthlyAssignedMonths', 'Преподаватель ещё не назначил пробник', 'Продолжить пробник', 'Решите весь пробник до']) assert.ok(source.includes(marker), `Missing monthly mock feature: ${marker}`);
-assert.ok(featureFiles.some(file => file.endsWith('.css') && fs.readFileSync(path.join(directory, 'assets', file), 'utf8').includes('.student-monthly-mock')), 'Monthly homework styles missing');
+assert.ok(styleFiles.length, 'Monthly homework styles missing');
 console.log('Monthly mock teacher designation and student homework UI verified.');
 if (mode === 'verify') {
   const get = async (route, token) => {
