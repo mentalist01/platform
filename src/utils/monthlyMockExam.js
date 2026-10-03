@@ -124,15 +124,17 @@ export const collectMonthlyMockCompletions = (studentData = {}, exams = []) => {
   return normalizeMonthlyMockCompletions(completions);
 };
 
-export const buildMonthlyMockStatus = (studentData = {}, exams = [], period = getMonthlyMockPeriod(), now = Date.now()) => {
+export const buildMonthlyMockStatus = (studentData = {}, exams = [], period = getMonthlyMockPeriod(), now = Date.now(), assignedExamId = '') => {
   if (!period) throw new TypeError('A valid month is required');
   const completions = collectMonthlyMockCompletions(studentData, exams).filter((entry) => {
+    if (assignedExamId && entry.examId !== assignedExamId) return false;
     const ms = timestamp(entry.finishedAt);
     return ms >= period.startMs && ms < period.endMs && ms <= Number(now);
   });
   const examById = new Map(exams.map((exam) => [text(exam.id), exam]));
   const active = Object.entries(record(studentData.mockAttempts) ? studentData.mockAttempts : {})
     .filter(([examId, attempt]) => {
+      if (assignedExamId && examId !== assignedExamId) return false;
       if (!record(attempt) || timestamp(attempt.finishedAt) != null || timestamp(attempt.timerFinishedAt) != null || attempt.status === 'finished') return false;
       if (!fullExamScope(attempt, examById.get(examId))) return false;
       const activity = timestamp(attempt.updatedAt) ?? timestamp(attempt.timerStartedAt) ?? timestamp(attempt.modeLockedAt);
@@ -159,3 +161,30 @@ export const prepareMonthlyMockHomeworkGoals = (goals, defaultMockGoal) => {
   const [mockGoal] = existing.splice(index, 1);
   return [mockGoal, ...existing];
 };
+
+export const normalizeMonthlyMockAssignments = (value) => {
+  if (!record(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([teacherId, months]) => {
+    const valid = [...new Set((Array.isArray(months) ? months : []).filter(month => typeof month === 'string' && getMonthlyMockPeriod(month)))].sort();
+    return text(teacherId) && valid.length ? [[text(teacherId), valid]] : [];
+  }));
+};
+
+export const getAssignedMonthlyMockExam = (exams, teacherId, month = getMonthlyMockMonth()) => (
+  (Array.isArray(exams) ? exams : []).find(exam => (
+    normalizeMonthlyMockAssignments(exam?.monthlyAssignments)[text(teacherId)]?.includes(month)
+    && exam?.access?.all === true
+    && Object.keys(record(exam?.tasks) ? exam.tasks : {}).length > 0
+  )) || null
+);
+
+// Replace only this teacher's designation for this month; keep earlier months.
+export const updateMonthlyMockAssignment = (exams, { examId, teacherId, month, assigned }) => exams.map(exam => {
+  const assignments = normalizeMonthlyMockAssignments(exam.monthlyAssignments);
+  const previous = assignments[teacherId] || [];
+  const months = assigned || exam.id === examId ? previous.filter(value => value !== month) : previous;
+  if (assigned && exam.id === examId) months.push(month);
+  if (months.length) assignments[teacherId] = [...new Set(months)].sort();
+  else delete assignments[teacherId];
+  return { ...exam, monthlyAssignments: assignments };
+});

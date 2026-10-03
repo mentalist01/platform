@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMonthlyMockStatus, collectMonthlyMockCompletions, getMonthlyMockMonth, getMonthlyMockPeriod, normalizeMonthlyMockExemptions, prepareMonthlyMockHomeworkGoals } from './monthlyMockExam.js';
+import { buildMonthlyMockStatus, collectMonthlyMockCompletions, getMonthlyMockMonth, getMonthlyMockPeriod, normalizeMonthlyMockExemptions, prepareMonthlyMockHomeworkGoals, getAssignedMonthlyMockExam, updateMonthlyMockAssignment } from './monthlyMockExam.js';
 
 const period = getMonthlyMockPeriod('2026-09');
 const now = Date.parse('2026-09-07T15:00:00Z');
@@ -69,4 +69,21 @@ test('monthly assignment preserves draft goals and reuses an existing mock goal'
   const mock = { type: 'mock', mockExamId: 'exam' };
   assert.deepEqual(prepareMonthlyMockHomeworkGoals([task], { type: 'mock' }), [{ type: 'mock' }, task]);
   assert.deepEqual(prepareMonthlyMockHomeworkGoals([task, mock], { type: 'mock' }), [mock, task]);
+});
+
+test('designation keeps past months and other teachers and never rolls over automatically', () => {
+  const variants = ['first', 'second'].map(id => ({ id, tasks: { 1: {} }, access: { all: true }, monthlyAssignments: id === 'first' ? { a: ['2026-08', '2026-09'], b: ['2026-09'] } : {} }));
+  const next = updateMonthlyMockAssignment(variants, { examId: 'second', teacherId: 'a', month: '2026-09', assigned: true });
+  assert.equal(getAssignedMonthlyMockExam(next, 'a', '2026-09').id, 'second');
+  assert.equal(getAssignedMonthlyMockExam(next, 'a', '2026-08').id, 'first');
+  assert.equal(getAssignedMonthlyMockExam(next, 'b', '2026-09').id, 'first');
+  assert.equal(getAssignedMonthlyMockExam(next, 'a', '2026-10'), null);
+  assert.deepEqual(variants[0].monthlyAssignments.a, ['2026-08', '2026-09']);
+});
+
+test('only the designated whole exam completed in the required month counts', () => {
+  const data = { mockAttempts: { exam: finished, other: finished }, mocks: [{ date: '2026-09-02', score: 100 }] };
+  assert.equal(buildMonthlyMockStatus(data, exams, period, now, 'new').status, 'pending');
+  assert.equal(buildMonthlyMockStatus(data, exams, period, now, 'exam').completedCount, 1);
+  assert.equal(buildMonthlyMockStatus({ mockAttempts: { exam: { ...finished, finishedAt: '2026-08-02' } } }, exams, period, now, 'exam').status, 'pending');
 });
