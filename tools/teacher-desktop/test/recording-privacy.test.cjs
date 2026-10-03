@@ -40,9 +40,9 @@ test('confirms an instant private scene with the lesson audio and no capture sou
 });
 test('nested private windows keep the mask until the last one closes', async () => {
   const f = fixture();
-  await Promise.all([f.privacy.set('platform', true), f.privacy.set('recorder', true)]);
+  await Promise.all([f.privacy.set('platform', true), f.privacy.set('accounts', true)]);
   await f.privacy.set('platform', false); assert.equal(f.scene(), SCENE);
-  await f.privacy.set('recorder', false); assert.equal(f.scene(), 'IVAN100 — Платформа');
+  await f.privacy.set('accounts', false); assert.equal(f.scene(), 'IVAN100 — Платформа');
   assert.ok(f.calls.some(([type, data]) => type === 'SetSourceFilterEnabled' && !data.filterEnabled));
 });
 test('manual pause/source is preserved and a crashed privacy scene recovers to platform', async () => {

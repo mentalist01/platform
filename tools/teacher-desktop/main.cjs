@@ -7,6 +7,7 @@ const { spawn } = require('node:child_process');
 const policy = require('./policy.cjs');
 const { Downloads } = require('./downloads.cjs');
 const { TeacherCredentials } = require('./credentials.cjs');
+const { imageContextMenu } = require('./image-context-menu.cjs');
 const { TeacherAppUpdates, readRecorderBusy } = require('./updates.cjs');
 const { pathToFileURL } = require('node:url');
 const { RecordingPrivacy, readRecording } = require('./recording-privacy.cjs');
@@ -113,10 +114,14 @@ function guardWebContents(contents, kind) {
   });
   contents.setWindowOpenHandler(({ url }) => { void openLink(url); return { action: 'deny' }; });
   contents.on('page-title-updated', event => event.preventDefault());
+  contents.on('context-menu', (_event, params) => {
+    const template = imageContextMenu(contents, params);
+    if (template.length) Menu.buildFromTemplate(template).popup({ window: BrowserWindow.fromWebContents(contents) || mainWindow });
+  });
 }
 async function openLink(url) {
   const type = policy.classifyNavigation(url);
-  if (type === 'recorder') return openRecorder(new URL(url).pathname + new URL(url).hash).catch(() => dialog.showMessageBox(mainWindow, { title: 'Защита записи', message: 'Пульт пока не открыт: не удалось скрыть его в записи. Проверьте подключение OBS и повторите.', buttons: ['ОК'] }));
+  if (type === 'recorder') return openRecorder(new URL(url).pathname + new URL(url).hash).catch(() => dialog.showMessageBox(mainWindow, { title: 'Пульт записи', message: 'Не удалось открыть пульт. Проверьте, что помощник запущен, и повторите.', buttons: ['ОК'] }));
   if (type === 'platform') {
     const child = new BrowserWindow({ title: TITLE, ...windowPlacement(1180, 820), icon, autoHideMenuBar: true, webPreferences: { session: platformSession, sandbox: true, contextIsolation: true, nodeIntegration: false } });
     await recordingPrivacy.set(`platform-child-${child.id}`, true);
@@ -190,17 +195,16 @@ async function ensureRecorder() {
   return false;
 }
 async function openRecorder(route = '/') {
-  await recordingPrivacy.set('recorder', true);
+  // The recorder has its own window; opening its controls leaves the captured
+  // cabinet and call unchanged. Only private sections inside the cabinet mask OBS.
   if (recorderOpening) return recorderOpening;
   recorderOpening = (async () => {
     if (!await ensureRecorder()) {
       updateState({ recorderReady: false });
       const { response } = await dialog.showMessageBox(mainWindow, { title: 'Пульт записи', message: 'Пульт пока недоступен на этом компьютере', detail: 'Скачайте помощник в разделе «Запись уроков» и пройдите мастер настройки. Установленные записи и настройки сохранятся.', buttons: ['Открыть установку и инструкцию', 'Позже'], defaultId: 0, cancelId: 1, noLink: true });
       if (response === 0) await openLink('https://ivan100.ru/?desktop=teacher&view=recording');
-      await recordingPrivacy.set('recorder', false);
       return;
     }
-    await recordingPrivacy.set('recorder', true);
     const url = new URL(route.startsWith('/') ? route : '/', policy.RECORDER_URL).href;
     if (!policy.isRecorder(url)) return;
     if (!recorderWindow || recorderWindow.isDestroyed()) {
@@ -210,7 +214,7 @@ async function openRecorder(route = '/') {
       helperSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(helperPermission(contents, permission, details.requestingUrl)));
       recorderWindow = new BrowserWindow({ title: 'IVAN100 — Пульт записи', ...windowPlacement(1300, 880), icon, autoHideMenuBar: true, webPreferences: { session: helperSession, sandbox: true, contextIsolation: true, nodeIntegration: false } });
       guardWebContents(recorderWindow.webContents, 'recorder');
-      recorderWindow.on('closed', () => { recorderWindow = null; void recordingPrivacy.set('recorder', false).catch(() => {}); });
+      recorderWindow.on('closed', () => { recorderWindow = null; });
     }
     if (recorderWindow.isMinimized()) recorderWindow.restore();
     recorderWindow.show(); recorderWindow.focus();
@@ -248,10 +252,10 @@ ipcMain.handle('sharing:cancel', event => { pickerFor(event)?.finish({}); });
 ipcMain.handle('shell:state', event => { if (!validShell(event)) throw new Error('Недоступно'); return state; });
 ipcMain.handle('shell:action', async (event, action, value) => {
   if (!validShell(event)) throw new Error('Недоступно');
-  if (action === 'cabinet') { recorderWindow?.hide(); platformView.webContents.focus(); await recordingPrivacy.set('recorder', false); return; }
+  if (action === 'cabinet') { platformView.webContents.focus(); return; }
   if (action === 'recorder' || action === 'archive') {
     try { return await openRecorder(action === 'archive' ? '/archive' : '/'); }
-    catch { await dialog.showMessageBox(mainWindow, { title: 'Защита записи', message: 'Раздел пока не открыт: не удалось скрыть его в записи. Проверьте подключение OBS и повторите.', buttons: ['ОК'] }); return; }
+    catch { await dialog.showMessageBox(mainWindow, { title: 'Пульт записи', message: 'Не удалось открыть пульт. Проверьте, что помощник запущен, и повторите.', buttons: ['ОК'] }); return; }
   }
   if (action === 'recording-settings') return openLink('https://ivan100.ru/?desktop=teacher&view=recording');
   if (action === 'retry') return loadCabinet();
@@ -322,7 +326,6 @@ async function start() {
   mainWindow.webContents.on('will-navigate', event => event.preventDefault());
   mainWindow.on('resize', updateBounds); mainWindow.on('move', updateBounds); mainWindow.on('enter-full-screen', updateBounds); mainWindow.on('leave-full-screen', updateBounds);
   mainWindow.on('minimize', () => utilityWindow?.hide());
-  mainWindow.on('focus', () => { recorderWindow?.hide(); void recordingPrivacy.set('recorder', false).catch(() => {}); });
   mainWindow.on('restore', () => { updateBounds(); if (panelOpen) utilityWindow?.showInactive(); });
   mainWindow.on('close', () => { if (!mainWindow.isMaximized()) settings.bounds = mainWindow.getBounds(); settings.maximized = mainWindow.isMaximized(); saveSettings(); });
   mainWindow.on('closed', () => { if (platformView && !platformView.webContents.isDestroyed()) platformView.webContents.close(); utilityWindow?.destroy(); mainWindow = null; app.quit(); });
