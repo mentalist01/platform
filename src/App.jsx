@@ -42,6 +42,10 @@ import StudentPaymentReminder from './components/StudentPaymentReminder';
 import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './components/TeacherSubscriptionGate';
 import TeacherDesktopNotice from './components/TeacherDesktopNotice';
 import AccountProfileMenu from './components/AccountProfileMenu';
+import TeacherNavigation from './components/TeacherNavigation';
+import useRecordingPrivacy from './hooks/useRecordingPrivacy';
+import { afterRecordingSafePaint, setRecordingPrivacy } from './utils/recordingPrivacy';
+import { buildTeacherNavigation, getTeacherNavigationGroup } from './utils/teacherNavigation';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
@@ -283,6 +287,8 @@ const VIEW_SECTION_LOADERS = Object.freeze({
   review: loadFinalReviewSection,
   schedule: loadScheduleSection,
   teacher: loadTeacherPanel,
+  'teacher-students': loadTeacherPanel,
+  'teacher-settings': loadTeacherPanel,
   'teacher-calendar': loadTeacherCalendarSection,
   'teacher-comms': loadTeacherComms,
 });
@@ -18791,6 +18797,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'call',
         'board',
         'teacher',
+        'teacher-students',
+        'teacher-settings',
         ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []),
         'notes'
       ]
@@ -18810,7 +18818,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const allowedViewsKey = allowedViews.join('|');
   const isCallViewAvailable = allowedViews.includes('call');
   const defaultView = user.role === 'teacher'
-    ? 'teacher'
+    ? 'schedule'
     : (user.role === 'admin' ? 'admin' : 'schedule');
   const [reloadCall, setReloadCall] = useState(() => readCallResume(user));
   const storedLocation = readUserLocation(user);
@@ -18865,7 +18873,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? storedLocation.notesLocation
     : null;
 
-  const [view, setView] = useState(initialView);
+  const [view, setRenderedView] = useState(initialView);
+  const recordingPrivacy = useRecordingPrivacy(view, user.role);
+  const setView = useCallback(next => recordingPrivacy.navigate(next, setRenderedView), [recordingPrivacy.navigate]);
+  const [teacherNavExpansion, setTeacherNavExpansion] = useState(null);
+  const expandedTeacherNavGroup = teacherNavExpansion?.view === view ? teacherNavExpansion.id : getTeacherNavigationGroup(view);
+  const setExpandedTeacherNavGroup = id => setTeacherNavExpansion({ view, id });
   const [requestedNotesLocation, setRequestedNotesLocation] = useState(initialNotesLocation);
   const [notesLocationRequestKey, setNotesLocationRequestKey] = useState(0);
 
@@ -18895,6 +18908,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [callPanelExpanded, setCallPanelExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionManagerOpen, setSessionManagerOpen] = useState(false);
+  const openSessionManager = async () => {
+    if (user.role === 'teacher' && !await recordingPrivacy.protect('sessions')) return;
+    setSessionManagerOpen(true);
+  };
+  const logoutWithRecordingPrivacy = async () => {
+    if (user.role === 'teacher' && !await recordingPrivacy.protect('platform')) return;
+    onLogout();
+  };
+  useEffect(() => {
+    if (sessionManagerOpen || user.role !== 'teacher') return undefined;
+    return afterRecordingSafePaint(() => { void setRecordingPrivacy('sessions', false).catch(() => {}); });
+  }, [sessionManagerOpen, user.role]);
   useEffect(() => {
     if (!sessionManagerOpen) return undefined;
     const handleKeyDown = (event) => {
@@ -20227,7 +20252,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'schedule', label: 'Моё расписание', icon: Calendar },
         { id: 'groups', label: 'Мини-группы', icon: Users },
         { id: 'meetings', label: 'Встречи по ссылке', icon: Video },
-        { id: 'recording', label: 'Запись уроков', icon: Video },
+        { id: 'recording', label: 'Записи и архив', icon: Video },
         { id: 'teacher-calendar', label: 'Общий календарь', icon: Users },
         { id: 'finance', label: 'Финансы', icon: Wallet },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
@@ -20236,7 +20261,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
-        { id: 'teacher', label: 'Управление тестами', icon: Settings },
+        { id: 'teacher', label: 'Тесты', icon: Settings },
+        { id: 'teacher-students', label: 'Список учеников', icon: Users },
+        { id: 'teacher-settings', label: 'Настройки', icon: Settings },
         ...(PLATFORM_CHATS_ENABLED ? [{ id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: MessageSquare }] : []),
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
@@ -20278,7 +20305,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : ['board', 'collab'];
   const teacherLessonNavIds = ['call', 'board', 'collab'];
   const studentLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
-  const teacherLessonNavItem = { id: 'lesson', label: '\u0423\u0440\u043e\u043a', icon: PlayCircle };
+  const teacherNavGroups = buildTeacherNavigation(visibleNav).map(group => ({
+    ...group, icon: ({ 'nav-schedule': Calendar, lesson: PlayCircle, 'nav-students': Users, 'nav-materials': BookOpen, 'nav-management': Settings })[group.id],
+  }));
   const studentDesktopMainNav = user.role === 'student'
     ? [
       ...['review', 'schedule', 'groups', 'progress']
@@ -20347,18 +20376,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ...studentMobilePrimaryNav,
       ...(shouldShowMobileMoreButton ? [{ id: 'more', label: '\u0415\u0449\u0435', icon: MoreHorizontal }] : [])
     ]
-    : visibleNav;
-  const teacherDesktopPrimaryNav = user.role === 'teacher'
-    ? [
-      ...['schedule', 'groups', 'meetings', 'teacher-calendar', 'recording', 'finance', 'progress', 'review', 'python', 'rating']
-        .map((id) => visibleNav.find((item) => item.id === id))
-        .filter(Boolean),
-      teacherLessonNavItem,
-      ...['teacher', ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []), 'notes']
-        .map((id) => visibleNav.find((item) => item.id === id))
-        .filter(Boolean)
-    ]
-    : visibleNav;
+    : user.role === 'teacher' ? teacherNavGroups : visibleNav;
+  const teacherDesktopPrimaryNav = user.role === 'teacher' ? teacherNavGroups : visibleNav;
   const desktopPrimaryNav = user.role === 'student'
     ? studentDesktopMainNav
     : teacherDesktopPrimaryNav;
@@ -20366,6 +20385,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? [...studentDesktopMainNav, ...studentDesktopToolNav]
     : desktopPrimaryNav;
   const mobileNavLabels = {
+    'nav-schedule': 'Расписание',
+    'nav-students': 'Ученики',
+    'nav-materials': 'Материалы',
+    'nav-management': 'Управление',
     schedule: 'График',
     groups: 'Группы',
     meetings: 'Встречи',
@@ -20820,10 +20843,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
   }, [unreadMessageAlertTotal]);
 
-  const getNavBadgeCount = useCallback((id) => (
-    Math.max(0, Math.floor(Number(navBadgeCounts?.[id]) || 0))
-  ), [navBadgeCounts]);
-  const renderNavBadge = useCallback((id, variant = 'sidebar') => {
+  const getNavBadgeCount = (id) => {
+    const section = user.role === 'teacher' && teacherNavGroups.find(group => group.id === id);
+    const ids = section ? section.children.map(item => item.id) : [id];
+    return ids.reduce((total, itemId) => total + Math.max(0, Math.floor(Number(navBadgeCounts?.[itemId]) || 0)), 0);
+  };
+  const renderNavBadge = (id, variant = 'sidebar') => {
     const count = getNavBadgeCount(id);
     if (count <= 0) return null;
     const label = count > 99 ? '99+' : String(count);
@@ -20832,7 +20857,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         {label}
       </span>
     );
-  }, [getNavBadgeCount]);
+  };
   const applyStudentNavNewSummary = useCallback((summary) => {
     setStudentScheduleNavNewTotal(Math.max(0, Math.floor(Number(summary?.schedule?.count) || 0)));
     setStudentProgressNavNewTotal(Math.max(0, Math.floor(Number(summary?.progress?.count) || 0)));
@@ -24861,6 +24886,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
+      {recordingPrivacy.error && <div role="alert" className="fixed left-1/2 top-4 z-[1600] w-[min(92vw,600px)] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white p-4 text-sm text-rose-700 shadow-xl">{recordingPrivacy.error}<button type="button" className="mt-2 block font-semibold text-violet-700" onClick={() => navigateToView('lesson')}>Вернуться к уроку</button></div>}
       {user.role === 'teacher' && isAnyTelemostLessonReplayActive && (
         <details className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-violet-200/90 bg-white/95 shadow-lg backdrop-blur-xl md:bottom-20 md:right-5">
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-2xl px-3 py-2 text-xs font-bold text-violet-700" title="Управление уроком: запись и завершение">
@@ -25642,7 +25668,15 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 {user.role === 'student' ? 'Главное' : 'Навигация'}
               </div>
               <div className="space-y-2.5 sidebar-nav-stack">
-                {desktopPrimaryNav.map((n, idx) => {
+                {user.role === 'teacher' ? <TeacherNavigation
+                  groups={teacherNavGroups}
+                  view={view}
+                  expandedGroup={expandedTeacherNavGroup}
+                  onExpand={setExpandedTeacherNavGroup}
+                  onNavigate={id => { navigateToView(id); setMenuOpen(false); }}
+                  onPrefetch={prefetchNavigationView}
+                  renderBadge={renderNavBadge}
+                /> : desktopPrimaryNav.map((n, idx) => {
                   const isLessonButton = n.id === 'lesson';
                   const isActive = isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
                   const isFeatured = Boolean(n.featured);
@@ -25756,8 +25790,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 avatarError={avatarError}
                 avatarSaving={avatarSaving}
                 onAvatar={() => avatarInputRef.current?.click()}
-                onSessions={() => user.role === 'admin' ? navigateToView('sessions') : setSessionManagerOpen(true)}
-                onLogout={onLogout}
+                onSessions={() => user.role === 'admin' ? navigateToView('sessions') : openSessionManager()}
+                onLogout={logoutWithRecordingPrivacy}
               />
             </div>
           </div>
@@ -25781,7 +25815,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         <div className="desktop-nav-fab__stack">
           {desktopFabNav.map((n) => {
             const isLessonButton = n.id === 'lesson';
-            const isActive = isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
+            const isActive = user.role === 'teacher' ? getTeacherNavigationGroup(view) === n.id : isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
             const isFeatured = Boolean(n.featured);
             const isSecondary = user.role === 'student'
               && studentDesktopToolNav.some((item) => item.id === n.id);
@@ -25794,7 +25828,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onPointerEnter={() => prefetchNavigationView(n.id)}
                 onFocus={() => prefetchNavigationView(n.id)}
                 onClick={() => {
-                  navigateToView(n.id);
+                  if (user.role === 'teacher' && n.id !== 'lesson') {
+                    setExpandedTeacherNavGroup(n.id); setDesktopNavCollapsed(false);
+                  } else navigateToView(n.id);
                   setMenuOpen(false);
                 }}
                 className={`desktop-nav-fab__item ${isActive ? 'is-active' : ''} ${isFeatured ? 'desktop-nav-fab__item--featured' : ''} ${isSecondary ? 'desktop-nav-fab__item--secondary' : ''} ${isFirstSecondary ? 'desktop-nav-fab__item--secondary-first' : ''}`}
@@ -25811,7 +25847,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           })}
         </div>
       </div>
-      <div className={`main-shell relative flex-1 flex flex-col app-h overflow-hidden ${desktopNavCollapsed ? 'desktop-main-shifted' : ''}${isStudentChatView ? ' main-shell--student-chat' : ''}`}>
+      <div style={!recordingPrivacy.ready ? { visibility: 'hidden' } : undefined} className={`main-shell relative flex-1 flex flex-col app-h overflow-hidden ${desktopNavCollapsed ? 'desktop-main-shifted' : ''}${isStudentChatView ? ' main-shell--student-chat' : ''}`}>
         <header className="sticky top-0 z-20 md:hidden bg-white/85 backdrop-blur border-b border-slate-200/70 px-3.5 py-3 pt-[calc(env(safe-area-inset-top)+0.55rem)] flex justify-between items-center">
           <button
             type="button"
@@ -26972,9 +27008,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               />
             </React.Suspense>
           )}
-          {view === 'teacher' && (
+          {['teacher', 'teacher-students', 'teacher-settings'].includes(view) && (
             <TeacherPanel
-              mode="tests"
+              key={view}
+              mode={view === 'teacher-students' ? 'students' : view === 'teacher-settings' ? 'settings' : 'tests'}
               role={user.role}
               students={studentsWithNicknames}
               studentsLoading={studentsLoading}
@@ -27376,7 +27413,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             aria-label="Закрыть меню"
           />
           <div className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-            <div className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
+            <div style={user.role === 'teacher' ? { maxHeight: 'calc(100dvh - 5rem)', overflowY: 'auto' } : undefined} className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
               {menuOpen && <AccountProfileMenu
                 user={user}
@@ -27388,10 +27425,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onSessions={() => {
                   setMenuOpen(false);
                   if (user.role === 'admin') navigateToView('sessions');
-                  else setSessionManagerOpen(true);
+                  else void openSessionManager();
                 }}
-                onLogout={onLogout}
+                onLogout={logoutWithRecordingPrivacy}
               />}
+              {user.role === 'teacher' && menuOpen && <div className="mt-4"><TeacherNavigation
+                  groups={teacherNavGroups}
+                  view={view}
+                  expandedGroup={expandedTeacherNavGroup}
+                  onExpand={setExpandedTeacherNavGroup}
+                  onNavigate={id => { navigateToView(id); setMenuOpen(false); }}
+                  onPrefetch={prefetchNavigationView}
+                  renderBadge={renderNavBadge}
+                /></div>}
               {user.role === 'student' && studentMobileMoreNav.length > 0 && (
                 <div className="mt-4 rounded-2xl border border-purple-100/75 bg-white/90 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-purple-700/80">
@@ -27437,7 +27483,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {mobileNav.map((n) => {
                 const isMoreButton = n.id === 'more';
                 const isLessonButton = n.id === 'lesson';
-                const isActive = isMoreButton
+                const isActive = user.role === 'teacher' ? getTeacherNavigationGroup(view) === n.id : isMoreButton
                   ? (menuOpen || studentMobileMoreNav.some((item) => item.id === view))
                   : (isLessonButton ? studentLessonNavIds.includes(view) : view === n.id);
                 const isFeatured = Boolean(n.featured);
@@ -27452,6 +27498,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     onPointerEnter={() => prefetchNavigationView(n.id)}
                     onFocus={() => prefetchNavigationView(n.id)}
                     onClick={() => {
+                      if (user.role === 'teacher' && n.id !== 'lesson') {
+                        setExpandedTeacherNavGroup(n.id); setMenuOpen(true); return;
+                      }
                       if (isMoreButton) {
                         setMenuOpen(true);
                         return;

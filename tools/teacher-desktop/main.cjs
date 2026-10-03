@@ -8,6 +8,20 @@ const policy = require('./policy.cjs');
 const { Downloads } = require('./downloads.cjs');
 const { TeacherCredentials } = require('./credentials.cjs');
 const { TeacherAppUpdates, readRecorderBusy } = require('./updates.cjs');
+const { pathToFileURL } = require('node:url');
+const { RecordingPrivacy, readRecording } = require('./recording-privacy.cjs');
+let privacyObs;
+const recordingPrivacy = new RecordingPrivacy({
+  isRecording: readRecording,
+  getObs: async () => {
+    if (!privacyObs) {
+      const filename = path.join(app.getPath('home'), 'Ivan100Recorder', 'app', 'obs.mjs');
+      const { ObsClient } = await import(pathToFileURL(filename).href);
+      privacyObs = new ObsClient();
+    }
+    return privacyObs;
+  },
+});
 const TITLE = 'IVAN100 Учитель';
 const SHELL_PAGE = path.join(__dirname, 'ui/shell.html');
 const PICKER_PAGE = path.join(__dirname, 'ui/sharing.html');
@@ -40,6 +54,7 @@ app.on('window-all-closed', () => app.quit());
 app.on('before-quit', event => {
   if (updates?.deferQuit(event)) return;
   updates?.stop();
+  recordingPrivacy.stop();
   utilityWindow?.destroy(); for (const entry of pickers.values()) entry.window.close();
 });
 
@@ -75,13 +90,13 @@ function updateBounds() {
 function panelState() { return { kind: panelKind, downloads: downloads.list(), accounts: credentials.list() }; }
 function pushPanel() { if (utilityWindow && !utilityWindow.isDestroyed()) utilityWindow.webContents.send('panel:update', panelState()); }
 function showPanel(kind) { panelKind = kind; panelOpen = true; utilityWindow?.showInactive(); pushPanel(); }
-function closePanel() { panelOpen = false; utilityWindow?.hide(); }
+function closePanel() { panelOpen = false; utilityWindow?.hide(); void recordingPrivacy.set('accounts', false).catch(() => {}); }
 function validPanel(event) { return utilityWindow && event.sender === utilityWindow.webContents && event.senderFrame === event.sender.mainFrame && policy.isLocalPage(event.senderFrame.url, PANEL_PAGE); }
 function validPlatformEvent(event) { return ownedPlatform(event.sender) && event.senderFrame === event.sender.mainFrame; }
 async function loadCabinet(url = policy.PLATFORM_URL) {
   if (!platformView || platformView.webContents.isDestroyed()) return;
   updateState({ page: 'loading' }); platformView.setVisible(false);
-  try { await platformView.webContents.loadURL(url); } catch { updateState({ page: 'error' }); }
+  try { await recordingPrivacy.set('platform', true); await platformView.webContents.loadURL(url); } catch { updateState({ page: 'error' }); }
 }
 
 function guardWebContents(contents, kind) {
@@ -99,10 +114,12 @@ function guardWebContents(contents, kind) {
 }
 async function openLink(url) {
   const type = policy.classifyNavigation(url);
-  if (type === 'recorder') return openRecorder(new URL(url).pathname + new URL(url).hash);
+  if (type === 'recorder') return openRecorder(new URL(url).pathname + new URL(url).hash).catch(() => dialog.showMessageBox(mainWindow, { title: 'Защита записи', message: 'Пульт пока не открыт: не удалось скрыть его в записи. Проверьте подключение OBS и повторите.', buttons: ['ОК'] }));
   if (type === 'platform') {
     const child = new BrowserWindow({ title: TITLE, ...windowPlacement(1180, 820), icon, autoHideMenuBar: true, webPreferences: { session: platformSession, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    await recordingPrivacy.set(`platform-child-${child.id}`, true);
     guardWebContents(child.webContents, 'platform');
+    child.on('closed', () => { void recordingPrivacy.set(`platform-child-${child.id}`, false).catch(() => {}); });
     await child.loadURL(url).catch(() => dialog.showMessageBox(child, { message: 'Не удалось открыть страницу. Проверьте интернет.', buttons: ['Закрыть'] }));
     return;
   }
@@ -171,14 +188,17 @@ async function ensureRecorder() {
   return false;
 }
 async function openRecorder(route = '/') {
+  await recordingPrivacy.set('recorder', true);
   if (recorderOpening) return recorderOpening;
   recorderOpening = (async () => {
     if (!await ensureRecorder()) {
       updateState({ recorderReady: false });
       const { response } = await dialog.showMessageBox(mainWindow, { title: 'Пульт записи', message: 'Пульт пока недоступен на этом компьютере', detail: 'Скачайте помощник в разделе «Запись уроков» и пройдите мастер настройки. Установленные записи и настройки сохранятся.', buttons: ['Открыть установку и инструкцию', 'Позже'], defaultId: 0, cancelId: 1, noLink: true });
       if (response === 0) await openLink('https://ivan100.ru/?desktop=teacher&view=recording');
+      await recordingPrivacy.set('recorder', false);
       return;
     }
+    await recordingPrivacy.set('recorder', true);
     const url = new URL(route.startsWith('/') ? route : '/', policy.RECORDER_URL).href;
     if (!policy.isRecorder(url)) return;
     if (!recorderWindow || recorderWindow.isDestroyed()) {
@@ -188,7 +208,7 @@ async function openRecorder(route = '/') {
       helperSession.setPermissionRequestHandler((contents, permission, callback, details) => callback(helperPermission(contents, permission, details.requestingUrl)));
       recorderWindow = new BrowserWindow({ title: 'IVAN100 — Пульт записи', ...windowPlacement(1300, 880), icon, autoHideMenuBar: true, webPreferences: { session: helperSession, sandbox: true, contextIsolation: true, nodeIntegration: false } });
       guardWebContents(recorderWindow.webContents, 'recorder');
-      recorderWindow.on('closed', () => { recorderWindow = null; });
+      recorderWindow.on('closed', () => { recorderWindow = null; void recordingPrivacy.set('recorder', false).catch(() => {}); });
     }
     if (recorderWindow.isMinimized()) recorderWindow.restore();
     recorderWindow.show(); recorderWindow.focus();
@@ -226,12 +246,14 @@ ipcMain.handle('sharing:cancel', event => { pickerFor(event)?.finish({}); });
 ipcMain.handle('shell:state', event => { if (!validShell(event)) throw new Error('Недоступно'); return state; });
 ipcMain.handle('shell:action', async (event, action, value) => {
   if (!validShell(event)) throw new Error('Недоступно');
-  if (action === 'cabinet') { platformView.webContents.focus(); return; }
-  if (action === 'recorder') return openRecorder('/');
-  if (action === 'archive') return openRecorder('/archive');
+  if (action === 'cabinet') { recorderWindow?.hide(); platformView.webContents.focus(); await recordingPrivacy.set('recorder', false); return; }
+  if (action === 'recorder' || action === 'archive') {
+    try { return await openRecorder(action === 'archive' ? '/archive' : '/'); }
+    catch { await dialog.showMessageBox(mainWindow, { title: 'Защита записи', message: 'Раздел пока не открыт: не удалось скрыть его в записи. Проверьте подключение OBS и повторите.', buttons: ['ОК'] }); return; }
+  }
   if (action === 'recording-settings') return openLink('https://ivan100.ru/?desktop=teacher&view=recording');
   if (action === 'retry') return loadCabinet();
-  if (action === 'downloads' || action === 'accounts') { if (panelOpen && panelKind === action) closePanel(); else showPanel(action); return; }
+  if (action === 'downloads' || action === 'accounts') { if (panelOpen && panelKind === action) closePanel(); else { if (action === 'accounts') await recordingPrivacy.set('accounts', true); showPanel(action); } return; }
   if (action === 'help-open') { closePanel(); platformView.setVisible(false); return; }
   if (action === 'help-close') { platformView.setVisible(state.page === 'ready'); return; }
   if (action === 'check-updates') return updates?.check();
@@ -243,7 +265,12 @@ ipcMain.handle('teacher:remember', (event, code, label, account) => {
   if (!validPlatformEvent(event)) throw new Error('Недоступно');
   credentials.remember(code, label, account); pushPanel(); return true;
 });
-ipcMain.handle('teacher:chooser', event => { if (!validPlatformEvent(event)) throw new Error('Недоступно'); showPanel('accounts'); });
+ipcMain.handle('teacher:chooser', async event => { if (!validPlatformEvent(event)) throw new Error('Недоступно'); await recordingPrivacy.set('accounts', true); showPanel('accounts'); });
+ipcMain.handle('teacher:recording-privacy', async (event, reason, hidden) => {
+  if (!validPlatformEvent(event) || !['platform', 'account', 'sessions'].includes(reason) || typeof hidden !== 'boolean') throw new Error('Недоступно');
+  try { return await recordingPrivacy.set(reason, hidden); }
+  catch { throw new Error('Не удалось скрыть раздел в записи. Проверьте подключение пульта к OBS и повторите.'); }
+});
 ipcMain.handle('panel:state', event => { if (!validPanel(event)) throw new Error('Недоступно'); return panelState(); });
 ipcMain.handle('panel:action', async (event, action, id) => {
   if (!validPanel(event)) throw new Error('Недоступно');
@@ -292,6 +319,7 @@ async function start() {
   mainWindow.webContents.on('will-navigate', event => event.preventDefault());
   mainWindow.on('resize', updateBounds); mainWindow.on('move', updateBounds); mainWindow.on('enter-full-screen', updateBounds); mainWindow.on('leave-full-screen', updateBounds);
   mainWindow.on('minimize', () => utilityWindow?.hide());
+  mainWindow.on('focus', () => { recorderWindow?.hide(); void recordingPrivacy.set('recorder', false).catch(() => {}); });
   mainWindow.on('restore', () => { updateBounds(); if (panelOpen) utilityWindow?.showInactive(); });
   mainWindow.on('close', () => { if (!mainWindow.isMaximized()) settings.bounds = mainWindow.getBounds(); settings.maximized = mainWindow.isMaximized(); saveSettings(); });
   mainWindow.on('closed', () => { if (platformView && !platformView.webContents.isDestroyed()) platformView.webContents.close(); utilityWindow?.destroy(); mainWindow = null; app.quit(); });
@@ -335,7 +363,7 @@ async function start() {
       { type: 'separator' }, { role: 'quit', label: 'Выйти из приложения' }
     ] },
     { label: 'Правка', submenu: [{ role: 'undo', label: 'Отменить' }, { role: 'redo', label: 'Повторить' }, { type: 'separator' }, { role: 'cut', label: 'Вырезать' }, { role: 'copy', label: 'Копировать' }, { role: 'paste', label: 'Вставить' }, { role: 'selectAll', label: 'Выделить всё' }] },
-    { label: 'Вид', submenu: [{ label: 'Обновить кабинет', accelerator: 'Ctrl+R', click: () => platformView.webContents.reload() }, { role: 'resetZoom', label: 'Масштаб 100%' }, { role: 'zoomIn', label: 'Увеличить' }, { role: 'zoomOut', label: 'Уменьшить' }, { role: 'togglefullscreen', label: 'Полный экран' }, ...(!app.isPackaged ? [
+    { label: 'Вид', submenu: [{ label: 'Обновить кабинет', accelerator: 'Ctrl+R', click: () => void loadCabinet(platformView.webContents.getURL()) }, { role: 'resetZoom', label: 'Масштаб 100%' }, { role: 'zoomIn', label: 'Увеличить' }, { role: 'zoomOut', label: 'Уменьшить' }, { role: 'togglefullscreen', label: 'Полный экран' }, ...(!app.isPackaged ? [
       { label: 'Диагностика кабинета', accelerator: 'Ctrl+Shift+I', click: () => platformView.webContents.toggleDevTools() },
       { label: 'Проверить окно демонстрации', accelerator: 'Ctrl+Shift+D', click: () => void createSharingPicker({ frame: platformView.webContents.mainFrame, videoRequested: true, audioRequested: true }, () => {}).catch(() => {}) }
     ] : [])] },

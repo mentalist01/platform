@@ -1,7 +1,7 @@
 {
   "name": "ivan100-teacher",
   "productName": "IVAN100 Учитель",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Кабинет преподавателя IVAN100 для Windows",
   "author": "IVAN100",
   "private": true,

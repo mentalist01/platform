@@ -247,10 +247,12 @@ const TeacherPanel = ({
   canManageGlobalTaskContent = false,
 }) => {
   const isSignupChatsMode = mode === 'signup-chats';
-  const isTestsMode = !isSignupChatsMode;
-  const [isStudentsExpanded, setIsStudentsExpanded] = useState(false);
+  const isTestsMode = mode === 'tests';
+  const isStudentsMode = mode === 'students';
+  const isSettingsMode = mode === 'settings';
+  const [isStudentsExpanded, setIsStudentsExpanded] = useState(isStudentsMode);
   const [monthlyMockStudentId, setMonthlyMockStudentId] = useState(null);
-  const monthlyMocks = useMonthlyMockRoster({ teacherId, enabled: role === 'teacher' && isStudentsExpanded && isTestsMode, refreshKey: monthlyMockRefreshKey });
+  const monthlyMocks = useMonthlyMockRoster({ teacherId, enabled: role === 'teacher' && isStudentsExpanded && isStudentsMode, refreshKey: monthlyMockRefreshKey });
   const monthlyMockRows = new Map((monthlyMocks.data?.rows || []).map(row => [String(row.studentId), row]));
   const refreshMonthlyMocks = monthlyMocks.refresh;
   const closeMonthlyMocks = useCallback(() => { setMonthlyMockStudentId(null); refreshMonthlyMocks(); }, [refreshMonthlyMocks]);
@@ -472,7 +474,7 @@ const TeacherPanel = ({
   }, [isTestsMode, selectedTask, selectedLevel]);
 
   useEffect(() => {
-    if (!isTestsMode) return undefined;
+    if (!isStudentsMode) return undefined;
     if (role !== 'teacher' && role !== 'admin') return undefined;
     if (role === 'admin' && !teacherId) {
       setTeacherFinanceSnapshot(null);
@@ -496,10 +498,10 @@ const TeacherPanel = ({
         if (!cancelled) setTeacherFinanceLoading(false);
     });
     return () => { cancelled = true; };
-  }, [isTestsMode, role, teacherId]);
+  }, [isStudentsMode, role, teacherId]);
 
   const loadPaymentSenderLinks = useCallback(async () => {
-    if (!isTestsMode) return [];
+    if (!isStudentsMode) return [];
     if (role !== 'teacher' && role !== 'admin') return [];
     if (role === 'admin' && !teacherId) return [];
     setPaymentSenderLinksLoading(true);
@@ -516,10 +518,10 @@ const TeacherPanel = ({
     } finally {
       setPaymentSenderLinksLoading(false);
     }
-  }, [isTestsMode, role, teacherId]);
+  }, [isStudentsMode, role, teacherId]);
 
   useEffect(() => {
-    if (!isTestsMode) return undefined;
+    if (!isStudentsMode) return undefined;
     if (role !== 'teacher' && role !== 'admin') return undefined;
     if (role === 'admin' && !teacherId) {
       setPaymentSenderLinks([]);
@@ -543,7 +545,7 @@ const TeacherPanel = ({
         if (!cancelled) setPaymentSenderLinksLoading(false);
       });
     return () => { cancelled = true; };
-  }, [isTestsMode, role, teacherId]);
+  }, [isStudentsMode, role, teacherId]);
 
   useEffect(() => {
     if (!editingStudentId) return;
@@ -1192,11 +1194,9 @@ const TeacherPanel = ({
     : (Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS);
   const selectedTaskInfo = tasksList.find((taskItem) => Number(taskItem?.number) === Number(selectedTask)) || null;
   const selectedLevelInfo = Object.values(LEVELS).find((levelItem) => levelItem.id === selectedLevel) || null;
-  const activeStudent = currentStudentsList.find((student) => String(student?.id || '') === String(activeStudentId || '')) || null;
   const selectedTaskDisplay = getTaskDisplayNumber(selectedTaskInfo || { number: selectedTask });
   const selectedTaskTitle = selectedTaskInfo?.title || 'Выберите задание';
   const selectedLevelLabel = selectedLevelInfo?.label || selectedLevel;
-  const activeStudentLabel = activeStudent?.name || 'Не выбран';
   const selectedTaskAccentStyle = getTeacherTaskAccentStyle(selectedTask);
   const selectedTaskContextLabel = `Задание ${selectedTaskDisplay}`;
 
@@ -2530,12 +2530,14 @@ const TeacherPanel = ({
         <div className="teacher-panel-hero__copy">
           <h2 className="teacher-panel-title text-2xl font-bold text-gray-900 flex items-center gap-2">
             {isSignupChatsMode ? <MessageSquare className="text-purple-600" /> : <Settings className="text-purple-600" />}
-            {isSignupChatsMode ? 'Чаты с записывающимися' : 'Панель учителя'}
+            {isSignupChatsMode ? 'Чаты с записывающимися' : isStudentsMode ? 'Ученики' : isSettingsMode ? 'Настройки' : 'Тесты'}
           </h2>
           <p className="teacher-panel-subtitle text-gray-500">
             {isSignupChatsMode
               ? 'Сообщения от людей, которые нажали "Я хочу записаться"'
-              : 'Тесты, ученики и служебные действия в одном рабочем месте'}
+              : isStudentsMode ? 'Список учеников, мини-группы и результаты обучения'
+              : isSettingsMode ? 'Уведомления и доступ к кабинету преподавателя'
+              : 'База заданий и редактор тестов'}
           </p>
           {isTestsMode && testsLoading && <p className="text-xs text-gray-400 mt-2">Загрузка базы тестов...</p>}
           {isTestsMode && testsError && <p className="text-xs text-red-500 mt-2">{testsError}</p>}
@@ -2543,11 +2545,6 @@ const TeacherPanel = ({
 
         {isTestsMode && (
           <div className="teacher-panel-hero__stats" aria-label="Сводка панели учителя">
-            <div className="teacher-panel-stat">
-              <span>Ученики</span>
-              <strong>{currentStudentsList.length}</strong>
-              <small>{activeStudentLabel}</small>
-            </div>
             <div className="teacher-panel-stat">
               <span>Текущий уровень</span>
               <strong>{selectedLevelLabel}</strong>
@@ -2835,13 +2832,13 @@ const TeacherPanel = ({
       </Card>
       )}
 
-      {isTestsMode && (
-      <>
-      <div className="teacher-panel-admin-grid">
+      {isSettingsMode && (
       <div className="teacher-panel-broadcast-stack">
         <BroadcastNotificationsPanel role={role} />
       </div>
+      )}
 
+      {isStudentsMode && (
       <Card className="teacher-panel-card teacher-students-card">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
@@ -3616,9 +3613,9 @@ const TeacherPanel = ({
         </>
         )}
       </Card>
-      </div>
+      )}
 
-      <Card className={`teacher-panel-card teacher-code-card ${isTeacherCodeExpanded ? 'is-expanded' : ''}`}>
+      {isSettingsMode && <Card className={`teacher-panel-card teacher-code-card ${isTeacherCodeExpanded ? 'is-expanded' : ''}`}>
         <div className="teacher-code-card__header">
           <div className="teacher-code-card__title">
             <span className="teacher-code-card__icon">
@@ -3699,9 +3696,9 @@ const TeacherPanel = ({
         )}
         {teacherCodeError && <p className="text-xs text-red-500 mt-2">{teacherCodeError}</p>}
         {teacherCodeSuccess && <p className="text-xs text-green-600 mt-2">{teacherCodeSuccess}</p>}
-      </Card>
+      </Card>}
 
-      {canManageGlobalTaskContent && (
+      {isTestsMode && canManageGlobalTaskContent && (
         <label className={`mb-4 flex cursor-pointer items-start gap-3 rounded-2xl border p-4 ${taskContentScope === 'global' ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
           <input
             type="checkbox"
@@ -3727,13 +3724,14 @@ const TeacherPanel = ({
           </span>
         </label>
       )}
-      {monthlyReportStudent && (
+      {isStudentsMode && monthlyReportStudent && (
         <StudentMonthlyReportModal
           student={monthlyReportStudent}
           onClose={() => setMonthlyReportStudent(null)}
         />
       )}
 
+      {isTestsMode && (
       <div id="teacher-question-editor" className="teacher-test-builder-layout" style={selectedTaskAccentStyle}>
         {/* LEFT COLUMN: Controls */}
         <div className="teacher-test-builder-controls">
@@ -4570,7 +4568,6 @@ const TeacherPanel = ({
           </div>
         </div>
       </div>
-      </>
       )}
       {questionImageLightbox?.url && typeof document !== 'undefined' && createPortal((
         <div

@@ -10,7 +10,7 @@ const { UPDATE_FEED } = require('../updates.cjs');
 const pkg = require('../package.json');
 const repo = 'mentalist01/platform';
 const tag = `teacher-desktop-v${pkg.version}`;
-const directory = path.resolve(__dirname, '../../../output/teacher-desktop/release');
+const directory = process.argv[2] ? path.resolve(process.argv[2]) : path.resolve(__dirname, '../../../output/teacher-desktop/release');
 const installer = `IVAN100-Teacher-${pkg.version}-Setup.exe`;
 const assetUrl = `https://github.com/${repo}/releases/download/${tag}/${installer}`;
 const gh = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -26,10 +26,10 @@ async function main() {
   if (metadata.version !== pkg.version || metadata.files?.length !== 1 || metadata.files[0].url !== installer
     || metadata.files[0].sha512 !== sha512 || metadata.files[0].size !== bytes.length) throw new Error('Build metadata differs from installer');
   const notes = path.join(directory, 'release-notes.md');
-  fs.writeFileSync(notes, `IVAN100 Учитель ${pkg.version} для Windows.\n\nАвтоматическая проверка новых версий, загрузка после урока и установка при обычном закрытии приложения. Запись и загрузка видео откладывают установку. Входы, настройки и файлы записей сохраняются.\n\nДля версий 0.1.0–0.1.1 нужно один раз установить эту версию вручную. Последующие выпуски будут приходить автоматически.\n`);
+  fs.writeFileSync(notes, `IVAN100 Учитель ${pkg.version} для Windows.\n\nЛичные разделы, активные сессии и пульт скрываются в записи OBS заглушкой «Преподаватель готовит материалы», а звук урока сохраняется. Переключение подтверждается до открытия раздела; при ошибке раздел не открывается. Возврат к уроку восстанавливает изображение после отрисовки.\n\nВ кабинете пять основных пунктов с раскрывающимися подразделами. Урок доступен одним нажатием.\n\nАвтоматическая проверка новых версий, загрузка после урока и установка при обычном закрытии приложения. Запись и загрузка видео откладывают установку. Входы, настройки и файлы записей сохраняются.\n\nДля версий 0.1.0–0.1.1 нужно один раз установить эту версию вручную. Последующие выпуски будут приходить автоматически.\n`);
   let release = exists(tag);
   if (!release) {
-    gh(['release', 'create', tag, '--repo', repo, '--target', revision, '--draft', '--prerelease', '--title', `IVAN100 Учитель ${pkg.version} — автоматические обновления`, '--notes-file', notes]);
+    gh(['release', 'create', tag, '--repo', repo, '--target', revision, '--draft', '--prerelease', '--title', `IVAN100 Учитель ${pkg.version} — защита записи`, '--notes-file', notes]);
     release = exists(tag);
   }
   if (release.isDraft) {

@@ -2,6 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildStudentMonthlyReport, normalizeStudentReportMonth } from './studentMonthlyReport.js';
 
+test('reports keep the actual mock result without automatically promising a mock review in the conclusion', () => {
+  for (let variant = 0; variant < 30; variant++) {
+    const report = buildStudentMonthlyReport({
+      student: { id: 'report-no-mock-plan', name: 'Данил' }, month: '2026-09',
+      nowMs: Date.parse('2026-10-03T03:00:00+03:00') + variant,
+      lessonEntries: [{ dayKey: '2026-09-01', durationMinutes: 60 }],
+      mockEntries: [{ id: 'exam', score: 27, date: '2026-09-08T12:00:00+03:00' }],
+      homeworkEntries: [{ id: 'homework', dueAt: '2026-09-10T18:00:00+03:00', percent: 93, goals: [] }],
+    });
+    assert.equal(report.metrics.mocks.latestScore, 27);
+    assert.doesNotMatch(report.automaticConclusion, /пробник|слабые типы/u);
+    assert.doesNotMatch(report.parentText.split('\n').at(-1), /пробник|слабые типы/u);
+    assert.doesNotMatch(report.studentText.split('\n').at(-1), /пробник|слабые типы/u);
+    assert.match(report.parentText, /27/u);
+  }
+});
+
 test('monthly report combines lessons, homework deadlines and mock progress', () => {
   const report = buildStudentMonthlyReport({
     student: { id: 'student-1', name: 'Илья' },
