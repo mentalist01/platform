@@ -25,10 +25,23 @@ export const boardPageRoom = (baseRoomId,pageId=FIRST_BOARD_PAGE_ID,studentId=''
 export const boardPageBookRoom = baseRoomId => baseRoomId ? `${baseRoomId}~pages` : null;
 export function boardPagesList(map) {
   const values = map ? Array.from(map.entries()) : [];
-  return [{id:FIRST_BOARD_PAGE_ID,title:String(map?.get(FIRST_BOARD_PAGE_ID)?.title || 'Страница 1').slice(0,80),createdAt:0},
-    ...values.filter(([id,page])=>id!==FIRST_BOARD_PAGE_ID && PAGE_ID.test(id) && page && typeof page==='object')
+  const first={id:FIRST_BOARD_PAGE_ID,title:String(map?.get(FIRST_BOARD_PAGE_ID)?.title || 'Страница 1').slice(0,80),createdAt:0};
+  const additional=values.filter(([id,page])=>id!==FIRST_BOARD_PAGE_ID && PAGE_ID.test(id) && page && typeof page==='object')
       .map(([id,page])=>({id,title:String(page.title || 'Страница').slice(0,80),createdAt:Number(page.createdAt)||0}))
-      .sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id)).slice(0,MAX_BOARD_PAGES-1)];
+      .sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
+  return (map?.get(FIRST_BOARD_PAGE_ID)?.deleted && additional.length ? additional : [first,...additional]).slice(0,MAX_BOARD_PAGES);
+}
+export function deleteBoardPage(map,pageId) {
+  const pages=boardPagesList(map);
+  if(!map || pages.length<=1 || !pages.some(page=>page.id===pageId))return false;
+  if(pageId===FIRST_BOARD_PAGE_ID)map.set(pageId,{...map.get(pageId),deleted:true});
+  else map.delete(pageId);
+  return true;
+}
+export function boardPageAfterChange(previous,next,currentId) {
+  if(next.some(page=>page.id===currentId))return currentId;
+  const index=Math.max(0,previous.findIndex(page=>page.id===currentId));
+  return next[Math.min(index,next.length-1)]?.id || FIRST_BOARD_PAGE_ID;
 }
 export function boardPageSummonTarget(command,userId,pages,now=Date.now()) {
   if (!command?.id || !Number.isFinite(command.ts) || now-command.ts>15000 || command.ts>now+5000

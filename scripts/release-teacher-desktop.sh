@@ -17,10 +17,11 @@ rollback_on_error() {
   exit "$status"
 }
 trap rollback_on_error EXIT
-node --test tools/teacher-desktop/test/*.test.cjs tools/lesson-recorder/office-follow.test.mjs tools/lesson-recorder/obs.test.mjs > "$backup/tests.log" 2>&1
+node --test src/utils/boardPages.test.js tools/teacher-desktop/test/*.test.cjs tools/lesson-recorder/office-follow.test.mjs tools/lesson-recorder/obs.test.mjs > "$backup/tests.log" 2>&1
 stage="dist-teacher-desktop-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-teacher-desktop-release.mjs local "$stage"
+node scripts/check-board-pages-release.mjs local "$stage"
 node scripts/check-recorder-ui-release.mjs local "$stage"
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 # Keep bundles used by open lessons, the API, and the installed recorder running.
@@ -32,6 +33,7 @@ published=1
 mv dist/index.html.next dist/index.html
 mv dist/index.html.gz.next dist/index.html.gz
 node scripts/check-teacher-desktop-release.mjs verify "$stage"
+node scripts/check-board-pages-release.mjs verify "$stage"
 node scripts/check-recorder-ui-release.mjs verify "$stage"
 node scripts/check-guest-meetings-release.mjs verify "$stage"
 printf '\nTEACHER_DESKTOP_RELEASE_OK %s backup=%s\n' "$revision" "$backup"

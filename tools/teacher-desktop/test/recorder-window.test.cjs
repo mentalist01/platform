@@ -69,7 +69,7 @@ function fixture() {
       if (name === 'node:http') return { get: (_url, done) => {
         done({ statusCode: 200, resume() {} }); return { setTimeout() {}, on() {} };
       } };
-      if (name === './downloads.cjs') return { Downloads: class { list() { return []; } } };
+      if (name === './downloads.cjs') return { ...realRequire(name), Downloads: class { list() { return []; } } };
       if (name === './credentials.cjs') return { TeacherCredentials: class {} };
       if (name === './updates.cjs') return { TeacherAppUpdates: class { start() {} } };
       if (name === './recording-privacy.cjs') return { RecordingPrivacy: class {

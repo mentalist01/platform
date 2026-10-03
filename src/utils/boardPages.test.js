@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import {authorizeLearningCollabUpgrade} from '../../server/learningLessonAccess.js';
-import {boardPagesList,boardPageRoom,boardPageBookRoom,parseBoardPageRoom,boardPageSummonTarget,boardPageInitialState} from './boardPages.js';
+import {boardPagesList,boardPageRoom,boardPageBookRoom,parseBoardPageRoom,boardPageSummonTarget,boardPageInitialState,deleteBoardPage,boardPageAfterChange} from './boardPages.js';
 
 test('remembered pages can open directly before the manifest sync without accepting malformed room IDs',()=>{
   const state=boardPageInitialState('page-test-02');
@@ -36,6 +36,24 @@ test('metadata is compact, ordered and never contains page canvases',()=>{
   assert.equal(list.length,100);assert.equal(list[0].id,'main');assert.equal(list.at(-1).title,'Страница 100');
   assert.ok(Y.encodeStateAsUpdate(doc).byteLength<20000,'One hundred page titles occupy less than 20 KiB');
   doc.destroy();
+});
+test('deleting shared pages synchronizes, moves viewers to a neighbor and preserves the last page',()=>{
+  const a=new Y.Doc(),b=new Y.Doc(),map=a.getMap('pages');
+  map.set('page-test-02',{title:'Теория',createdAt:1});map.set('page-test-03',{title:'Задание',createdAt:2});
+  const before=boardPagesList(map);
+  assert.equal(deleteBoardPage(map,'page-test-02'),true);
+  Y.applyUpdate(b,Y.encodeStateAsUpdate(a));
+  const next=boardPagesList(b.getMap('pages'));
+  assert.deepEqual(next.map(p=>p.id),['main','page-test-03']);
+  assert.equal(boardPageAfterChange(before,next,'page-test-02'),'page-test-03');
+  assert.equal(boardPageAfterChange(before,next,'main'),'main');
+  assert.equal(deleteBoardPage(map,'main'),true);
+  Y.applyUpdate(b,Y.encodeStateAsUpdate(a));
+  assert.deepEqual(boardPagesList(b.getMap('pages')).map(p=>p.id),['page-test-03']);
+  assert.equal(deleteBoardPage(map,'page-test-03'),false);
+  assert.equal(deleteBoardPage(map,'main'),false);
+  assert.equal(boardPageSummonTarget({id:'old',ts:Date.now(),pageId:'main'},'student',boardPagesList(map)),null);
+  a.destroy();b.destroy();
 });
 test('summons move everyone to a shared window or only the owner to a private one and ignore stale commands',()=>{
   const now=Date.now(),pages=[{id:'main'},{id:'page-test-02'}],command={id:'summon',ts:now,pageId:'page-test-02',zoom:1.25,offset:{x:120,y:200}};

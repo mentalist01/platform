@@ -13,6 +13,7 @@ function isRecorder(value) {
   return url?.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname) && url.port === '18765';
 }
 function isPlatformBlob(value) { return String(value).startsWith('blob:') && isPlatform(String(value).slice(5)); }
+function isUploadedFile(value) { const url = parsed(value); return isPlatform(value) && /^\/uploads\/[^/]+$/.test(url.pathname); }
 function isExternal(value) {
   const url = parsed(value);
   if (!url || !['https:', 'http:'].includes(url.protocol)) return false;
@@ -51,4 +52,4 @@ function sharingResult({ sources, sourceId, withAudio, request }) {
   if (!source) return {};
   return { video: source, ...(withAudio && request.audioRequested ? { audio: 'loopback' } : {}) };
 }
-module.exports = { PLATFORM_URL, RECORDER_URL, isPlatform, isRecorder, isPlatformBlob, isExternal, classifyNavigation, isLocalPage, canRequestPermission, safeDownloadName, browserUserAgent, canDownload, sharingResult };
+module.exports = { PLATFORM_URL, RECORDER_URL, isPlatform, isRecorder, isPlatformBlob, isUploadedFile, isExternal, classifyNavigation, isLocalPage, canRequestPermission, safeDownloadName, browserUserAgent, canDownload, sharingResult };

@@ -1,4 +1,4 @@
-export const PRIVATE_TEACHER_VIEWS = new Set(['finance', 'teacher-calendar', 'teacher-settings', 'recording']);
+export const PRIVATE_TEACHER_VIEWS = new Set(['finance', 'teacher-calendar', 'teacher-settings', 'recording', 'teacher-students']);
 
 export const setRecordingPrivacy = async (reason, hidden) => {
   const bridge = typeof window !== 'undefined' && window.teacherDesktop;

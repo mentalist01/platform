@@ -1,9 +1,9 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
-import {PanelLeft,Plus,ChevronLeft,ChevronRight,ChevronDown,X,Pencil,Users} from 'lucide-react';
+import {PanelLeft,Plus,ChevronLeft,ChevronRight,ChevronDown,X,Pencil,Users,Trash2} from 'lucide-react';
 import {loadYjsRuntime} from '../utils/collaborationRuntime.js';
 import {getCollabWsUrl} from '../utils/runtimeUrls.js';
 import {getStoredAuthToken} from '../services/api.js';
-import {FIRST_BOARD_PAGE_ID,MAX_BOARD_PAGES,boardPageBookRoom,boardPageRoom,boardPagesList,boardPageSummonTarget,boardPageInitialState} from '../utils/boardPages.js';
+import {MAX_BOARD_PAGES,boardPageBookRoom,boardPageRoom,boardPagesList,boardPageSummonTarget,boardPageInitialState,deleteBoardPage,boardPageAfterChange} from '../utils/boardPages.js';
 import './BoardPagesWorkspace.css';
 import BoardSelectionClipboard from './BoardSelectionClipboard.jsx';
 
@@ -29,6 +29,8 @@ function PagedBoardWorkspace(props) {
   const [open,setOpen]=useState(false),[connected,setConnected]=useState(false),[peers,setPeers]=useState([]);
   const [editing,setEditing]=useState(''),[title,setTitle]=useState(''),[error,setError]=useState(''),[navigation,setNavigation]=useState(null);
   const [notice,setNotice]=useState('');
+  const [deleting,setDeleting]=useState(null);
+  const knownPages=useRef(initialPage.pages);
   const runtime=useRef(null),lastCommand=useRef(''),local=useRef({pageId,studentId});
   useEffect(()=>{local.current={pageId,studentId:boardStudentId};},[pageId,boardStudentId]);
   const publish=useCallback(()=>runtime.current?.provider.awareness.setLocalStateField('boardPage',{
@@ -46,8 +48,10 @@ function PagedBoardWorkspace(props) {
         // Keep the remembered canvas while the initially empty manifest syncs.
         // Validating before sync opened page 1 before the intended canvas.
         if(!provider.synced)return;
-        const next=boardPagesList(map);setPages(next);
-        setPageId(current=>next.some(p=>p.id===current)?current:FIRST_BOARD_PAGE_ID);
+        const previous=knownPages.current,next=boardPagesList(map);knownPages.current=next;setPages(next);
+        setPageId(current=>boardPageAfterChange(previous,next,current));
+        setEditing(current=>next.some(p=>p.id===current)?current:'');
+        setDeleting(current=>current && next.some(p=>p.id===current.id)?current:null);
       };
       const controls=()=>{
         const panel=control.get('panel');if(!teacher && typeof panel?.open==='boolean')setOpen(panel.open);
@@ -71,14 +75,19 @@ function PagedBoardWorkspace(props) {
   },[bookRoom,storageKey,teacher,userId,publish]);
   useEffect(()=>{publish();try{if(storageKey && runtime.current?.provider.synced)window.localStorage.setItem(storageKey,pageId);}catch{/* Storage is optional. */}},[pageId,boardStudentId,storageKey,publish]);
   useEffect(()=>{if(!notice)return undefined;const timer=setTimeout(()=>setNotice(''),3500);return()=>clearTimeout(timer);},[notice]);
-  const choose=next=>{setNavigation(null);setPageId(next);setEditing('');setNotice('');};
+  const choose=next=>{setNavigation(null);setPageId(next);setEditing('');setDeleting(null);setNotice('');};
   const toggle=()=>{const next=!open;setOpen(next);if(teacher && connected && !readOnly)runtime.current?.control.set('panel',{open:next,id:id()});};
   const create=()=>{
     if(!teacher || readOnly || !connected || pages.length>=MAX_BOARD_PAGES)return;
     const next=id();runtime.current.map.set(next,{title:`Страница ${pages.length+1}`,createdAt:Date.now()});choose(next);setOpen(true);
     runtime.current.control.set('panel',{open:true,id:id()});
   };
-  const rename=()=>{const value=title.trim().slice(0,80);if(value && teacher && !readOnly && connected){const old=runtime.current.map.get(editing)||{createdAt:0};runtime.current.map.set(editing,{...old,title:value});}setEditing('');};
+  const rename=()=>{const value=title.trim().slice(0,80);if(value && teacher && !readOnly && connected && boardPagesList(runtime.current.map).some(p=>p.id===editing)){const old=runtime.current.map.get(editing)||{createdAt:0};runtime.current.map.set(editing,{...old,title:value});}setEditing('');};
+  const remove=()=>{
+    if(!teacher || readOnly || !connected || !deleting || !runtime.current)return;
+    if(deleteBoardPage(runtime.current.map,deleting.id)){setNavigation(null);setNotice('Страница удалена');}
+    setDeleting(null);
+  };
   const summon=useCallback(viewport=>{if(!teacher || readOnly || !connected)return;runtime.current.control.set('summon',{id:id(),ts:Date.now(),pageId,studentId:boardStudentId,...viewport});},[teacher,readOnly,connected,pageId,boardStudentId]);
   const page=pages.find(p=>p.id===pageId)||pages[0],index=pages.findIndex(p=>p.id===pageId);
   const uniquePeers=Array.from(new Map(peers.map(p=>[p.userId,p])).values());
@@ -101,7 +110,8 @@ function PagedBoardWorkspace(props) {
   const panel=open ? <aside className={`board-pages-panel ${canvasProps.embedded?'is-embedded':''}`} aria-label="Страницы доски"><div className="board-pages-panel__head"><span><PanelLeft size={17}/><strong>Страницы</strong><small>{pages.length}</small></span><button type="button" onClick={toggle} aria-label="Свернуть страницы"><X size={17}/></button></div>
     {teacher && !readOnly && <button type="button" onClick={create} disabled={!connected || pages.length>=MAX_BOARD_PAGES} className="board-pages-create"><Plus size={17}/>Новая страница</button>}
     {error && <p role="alert">{error}</p>}
-    <nav className="board-pages-list" aria-label="Выбор страницы">{pages.map((p,i)=><div className={`board-pages-row ${p.id===pageId?'is-active':''}`} key={p.id}>{editing===p.id ? <input aria-label="Название страницы" maxLength={80} value={title} autoFocus onChange={e=>setTitle(e.target.value)} onBlur={rename} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();rename();}if(e.key==='Escape')setEditing('');}}/> : <><button type="button" onClick={()=>choose(p.id)} aria-current={p.id===pageId?'page':undefined} title={p.title}><span className="board-pages-number">{i+1}</span><span>{p.title}</span></button>{teacher && !readOnly && <button type="button" className="board-pages-rename" disabled={!connected} aria-label={`Переименовать ${p.title}`} onClick={()=>{setTitle(p.title);setEditing(p.id);}}><Pencil size={13}/></button>}</>}{uniquePeers.some(peer=>peer.pageId===p.id) && <small><span className="board-pages-dot"/>{uniquePeers.filter(peer=>peer.pageId===p.id).map(peer=>peer.name || 'Участник').join(', ')}</small>}</div>)}</nav>
+    <nav className="board-pages-list" aria-label="Выбор страницы">{pages.map((p,i)=><div className={`board-pages-row ${p.id===pageId?'is-active':''}`} key={p.id}>{editing===p.id ? <input aria-label="Название страницы" maxLength={80} value={title} autoFocus onChange={e=>setTitle(e.target.value)} onBlur={rename} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();rename();}if(e.key==='Escape')setEditing('');}}/> : <><button type="button" onClick={()=>choose(p.id)} aria-current={p.id===pageId?'page':undefined} title={p.title}><span className="board-pages-number">{i+1}</span><span>{p.title}</span></button>{teacher && !readOnly && <><button type="button" className="board-pages-rename" disabled={!connected} aria-label={`Переименовать ${p.title}`} onClick={()=>{setTitle(p.title);setEditing(p.id);}}><Pencil size={13}/></button><button type="button" className="board-pages-delete" disabled={!connected || pages.length<=1} aria-label={`Удалить ${p.title}`} title={pages.length<=1?'На доске должна остаться хотя бы одна страница':'Удалить страницу'} onClick={()=>setDeleting(p)}><Trash2 size={14}/></button></>}</>}{uniquePeers.some(peer=>peer.pageId===p.id) && <small><span className="board-pages-dot"/>{uniquePeers.filter(peer=>peer.pageId===p.id).map(peer=>peer.name || 'Участник').join(', ')}</small>}</div>)}</nav>
+    {deleting && <div className="board-pages-delete-confirm" role="alertdialog" aria-label="Удалить страницу?" onKeyDown={e=>{if(e.key==='Escape')setDeleting(null);}}><strong>Удалить страницу?</strong><p>«{deleting.title}» исчезнет с доски у всех участников.{group?' Общая и личные доски этой страницы будут убраны.':''}</p><div><button type="button" autoFocus onClick={()=>setDeleting(null)}>Отмена</button><button type="button" disabled={!connected} className="board-pages-delete-confirm__submit" onClick={remove}>Удалить</button></div></div>}
     <footer><button type="button" disabled={index<=0} onClick={()=>choose(pages[index-1].id)} aria-label="Предыдущая страница"><ChevronLeft size={18}/></button><span>{index+1} / {pages.length}</span><button type="button" disabled={index>=pages.length-1} onClick={()=>choose(pages[index+1].id)} aria-label="Следующая страница"><ChevronRight size={18}/></button></footer>
   </aside> : null;
   return <Canvas {...canvasProps} pages={{liveRoomId:boardPageRoom(base,pageId,boardStudentId),pageId,boardStudentId,selectWindow:next=>{setStudentId(next);setNavigation(null);},summon,navigation,header,panel,clipboard:props=><BoardSelectionClipboard {...props} key={base}/>}}/>;

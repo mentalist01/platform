@@ -1,9 +1,11 @@
 'use strict';
 
-function imageContextMenu(contents, params) {
+const { isPlatform } = require('./policy.cjs');
+
+function imageContextMenu(contents, params, downloadImage) {
   if (params.mediaType !== 'image' || !params.hasImageContents) return [];
   const page = contents.getURL();
-  return [{
+  const template = [{
     id: 'copy-image', label: 'Копировать изображение',
     click: () => {
       if (!contents.isDestroyed() && contents.getURL() === page) {
@@ -13,6 +15,15 @@ function imageContextMenu(contents, params) {
       }
     },
   }];
+  if (typeof downloadImage === 'function' && params.srcURL && isPlatform(page) && isPlatform(params.frameURL || page)) {
+    template.push({
+      id: 'download-image', label: 'Скачать изображение',
+      click: () => {
+        if (!contents.isDestroyed() && contents.getURL() === page) downloadImage(contents, params.srcURL);
+      },
+    });
+  }
+  return template;
 }
 
 module.exports = { imageContextMenu };

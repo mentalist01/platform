@@ -5,7 +5,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 const policy = require('./policy.cjs');
-const { Downloads } = require('./downloads.cjs');
+const { Downloads, NativeDownloadRequests } = require('./downloads.cjs');
 const { TeacherCredentials } = require('./credentials.cjs');
 const { imageContextMenu } = require('./image-context-menu.cjs');
 const { TeacherAppUpdates, readRecorderBusy } = require('./updates.cjs');
@@ -36,6 +36,7 @@ const pickers = new Map();
 const configuredSessions = new Set();
 const ownedWebContents = new Set();
 let workDisplay;
+const nativeDownloads = new NativeDownloadRequests(ownedPlatform);
 function windowPlacement(width, height) {
   if (!workDisplay) return { width, height };
   const area = workDisplay.workArea;
@@ -115,7 +116,15 @@ function guardWebContents(contents, kind) {
   contents.setWindowOpenHandler(({ url }) => { void openLink(url); return { action: 'deny' }; });
   contents.on('page-title-updated', event => event.preventDefault());
   contents.on('context-menu', (_event, params) => {
-    const template = imageContextMenu(contents, params);
+    const template = imageContextMenu(contents, params, async (source, url) => {
+      try {
+        if (policy.isUploadedFile(url)) {
+          const page = source.getURL();
+          const token = await source.executeJavaScript("(()=>{try{return JSON.parse(localStorage.getItem('ege_user_session'))?.authToken||'';}catch{return '';}})()");
+          if (!source.isDestroyed() && source.getURL() === page) await nativeDownloads.file(source, url, '', token);
+        } else nativeDownloads.request(source, url);
+      } catch { void dialog.showMessageBox(mainWindow, { title: 'Загрузки', message: 'Не удалось скачать изображение. Откройте его снова и повторите.', buttons: ['ОК'] }); }
+    });
     if (template.length) Menu.buildFromTemplate(template).popup({ window: BrowserWindow.fromWebContents(contents) || mainWindow });
   });
 }
@@ -169,8 +178,11 @@ function configurePlatformSession(ses) {
     void createSharingPicker(request, callback).catch(() => callback({}));
   });
   ses.on('will-download', (_event, item, contents) => {
-    if (!ownedPlatform(contents) || !policy.canDownload(contents.getURL(), item.getInitiatorOrigin())) { item.cancel(); return; }
-    try { downloads.add(item); } catch { item.cancel(); updateState({ download: 'Не удалось сохранить файл' }); }
+    try {
+      const request = nativeDownloads.consume(contents, item);
+      if (!ownedPlatform(contents) || (!policy.canDownload(contents.getURL(), item.getInitiatorOrigin()) && !request)) { item.cancel(); return; }
+      downloads.add(item, request?.name);
+    } catch { item.cancel(); updateState({ download: 'Не удалось сохранить файл' }); }
   });
 }
 
@@ -273,6 +285,14 @@ ipcMain.handle('teacher:remember', (event, code, label, account) => {
   credentials.remember(code, label, account); pushPanel(); return true;
 });
 ipcMain.handle('teacher:chooser', async event => { if (!validPlatformEvent(event)) throw new Error('Недоступно'); await recordingPrivacy.set('accounts', true); showPanel('accounts'); });
+ipcMain.handle('teacher:download', async (event, url, name, token) => {
+  if (!validPlatformEvent(event) || !policy.isUploadedFile(url)) throw new Error('Недоступно');
+  try { await nativeDownloads.file(event.sender, url, typeof name === 'string' ? name : '', token); }
+  catch (error) {
+    await dialog.showMessageBox(mainWindow, { title: 'Загрузки', message: error.message?.startsWith('Войдите') || error.message?.startsWith('Файл недоступен') ? error.message : 'Не удалось скачать файл. Проверьте интернет и повторите.', buttons: ['ОК'] });
+    throw new Error('Не удалось скачать файл.');
+  }
+});
 ipcMain.handle('teacher:recording-privacy', async (event, reason, hidden) => {
   if (!validPlatformEvent(event) || !['platform', 'account', 'sessions'].includes(reason) || typeof hidden !== 'boolean') throw new Error('Недоступно');
   try { return await recordingPrivacy.set(reason, hidden); }

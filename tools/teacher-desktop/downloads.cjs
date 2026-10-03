@@ -2,7 +2,47 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { safeDownloadName } = require('./policy.cjs');
+const policy = require('./policy.cjs');
+const { safeDownloadName } = policy;
+
+// Main-process downloads have no web initiator. Accept only the exact request
+// made from our own image menu or file action, once, while its page is still open.
+class NativeDownloadRequests {
+  constructor(isOwnedPlatform) { this.isOwnedPlatform = isOwnedPlatform; this.pending = []; }
+  request(contents, value, { name, headers } = {}) {
+    if (!this.isOwnedPlatform(contents)) throw new Error('Откройте изображение на платформе.');
+    const url = new URL(value).href;
+    if (!policy.isPlatform(url) && !policy.isPlatformBlob(url) && !policy.isExternal(url) && !/^data:image\//i.test(url)) throw new Error('Этот адрес изображения недоступен для скачивания.');
+    const page = contents.getURL();
+    const request = { id: contents.id, page, url, name, expires: Date.now() + 30000 };
+    this.pending = this.pending.filter(entry => entry.expires > Date.now());
+    this.pending.push(request);
+    try { contents.downloadURL(url, headers ? { headers } : undefined); }
+    catch (error) { this.pending = this.pending.filter(entry => entry !== request); throw error; }
+  }
+  async file(contents, value, name, token) {
+    if (!this.isOwnedPlatform(contents) || !policy.isUploadedFile(value)) throw new Error('Этот файл недоступен для скачивания.');
+    const page = contents.getURL(), headers = {};
+    if (typeof token === 'string' && token) {
+      if (token.length > 8192 || /[\r\n]/.test(token)) throw new Error('Войдите в аккаунт снова.');
+      headers.Authorization = `Bearer ${token}`;
+      headers['X-Ege-Auth-Token'] = token;
+    }
+    // The API session can still be valid after its browser cookie expires.
+    // Authenticate without adding the login token to a URL or download history.
+    const response = await contents.session.fetch(value, { method: 'HEAD', headers, redirect: 'error', signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(response.status === 401 ? 'Войдите в аккаунт снова и повторите скачивание.' : 'Файл недоступен. Обновите список материалов и повторите.');
+    if (this.isOwnedPlatform(contents) && contents.getURL() === page) this.request(contents, value, { name, headers });
+  }
+  consume(contents, item) {
+    this.pending = this.pending.filter(entry => entry.expires > Date.now());
+    if (!this.isOwnedPlatform(contents) || !['', 'https://ivan100.ru'].includes(item.getInitiatorOrigin())) return null;
+    const url = item.getURLChain()[0] || item.getURL();
+    const index = this.pending.findIndex(entry => entry.id === contents.id && entry.page === contents.getURL() && entry.url === url);
+    if (index < 0) return null;
+    return this.pending.splice(index, 1)[0];
+  }
+}
 
 function inside(directory, file) { const relative = path.relative(directory, file); return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative) && path.dirname(relative) === '.'; }
 function reserveDownload(directory, filename) {
@@ -29,8 +69,8 @@ class Downloads {
   save() {
     try { fs.mkdirSync(path.dirname(this.history), { recursive: true }); fs.writeFileSync(this.history, JSON.stringify(this.entries.filter(e => e.state === 'completed').slice(0, 50))); } catch { /* Downloads still work without history. */ }
   }
-  add(item) {
-    const file = reserveDownload(this.directory, item.getFilename());
+  add(item, name) {
+    const file = reserveDownload(this.directory, name || item.getFilename());
     const entry = { id: crypto.randomUUID(), name: path.basename(file), file, state: 'progressing', bytes: 0, total: item.getTotalBytes(), created: Date.now() };
     this.entries.unshift(entry); item.setSavePath(file); this.notify(true);
     let last = 0;
@@ -48,4 +88,4 @@ class Downloads {
   }
   clear() { this.entries = this.entries.filter(e => e.state === 'progressing'); this.save(); this.notify(false); }
 }
-module.exports = { Downloads, reserveDownload, inside };
+module.exports = { Downloads, NativeDownloadRequests, reserveDownload, inside };

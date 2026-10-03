@@ -14,7 +14,7 @@ const featureJs = featureAssets.find(a=>a.endsWith('.js'));
 const featureCss = featureAssets.find(a=>a.endsWith('.css'));
 if (!featureJs || !featureCss) throw new Error('Board pages feature bundles not found in the current client');
 const js = fs.readFileSync(path.join(directory,featureJs.slice(1)),'utf8');
-for (const feature of ['Новая страница','Страницы доски','~page~','Копировать выделенное','Изменить размер выделения:','Направляющие выравнивания','__IVAN100_BOARD_FRAGMENT_V1__:']) {
+for (const feature of ['Новая страница','Страницы доски','Удалить страницу?','Страница удалена','~page~','Копировать выделенное','Изменить размер выделения:','Направляющие выравнивания','__IVAN100_BOARD_FRAGMENT_V1__:']) {
   if (!js.includes(feature)) throw new Error(`Missing feature: ${feature}`);
 }
 const css = fs.readFileSync(path.join(directory,featureCss.slice(1)),'utf8');
