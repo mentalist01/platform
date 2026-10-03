@@ -7,7 +7,7 @@ import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
 import { createPortal } from 'react-dom';
 import { 
-  BookOpen, BarChart2, LogOut, Download, FileText, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle,
+  BookOpen, BarChart2, Download, FileText, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle,
   X, ChevronRight, Folder, FolderPlus, Upload,
   ArrowLeft, ArrowRight, Trash2, PlayCircle, Play, Bug, StepBack, StepForward, Pause, Check, Plus, Flame, Snowflake,
   Settings, Save, Calendar, RefreshCcw, Pencil, Brush, Minus, Undo2, Hand, Expand, Minimize2, Eraser, Image as ImageIcon, Trophy, Square,
@@ -41,6 +41,7 @@ import MockChestOpeningOverlay from './components/MockChestOpeningOverlay';
 import StudentPaymentReminder from './components/StudentPaymentReminder';
 import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './components/TeacherSubscriptionGate';
 import TeacherDesktopNotice from './components/TeacherDesktopNotice';
+import AccountProfileMenu from './components/AccountProfileMenu';
 import StudentSearchSelect from './components/StudentSearchSelect';
 import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
@@ -25748,49 +25749,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               )}
             </nav>
             <div className="sidebar-footer p-3 border-t border-white/70 bg-white/55 backdrop-blur-xl shrink-0">
-              <div className="sidebar-profile-card rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/75 p-3 shadow-[0_8px_18px_rgba(148,163,184,0.2)]">
-                <div className="flex items-center gap-2.5">
-                  {renderUserAvatar('h-9 w-9 rounded-lg text-sm', 10)}
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-900 truncate">{user.name}</p>
-                    <div className="mt-0.5 inline-flex items-center rounded-md border border-purple-100 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
-                      {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
-                    </div>
-                  </div>
-                </div>
-                {avatarError && (
-                  <div className="mt-2 text-[10px] font-semibold text-rose-600">{avatarError}</div>
-                )}
-              </div>
-              {user.role === 'student' && (
-                <details className="mt-2.5 rounded-xl border border-slate-200 bg-white/75">
-                  <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-500">
-                    <Settings size={14} /> Настройки аккаунта
-                  </summary>
-                  <button
-                    type="button"
-                    onClick={() => setSessionManagerOpen(true)}
-                    className="flex w-full items-center gap-2 border-t border-slate-200 px-3 py-2 text-left text-xs font-semibold text-violet-700"
-                  >
-                    <Shield size={14} /> Безопасность и устройства
-                  </button>
-                </details>
-              )}
-              {user.role === 'teacher' && (
-                <button
-                  type="button"
-                  onClick={() => setSessionManagerOpen(true)}
-                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl border border-violet-200/80 bg-violet-50/90 px-3 py-2 text-xs font-semibold text-violet-700 transition hover:-translate-y-[1px] hover:border-violet-300 hover:bg-violet-100 hover:shadow-sm"
-                >
-                  <MonitorSmartphone size={14} /> Активные сессии
-                </button>
-              )}
-              <button
-                onClick={onLogout}
-                className="sidebar-logout mt-2 w-full flex items-center justify-center gap-1.5 rounded-xl border border-rose-200/75 bg-white/85 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-sm"
-              >
-                <LogOut size={14} /> Выйти
-              </button>
+              <AccountProfileMenu
+                key={`desktop-account-${desktopNavCollapsed}`}
+                user={user}
+                avatar={renderUserAvatar('h-9 w-9 rounded-lg text-sm', 10)}
+                avatarError={avatarError}
+                avatarSaving={avatarSaving}
+                onAvatar={() => avatarInputRef.current?.click()}
+                onSessions={() => user.role === 'admin' ? navigateToView('sessions') : setSessionManagerOpen(true)}
+                onLogout={onLogout}
+              />
             </div>
           </div>
         </aside>
@@ -27410,20 +27378,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           <div className={`absolute inset-x-0 bottom-0 transition-transform duration-300 ease-out ${menuOpen ? 'translate-y-0' : 'translate-y-full'}`}>
             <div className="surface-card rounded-t-3xl border border-purple-100/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-14px_30px_rgba(15,23,42,0.22)]">
               <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
-              <div className="rounded-2xl border border-white/70 bg-gradient-to-br from-white to-purple-50/70 p-4 shadow-[0_8px_20px_rgba(148,163,184,0.2)]">
-                <div className="flex items-center gap-3">
-                  {renderUserAvatar('h-11 w-11 rounded-xl', 12)}
-                  <div className="min-w-0">
-                    <p className="text-base font-semibold text-slate-900 truncate">{user.name}</p>
-                    <div className="mt-1 inline-flex items-center rounded-md bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
-                      {user.role === 'admin' ? 'Администратор' : (user.role === 'teacher' ? 'Преподаватель' : 'Ученик')}
-                    </div>
-                  </div>
-                </div>
-                {avatarError && (
-                  <div className="mt-2 text-xs font-semibold text-rose-600">{avatarError}</div>
-                )}
-              </div>
+              {menuOpen && <AccountProfileMenu
+                user={user}
+                mobile
+                avatar={renderUserAvatar('h-11 w-11 rounded-xl', 12)}
+                avatarError={avatarError}
+                avatarSaving={avatarSaving}
+                onAvatar={() => avatarInputRef.current?.click()}
+                onSessions={() => {
+                  setMenuOpen(false);
+                  if (user.role === 'admin') navigateToView('sessions');
+                  else setSessionManagerOpen(true);
+                }}
+                onLogout={onLogout}
+              />}
               {user.role === 'student' && studentMobileMoreNav.length > 0 && (
                 <div className="mt-4 rounded-2xl border border-purple-100/75 bg-white/90 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-purple-700/80">
@@ -27460,41 +27428,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   </div>
                 </div>
               )}
-              {user.role === 'student' && (
-                <details className="mt-4 rounded-xl border border-slate-200 bg-white/80">
-                  <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-600">
-                    <Settings size={16} /> Настройки аккаунта
-                  </summary>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setSessionManagerOpen(true);
-                    }}
-                    className="flex w-full items-center gap-2 border-t border-slate-200 px-4 py-3 text-left text-sm font-semibold text-violet-700"
-                  >
-                    <Shield size={16} /> Безопасность и устройства
-                  </button>
-                </details>
-              )}
-              {user.role === 'teacher' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setSessionManagerOpen(true);
-                  }}
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200/80 bg-violet-50/90 px-4 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-100 hover:shadow-sm"
-                >
-                  <MonitorSmartphone size={16} /> Активные сессии
-                </button>
-              )}
-              <button
-                onClick={onLogout}
-                className="mt-2 w-full flex items-center justify-center gap-2 rounded-xl border border-rose-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 hover:shadow-sm"
-              >
-                <LogOut size={16} /> Выйти
-              </button>
             </div>
           </div>
         </div>
