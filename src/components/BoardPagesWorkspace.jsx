@@ -54,7 +54,6 @@ function PagedBoardWorkspace(props) {
         setDeleting(current=>current && next.some(p=>p.id===current.id)?current:null);
       };
       const controls=()=>{
-        const panel=control.get('panel');if(!teacher && typeof panel?.open==='boolean')setOpen(panel.open);
         const command=control.get('summon');if(teacher || command?.id===lastCommand.current)return;
         const target=boardPageSummonTarget(command,userId,boardPagesList(map));if(!target)return;
         lastCommand.current=target.id;setPageId(target.pageId);setStudentId(target.studentId);setNavigation(target);
@@ -76,11 +75,10 @@ function PagedBoardWorkspace(props) {
   useEffect(()=>{publish();try{if(storageKey && runtime.current?.provider.synced)window.localStorage.setItem(storageKey,pageId);}catch{/* Storage is optional. */}},[pageId,boardStudentId,storageKey,publish]);
   useEffect(()=>{if(!notice)return undefined;const timer=setTimeout(()=>setNotice(''),3500);return()=>clearTimeout(timer);},[notice]);
   const choose=next=>{setNavigation(null);setPageId(next);setEditing('');setDeleting(null);setNotice('');};
-  const toggle=()=>{const next=!open;setOpen(next);if(teacher && connected && !readOnly)runtime.current?.control.set('panel',{open:next,id:id()});};
+  const toggle=()=>setOpen(current=>!current);
   const create=()=>{
     if(!teacher || readOnly || !connected || pages.length>=MAX_BOARD_PAGES)return;
     const next=id();runtime.current.map.set(next,{title:`Страница ${pages.length+1}`,createdAt:Date.now()});choose(next);setOpen(true);
-    runtime.current.control.set('panel',{open:true,id:id()});
   };
   const rename=()=>{const value=title.trim().slice(0,80);if(value && teacher && !readOnly && connected && boardPagesList(runtime.current.map).some(p=>p.id===editing)){const old=runtime.current.map.get(editing)||{createdAt:0};runtime.current.map.set(editing,{...old,title:value});}setEditing('');};
   const remove=()=>{

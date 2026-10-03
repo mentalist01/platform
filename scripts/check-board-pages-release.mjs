@@ -23,6 +23,7 @@ for (const selector of ['.board-pages-panel.is-embedded','.board-fragment-copy',
 }
 if (js.includes('board-pages-toggle') || css.includes('.board-pages-toggle')) throw new Error('Duplicate bottom pages button is still present');
 if (js.includes('board-fragment-paste') || css.includes('.board-fragment-paste')) throw new Error('Redundant fragment paste button is still present');
+if (/\.get\(["']panel["']\)|\.set\(["']panel["']/.test(js)) throw new Error('Pages panel still synchronizes between participants');
 console.log('Shared board pages and fragment clipboard JavaScript and CSS verified.');
 if (mode === 'verify') {
   const get = async pathname => {
