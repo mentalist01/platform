@@ -17,6 +17,7 @@ import { normalizeMockCompletionEvents, mockCompletionNotifications } from './te
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
+import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
@@ -690,6 +691,32 @@ const lessonReplayEventLog = createLessonReplayEventLog(path.join(dataDir, 'less
 const lessonReplayReceipts = createLessonReplayReceipts(path.join(dataDir, 'lesson-replay-receipts'));
 const lessonReplayStorageIndexFile = path.join(dataDir, 'lesson-replay-storage-index.json');
 const teacherFinanceFile = path.join(dataDir, 'teacher-finances.json');
+const learningSubscriptions = new LearningSubscriptionStore(path.join(dataDir, 'learning-subscriptions.json'));
+const getSubscriptionLessons = (data = learningSubscriptions.read()) => {
+  const recordingGroups = new Set(data.blocks.filter(block => !block.cancelledAt && block.tariff.kind === 'recordings').map(block => block.groupId));
+  return readLearningLessonSessionsDb().map(lesson => recordingGroups.has(lesson.groupId) ? { ...lesson,
+    recordingAvailable: getLessonReplaySummary(`learning-group-replay|${lesson.id}`).available === true } : lesson);
+};
+const getLearningSubscriptionAccess = (studentId, groupId, options = {}) => {
+  const data = learningSubscriptions.read();
+  if (!data.blocks.some(block => block.studentId === studentId && block.groupId === groupId && !block.cancelledAt)) return { allowed: true, legacy: true };
+  const lessons = getSubscriptionLessons(data);
+  return subscriptionAccess(learningSubscriptions.reconcile(lessons).blocks, studentId, groupId, lessons, options);
+};
+const getLearningSubscriptionOccurrence = (studentId, occurrence) => {
+  const data = learningSubscriptions.read();
+  const source = occurrence?.event || occurrence?.entry || occurrence || {};
+  const groupId = occurrence?.groupId || source.groupId;
+  if (!groupId || !data.blocks.some(block => block.studentId === studentId && block.groupId === groupId && !block.cancelledAt)) return null;
+  const lessons = readLearningLessonSessionsDb();
+  return subscriptionOccurrence(learningSubscriptions.reconcile(lessons).blocks, lessons, studentId, occurrence);
+};
+const getLearningSubscriptionRoomError = (auth, access) => {
+  if (auth?.role !== 'student' || !access?.target?.session?.groupId) return '';
+  const session = access.target.session;
+  const result = getLearningSubscriptionAccess(auth.id, session.groupId, { live: access.target.kind === 'rtc' || !access.readOnly, lessonId: session.id });
+  return result.allowed ? '' : result.error;
+};
 const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
 const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
 const teacherSubscriptionsFile = path.join(dataDir, 'teacher-subscriptions.json');
@@ -3877,6 +3904,7 @@ const normalizeTeacherFinanceLessonLedger = (value) => {
       durationMinutes: normalizeScheduleDurationMinutes(entry.durationMinutes),
       lessonPrice: roundTeacherFinanceNumber(entry.lessonPrice),
       paid: Boolean(entry.paid),
+      ...(entry.subscriptionId ? { subscriptionId: String(entry.subscriptionId) } : {}),
       sourceEntryId: String(entry.sourceEntryId || '').trim(),
       sourceSignature: String(entry.sourceSignature || '').trim(),
       recordedAt: typeof entry.recordedAt === 'string' && entry.recordedAt.trim()
@@ -4128,6 +4156,8 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
     students: {},
   };
   const monthSettings = normalizeTeacherFinanceMonthSettings(monthData.settings);
+  const subscriptionReceipts = learningSubscriptions.read().blocks.filter(block => block.teacherId === teacherId && block.payment
+    && subscriptionDay(block.payment.receivedAt).slice(0, 7) === normalizedMonthKey);
   const studentList = Array.isArray(teacherStudents) ? teacherStudents : [];
   const studentIds = new Set();
   const availableCreditByStudentId = new Map();
@@ -4159,6 +4189,8 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
     const student = studentsById.get(studentId) || null;
     const profile = normalizeTeacherFinanceProfile(currentEntry.studentProfiles[studentId]);
     const record = normalizeTeacherFinanceStudentRecord(monthData.students[studentId], profile);
+    const subscriptionPaidAmount = subscriptionReceipts.filter(block => block.studentId === studentId).reduce((sum, block) => sum + block.payment.amount, 0);
+    record.paidAmount = roundTeacherFinanceNumber(record.paidAmount + subscriptionPaidAmount);
     const metrics = calculateTeacherFinanceStudentMetrics(record, calendarAmounts[studentId]);
     const availableCredit = availableCreditByStudentId.get(studentId) || 0;
     const fullName = typeof student?.name === 'string' && student.name.trim()
@@ -4179,6 +4211,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
       record,
       metrics,
       availableCredit,
+      subscriptionPaidAmount,
     };
   }).sort((left, right) => {
     const leftDeleted = Boolean(left.deletedAt);
@@ -10085,6 +10118,7 @@ const resolveGroupParticipationOccurrence = (entry) => {
 };
 const isGroupEntryAssigned = (entry, studentId, groupValue = null) => {
   if (!entry?.isLearningGroupEvent && !entry?.groupId) return true;
+  if (getLearningSubscriptionOccurrence(studentId, entry)) return true;
   const group = groupValue || readLearningGroupsDb().find(g => g.id === entry.groupId);
   return Boolean(group && isGroupLessonAssigned(group, studentId, resolveGroupParticipationOccurrence(entry)));
 };
@@ -11161,6 +11195,7 @@ const canReadLearningGroupNotesFileForStudent = (entry, studentId) => {
   const normalizedStudentId = String(studentId || '').trim();
   if (!normalizedStudentId) return false;
   const groupId = String(entry?.groupId || '').trim();
+  if (groupId && !getLearningSubscriptionAccess(normalizedStudentId, groupId, { lessonId: entry.lessonId || '' }).allowed) return false;
   const group = groupId
     ? readLearningGroupsDb().find((candidate) => candidate.id === groupId && !candidate.deletedAt)
     : null;
@@ -16473,7 +16508,8 @@ const buildStudentSchedulePaymentState = ({
     paymentEvent,
     normalizedDayKey
   );
-  const paidMarked = Boolean(paidMarkKey && teacherMarks?.[paidMarkKey]);
+  const subscription = getLearningSubscriptionOccurrence(eventStudentId, paymentEvent);
+  const paidMarked = Boolean(paidMarkKey && teacherMarks?.[paidMarkKey]) || Boolean(subscription?.block.payment);
   const trialMarked = isExplicitTrialLesson(paymentEvent) || Boolean(trialMarkKey && teacherMarks?.[trialMarkKey]);
   const cancelled = isTeacherCalendarLessonCancelled(
     normalizedTeacherId,
@@ -16488,7 +16524,7 @@ const buildStudentSchedulePaymentState = ({
       dayNumber < nowInfo.todayNumber
       || (dayNumber === nowInfo.todayNumber && endMinutes <= nowInfo.currentMinutes)
     );
-  const finished = !cancelled && chronologicallyFinished;
+  const finished = !cancelled && (subscription ? subscription.lesson.status === 'completed' : chronologicallyFinished);
   const participationRequired = isGroupEntryAssigned(paymentEvent,eventStudentId);
   const status = cancelled
     ? 'cancelled'
@@ -16501,6 +16537,7 @@ const buildStudentSchedulePaymentState = ({
     finished,
     overdue: status === 'unpaid' && finished,
     paid: paidMarked,
+    ...(subscription ? { subscriptionId: subscription.block.id } : {}),
     trial: trialMarked,
     cancelled,
     participationRequired,
@@ -16982,6 +17019,7 @@ const getPaymentCandidateLessonOccurrences = async (teacherId, student, received
       if (!markKey || teacherMarks[markKey]) return;
       if (isExplicitTrialLesson(event) || (trialMarkKey && teacherMarks[trialMarkKey])) return;
       if (isTeacherCalendarLessonCancelled(teacherId, event, normalizedDayKey, teacherMarks)) return;
+      if (getLearningSubscriptionOccurrence(studentId, event)) return;
       occurrences.push({
         event,
         dayKey: normalizedDayKey,
@@ -17052,6 +17090,8 @@ const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence)
   const durationMinutes = normalizeScheduleDurationMinutes(occurrence?.durationMinutes ?? event?.durationMinutes);
   const month = normalizeTeacherFinanceMonthKey(String(dayKey).slice(0, 7));
   if (!month) return { month: '', lessonPrice: 0 };
+  const subscription = getLearningSubscriptionOccurrence(studentId, occurrence);
+  if (subscription) return { month, lessonPrice: subscription.lessonPrice };
   const allocated = Object.values(teacherEntry?.paymentAllocations || {}).find((allocation) => (
     allocation.studentId === studentId && allocation.status === 'allocated'
     && allocation.currentDayKey === dayKey && allocation.currentTime === time
@@ -17254,6 +17294,7 @@ const buildTeacherFinanceProfitability = async (
         sourceSignature,
         groupId: String(entry?.groupId || '').trim(),
         paidAt: paymentState.paid ? teacherMarks[paymentState.paidMarkKey] : '',
+        ...(paymentState.subscriptionId ? { subscriptionId: paymentState.subscriptionId } : {}),
         trial: false,
         paid: false,
       };
@@ -17293,6 +17334,7 @@ const buildTeacherFinanceProfitability = async (
       durationMinutes: occurrence.durationMinutes,
       lessonPrice,
       paid: Boolean(occurrence.paid),
+      ...(occurrence.subscriptionId ? { subscriptionId: occurrence.subscriptionId } : {}),
       sourceEntryId: existing?.sourceEntryId || occurrence.sourceEntryId,
       sourceSignature: existing?.sourceSignature || occurrence.sourceSignature,
       recordedAt: existing?.recordedAt || recordedAt,
@@ -17363,6 +17405,7 @@ const buildTeacherFinanceProfitability = async (
       trial: Boolean(paymentState.trial),
       paid: Boolean(paymentState.paid),
       finished: Boolean(paymentState.finished),
+      ...(paymentState.subscriptionId ? { subscriptionId: paymentState.subscriptionId } : {}),
     });
   });
   const currentWeekStartDayKey = normalizeDayKey(nowInfo.weekStartKey);
@@ -17442,9 +17485,11 @@ const buildTeacherFinanceProfitability = async (
   });
   const monthlyPlanOccurrences = Array.from(monthlyPlanOccurrencesByKey.values());
   const calendarAmountsByStudent = {};
+  const subscriptionBlocks = learningSubscriptions.reconcile(readLearningLessonSessionsDb()).blocks
+    .filter(block => block.teacherId === normalizedTeacherId && !block.cancelledAt);
   students.forEach((student) => {
     const profile = currentEntry.studentProfiles[student.id];
-    if (isDurationPricing(profile?.pricingMode) || profile?.pricingHistory?.some((change) => (
+    if (subscriptionBlocks.some(block => block.studentId === student.id) || isDurationPricing(profile?.pricingMode) || profile?.pricingHistory?.some((change) => (
       isDurationPricing(change.before.pricingMode) || isDurationPricing(change.after.pricingMode)
     ))) calendarAmountsByStudent[student.id] = { plannedRevenue: 0, accruedRevenue: 0 };
   });
@@ -17488,9 +17533,13 @@ const buildTeacherFinanceProfitability = async (
     if (!month) return;
     month.lessonCount += 1;
     month.grossRevenue = roundTeacherFinanceNumber(month.grossRevenue + entry.lessonPrice);
-    if (entry.paid) {
+    if (entry.paid && !entry.subscriptionId) {
       month.receivedRevenue = roundTeacherFinanceNumber(month.receivedRevenue + entry.lessonPrice);
     }
+  });
+  subscriptionBlocks.filter(block => block.payment).forEach(block => {
+    const month = ensureIncomeMonth(subscriptionDay(block.payment.receivedAt).slice(0, 7));
+    if (month) month.receivedRevenue = roundTeacherFinanceNumber(month.receivedRevenue + block.payment.amount);
   });
   const incomeByMonth = Array.from(incomeByMonthMap.values())
     .sort((left, right) => right.month.localeCompare(left.month, 'ru'));
@@ -17505,6 +17554,7 @@ const buildTeacherFinanceProfitability = async (
       lessonPrice: currentLessonPrice,
       pricingMode: profile.pricingMode,
       completedOccurrences: studentOccurrences,
+      subscriptionPaidAmounts: subscriptionBlocks.filter(block => block.studentId === studentId && block.payment).map(block => block.payment.amount),
       monthlyPaidAmounts: Object.values(currentEntry.months || {}).map((monthData) => (
         normalizeTeacherFinanceStudentRecord(
           monthData?.students?.[studentId],
@@ -17590,6 +17640,9 @@ const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, par
   if (!teacherId || !studentId) {
     return { status: 'pending', reason: 'Не найден учитель или ученик.' };
   }
+  if (learningSubscriptions.read().blocks.some(block => block.teacherId === teacherId && block.studentId === studentId && !block.cancelledAt)) {
+    return { status: 'pending', reason: 'У ученика есть абонемент. Проверьте назначение платежа вручную и подтвердите оплату блока в разделе «Финансы → Абонементы».' };
+  }
   try {
     // Consume any previously released advance before matching a new bank
     // notification, otherwise both payments could be assigned to the same
@@ -17618,6 +17671,9 @@ const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, par
     PAYMENT_AUTO_APPLY_MAX_LESSONS);
   if (!selectedOccurrences.length) {
     return { status: 'pending', reason: 'Сумма не совпала с полной стоимостью ближайших неоплаченных занятий. Нужна ручная проверка.' };
+  }
+  if (selectedOccurrences.some(occurrence => getLearningSubscriptionOccurrence(studentId, occurrence))) {
+    return { status: 'pending', reason: 'Этот платёж относится к абонементу. Подтвердите оплату целого блока в разделе «Финансы → Абонементы».' };
   }
 
   const nowIso = new Date().toISOString();
@@ -21324,6 +21380,7 @@ const handleUploadRequest = (req, res) => {
         lesson
         && group
         && entry.groupId === group.id
+        && (!isStudentRole(req.auth) || getLearningSubscriptionAccess(req.auth.id, group.id, { lessonId: lesson.id }).allowed)
         && canAccessLearningLessonSessionRecord(req.auth, lesson, {
           group,
           groups: [group],
@@ -22035,6 +22092,19 @@ app.use('/api', (req, res, next) => {
 });
 
 registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: false });
+
+registerLearningSubscriptionRoutes(app, learningSubscriptions, {
+  student: id => findStudentById(id),
+  context: teacherId => {
+    materializeAvailabilitySchedules();
+    const students = readStudentsDb().filter(student => student.teacherId === teacherId && !student.deletedAt);
+    const entry = getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId);
+    return { students, groups: readLearningGroupsDb().filter(group => group.teacherId === teacherId),
+      lessons: getSubscriptionLessons().filter(lesson => lesson.teacherId === teacherId),
+      isAlreadyPaid: (studentId, lessonId) => availabilityCalendarEntries(teacherId).some(event => event.lessonId === lessonId && hasGroupEntryPaidMark(event, studentId)),
+      individualPrices: Object.fromEntries(students.map(student => [student.id, entry.studentProfiles[student.id]?.lessonPrice || 0])) };
+  },
+});
 
 registerHomeworkReminderRoutes(app, homeworkReminders, {
   observe: (teacherId) => {
@@ -22835,7 +22905,7 @@ const boardTabletService = createBoardTabletService({
       attendanceRecords: LEARNING_GROUPS_ENABLED ? readLearningAttendanceDb() : [],
       students: readStudentsDb(),
     });
-    return access.allowed && !access.readOnly && !access.target?.boardPagesBook && isKnownBoardPage(access);
+    return access.allowed && !getLearningSubscriptionRoomError(session.user, access) && !access.readOnly && !access.target?.boardPagesBook && isKnownBoardPage(access);
   },
 });
 app.post('/api/board-tablet', boardTabletService.create);
@@ -23261,6 +23331,10 @@ const ensureLearningGroupReadAccess = (req, res, groupId) => {
     res.status(403).json({ error: 'Недостаточно прав', code: 'group_forbidden' });
     return null;
   }
+  if (isStudentRole(req.auth)) {
+    const access = getLearningSubscriptionAccess(req.auth.id, group.id);
+    if (!access.allowed) { res.status(402).json({ error: access.error, code: 'subscription_required' }); return null; }
+  }
   return group;
 };
 
@@ -23293,6 +23367,10 @@ const ensureLearningLessonAccess = (req, res, group, lessonId, options = {}) => 
   if (!allowed) {
     res.status(403).json({ error: 'Недостаточно прав', code: 'lesson_forbidden' });
     return null;
+  }
+  if (isStudentRole(req.auth)) {
+    const access = getLearningSubscriptionAccess(req.auth.id, group.id, { lessonId: lesson.id });
+    if (!access.allowed) { res.status(402).json({ error: access.error, code: 'subscription_required' }); return null; }
   }
   return lesson;
 };
@@ -23389,13 +23467,14 @@ const buildLearningScheduleOccurrence = (group, scheduleEntry, now = new Date())
 const getLearningGroupNextLesson = (group, now = new Date(), auth = null) => {
   const currentStudentMember = isStudentRole(auth) && group?.status !== 'completed' && getActiveLearningGroupMembers(group)
     .some((member) => member.studentId === auth?.id);
-  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || currentStudentMember;
+  const liveAccess = !isStudentRole(auth) || getLearningSubscriptionAccess(auth.id, group.id, { live: true }).allowed;
+  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || (currentStudentMember && liveAccess);
   const groupSessions = readLearningLessonSessionsDb().filter((session) => (
     session.groupId === group.id && session.status !== 'cancelled'
   ));
   const nextSession = groupSessions
     .filter((session) => Date.parse(session.startAt) >= now.getTime()
-      && (!isStudentRole(auth) || isGroupLessonAssigned(group,auth.id,session)))
+      && (!isStudentRole(auth) || getLearningSubscriptionOccurrence(auth.id, { groupId: group.id, lessonId: session.id }) || isGroupLessonAssigned(group,auth.id,session)))
     .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))[0] || null;
   if (nextSession) return serializeLearningLessonForAuth(nextSession, auth, group);
   if (groupSessions.length > 0) return null;
@@ -23414,7 +23493,8 @@ const serializeLearningGroupForAuth = (group, auth) => {
   const staffView = isAdminRole(auth) || isTeacherRole(auth);
   const currentStudentMember = isStudentRole(auth) && group?.status !== 'completed' && getActiveLearningGroupMembers(group)
     .some((member) => member.studentId === auth?.id);
-  const canUseTelemost = staffView || currentStudentMember;
+  const liveAccess = !isStudentRole(auth) || getLearningSubscriptionAccess(auth.id, group.id, { live: true }).allowed;
+  const canUseTelemost = staffView || (currentStudentMember && liveAccess);
   const members = serialized.members
     .filter((member) => staffView || (currentStudentMember && member.status === 'active') || member.studentId === auth?.id)
     .map((member) => {
@@ -23425,6 +23505,7 @@ const serializeLearningGroupForAuth = (group, auth) => {
     });
   return {
     ...serialized,
+    ...(isStudentRole(auth) ? { subscriptionAccess: { live: liveAccess, learning: getLearningSubscriptionAccess(auth.id, group.id).allowed } } : {}),
     ...(staffView || currentStudentMember ? {} : { schedule: [] }),
     telemostUrl: canUseTelemost ? serialized.telemostUrl : '',
     members,
@@ -23439,14 +23520,16 @@ const serializeLearningLessonForAuth = (lesson, auth = null, groupValue = null) 
     : readLearningGroupsDb().find((entry) => entry.id === lesson?.groupId) || null;
   const currentStudentMember = isStudentRole(auth) && group?.status !== 'completed' && getActiveLearningGroupMembers(group)
     .some((member) => member.studentId === auth?.id);
-  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || currentStudentMember;
+  const liveAccess = !isStudentRole(auth) || getLearningSubscriptionAccess(auth.id, group?.id, { live: true, lessonId: lesson.id }).allowed;
+  const canUseTelemost = !auth || isAdminRole(auth) || isTeacherRole(auth) || (currentStudentMember && liveAccess);
   const telemostUrlOverride = canUseTelemost ? normalizeTelemostUrl(lesson?.telemostUrl) : '';
   const groupTelemostUrl = canUseTelemost ? normalizeTelemostUrl(group?.telemostUrl) : '';
   const recording = getLessonReplaySummary(buildLearningGroupLessonReplayKey(lesson.id));
   return {
     ...lesson,
     requiredParticipantIds: requiredGroupLessonParticipants(group,lesson),
-    ...(isStudentRole(auth) ? {participationRequired:isGroupLessonAssigned(group,auth.id,lesson)} : {}),
+    ...(isStudentRole(auth) ? { subscriptionAccess: { live: liveAccess } } : {}),
+    ...(isStudentRole(auth) ? {participationRequired:Boolean(getLearningSubscriptionOccurrence(auth.id, { groupId: group?.id, lessonId: lesson.id })) || isGroupLessonAssigned(group,auth.id,lesson)} : {}),
     recording: { available: recording.available === true, provider: recording.provider || 'platform', status: recording.status || '' },
     ...(names || {}),
     telemostUrl: telemostUrlOverride || groupTelemostUrl,
@@ -23984,6 +24067,7 @@ const reconcileLearningGroupLifecycle = (nowMs = Date.now(), options = {}) => {
   try {
     const groupsById = new Map(readLearningGroupsDb().map((group) => [group.id, group]));
     const sessions = readLearningLessonSessionsDb();
+    const subscriptionGroups = new Set(learningSubscriptions.read().blocks.filter(block => !block.cancelledAt).map(block => block.groupId));
     const changedLessons = [];
     const cancelledSessionIds = new Set();
     const nextSessions = sessions.map((lesson) => {
@@ -23992,6 +24076,14 @@ const reconcileLearningGroupLifecycle = (nowMs = Date.now(), options = {}) => {
       const startMs = Date.parse(lesson.startAt);
       const durationMs = Math.max(15, Number(lesson.durationMinutes) || 60) * 60 * 1000;
       const endMs = Number.isFinite(startMs) ? startMs + durationMs : NaN;
+      const teacherPresent = subscriptionGroups.has(lesson.groupId) && Array.from(rtcRooms).some(([roomId, clients]) => parseRtcRoomId(roomId)?.sessionId === lesson.id
+        && Array.from(clients.values()).some(client => client.auth?.role === 'teacher' && client.auth.id === lesson.teacherId));
+      if (lesson.status === 'scheduled' && teacherPresent && startMs <= nowMs && endMs >= nowMs) {
+        const updated = updateLearningLessonSession(lesson, { status: 'active' }, { now: new Date(nowMs).toISOString() });
+        changedLessons.push(updated);
+        homeworkReminders.observeLesson(lesson.teacherId, buildLearningGroupReplayOccurrence({ group, lesson: updated }), nowMs);
+        return updated;
+      }
       const groupCompleted = group?.status === 'completed';
       const groupLessonAlreadyStarted = groupCompleted
         && Number.isFinite(startMs)
@@ -23999,13 +24091,15 @@ const reconcileLearningGroupLifecycle = (nowMs = Date.now(), options = {}) => {
       const autoCloseMs = Number.isFinite(endMs)
         ? endMs + LEARNING_LESSON_OVERRUN_GRACE_MS
         : NaN;
-      const shouldComplete = lesson.status === 'active'
+      const observed = subscriptionGroups.has(lesson.groupId) && (Object.values(homeworkReminders.data.lessons).some(entry => entry.lessonId === lesson.id && entry.teacherId === lesson.teacherId)
+        || desktopRecordings.recentLessonJobs(lesson.teacherId, 0).some(job => job.occurrence?.lessonId === lesson.id && Number(job.startedAt) > 0 && !['waiting', 'error'].includes(job.status)));
+      const missedSubscriptionLesson = lesson.status === 'scheduled' && subscriptionGroups.has(lesson.groupId)
+        && Number.isFinite(autoCloseMs) && autoCloseMs <= nowMs && !observed;
+      const shouldComplete = !missedSubscriptionLesson && (lesson.status === 'active'
         ? groupCompleted || (Number.isFinite(autoCloseMs) && autoCloseMs <= nowMs)
-        : groupLessonAlreadyStarted || (Number.isFinite(autoCloseMs) && autoCloseMs <= nowMs);
+        : groupLessonAlreadyStarted || (Number.isFinite(autoCloseMs) && autoCloseMs <= nowMs));
       const shouldCancel = lesson.status === 'scheduled'
-        && groupCompleted
-        && Number.isFinite(startMs)
-        && startMs > nowMs;
+        && (missedSubscriptionLesson || (groupCompleted && Number.isFinite(startMs) && startMs > nowMs));
       if (!shouldComplete && !shouldCancel) return lesson;
       const nextStatus = shouldCancel ? 'cancelled' : 'completed';
       const updated = updateLearningLessonSession(
@@ -24029,7 +24123,7 @@ const reconcileLearningGroupLifecycle = (nowMs = Date.now(), options = {}) => {
       .map((record) => finalizeLearningAttendanceRecord(record, record.updatedAt || new Date(nowMs).toISOString()))
       .filter(Boolean)
       .forEach((record) => writeLearningAttendanceUpdates([record]));
-    changedLessons.forEach(closeLearningLessonCollabConnections);
+    changedLessons.filter(lesson => ['completed', 'cancelled'].includes(lesson.status)).forEach(closeLearningLessonCollabConnections);
     return { changed: true, lessons: changedLessons };
   } finally {
     learningGroupLifecycleSweepInProgress = false;
@@ -24044,6 +24138,11 @@ if (typeof learningGroupLifecycleSweepInterval.unref === 'function') {
 }
 
 const getLearningMaterialAccessError = (auth, group, material) => {
+  if (!material || material.deletedAt) return 'Материал не найден';
+  if (isStudentRole(auth) && group?.id) {
+    const access = getLearningSubscriptionAccess(auth.id, group.id, { lessonId: material.lessonId || '' });
+    if (!access.allowed) return access.error;
+  }
   if (!canReuseLearningMaterialInGroup(material, group)) return 'Материал не найден';
   if (!canReadLearningGroup(auth, group)) return 'Недостаточно прав';
   if (isStudentRole(auth)) {
@@ -24076,10 +24175,12 @@ const isHomeworkVideoMaterial = material => material.kind === 'video'
 // material unlocked. Drafts and somebody else's personal work never do.
 const studentAssignedLearningMaterial = (studentId, material, group = null) => {
   if (!material || material.deletedAt) return false;
+  if (material.groupId && !getLearningSubscriptionAccess(studentId, material.groupId, { lessonId: material.lessonId || '' }).allowed) return false;
   const groups = group ? [group] : readLearningGroupsDb().filter(entry => !entry.deletedAt);
   const assigned = readLearningAssignmentsDb().some(assignment => {
     const ownerGroup = groups.find(entry => entry.id === assignment.groupId);
     return ownerGroup && canReuseLearningMaterialInGroup(material, ownerGroup)
+      && getLearningSubscriptionAccess(studentId, ownerGroup.id).allowed
       && !assignment.deletedAt && assignment.status !== 'draft'
       && assignment.materialIds.includes(material.id)
       && canStudentReadLearningGroupAssignment(ownerGroup, studentId, assignment);
@@ -33719,6 +33820,7 @@ const canReadLearningGroupReplay = (auth, context, participantIds = null) => {
     ? String(auth.studentId || '').trim()
     : (isStudentRole(auth) ? String(auth.id || '').trim() : '');
   if (!effectiveStudentId) return false;
+  if (!getLearningSubscriptionAccess(effectiveStudentId, context.group.id, { lessonId: context.lesson.id }).allowed) return false;
   const snapshot = Array.isArray(participantIds)
     ? participantIds
     : context.lesson.participantIds;
@@ -35848,6 +35950,7 @@ const getParentFinanceContext = (student) => {
 
 const getParentLessonPayment = (student, occurrence, financeContext) => {
   const studentId = String(student?.id || '').trim();
+  const subscription = getLearningSubscriptionOccurrence(studentId, occurrence);
   const ledgerKey = [
     studentId,
     String(occurrence?.dayKey || '').trim(),
@@ -35874,8 +35977,8 @@ const getParentLessonPayment = (student, occurrence, financeContext) => {
     occurrence?.dayKey,
     'trial'
   );
-  const trial = Boolean(trialMarkKey && financeContext?.teacherMarks?.[trialMarkKey]);
-  const paid = Boolean(ledgerEntry?.paid || (paidMarkKey && financeContext?.teacherMarks?.[paidMarkKey]));
+  const trial = !subscription && Boolean(trialMarkKey && financeContext?.teacherMarks?.[trialMarkKey]);
+  const paid = Boolean(subscription?.block.payment || ledgerEntry?.paid || (paidMarkKey && financeContext?.teacherMarks?.[paidMarkKey]));
   return {
     status: trial ? 'trial' : (paid ? 'paid' : 'unpaid'),
     paid,
@@ -37977,6 +38080,15 @@ app.patch('/api/teacher-calendar-marks', (req, res) => {
       delete nextMarks[normalizedKey];
     });
   }
+
+  const subscriptionBlocks = learningSubscriptions.read().blocks.filter(block => block.teacherId === teacher.id && !block.cancelledAt);
+  const changedPackagePayment = subscriptionBlocks.length && availabilityCalendarEntries(teacher.id).some(event => subscriptionBlocks
+    .filter(block => block.lessonIds.includes(event.lessonId))
+    .some(block => getGroupEntryStudentSourceIds(event, block.studentId).some(id => ['paid', 'trial'].some(action => {
+      const key = buildTeacherCalendarPaymentMarkKey(teacher.id, { ...event, id, studentId: block.studentId }, event.date, action);
+      return Boolean(currentMarks[key]) !== Boolean(nextMarks[key]);
+    }))));
+  if (changedPackagePayment) return res.status(409).json({ error: 'Занятие входит в абонемент. Подтверждайте оплату всего блока в разделе «Абонементы».' });
 
   invalidateTeacherPaymentAllocationsForRemovedMarks(
     teacher.id,
@@ -42105,6 +42217,8 @@ const getRtcRoomAccessError = (auth, roomMeta) => {
     allowRtcOutsideSchedule: true,
   });
   if (access.allowed) {
+    const subscriptionError = getLearningSubscriptionRoomError(auth, access);
+    if (subscriptionError) return subscriptionError;
     if (roomMeta.targetType === 'lesson') {
       const lesson = access.target.session;
       const group = readLearningGroupsDb().find((entry) => entry.id === lesson.groupId);
@@ -42525,7 +42639,18 @@ const observeHomeworkRtcLesson = async (roomMeta) => {
   if (roomMeta.targetType === 'meeting') return;
   if (roomMeta.sessionId) {
     const context = getLearningGroupReplayContext(roomMeta.sessionId);
-    if (!context || context.lesson.status !== 'active') return;
+    if (!context) return;
+    if (context.lesson.status === 'scheduled' && learningSubscriptions.read().blocks.some(block => block.groupId === context.group.id && !block.cancelledAt)) {
+      const nowMs = Date.now();
+      const startMs = Date.parse(context.lesson.startAt);
+      const endMs = startMs + context.lesson.durationMinutes * 60_000 + LEARNING_LESSON_OVERRUN_GRACE_MS;
+      const teacherPresent = Array.from(rtcRooms.get(roomMeta.roomId)?.values() || []).some(client => client.auth?.role === 'teacher' && client.auth.id === context.group.teacherId);
+      if (!teacherPresent || nowMs < startMs || nowMs > endMs) return;
+      const updated = updateLearningLessonSession(context.lesson, { status: 'active' });
+      writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(), updated));
+      context.lesson = updated;
+    }
+    if (context.lesson.status !== 'active') return;
     const occurrence = buildLearningGroupReplayOccurrence(context);
     homeworkReminders.observeLesson(context.group.teacherId, occurrence, Date.now());
     return;
@@ -42959,7 +43084,7 @@ server.on('upgrade', (request, socket, head) => {
       attendanceRecords: LEARNING_GROUPS_ENABLED ? readLearningAttendanceDb() : [],
       students: readStudentsDb(),
     });
-    if (!access.allowed) {
+    if (!access.allowed || getLearningSubscriptionRoomError(session.user, access)) {
       const statusCode = access.reason === 'unknown-room' ? 404 : 403;
       rejectUpgrade(socket, statusCode, access.reason || 'Forbidden');
       return;

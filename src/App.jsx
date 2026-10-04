@@ -52,6 +52,7 @@ import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
 const TeacherRescheduleInbox = React.lazy(() => import('./components/LessonReschedule').then(module => ({default:module.TeacherRescheduleInbox})));
 const TeacherHomeworkReminders = React.lazy(() => import('./components/TeacherHomeworkReminders'));
+const TeacherLearningSubscriptionReminder = React.lazy(() => import('./components/LearningSubscriptions').then(module => ({ default: module.TeacherSubscriptionReminder })));
 import StudentWeeklyRecap from './components/StudentWeeklyRecap';
 import ThemeToggleButton from './components/ThemeToggleButton';
 import CoinGuideIcon from './components/CoinGuideTooltip';
@@ -25919,6 +25920,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         >
           <div className={mainContentShellClass}>
             {user.role === 'teacher' && !['lesson', 'board', 'collab', 'call'].includes(view) && <TeacherDesktopNotice key={user.id} teacherId={user.id} onDetails={() => setView('recording')} />}
+            {user.role === 'teacher' && view !== 'finance' && <React.Suspense fallback={null}><TeacherLearningSubscriptionReminder key={user.id} teacherId={user.id}
+              paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status) || (job.desired === 'record' && job.cutoffAt > Date.now()))}
+              onOpen={() => navigateToView('finance')} /></React.Suspense>}
           <React.Suspense fallback={(
             <div className="surface-panel rounded-2xl p-6 text-sm font-semibold text-slate-500">
               Загружаем раздел...

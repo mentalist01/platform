@@ -18,6 +18,7 @@ import RecordingHomeworkHandoff from './RecordingHomeworkHandoff';
 import TeacherHomeworkReviewModal from './TeacherHomeworkReviewModal';
 import HomeworkDayPlan from './HomeworkDayPlan';
 import StudentMonthlyMockHomework from './StudentMonthlyMockHomework';
+import { StudentSubscriptions } from './LearningSubscriptions';
 import { Button, Card } from './ui';
 import {
   buildHomeworkCarryoverDraft,
@@ -5845,6 +5846,7 @@ const ScheduleSection = ({
       )}
 
       <div className={role === 'student' ? 'student-today-homework-section space-y-3 md:space-y-4' : 'space-y-4 md:space-y-5'}>
+        {role === 'student' && <StudentSubscriptions studentId={effectiveStudentId} />}
         {role === 'student' && <StudentMonthlyMockHomework studentId={effectiveStudentId} refreshKey={solvedRefreshKey} onOpen={onOpenMockGoal} />}
         {role !== 'student' && (
           <div>

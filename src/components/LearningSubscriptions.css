@@ -1,0 +1,41 @@
+.learning-subscriptions { --sub-ink: #17213d; --sub-muted: #74809b; --sub-border: #e4ddff; color: var(--sub-ink); }
+.learning-subscriptions__hero { padding: 26px; border: 1px solid var(--sub-border); border-radius: 26px; background: radial-gradient(ellipse at 100% 0, #e4eaff 0, transparent 60%), linear-gradient(125deg, #fff, #f7f2ff); }
+.learning-subscriptions h2, .learning-subscriptions h3 { margin: 0; font-weight: 800; letter-spacing: -.025em; }
+.learning-subscriptions h2 { font-size: 27px; }
+.learning-subscriptions h3 { font-size: 19px; }
+.learning-subscriptions p { color: var(--sub-muted); margin: 6px 0 0; line-height: 1.6; }
+.learning-subscriptions__eyebrow { display: block; color: #8541ef; font-size: 11px; letter-spacing: .12em; font-weight: 800; text-transform: uppercase; margin-bottom: 8px; }
+.learning-subscriptions__tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0; }
+.learning-subscriptions button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; border: 1px solid var(--sub-border); border-radius: 12px; background: #fff; padding: 10px 14px; color: #7630d8; font-weight: 700; cursor: pointer; }
+.learning-subscriptions button:disabled { cursor: wait; opacity: .5; }
+.learning-subscriptions button[data-active="true"], .learning-subscriptions .subscription-primary { color: white; background: linear-gradient(110deg, #7c39ee, #a02ade); border-color: transparent; box-shadow: 0 5px 15px #7c39ee22; }
+.learning-subscriptions button:focus-visible, .learning-subscriptions input:focus-visible, .learning-subscriptions select:focus-visible { outline: 3px solid #ab7cf3; outline-offset: 2px; }
+.learning-subscriptions__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; }
+.learning-subscriptions__card { background: #fff; border: 1px solid var(--sub-border); border-radius: 22px; padding: 22px; box-shadow: 0 8px 25px #34426706; }
+.learning-subscriptions__card-top, .learning-subscriptions__row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.learning-subscriptions__price { display: block; margin: 14px 0; font-size: 28px; font-weight: 850; letter-spacing: -.04em; }
+.learning-subscriptions__badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 750; padding: 6px 10px; border-radius: 30px; background: #f3edff; color: #8441e5; }
+.learning-subscriptions__badge[data-status="active"], .learning-subscriptions__badge[data-status="scheduled"] { background: #e6fbf1; color: #17886a; }
+.learning-subscriptions__badge[data-status="awaiting_payment"], .learning-subscriptions__notice { background: #fff7e3; color: #946515; }
+.learning-subscriptions__notice, .learning-subscriptions__error, .learning-subscriptions__success { padding: 12px 16px; border-radius: 14px; margin: 14px 0; font-size: 13px; line-height: 1.6; }
+.learning-subscriptions__error { color: #b62b50; background: #fff0f4; }
+.learning-subscriptions__success { color: #17886a; background: #e6fbf1; }
+.learning-subscriptions__progress { height: 8px; background: #eee9fa; border-radius: 6px; margin: 13px 0; overflow: hidden; }
+.learning-subscriptions__progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #863ff3, #548dff); }
+.learning-subscriptions__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.learning-subscriptions__form { display: grid; gap: 14px; margin-top: 20px; }
+.learning-subscriptions label { display: grid; gap: 6px; color: var(--sub-muted); font-size: 12px; font-weight: 700; }
+.learning-subscriptions input:not([type="checkbox"]), .learning-subscriptions select { width: 100%; border: 1px solid var(--sub-border); border-radius: 12px; padding: 12px; color: var(--sub-ink); background: #fafaff; font-size: 14px; }
+.learning-subscriptions .learning-subscriptions__checkbox { display: flex; flex-direction: row; align-items: center; gap: 9px; color: var(--sub-ink); }
+.learning-subscriptions__list { display: grid; gap: 12px; }
+.learning-subscriptions__table { width: 100%; text-align: left; border-collapse: collapse; }
+.learning-subscriptions__table td, .learning-subscriptions__table th { padding: 14px 10px; border-bottom: 1px solid var(--sub-border); font-size: 13px; }
+.learning-subscriptions__table th { font-weight: 700; color: var(--sub-muted); }
+.learning-subscriptions__modal-backdrop { position: fixed; inset: 0; z-index: 1500; background: #11192b66; display: grid; place-items: center; padding: 20px; overflow-y: auto; }
+.learning-subscriptions__modal { width: min(100%, 640px); max-height: calc(100dvh - 40px); overflow-y: auto; box-shadow: 0 20px 70px #11192b44; }
+.learning-subscriptions__student { margin-bottom: 18px; }
+html.dark .learning-subscriptions, html[data-theme="dark"] .learning-subscriptions, body.dark .learning-subscriptions { --sub-ink: #edf0fc; --sub-muted: #a4afc9; --sub-border: #3e395b; }
+:is(html.dark, html[data-theme="dark"], body.dark) .learning-subscriptions__hero, :is(html.dark, html[data-theme="dark"], body.dark) .learning-subscriptions__card, :is(html.dark, html[data-theme="dark"], body.dark) .learning-subscriptions input:not([type="checkbox"]), :is(html.dark, html[data-theme="dark"], body.dark) .learning-subscriptions select, :is(html.dark, html[data-theme="dark"], body.dark) .learning-subscriptions button:not(.subscription-primary):not([data-active="true"]) { background: #20253b; }
+:is(html.dark, html[data-theme="dark"], body.dark) .learning-subscriptions__notice { background: #3c321f; color: #f5d699; }
+:is(html.dark, html[data-theme="dark"], body.dark) .learning-subscriptions__eyebrow, :is(html.dark, html[data-theme="dark"], body.dark) .learning-subscriptions button:not(.subscription-primary):not([data-active="true"]) { color: #c3a0ff; }
+@media (max-width: 600px) { .learning-subscriptions__hero, .learning-subscriptions__card { padding: 18px; border-radius: 18px; } .learning-subscriptions h2 { font-size: 23px; } .learning-subscriptions__table td, .learning-subscriptions__table th { padding: 10px 5px; font-size: 12px; } }

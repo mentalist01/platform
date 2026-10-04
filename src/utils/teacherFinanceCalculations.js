@@ -73,6 +73,7 @@ export const calculateTeacherStudentProfitability = ({
   monthlyPaidAmounts = [],
   paymentAllocations = [],
   paidCalendarOccurrences = [],
+  subscriptionPaidAmounts = [],
 } = {}) => {
   const completed = Array.isArray(completedOccurrences) ? completedOccurrences : [];
   const paidCalendar = Array.isArray(paidCalendarOccurrences) ? paidCalendarOccurrences : [];
@@ -82,19 +83,20 @@ export const calculateTeacherStudentProfitability = ({
   const normalizedLessonPrice = roundToTwoDecimals(Math.max(0, Number(lessonPrice) || 0));
   const grossRevenue = sumMoney(completed.map((occurrence) => occurrence?.lessonPrice));
   const ledgerReceivedRevenue = sumMoney(
-    completed.filter((occurrence) => occurrence?.paid).map((occurrence) => occurrence?.lessonPrice)
+    completed.filter((occurrence) => occurrence?.paid && !occurrence.subscriptionId).map((occurrence) => occurrence?.lessonPrice)
   );
   const recordedReceivedRevenue = sumMoney(monthlyPaidAmounts);
   const allocatedReceivedRevenue = sumMoney(activeAllocations.map((allocation) => allocation?.amount));
-  const calendarReceivedRevenue = sumMoney(paidCalendar.map((occurrence) => occurrence?.lessonPrice));
-  const receivedRevenue = Math.max(
+  const calendarReceivedRevenue = sumMoney(paidCalendar.filter(occurrence => !occurrence.subscriptionId).map((occurrence) => occurrence?.lessonPrice));
+  const legacyReceivedRevenue = Math.max(
     ledgerReceivedRevenue,
     recordedReceivedRevenue,
     allocatedReceivedRevenue,
     calendarReceivedRevenue
   );
+  const receivedRevenue = roundToTwoDecimals(legacyReceivedRevenue + sumMoney(subscriptionPaidAmounts));
   const inferredPaidLessonCount = pricingMode === 'perLesson' && normalizedLessonPrice > 0
-    ? Math.floor((receivedRevenue + 0.001) / normalizedLessonPrice)
+    ? Math.floor((legacyReceivedRevenue + 0.001) / normalizedLessonPrice)
     : 0;
   const paidLessonCount = Math.max(
     completed.filter((occurrence) => occurrence?.paid).length,
