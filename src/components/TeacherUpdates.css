@@ -1,0 +1,25 @@
+.teacher-updates-entry { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.teacher-updates-entry button { display: inline-flex; align-items: center; gap: 6px; color: #7c3aed; font-size: 12px; font-weight: 700; padding: 6px 10px; border-radius: 10px; }
+.teacher-updates-entry button:hover { background: #f3edff; }
+.teacher-updates-dialog { --updates-ink: #17213d; --updates-muted: #66738e; width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); margin: auto; padding: 0; border: 1px solid #e8e0f8; border-radius: 24px; color: var(--updates-ink); background: #fff; box-shadow: 0 25px 90px #15204044; overflow: auto; }
+.teacher-updates-dialog::backdrop { background: #11192b88; backdrop-filter: blur(3px); }
+.teacher-updates-dialog header { display: flex; align-items: center; gap: 14px; padding: 24px 26px 12px; }
+.teacher-updates-icon { flex-shrink: 0; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; background: #f2eaff; color: #7c3aed; }
+.teacher-updates-eyebrow { font-size: 10px; letter-spacing: .12em; font-weight: 800; color: #8850d8; margin: 0 0 4px; }
+.teacher-updates-dialog h2 { font-size: 27px; font-weight: 800; letter-spacing: -.03em; margin: 0; }
+.teacher-updates-close { display: grid; place-items: center; margin-left: auto; width: 34px; height: 34px; border-radius: 10px; color: var(--updates-muted); }
+.teacher-updates-close:hover { background: #f3edff; }
+.teacher-updates-intro { margin: 0; padding: 0 26px 20px; font-size: 13px; line-height: 1.6; color: var(--updates-muted); }
+.teacher-updates-content { padding: 0 26px 8px; }
+.teacher-updates-content section { padding: 18px 0; border-top: 1px solid #eee8f8; }
+.teacher-updates-content h3 { margin: 0 0 12px; font-size: 15px; font-weight: 800; }
+.teacher-updates-content ul { margin: 0; padding-left: 20px; list-style: disc; }
+.teacher-updates-content li { padding-left: 4px; font-size: 13px; line-height: 1.65; margin: 0 0 10px; }
+.teacher-updates-content li::marker { color: #9b68ee; }
+.teacher-updates-dialog footer { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding: 14px 26px 20px; background: inherit; border-top: 1px solid #eee8f8; }
+.teacher-updates-done { padding: 10px 25px; border-radius: 12px; background: #7c3aed; color: white; font-size: 13px; font-weight: 750; }
+.teacher-updates-dialog button:focus-visible, .teacher-updates-entry button:focus-visible { outline: 3px solid #ab7cf3; outline-offset: 3px; }
+:is(html.dark, html[data-theme="dark"], body.dark) .teacher-updates-dialog { --updates-ink: #edf0fc; --updates-muted: #a4afc9; background: #20253b; border-color: #3e395b; }
+:is(html.dark, html[data-theme="dark"], body.dark) .teacher-updates-content section, :is(html.dark, html[data-theme="dark"], body.dark) .teacher-updates-dialog footer { border-color: #3e395b; }
+:is(html.dark, html[data-theme="dark"], body.dark) .teacher-updates-entry button { color: #c5a4ff; }
+@media (max-width: 480px) { .teacher-updates-dialog header { padding: 20px 18px 12px; } .teacher-updates-intro, .teacher-updates-content { padding-left: 18px; padding-right: 18px; } .teacher-updates-dialog footer { padding: 12px 18px 16px; } }

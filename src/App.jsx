@@ -42,6 +42,7 @@ import MockChestOpeningOverlay from './components/MockChestOpeningOverlay';
 import StudentPaymentReminder from './components/StudentPaymentReminder';
 import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './components/TeacherSubscriptionGate';
 import TeacherDesktopNotice from './components/TeacherDesktopNotice';
+const TeacherUpdates = React.lazy(() => import('./components/TeacherUpdates'));
 import AccountProfileMenu from './components/AccountProfileMenu';
 import TeacherNavigation from './components/TeacherNavigation';
 import useRecordingPrivacy from './hooks/useRecordingPrivacy';
@@ -25928,6 +25929,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         >
           <div className={mainContentShellClass}>
             {user.role === 'teacher' && !['lesson', 'board', 'collab', 'call'].includes(view) && <TeacherDesktopNotice key={user.id} teacherId={user.id} onDetails={() => setView('recording')} />}
+            {user.role === 'teacher' && window.teacherDesktop?.isDesktop === true && <React.Suspense fallback={null}><TeacherUpdates key={user.id} role={user.role} teacherId={user.id}
+              paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || isCallSessionActive || isAnyTelemostLessonReplayActive || Boolean(activeLearningLesson) || !desktopRecorder.checkedAt || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status) || (job.desired === 'record' && job.cutoffAt > Date.now()))} /></React.Suspense>}
             {user.role === 'teacher' && view !== 'finance' && <React.Suspense fallback={null}><TeacherLearningSubscriptionReminder key={user.id} teacherId={user.id}
               paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status) || (job.desired === 'record' && job.cutoffAt > Date.now()))}
               onOpen={() => navigateToView('finance')} /></React.Suspense>}

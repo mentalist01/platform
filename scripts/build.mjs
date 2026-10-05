@@ -4,6 +4,9 @@ import { spawn } from 'node:child_process';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { recorderPackage, recorderRelease } from '../server/recorderPackage.js';
+import { checkTeacherUpdateNotes } from './check-teacher-update-notes.mjs';
+
+checkTeacherUpdateNotes();
 
 const gzipAsync = promisify(gzip);
 const buildArgs = process.argv.slice(2);

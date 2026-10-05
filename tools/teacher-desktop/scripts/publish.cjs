@@ -8,6 +8,7 @@ const { createRequire } = require('node:module');
 const yaml = createRequire(require.resolve('electron-updater'))('js-yaml');
 const { UPDATE_FEED } = require('../updates.cjs');
 const pkg = require('../package.json');
+const releaseCatalog = require('../../../src/data/teacherUpdates.json');
 const repo = 'mentalist01/platform';
 const tag = `teacher-desktop-v${pkg.version}`;
 const directory = process.argv[2] ? path.resolve(process.argv[2]) : path.resolve(__dirname, '../../../output/teacher-desktop/release');
@@ -26,10 +27,12 @@ async function main() {
   if (metadata.version !== pkg.version || metadata.files?.length !== 1 || metadata.files[0].url !== installer
     || metadata.files[0].sha512 !== sha512 || metadata.files[0].size !== bytes.length) throw new Error('Build metadata differs from installer');
   const notes = path.join(directory, 'release-notes.md');
-  fs.writeFileSync(notes, `IVAN100 Учитель ${pkg.version} для Windows.\n\nИсправлена кнопка «Excel / LibreOffice»: таблица открывается через установленный помощник, кабинет остаётся на месте. Сохранено исправление демонстрации экрана из версии 0.1.7.\n\nДля установки после завершения урока и записи нажмите «Обновления» → «Обновить». Приложение сохраняет папку установки, ярлыки, входы и настройки.\n`);
+  const releaseNotes = releaseCatalog.desktop.find(release => release.version === pkg.version);
+  if (!releaseNotes?.changes?.length || !releaseNotes.releaseTitle) throw new Error(`Add teacher release notes for ${pkg.version} before publishing`);
+  fs.writeFileSync(notes, `IVAN100 Учитель ${pkg.version} для Windows.\n\n${releaseNotes.changes.map(change => `- ${change}`).join('\n')}\n\nПосле обновления преподавателю доступно окно «Что нового» со списком изменений приложения и кабинета.\n\nДля установки после завершения урока и записи нажмите «Обновления» → «Обновить». Приложение сохраняет папку установки, ярлыки, входы и настройки.\n`);
   let release = exists(tag);
   if (!release) {
-    gh(['release', 'create', tag, '--repo', repo, '--target', revision, '--draft', '--prerelease', '--title', `IVAN100 Учитель ${pkg.version} — открытие таблиц`, '--notes-file', notes]);
+    gh(['release', 'create', tag, '--repo', repo, '--target', revision, '--draft', '--prerelease', '--title', `IVAN100 Учитель ${pkg.version} — ${releaseNotes.releaseTitle}`, '--notes-file', notes]);
     release = exists(tag);
   }
   if (release.isDraft) {
