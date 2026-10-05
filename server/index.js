@@ -26,6 +26,7 @@ import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDeskt
 import { addRecorderMaterial, recordingLibrary, addLessonRecordingMaterial } from './recorderMaterials.js';
 import { studentNameAvailability, assertStudentNamesAvailable } from './studentNameAvailability.js';
 import { recorderPythonCatalog, attachRecorderPythonTheory } from './recorderPythonTheory.js';
+import { monthlyReviewUrl, setMonthlyReviewVideo, monthlyReviewForStudent, recorderMockReviewCatalog, attachRecorderMockReview } from './monthlyMockReview.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
 import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallengeCookie, setTrustedBrowserCookie } from './accountSecurity.js';
 import path from 'path';
@@ -19310,6 +19311,9 @@ const sanitizeMockExamForStudent = (exam) => {
   });
   safe.tasks = sanitizedTasks;
   delete safe.monthlyAssignments;
+  delete safe.monthlyReviewVideos;
+  delete safe.monthlyReviewPublications;
+  delete safe.monthlyReviewVideoUrl;
   return safe;
 };
 
@@ -19400,6 +19404,10 @@ const serializeMockExamEntry = (exam, options = {}) => {
     safeExam.requiredMode = safeExam.access.mode;
   }
   delete safeExam.monthlyAssignments;
+  delete safeExam.monthlyReviewVideos;
+  delete safeExam.monthlyReviewPublications;
+  delete safeExam.monthlyReviewVideoUrl;
+  if (!options.sanitizeForStudent && options.monthlyTeacherId) safeExam.monthlyReviewVideoUrl = monthlyReviewUrl(exam, options.monthlyTeacherId);
   return safeExam;
 };
 
@@ -21992,6 +22000,19 @@ registerDesktopDeviceRoutes(app, desktopRecordings, {
     const teacher=readTeachersDb().find(t=>t.id===teacherId);
     if(!teacher || !isTeacherSubscriptionAccessAllowed({...teacher,role:'teacher'}))throw Object.assign(new Error('Доступ к платформе приостановлен'),{status:402});
     return recorderLessonTopic(teacherId,desktopRecordings.lessonJob(teacherId,payload.jobId),payload,recorderTopicContext());
+  },
+  mockReviewCatalog: (teacherId) => {
+    const teacher = readTeachersDb().find(t => t.id === teacherId);
+    if (!teacher || !isTeacherSubscriptionAccessAllowed({ ...teacher, role: 'teacher' })) throw Object.assign(new Error('Доступ к платформе приостановлен'), { status: 402 });
+    return recorderMockReviewCatalog(readMockExamsDb(), teacherId);
+  },
+  mockReviewMaterial: (teacherId, payload) => {
+    const teacher = readTeachersDb().find(t => t.id === teacherId);
+    if (!teacher || !isTeacherSubscriptionAccessAllowed({ ...teacher, role: 'teacher' })) throw Object.assign(new Error('Доступ к платформе приостановлен'), { status: 402 });
+    const result = attachRecorderMockReview(readMockExamsDb(), teacherId, payload);
+    if (result.created) writeMockExamsDb(result.exams);
+    const { exams: _exams, ...material } = result;
+    return material;
   },
   pythonCatalog: (teacherId) => {
     const teacher = readTeachersDb().find(t => t.id === teacherId);
@@ -28773,6 +28794,7 @@ app.get('/api/monthly-mock-status', (req, res) => {
         examId: exam.id, title: exam.title, taskCount: Object.keys(exam.tasks).length,
         mode: normalizeMockExamAccess(exam.access).mode,
         dueAt: new Date(period.endMs - 1).toISOString(),
+        ...monthlyReviewForStudent(exam, students[0].teacherId, progressDb[students[0].id] || {}, period.month, now),
       } : null;
     })() } : {}),
     summary: {
@@ -30665,6 +30687,14 @@ app.get('/api/mock-exams', (req, res) => {
     .map((exam) => serializeMockExamEntry(exam, { monthlyTeacherId: getTaskContentTeacherIdForAuth(req.auth) })));
 });
 
+app.get('/api/mock-exams/:id/monthly-review', (req, res) => {
+  if (!isTeacherRole(req.auth)) return forbid(res);
+  const exam = readMockExamsDb().find(entry => entry.id === req.params.id);
+  if (!exam) return res.status(404).json({ error: 'Пробник не найден' });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ url: monthlyReviewUrl(exam, req.auth.id) });
+});
+
 app.get('/api/mock-exams/task-analytics', (req, res) => {
   const requestedExamId = typeof req.query?.examId === 'string' ? req.query.examId.trim() : '';
   const requestedHomeworkId = typeof req.query?.homeworkId === 'string' ? req.query.homeworkId.trim() : '';
@@ -32027,7 +32057,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
 app.patch('/api/mock-exams/:id', (req, res) => {
   if (isStudentRole(req.auth)) return forbid(res);
   const { id } = req.params;
-  const { title, tasks, access, badges, monthlyAssignment } = req.body || {};
+  const { title, tasks, access, badges, monthlyAssignment, monthlyReviewVideoUrl } = req.body || {};
   let list = readMockExamsDb();
   const idx = list.findIndex((exam) => exam.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Пробник не найден' });
@@ -32063,6 +32093,11 @@ app.patch('/api/mock-exams/:id', (req, res) => {
     access: nextAccess,
     updatedAt: new Date().toISOString(),
   };
+  if (monthlyReviewVideoUrl !== undefined) {
+    if (!isTeacherRole(req.auth)) return forbid(res);
+    try { Object.assign(next, setMonthlyReviewVideo(next, req.auth.id, monthlyReviewVideoUrl)); }
+    catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  }
   list[idx] = next;
   if (monthlyAssignment !== undefined) {
     if (!isTeacherRole(req.auth)) return forbid(res);

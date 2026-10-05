@@ -214,7 +214,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   };
 }
 
-export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, archiveStatus, archiveMaterial, lessonTopic, pythonCatalog, pythonMaterial } = {}) {
+export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, archiveStatus, archiveMaterial, lessonTopic, pythonCatalog, pythonMaterial, mockReviewCatalog, mockReviewMaterial } = {}) {
   const handle = (fn) => (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось сохранить состояние записи' }); }
@@ -233,6 +233,15 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, arc
   app.post('/api/desktop-recorder/archive/lesson-topic', handle((req,res) => {
     if(!lessonTopic)return res.status(503).json({error:'Темы занятий ещё не настроены'});
     res.json(lessonTopic(req.recorderDevice.teacherId,req.body || {}));
+  }));
+  app.post('/api/desktop-recorder/mock-review/catalog', handle((req, res) => {
+    if (!mockReviewCatalog) return res.status(503).json({ error: 'Запись разбора пробника ещё не настроена' });
+    res.json(mockReviewCatalog(req.recorderDevice.teacherId));
+  }));
+  app.post('/api/desktop-recorder/mock-review/material', handle((req, res) => {
+    if (!mockReviewMaterial) return res.status(503).json({ error: 'Запись разбора пробника ещё не настроена' });
+    const result = mockReviewMaterial(req.recorderDevice.teacherId, req.body || {});
+    res.status(result.created ? 201 : 200).json(result);
   }));
   app.post('/api/desktop-recorder/python/catalog', handle((req, res) => {
     if (!pythonCatalog) return res.status(503).json({ error: 'Запись теории Python ещё не настроена' });

@@ -42,6 +42,16 @@ test('Python pause and resume keep one active file, do not publish, and survive 
   assert.equal(f.state.jobs.one.status, 'saved'); assert.deepEqual(f.counts(), [1, 1]);
 });
 
+test('mock review pauses in the same output, continues and stops without creating a lesson', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, local: true, mockReview: { examId: 'exam' } });
+  assert.equal((await f.engine.setMaterialPaused('one', true)).outputPaused, true);
+  await assert.rejects(f.engine.setMaterialPaused('other', false), /текущую/);
+  assert.equal((await f.engine.setMaterialPaused('one', false)).outputPaused, false);
+  await f.engine.stop(f.engine.active());
+  assert.deepEqual(f.counts(), [1, 1]); assert.deepEqual(f.reports, []);
+  assert.equal(f.state.jobs.one.mockReview.examId, 'exam');
+});
+
 test('Python local pause does not wait for an unfinished platform poll', async t => {
   const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {} });
   let releasePoll; let signalPoll;

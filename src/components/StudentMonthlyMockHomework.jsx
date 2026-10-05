@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, ClipboardList, Clock3, ListChecks, PlayCircle, RefreshCcw, Sparkles } from 'lucide-react';
+import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, ClipboardList, Clock3, ListChecks, LockKeyhole, PlayCircle, RefreshCcw, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
 import { getMonthlyMockMonth, getMonthlyMockPeriod, MONTHLY_MOCK_TIME_ZONE } from '../utils/monthlyMockExam';
 import './StudentMonthlyMockHomework.css';
+import './MonthlyMockReview.css';
+import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../utils/learningGroups';
+import RutubeViewingHelp from './RutubeViewingHelp';
 
 export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
   const assignment = data?.assignment;
+  const [openReviewFor, setOpenReviewFor] = useState('');
+  const reviewUrl = assignment?.reviewVideoUrl || '';
+  const reviewKey = `${assignment?.examId || ''}:${reviewUrl}`;
   const row = data?.rows?.[0];
   const period = data?.period || getMonthlyMockPeriod(getMonthlyMockMonth());
   const status = assignment ? row?.status || 'pending' : 'unassigned';
@@ -67,6 +73,13 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
         </button>
         <p className="student-monthly-mock__action-hint">{completed ? 'Результат этого месяца сохранён' : exempt ? 'Прохождение по желанию' : 'Один полный пробник за месяц'}</p>
       </div>
+    </div>}
+    {assignment?.hasReviewVideo && <div className="student-monthly-mock__review">
+      <div className="student-monthly-mock__review-heading">{reviewUrl ? <PlayCircle size={20} /> : <LockKeyhole size={20} />}Видеоразбор пробника</div>
+      {reviewUrl ? <>
+        <button type="button" aria-expanded={openReviewFor === reviewKey} onClick={() => setOpenReviewFor(openReviewFor === reviewKey ? '' : reviewKey)}>{openReviewFor === reviewKey ? 'Скрыть видеоразбор' : 'Смотреть видеоразбор'}</button>
+        {openReviewFor === reviewKey && <><iframe src={getRutubeEmbedUrl(reviewUrl)} title={`Видеоразбор · ${assignment.title}`} allow="clipboard-write; autoplay" allowFullScreen loading="lazy" /><a href={getRutubeWatchUrl(reviewUrl)} target="_blank" rel="noreferrer">Если плеер не работает, открыть на Rutube</a><RutubeViewingHelp /></>}
+      </> : <p>Разбор откроется после завершения этого пробника.</p>}
     </div>}
   </section>;
 }

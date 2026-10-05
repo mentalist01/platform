@@ -41,6 +41,7 @@ import MockExamModal from './MockExamModal';
 import MockExamTimerConfirmDialog from './MockExamTimerConfirmDialog';
 import RandomMockGenerator from './RandomMockGenerator';
 import MonthlyMockAssignmentCheckbox from './MonthlyMockAssignmentCheckbox';
+import MonthlyMockReviewEditor from './MonthlyMockReviewEditor';
 import { getMonthlyMockMonth } from '../utils/monthlyMockExam';
 import './StudentMonthlyMockHomework.css';
 import ProgressReviewModal from './ProgressReviewModal';
@@ -3981,6 +3982,7 @@ const ProgressSection = ({
                   onChange={assigned => void handleMonthlyMockAssignment(exam, assigned)}
                   hint={monthlyMockSavingId === exam.id ? 'Сохраняем…' : !access.all || !filledTaskCount ? 'Добавьте задания и откройте доступ всем ученикам в разделе «Доступ».' : 'Появится в домашке всех ваших учеников со сроком до конца месяца.'}
                 />
+                <MonthlyMockReviewEditor exam={exam} onSaved={saved => setMockExams(previous => previous.map(entry => entry.id === saved.id ? { ...entry, ...saved } : entry))} />
               </div>
               {primaryBadge && (
                 <div className="self-start md:self-center shrink-0">

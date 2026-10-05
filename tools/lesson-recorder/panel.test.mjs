@@ -40,6 +40,13 @@ test('Python record button explains temporary blockers and re-enables once idle'
   assert.equal(startReason(idle, {}), '');
 });
 
+test('review transport has the same confirmed pause and continue states as Python', () => {
+  const state = { ...live, jobs: [{ ...job, mockReview: { examId: 'exam' } }] };
+  assert.equal(pauseView(state).visible, true);
+  assert.equal(pauseView(state).disabled, false);
+  assert.equal(pauseView({ ...state, obs: { ...state.obs, outputPaused: true } }).label, 'Продолжить');
+});
+
 test('headline shows the actual recording student and OBS elapsed time', () => {
   const view = headline(live);
   assert.equal(view.name, 'Олег');

@@ -79,9 +79,10 @@ export class RecorderEngine {
     job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
     await this.report(job, 'saved');
   }
-  async setPythonPaused(id, paused) {
+  async setPythonPaused(id, paused) { return this.setMaterialPaused(id, paused); }
+  async setMaterialPaused(id, paused) {
     const job = this.active();
-    if (!job?.pythonTheory || job.id !== id || job.status !== 'recording') throw new Error('Выберите текущую запись урока Python');
+    if (!(job?.pythonTheory || job?.mockReview) || job.id !== id || job.status !== 'recording') throw new Error('Выберите текущую запись урока Python или разбора пробника');
     if (typeof paused !== 'boolean') throw new Error('Укажите состояние паузы');
     if (job.cutoffAt <= this.now()) throw new Error('Время записи истекло. Дождитесь сохранения файла.');
     if (this.pauseOperation) throw new Error('Дождитесь подтверждения предыдущего нажатия');

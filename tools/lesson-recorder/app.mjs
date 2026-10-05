@@ -15,6 +15,7 @@ import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
 import { startPythonTheory, publishPythonTheory } from './python-theory.mjs';
+import { startMockReview, publishMockReview } from './mock-review.mjs';
 import { enterFallback } from './fallback.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
 import { RutubeUploader, privateVideo, videoReady } from './rutube.mjs';
@@ -88,6 +89,7 @@ async function prepare(job) {
 const retryPublication = failure => failure.status >= 500 || ['TypeError', 'TimeoutError', 'AbortError'].includes(failure.name);
 async function publish(job) {
   if (job.excludeFromUpload) throw new Error('Этот исходник исключён из загрузки. Используйте подготовленную запись урока.');
+  if (job.mockReview) return publishMockReview(job, { api, ready: videoReady, save });
   if (job.pythonTheory) return publishPythonTheory(job, { api, ready: videoReady, save });
   const video = privateVideo(job.url);
   if (!video) throw new Error('Нужна полная закрытая ссылка Rutube с ключом ?p=');
@@ -124,7 +126,7 @@ async function queue() {
       if (job.status === 'saved') {
         try { await prepare(job); }
         catch (failure) { job.status = 'error'; job.error = failure.message; save(); continue; }
-        if (job.pythonTheory || (state.config.autoUpload && !job.local)) await upload(job);
+        if (job.pythonTheory || job.mockReview || (state.config.autoUpload && !job.local)) await upload(job);
       }
       if (job.status === 'processing' && job.url && Date.now() >= (job.nextPublishAt || 0)) {
         job.nextPublishAt = Date.now() + 30000; save();
@@ -135,7 +137,7 @@ async function queue() {
   } catch (failure) { error = failure.message; }
   finally { queueBusy = false; }
 }
-const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => !engine.active()?.pythonTheory && !engine.active()?.fallbackMode && state.config.autoFollowShare !== false });
+const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => !engine.active()?.pythonTheory && !engine.active()?.mockReview && !engine.active()?.fallbackMode && state.config.autoFollowShare !== false });
 const foregroundReader = new ForegroundWindowReader();
 const officeFollower = new OfficeFollower({ obs, reader: foregroundReader, config: () => state.config,
   shareActive: () => Boolean(shareBridge.offer) });
@@ -227,7 +229,7 @@ const server = http.createServer(async (req, res) => {
       if (await archive.handle(req, res, { key: localKey, json, body })) return;
     }
     if (req.method === 'GET' && req.url === '/health') return json(res, 200, { releaseId: updater.installed.id });
-    if (req.method === 'GET' && req.url === '/') {
+    if (req.method === 'GET' && pathname === '/') {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'");
       return res.end(fs.readFileSync(path.join(here, 'panel.html'), 'utf8').replace('__LOCAL_KEY__', localKey));
@@ -248,6 +250,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/preview') return json(res, 200, { image: await obs.preview() });
     if (req.method === 'GET' && req.url === '/choices') return json(res, 200, await obs.choices());
     if (req.method === 'GET' && req.url === '/storage') return json(res, 200, { drives: await recordingDrives(), recordDirectory: state.config.recordDirectory || '' });
+    if (req.method === 'GET' && req.url === '/mock-review/catalog') return json(res, 200, await api('/mock-review/catalog', {}));
     if (req.method === 'GET' && req.url === '/python/catalog') return json(res, 200, await api('/python/catalog', {}));
     if (req.method === 'GET' && req.url.startsWith('/test-video/')) {
       const job = state.jobs[req.url.slice('/test-video/'.length)];
@@ -258,11 +261,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') return json(res, 404, { error: 'Not found' });
     if (updater.busy) return json(res, 409, { error: 'Пульт обновляется. Подождите завершения.' });
     const payload = await body(req);
-    if (req.url === '/python/pause') {
+    if (req.url === '/python/pause' || req.url === '/material/pause') {
       // Keep this local control out of the platform synchronization queue.
       // The engine coordinates it with StopRecord and checks the exact job.
       recordingControlRevision++;
-      const recording = await engine.setPythonPaused(payload.id, payload.paused);
+      const recording = await engine.setMaterialPaused(payload.id, payload.paused);
       recordingControlRevision++;
       obsStatus = { ...obsStatus, ...recording };
       return json(res, 200, { recording, id: payload.id });
@@ -360,6 +363,12 @@ const server = http.createServer(async (req, res) => {
       } else if (req.url === '/test-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
         await engine.start({ id: crypto.randomUUID(), title: 'Проверка записи', local: true, testFingerprint: setupFingerprint(state.config), cutoffAt: Date.now() + 60000 });
+      } else if (req.url === '/mock-review/start') {
+        if (!ready()) throw new Error('Сначала настройте запись и выберите микрофон в пульте');
+        if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');
+        if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
+        await startMockReview({ api, engine, payload });
+        obsStatus = await obs.status();
       } else if (req.url === '/python/start') {
         if (!ready()) throw new Error('Сначала настройте запись и выберите микрофон в пульте');
         if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');

@@ -1,0 +1,23 @@
+.monthly-review-editor { margin-top: 12px; font-size: 12px; }
+.monthly-review-editor__toggle { display: inline-flex; align-items: center; gap: 7px; color: #7c3aed; font-weight: 650; padding: 7px 0; border: 0; background: transparent; cursor: pointer; }
+.monthly-review-editor__body { max-width: 650px; padding: 14px; border: 1px solid #ddd6fe; border-radius: 15px; background: #f8f5ff; }
+.monthly-review-editor__body label { display: grid; gap: 6px; font-weight: 600; margin: 12px 0; }
+.monthly-review-editor__body input { width: 100%; border: 1px solid #ddd6fe; border-radius: 9px; padding: 10px; background: white; color: #334155; font-weight: 400; }
+.monthly-review-editor__body small { display: block; color: #64748b; line-height: 1.6; margin-top: 10px; }
+.monthly-review-editor__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.monthly-review-editor__actions button, .monthly-review-editor__actions a { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 0; border-radius: 9px; background: #7c3aed; color: white; font-weight: 650; text-decoration: none; cursor: pointer; }
+.monthly-review-editor__actions a { background: #ede9fe; color: #6d28d9; }
+.monthly-review-editor__actions button:disabled { opacity: .5; }
+.monthly-review-editor__error { color: #be123c; margin-top: 8px; }
+.monthly-review-editor button:focus-visible, .monthly-review-editor a:focus-visible, .monthly-review-editor input:focus-visible { outline: 2px solid #8b5cf6; outline-offset: 3px; }
+.student-monthly-mock__review { border-top: 1px solid #e8defb; margin-top: 26px; padding-top: 22px; }
+.student-monthly-mock__review-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; font-weight: 700; color: #70539b; }
+.student-monthly-mock__review button { display: inline-flex; align-items: center; gap: 7px; padding: 12px 16px; border: 0; background: #7c3aed; color: white; border-radius: 12px; font-weight: 650; cursor: pointer; }
+.student-monthly-mock__review iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 16px; border: 0; margin-top: 16px; background: #0f172a; }
+.student-monthly-mock__review a { display: inline-block; margin-top: 10px; color: #7c3aed; font-size: 12px; text-decoration: underline; }
+.student-monthly-mock__review p { font-size: 13px; color: #64748b; }
+html[data-theme='dark'] .monthly-review-editor__body { background: #282034; border-color: #55416d; color: #e2d8f2; }
+html[data-theme='dark'] .monthly-review-editor__body input { background: #211d2d; color: #eee4ff; border-color: #55416d; }
+html[data-theme='dark'] .monthly-review-editor__toggle, html[data-theme='dark'] .student-monthly-mock__review-heading, html[data-theme='dark'] .student-monthly-mock__review a { color: #c4b5fd; }
+html[data-theme='dark'] .monthly-review-editor__body small, html[data-theme='dark'] .student-monthly-mock__review p { color: #b5a9c6; }
+html[data-theme='dark'] .student-monthly-mock__review { border-color: #55416d; }
