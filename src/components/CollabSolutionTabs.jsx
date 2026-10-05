@@ -8,10 +8,10 @@ const MAX_NAME_LENGTH = 48;
 
 function nextSolutionName(solutions) {
   const names = new Set(solutions.map(({ name }) => name.trim().toLocaleLowerCase('ru')));
-  if (!names.has('мой вариант')) return 'Мой вариант';
-  let index = 1;
-  while (names.has(`черновик ${index}`)) index += 1;
-  return `Черновик ${index}`;
+  if (!names.has('новый раздел')) return 'Новый раздел';
+  let index = 2;
+  while (names.has(`раздел ${index}`)) index += 1;
+  return `Раздел ${index}`;
 }
 
 export default function CollabSolutionTabs({
@@ -312,7 +312,7 @@ export default function CollabSolutionTabs({
     <div className={`collab-solutions${dark ? ' collab-solutions--dark' : ''}`}>
       <div className="collab-solutions__row">
         <div className="collab-solutions__tabs-row">
-          <div className="collab-solutions__tabs" role="tablist" aria-label="Варианты кода" ref={tabsRef}>
+          <div className="collab-solutions__tabs" role="tablist" aria-label="Разделы кода" ref={tabsRef}>
             {tabEntries.map(renderTab)}
           </div>
         </div>
@@ -323,13 +323,13 @@ export default function CollabSolutionTabs({
                 className="collab-solutions__button collab-solutions__create"
                 onClick={() => openForm('create')}
                 disabled={!canEdit || !activeSolution || saving}
-                title="Создать копию текущего решения, ввода и результата"
-                aria-label="Создать копию текущего решения"
+                title="Создать новый пустой раздел кода"
+                aria-label="Создать новый раздел"
                 aria-controls={form?.kind === 'create' ? formId : undefined}
                 aria-expanded={form?.kind === 'create'}
               >
                 <Plus size={16} />
-                <span>Создать копию</span>
+                <span>Новый раздел</span>
               </button>
           )}
           <button
@@ -379,12 +379,12 @@ export default function CollabSolutionTabs({
           {form.kind === 'delete' ? (
             <>
               <span>Удалить «{solutions.find((item) => item.id === form.id)?.name}» у всех участников?</span>
-              <button type="submit" className="collab-solutions__button collab-solutions__delete" disabled={!canEdit || saving}>Удалить копию</button>
+              <button type="submit" className="collab-solutions__button collab-solutions__delete" disabled={!canEdit || saving}>Удалить раздел</button>
               <button type="button" className="collab-solutions__button" onClick={cancelForm} disabled={saving}>Отмена</button>
             </>
           ) : (
             <>
-          <label htmlFor={inputId}>{form.kind === 'create' ? 'Название копии' : 'Название варианта'}</label>
+          <label htmlFor={inputId}>Название раздела</label>
           <input
             key={`${form.kind}-${form.id}`}
             id={inputId}

@@ -172,7 +172,7 @@ import {
   COLLAB_SOLUTIONS_ORDER_KEY,
   getCollabSolutionChannels,
   listCollabSolutions,
-  createCollabSolution,
+  createEmptyCollabSolution,
   renameCollabSolution,
   deleteCollabSolution,
   restoreCollabSolution,
@@ -9594,13 +9594,13 @@ const CollabSection = ({
     setCompareSolutionId(null);
     if (!selectSolutionRef.current?.(id)) setSolutionError('Не удалось открыть вариант. Дождитесь подключения и повторите.');
   };
-  const copyCodeSolution = (name) => {
+  const createCodeSection = (name) => {
     if (collabReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) {
       throw new Error('Дождитесь завершения текущей операции.');
     }
     const doc = collabDocRef.current;
     if (!doc) throw new Error('Совместный код ещё не подключён.');
-    const solution = createCollabSolution(doc, { sourceId: activeSolutionIdRef.current, name });
+    const solution = createEmptyCollabSolution(doc, { name });
     selectCodeSolution(solution.id);
   };
   const renameCodeSolution = (id, name) => {
@@ -11431,7 +11431,7 @@ const CollabSection = ({
             solutions={codeSolutions}
             activeId={activeSolutionId}
             onSelect={selectCodeSolution}
-            onCreate={copyCodeSolution}
+            onCreate={createCodeSection}
             onRename={renameCodeSolution}
             onDelete={deleteCodeSolution}
             onReorder={reorderCodeSolutionTabs}

@@ -7,6 +7,7 @@ import {
   DEFAULT_COLLAB_SOLUTION_ID,
   MAX_COLLAB_SOLUTIONS,
   createCollabSolution,
+  createEmptyCollabSolution,
   getCollabSolutionChannels,
   listCollabSolutions,
   renameCollabSolution,
@@ -157,6 +158,73 @@ test('clone of an empty legacy run fills file and draft defaults without changin
   createCollabSolution(doc, { id: 'third', sourceId: 'empty', name: 'Следующий' });
   assert.equal(getCollabSolutionChannels(doc, 'third').runMap.get('stdinDraft'), '');
   assert.equal(getCollabSolutionChannels(doc, 'third').runMap.get('input'), 'previous run');
+});
+
+test('new sections start empty without copying code, files, run results or notifications', () => {
+  const doc = seedLegacyDocument();
+  const main = getCollabSolutionChannels(doc);
+  main.runMap.set('error', 'Previous error');
+  main.runMap.set('stdinDraft', 'Previous draft');
+  main.runMap.set('saveNoticeId', 'previous-save');
+  main.runMap.set('debugActive', true);
+  const original = {
+    code: main.codeText.toString(), file: main.testFileText.toString(), run: main.runMap.toJSON(),
+  };
+  let published = 0;
+  doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).observe(() => {
+    published++;
+    const section = getCollabSolutionChannels(doc, 'new-section');
+    assert.equal(section.codeText.toString(), '');
+    assert.equal(section.testFileText.toString(), '');
+    assert.equal(section.runMap.get('output'), '');
+    assert.equal(section.runMap.get('status'), 'idle');
+  });
+  assert.deepEqual(createEmptyCollabSolution(doc, {id:'new-section',name:'  Задание 5  ',createdAt:500}), {
+    id:'new-section',name:'Задание 5',createdAt:500,
+  });
+  assert.equal(published, 1);
+  const section = getCollabSolutionChannels(doc, 'new-section');
+  const run = section.runMap;
+  for (const key of ['input','stdinDraft','output','error','taskFilesTaskNumber','debugSource']) assert.equal(run.get(key), '');
+  for (const key of ['taskFilesSelectedIds','customFiles','debugBreakpoints','debugTrace']) assert.deepEqual(run.get(key), []);
+  for (const key of ['running','debugActive','debugPlaying','taskFilesPanelOpen']) assert.equal(run.get(key), false);
+  assert.equal(run.has('saveNoticeId'), false);
+  assert.equal(run.has('ts'), false);
+  assert.equal(run.has('author'), false);
+  assert.deepEqual({code:main.codeText.toString(),file:main.testFileText.toString(),run:main.runMap.toJSON()}, original);
+  section.codeText.insert(0, 'print("new section")');
+  run.set('stdinDraft', 'New draft');
+  assert.equal(main.codeText.toString(), original.code);
+  assert.equal(main.runMap.get('stdinDraft'), 'Previous draft');
+});
+
+test('empty creation reaches the other participant and stays empty after binary persistence', () => {
+  const teacher = seedLegacyDocument(), pupil = copyDoc(teacher);
+  createEmptyCollabSolution(teacher, {id:'blank',name:'Новый раздел'});
+  syncDocs(teacher, pupil);
+  for (const doc of [pupil,copyDoc(teacher)]) {
+    assert.ok(listCollabSolutions(doc).some(section => section.id === 'blank'));
+    const section = getCollabSolutionChannels(doc, 'blank');
+    assert.equal(section.codeText.toString(), '');
+    assert.equal(section.testFileText.toString(), '');
+    assert.equal(section.runMap.get('input'), '');
+    assert.equal(section.runMap.get('output'), '');
+    assert.deepEqual(section.runMap.get('customFiles'), []);
+    assert.equal(getCollabSolutionChannels(doc).codeText.toString(), 'print("привет 🐍")\r\nprint(42)\r');
+  }
+});
+
+test('participants can create independent empty sections concurrently without cloning their active text', () => {
+  const left = seedLegacyDocument(), right = copyDoc(left);
+  createEmptyCollabSolution(left, {id:'teacher-blank',name:'Учитель'});
+  createEmptyCollabSolution(right, {id:'student-blank',name:'Ученик'});
+  getCollabSolutionChannels(left,'teacher-blank').codeText.insert(0, 'print("teacher")');
+  syncDocs(left,right);
+  assert.deepEqual(listCollabSolutions(left),listCollabSolutions(right));
+  for (const doc of [left,right]) {
+    assert.equal(getCollabSolutionChannels(doc,'student-blank').codeText.toString(),'');
+    assert.equal(getCollabSolutionChannels(doc,'teacher-blank').codeText.toString(),'print("teacher")');
+  }
 });
 
 test('invalid and duplicate creation cannot change existing content', () => {

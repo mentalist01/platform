@@ -139,7 +139,7 @@ export const createCollabSolution = (doc, {
 } = {}) => {
   const solutionId = normalizeId(id);
   const solutionName = normalizeName(name);
-  const sourceSolutionId = requireSolution(doc, sourceId);
+  const sourceSolutionId = sourceId === null ? null : requireSolution(doc, sourceId);
   const solutions = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY);
   if (solutionId === DEFAULT_COLLAB_SOLUTION_ID || solutions.has(solutionId)) {
     throw new Error('Решение с таким идентификатором уже существует.');
@@ -148,12 +148,20 @@ export const createCollabSolution = (doc, {
     throw new Error(`Можно сохранить не больше ${MAX_COLLAB_SOLUTIONS} решений.`);
   }
 
-  const source = getCollabSolutionChannels(doc, sourceSolutionId);
-  const code = normalizeCollabCodeText(source.codeText.toString());
-  const testFile = source.testFileText.toString();
+  const source = sourceSolutionId === null ? null : getCollabSolutionChannels(doc, sourceSolutionId);
+  const code = normalizeCollabCodeText(source?.codeText.toString());
+  const testFile = source?.testFileText.toString() || '';
   // A copied run is a snapshot, not an instruction to continue a live worker.
   // Deep-copy JSON so arrays/objects in file selections cannot alias the source.
-  const runState = JSON.parse(JSON.stringify(source.runMap.toJSON()));
+  const runState = source ? JSON.parse(JSON.stringify(source.runMap.toJSON())) : {
+    input: '',
+    stdinDraft: '',
+    output: '',
+    error: '',
+    status: 'idle',
+    customFiles: [],
+    debugBreakpoints: [],
+  };
   // A copy has not itself been saved to notes. Do not replay a recent
   // notification belonging to the source solution when opening the new tab.
   for (const key of Object.keys(runState)) {
@@ -189,6 +197,12 @@ export const createCollabSolution = (doc, {
   }, 'collab-solutions:create');
   return metadata;
 };
+
+// A new section starts independently of the currently selected code and run.
+// Retain the explicit clone helper for older callers and saved-room workflows.
+export const createEmptyCollabSolution = (doc, options = {}) => (
+  createCollabSolution(doc, { ...options, sourceId: null })
+);
 
 export const renameCollabSolution = (doc, id, name) => {
   const solutionId = requireSolution(doc, id);

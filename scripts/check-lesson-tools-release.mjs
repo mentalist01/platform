@@ -8,10 +8,10 @@ const html = fs.readFileSync(path.join(directory, 'index.html'), 'utf8');
 const initial = [...html.matchAll(/(?:src|href)="(\/assets\/[^" ]+\.(?:js|css))"/g)].map(match => match[1]);
 const files = fs.readdirSync(path.join(directory, 'assets')).filter(file => /\.(js|css)$/.test(file));
 const source = files.filter(file => file.endsWith('.js')).map(file => fs.readFileSync(path.join(directory, 'assets', file), 'utf8')).join('\n');
-for (const marker of ['Миникарта доски. Перетащите синюю рамку', 'Не забыли задать домашку?', 'Перейти задать', 'Я так и хотел', '/api/teacher-homework-reminders', 'openHomeworkRequest', 'homework-reminder-']) assert.ok(source.includes(marker), `Missing lesson feature: ${marker}`);
+for (const marker of ['Миникарта доски. Перетащите синюю рамку', 'Не забыли задать домашку?', 'Перейти задать', 'Я так и хотел', '/api/teacher-homework-reminders', 'openHomeworkRequest', 'homework-reminder-', 'Создать новый пустой раздел кода', 'Название раздела']) assert.ok(source.includes(marker), `Missing lesson feature: ${marker}`);
 const featureFiles = files.filter(file => /^(?:TeacherHomeworkReminders|LearningGroupsSection)-/.test(file));
 assert.ok(featureFiles.some(file => file.endsWith('.css') && fs.readFileSync(path.join(directory, 'assets', file), 'utf8').includes('.teacher-homework-reminder')), 'Reminder styles missing');
-console.log('Interactive minimap and teacher homework reminders verified in this build.');
+console.log('Interactive minimap, empty code sections and teacher homework reminders verified in this build.');
 if (mode === 'verify') {
   const get = async (route, token) => {
     const response = await fetch(`https://ivan100.ru${route}`, { headers: { 'Cache-Control': 'no-cache', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: AbortSignal.timeout(25000) });

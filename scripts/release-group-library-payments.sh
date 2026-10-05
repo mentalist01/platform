@@ -26,6 +26,7 @@ node --test server/groupLibrary.test.js server/groupLibrary.integration.test.js 
 node --test tools/lesson-recorder/*.test.mjs src/utils/recordingHealth.test.js server/recorderPackage.test.js server/desktopRecording.test.js server/desktopRecording.integration.test.js > "$backup/recorder-tests.log" 2>&1
 node --test src/utils/pythonTaskPractice.test.js src/utils/pythonProgress.test.js server/weeklyTaskPractice.test.js server/pythonTaskPractice.integration.test.js server/questionAnswerCheck.integration.test.js server/mockExamCorrections.integration.test.js server/mockExamTaskAnalytics.integration.test.js > "$backup/python-practice-tests.log" 2>&1
 node --test src/utils/boardTaskClipboard.test.js > "$backup/board-task-clipboard-tests.log" 2>&1
+node --test src/utils/collabSolutions.test.js > "$backup/code-sections-tests.log" 2>&1
 stage="dist-group-library-payments-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-group-library-payments-release.mjs local "$stage"
@@ -37,6 +38,7 @@ node scripts/check-recorder-ui-release.mjs local "$stage"
 node scripts/check-recording-reliability-release.mjs local "$stage"
 node scripts/check-python-practice-release.mjs local "$stage"
 node scripts/check-board-task-clipboard-release.mjs local "$stage"
+node scripts/check-lesson-tools-release.mjs local "$stage"
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 # Preserve old chunks for users with an already open client.
 cp -a "$stage/assets/." dist/assets/
