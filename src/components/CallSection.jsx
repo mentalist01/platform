@@ -6549,6 +6549,9 @@ const CallSection = ({
                 </section>
               ) : (
                 <section className={mediaSectionClass} data-video-count={voiceCallParticipants.filter((peer) => peer.hasVideo).length}>
+                <div className="call-workspace-ambient" aria-hidden="true">
+                  <span /><span /><span />
+                </div>
                 <div className="call-media-grid flex flex-wrap items-center justify-center gap-5 md:gap-8">
                   {voiceCallParticipants.map((peer, index) => {
                     const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';

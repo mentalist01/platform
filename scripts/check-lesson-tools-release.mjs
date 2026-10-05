@@ -15,10 +15,11 @@ const callJs = featureFiles.find(file => /^CallSection-.+\.js$/.test(file));
 const callCss = featureFiles.find(file => /^CallSection-.+\.css$/.test(file));
 assert.ok(callJs && callCss, 'Call media bundles missing');
 assert.ok(fs.readFileSync(path.join(directory, 'assets', callJs), 'utf8').includes('call-media-tile--stage'), 'Large active call media missing');
-for (const marker of ['call-workspace-body', 'call-prejoin-footer', 'call-workspace-diagnostics', 'Остановить показ']) assert.ok(fs.readFileSync(path.join(directory, 'assets', callJs), 'utf8').includes(marker), `Call workspace missing: ${marker}`);
+for (const marker of ['call-workspace-body', 'call-prejoin-footer', 'call-workspace-diagnostics', 'call-workspace-ambient', 'Остановить показ']) assert.ok(fs.readFileSync(path.join(directory, 'assets', callJs), 'utf8').includes(marker), `Call workspace missing: ${marker}`);
 const callStyles = fs.readFileSync(path.join(directory, 'assets', callCss), 'utf8');
 for (const selector of ['.call-media-grid .call-participant-entry--video', '.call-media-tile--stage', '.call-media-tile:fullscreen']) assert.ok(callStyles.includes(selector), `Call media style missing: ${selector}`);
 for (const selector of ['.call-workspace.call-panel-root', '.call-workspace.call-panel-root[data-call-role] .call-workspace-body', '.call-workspace.call-panel-root[data-call-role] .call-controls-rail', '.call-workspace.call-panel-root[data-call-role] .call-prejoin-footer']) assert.ok(callStyles.includes(selector), `Bounded call workspace style missing: ${selector}`);
+for (const marker of ['callAmbientDrift', 'callAvatarFloat', 'callVoiceWave', 'prefers-reduced-motion', 'width:112px']) assert.ok(callStyles.includes(marker), `Animated call style missing: ${marker}`);
 console.log('Interactive minimap, empty code sections and teacher homework reminders verified in this build.');
 if (mode === 'verify') {
   const get = async (route, token) => {
