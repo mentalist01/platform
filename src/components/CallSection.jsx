@@ -878,7 +878,7 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
   );
 };
 
-const MediaTile = ({
+export const MediaTile = ({
   stream,
   title,
   subtitle,
@@ -900,7 +900,7 @@ const MediaTile = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isCompact = compact && !isFullscreen;
   const isScreenShareTile = videoKind === 'screen';
-  const isStaticFullscreen = isFullscreen && isScreenShareTile;
+  const isStaticFullscreen = isFullscreen;
   const speakingRingClass = isDarkTheme
     ? 'call-speaking-ring ring-2 ring-violet-300/85 ring-offset-2 ring-offset-slate-900'
     : 'call-speaking-ring ring-2 ring-violet-400/80 ring-offset-2 ring-offset-slate-50';
@@ -1112,6 +1112,8 @@ const MediaTile = ({
         onContextMenu={onContextMenu}
         data-speaking={isSpeaking ? 'true' : 'false'}
         data-static-fullscreen={isStaticFullscreen ? 'true' : 'false'}
+        data-video-kind={videoKind || 'camera'}
+        aria-label={`${isScreenShareTile ? 'Демонстрация' : 'Камера'}: ${title}`}
         className={`${videoCardClass} ${isStaticFullscreen ? 'call-media-tile--fullscreen-static' : ''} rounded-2xl ${isSpeaking && !isFullscreen ? speakingRingClass : ''} ${className}`}
       >
       <button
@@ -6547,10 +6549,9 @@ const CallSection = ({
                             title="Вы"
                             subtitle={peer.subtitle}
                             videoKind={peer.videoKind}
-                            compact
+                            className="call-media-tile--stage"
                             isSpeaking={peer.isSpeaking}
                             muted
-                            allowFullscreen={false}
                             isDarkTheme={isDarkTheme}
                             fullscreenVoiceParticipants={overlayVoiceParticipants}
                           />
@@ -6574,7 +6575,7 @@ const CallSection = ({
                             title={peer.title}
                             subtitle={peer.subtitle}
                             videoKind={peer.videoKind}
-                            compact
+                            className="call-media-tile--stage"
                             isSpeaking={peer.isSpeaking}
                             isDarkTheme={isDarkTheme}
                             fullscreenVoiceParticipants={overlayVoiceParticipants}

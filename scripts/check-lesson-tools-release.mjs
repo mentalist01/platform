@@ -9,8 +9,14 @@ const initial = [...html.matchAll(/(?:src|href)="(\/assets\/[^" ]+\.(?:js|css))"
 const files = fs.readdirSync(path.join(directory, 'assets')).filter(file => /\.(js|css)$/.test(file));
 const source = files.filter(file => file.endsWith('.js')).map(file => fs.readFileSync(path.join(directory, 'assets', file), 'utf8')).join('\n');
 for (const marker of ['Миникарта доски. Перетащите синюю рамку', 'Не забыли задать домашку?', 'Перейти задать', 'Я так и хотел', '/api/teacher-homework-reminders', 'openHomeworkRequest', 'homework-reminder-', 'Создать новый пустой раздел кода', 'Название раздела']) assert.ok(source.includes(marker), `Missing lesson feature: ${marker}`);
-const featureFiles = files.filter(file => /^(?:TeacherHomeworkReminders|LearningGroupsSection)-/.test(file));
+const featureFiles = files.filter(file => /^(?:TeacherHomeworkReminders|LearningGroupsSection|CallSection)-/.test(file));
 assert.ok(featureFiles.some(file => file.endsWith('.css') && fs.readFileSync(path.join(directory, 'assets', file), 'utf8').includes('.teacher-homework-reminder')), 'Reminder styles missing');
+const callJs = featureFiles.find(file => /^CallSection-.+\.js$/.test(file));
+const callCss = featureFiles.find(file => /^CallSection-.+\.css$/.test(file));
+assert.ok(callJs && callCss, 'Call media bundles missing');
+assert.ok(fs.readFileSync(path.join(directory, 'assets', callJs), 'utf8').includes('call-media-tile--stage'), 'Large active call media missing');
+const callStyles = fs.readFileSync(path.join(directory, 'assets', callCss), 'utf8');
+for (const selector of ['.call-media-grid .call-participant-entry--video', '.call-media-tile--stage', '.call-media-tile:fullscreen']) assert.ok(callStyles.includes(selector), `Call media style missing: ${selector}`);
 console.log('Interactive minimap, empty code sections and teacher homework reminders verified in this build.');
 if (mode === 'verify') {
   const get = async (route, token) => {

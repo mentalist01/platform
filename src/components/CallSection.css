@@ -1464,6 +1464,57 @@
 .call-media-stage .call-media-grid {
   min-height: 188px;
 }
+.call-media-grid .call-participant-entry--video {
+  flex: 1 1 440px;
+  min-width: 0;
+  max-width: 960px;
+  width: 100%;
+  order: 0;
+}
+.call-media-grid .call-participant-entry--video,
+.call-media-grid .call-participant-entry--video:hover {
+  animation: none;
+  transform: none;
+  filter: none;
+}
+.call-media-grid .call-participant-entry--avatar {
+  flex: 0 0 104px;
+  order: 1;
+}
+.call-media-tile--stage {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+.call-media-tile--stage:hover {
+  transform: none;
+}
+.call-media-tile--stage .call-media-video,
+.call-media-tile--stage[data-speaking='true'] .call-media-video {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  object-fit: contain;
+  background: #0b1020;
+  animation: none;
+  transform: none;
+  filter: none;
+}
+.call-media-tile--stage .call-video-scan {
+  display: none;
+}
+.call-media-tile:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+}
+.call-media-tile:fullscreen .call-media-video {
+  height: 100%;
+  object-fit: contain;
+  background: #0b1020;
+}
 .call-main-subtitle,
 .call-header-status-line {
   text-wrap: pretty;

@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { availableTeacherUpdates, compareDesktopVersions, readTeacherUpdates, acknowledgeTeacherUpdates, unreadTeacherUpdates, teacherUpdatesStorageKey } from './teacherUpdates.js';
 import { validateTeacherUpdateCatalog, validateTeacherUpdateHistory } from '../../scripts/check-teacher-update-notes.mjs';
-const catalog = JSON.parse(fs.readFileSync(new URL('../data/teacherUpdates.json', import.meta.url)));
+const releasedCatalog = JSON.parse(fs.readFileSync(new URL('../data/teacherUpdates.json', import.meta.url)));
+const catalog = {
+  cabinet: [{ id: 'cabinet-initial', date: '2026-10-05', title: 'Cabinet fixture', changes: ['Initial cabinet change'] }],
+  desktop: ['0.1.8', '0.1.7'].map(version => ({ id: `desktop-${version}`, version, date: '2026-10-05', title: `Desktop ${version}`, changes: [`Change in ${version}`] })),
+};
 const actor = { role: 'teacher', teacherId: 'fixture-teacher', desktop: { isDesktop: true, version: '0.1.8' } };
 const store = () => { const values = new Map(); return { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value) }; };
 
@@ -56,10 +60,11 @@ test('broken or unavailable storage never blocks the cabinet', () => {
 });
 test('the release catalog includes this desktop version and non-empty unique changes', () => {
   const version = JSON.parse(fs.readFileSync(new URL('../../tools/teacher-desktop/package.json', import.meta.url))).version;
-  validateTeacherUpdateCatalog(catalog, version);
-  assert.throws(() => validateTeacherUpdateCatalog({ ...catalog, cabinet: [] }, version));
-  assert.throws(() => validateTeacherUpdateCatalog({ ...catalog, cabinet: [{ ...catalog.cabinet[0], changes: [] }] }, version));
-  assert.throws(() => validateTeacherUpdateCatalog({ ...catalog, cabinet: [catalog.cabinet[0], catalog.cabinet[0]] }, version));
+  validateTeacherUpdateCatalog(releasedCatalog, version);
+  validateTeacherUpdateCatalog(catalog, actor.desktop.version);
+  assert.throws(() => validateTeacherUpdateCatalog({ ...catalog, cabinet: [] }, actor.desktop.version));
+  assert.throws(() => validateTeacherUpdateCatalog({ ...catalog, cabinet: [{ ...catalog.cabinet[0], changes: [] }] }, actor.desktop.version));
+  assert.throws(() => validateTeacherUpdateCatalog({ ...catalog, cabinet: [catalog.cabinet[0], catalog.cabinet[0]] }, actor.desktop.version));
   assert.throws(() => validateTeacherUpdateCatalog(catalog, '99.0.0'));
 });
 test('each release has a new id and preserves already published lists', () => {
