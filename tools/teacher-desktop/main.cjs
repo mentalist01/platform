@@ -161,6 +161,10 @@ function configurePlatformSession(ses) {
     if (permission === 'fullscreen') return callback(ownedPlatform(contents));
     if (!trustedRequester(contents, details.requestingUrl, details.isMainFrame)) return callback(false);
     if (['fullscreen', 'clipboard-sanitized-write', 'display-capture', 'speaker-selection'].includes(permission)) return callback(true);
+    // Chromium requests display capture as "media" with an empty mediaTypes
+    // array before invoking the display handler. It still requires the trusted
+    // main frame, a user gesture and an explicit source choice in our picker.
+    if (permission === 'media' && Array.isArray(details.mediaTypes) && details.mediaTypes.length === 0) return callback(true);
     const types = permission === 'media' ? details.mediaTypes?.filter(t => ['audio', 'video'].includes(t)) : permission === 'notifications' ? ['notifications'] : [];
     if (!types?.length) return callback(false);
     if (types.every(type => settings[type] === true)) return callback(true);

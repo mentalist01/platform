@@ -5,14 +5,15 @@ export default function useDesktopRecording({ user, active, studentId, learningL
   const [settings, setSettings] = useState(null);
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState('');
+  const [checkedAt, setCheckedAt] = useState(0);
   const jobRef = useRef(null);
   const refresh = useCallback(async () => {
-    const value = await api.desktopRecording(); setSettings(value); return value;
+    const value = await api.desktopRecording(); setSettings(value); setCheckedAt(Date.now()); return value;
   }, []);
   useEffect(() => {
-    setSettings(null); jobRef.current = null; setJobId('');
+    setSettings(null); setCheckedAt(0); jobRef.current = null; setJobId('');
     let cancelled = false;
-    const poll = () => api.desktopRecording().then((value) => { if (!cancelled) setSettings(value); }).catch(() => {});
+    const poll = () => api.desktopRecording().then((value) => { if (!cancelled) { setSettings(value); setCheckedAt(Date.now()); } }).catch(() => {});
     void poll(); const timer = setInterval(poll, 5000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [user.id, user.role]);
@@ -41,5 +42,5 @@ export default function useDesktopRecording({ user, active, studentId, learningL
     // Navigation/refresh must not end the server's lesson or the OBS recording.
     return () => { cancelled = true; clearInterval(timer); };
   }, [active, audioMode, enabled, learningLessonId, studentId, user.role]);
-  return { enabled, jobId, settings, error, refresh };
+  return { enabled, jobId, settings, error, refresh, checkedAt };
 }

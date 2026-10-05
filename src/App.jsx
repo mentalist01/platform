@@ -52,6 +52,7 @@ import StudentTour from './components/StudentTour';
 import StudentNotificationsCenter from './components/StudentNotificationsCenter';
 const TeacherRescheduleInbox = React.lazy(() => import('./components/LessonReschedule').then(module => ({default:module.TeacherRescheduleInbox})));
 const TeacherHomeworkReminders = React.lazy(() => import('./components/TeacherHomeworkReminders'));
+const RecordingHealthWarning = React.lazy(() => import('./components/RecordingHealthWarning'));
 const TeacherLearningSubscriptionReminder = React.lazy(() => import('./components/LearningSubscriptions').then(module => ({ default: module.TeacherSubscriptionReminder })));
 import StudentWeeklyRecap from './components/StudentWeeklyRecap';
 import ThemeToggleButton from './components/ThemeToggleButton';
@@ -25170,6 +25171,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </div>
       )}
       {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherRescheduleInbox userId={user.id} showEmpty={isTeacherNotificationsTabOpen} /></React.Suspense>}
+      {user.role === 'teacher' && <React.Suspense fallback={null}><RecordingHealthWarning key={user.id} recorder={desktopRecorder} active={callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive} /></React.Suspense>}
       {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherHomeworkReminders key={user.id} userId={user.id} onOpen={handleHomeworkReminderOpen} paused={callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status))} /></React.Suspense>}
       {user.role === 'student' && !studentTourActive && (
         <StudentNotificationsCenter

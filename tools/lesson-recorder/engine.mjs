@@ -51,7 +51,7 @@ export class RecorderEngine {
     }
     const file = ownedRecording(this.recordDirectory, job.id);
     if (fs.existsSync(file) && fs.statSync(file).size > 0) {
-      if (this.restartJobs.has(job.id) && job.status !== 'stopping' && !job.local && !job.manual && !job.fallbackMode
+      if (job.status !== 'stopping' && !job.local && !job.manual && !job.fallbackMode
         && job.desired === 'record' && job.cutoffAt > this.now()) job.resumeAfterRestart = true;
       job.file = file; job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
       await this.report(job, 'saved');
@@ -119,7 +119,7 @@ export class RecorderEngine {
     if (active) {
       // A persisted active job is not proof that OBS survived a PC restart.
       // Launch is idempotent and leaves an already-running OBS output intact.
-      if (this.restartJobs.has(active.id)) await this.obs.launch();
+      if (this.restartJobs.has(active.id) || (this.obs.connected === false && active.status !== 'stopping' && active.cutoffAt > this.now())) await this.obs.launch();
       if (active.cutoffAt <= this.now() || active.status === 'stopping') await this.stop(active);
       else await this.recover(active);
       this.restartJobs.delete(active.id);

@@ -102,3 +102,26 @@ test('missing original footage and local standalone recordings are not silently 
   const local = fixture(t, { local: true }); local.connect(); await local.engine.tick();
   assert.equal(local.original.status, 'saved'); assert.equal(local.original.resumeAfterRestart, undefined); assert.equal(local.counts().starts, 0);
 });
+
+test('OBS interruption during a running service preserves the partial file and resumes the same live lesson', async t => {
+  const f = fixture(t); f.live(); f.connect(); await f.engine.tick();
+  // The service is running normally: restartJobs no longer contains this job.
+  assert.equal(f.engine.restartJobs.size, 0);
+  f.obs.status = async () => ({ outputActive: false });
+  await f.engine.tick();
+  assert.equal(f.original.status, 'saved');
+  assert.equal(f.state.jobs.second.status, 'recording');
+  assert.equal(f.counts().starts, 1); assert.equal(f.counts().resumes, 1);
+  assert.equal(fs.readFileSync(f.original.file, 'utf8'), 'original video');
+});
+
+test('lost OBS connection relaunches capture independently of a service restart', async t => {
+  const f = fixture(t); f.live(); await f.engine.tick();
+  f.obs.connected = false; f.connect();
+  f.obs.status = async () => ({ outputActive: false });
+  const before = f.counts().launches;
+  await f.engine.tick();
+  assert.ok(f.counts().launches > before);
+  assert.equal(f.counts().starts, 1); assert.equal(f.counts().resumes, 1);
+  assert.equal(f.state.jobs.second.status, 'recording');
+});

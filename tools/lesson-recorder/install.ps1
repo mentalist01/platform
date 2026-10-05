@@ -28,7 +28,7 @@ foreach ($dataName in @('state.json', 'rutube-browser')) {
     Copy-Item -LiteralPath $oldData -Destination $newData -Recurse
   }
 }
-$files = @('lesson-topic.mjs','archive.mjs','archive-eta.mjs','archive-publish.mjs','archive-search.mjs','archive-worker.py','archive-requirements.txt','archive.html','updater.mjs','update-worker.mjs','release.json','app.mjs','obs.mjs','start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs','fallback.mjs','python-theory.mjs','mock-review.mjs','storage.mjs','recording-storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','README.md','package.json','package-lock.json')
+$files = @('lesson-topic.mjs','archive.mjs','archive-eta.mjs','archive-publish.mjs','archive-search.mjs','archive-worker.py','archive-requirements.txt','archive.html','updater.mjs','update-worker.mjs','release.json','app.mjs','obs.mjs','start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs','fallback.mjs','python-theory.mjs','mock-review.mjs','storage.mjs','recording-storage.mjs','recovery-inbox.mjs','rutube.mjs','panel.html','hotkeys.ps1','background.vbs','watchdog.mjs','watchdog-task.ps1','README.md','package.json','package-lock.json')
 foreach ($fileName in $files) { Copy-Item -LiteralPath (Join-Path $sourceDirectory $fileName) -Destination (Join-Path $installDirectory $fileName) -Force }
 Copy-Item -LiteralPath $nodePath -Destination (Join-Path $installDirectory 'node.exe') -Force
 if ($RecorderDependencyPaths) {
@@ -79,6 +79,7 @@ if (-not $NoStartup) {
     $recorderTaskPrincipal = New-ScheduledTaskPrincipal -UserId $recorderUser -LogonType Interactive -RunLevel Limited
     $recorderTaskSettings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName 'IVAN100 Lesson Recorder' -Action $recorderTaskAction -Trigger $recorderTaskTrigger -Principal $recorderTaskPrincipal -Settings $recorderTaskSettings -Description 'Local OBS lesson recorder for ivan100.ru' -Force | Out-Null
+    & (Join-Path $installDirectory 'watchdog-task.ps1') -ExistingOnly
     Start-ScheduledTask -TaskName 'IVAN100 Lesson Recorder'
   } catch { Write-Warning 'Запуск через планировщик недоступен. Ярлык в автозагрузке сохранён.' }
 }

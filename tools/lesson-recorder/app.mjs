@@ -19,11 +19,15 @@ import { startMockReview, publishMockReview } from './mock-review.mjs';
 import { enterFallback } from './fallback.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
 import { RutubeUploader, privateVideo, videoReady } from './rutube.mjs';
+import { recorderRuntime, diagnosticLog } from './watchdog.mjs';
 import { writableRecordingDirectory, recordingDrives, setupFingerprint, assertSetupIdle } from './recording-storage.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const directory = process.env.IVAN100_RECORDER_HOME || path.join(os.homedir(), 'Ivan100Recorder');
 fs.mkdirSync(directory, { recursive: true });
+let runtimeWatchdog;
+process.on('uncaughtExceptionMonitor', (failure, origin) => diagnosticLog(directory, 'fatal-error', `${origin}: ${failure.message}`));
+process.on('exit', code => diagnosticLog(directory, 'service-exit', `code=${code}`));
 const file = path.join(directory, 'state.json');
 const state = readJson(file, { config: { platformUrl: 'https://ivan100.ru', autoUpload: false, configured: false }, jobs: {} });
 let recordDirectory = path.resolve(state.config.recordDirectory || path.join(os.homedir(), 'Videos', 'Ivan100 Lessons'));
@@ -63,6 +67,7 @@ const engine = new RecorderEngine({ obs, state, save, api, recordDirectory, read
 updater = new RecorderUpdater({ directory, here, config: () => state.config, assertIdle: setupIdle,
   report: () => api('/poll', {}),
   shutdown: async () => {
+    runtimeWatchdog?.suspend('update');
     await uploader.context?.close().catch(() => {}); foregroundReader.stop(); save();
     server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 1000);
   },
@@ -273,6 +278,7 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/shutdown') {
       if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу и дождитесь завершения текущей операции');
       if (engine.active() || uploadingId || queueBusy || (obs.connected && (await obs.status()).outputActive)) throw new Error('Сначала дождитесь окончания записи и загрузки');
+      runtimeWatchdog?.suspend('idle shutdown');
       await uploader.context?.close(); save();
       json(res, 200, { ok: true });
       server.close(() => process.exit(0)); return;
@@ -410,7 +416,19 @@ const server = http.createServer(async (req, res) => {
   } catch (failure) { json(res, 400, { error: failure.message }); }
 });
 server.on('error', (failure) => { console.error(failure.code === 'EADDRINUSE' ? 'Пульт уже запущен' : failure.message); process.exit(1); });
-server.listen(18765, '127.0.0.1', () => console.log('Пульт: http://127.0.0.1:18765'));
+server.listen(18765, '127.0.0.1', () => {
+  try { runtimeWatchdog = recorderRuntime(directory); }
+  catch (failure) { diagnosticLog(directory, 'watchdog-control-error', failure.message); }
+  console.log('Пульт: http://127.0.0.1:18765');
+  if (process.platform === 'win32' && path.resolve(here) === path.join(path.resolve(directory), 'app')) {
+    const task = spawn(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'watchdog-task.ps1'), '-ExistingOnly'],
+      { windowsHide: true, stdio: 'ignore' });
+    task.once('error', failure => diagnosticLog(directory, 'watchdog-task-error', failure.message));
+    task.once('exit', code => diagnosticLog(directory, 'watchdog-task', `code=${code}`));
+  }
+});
+setInterval(() => { try { runtimeWatchdog?.heartbeat(); } catch (failure) { diagnosticLog(directory, 'heartbeat-write-error', failure.message); } }, 5000);
 let ticking = false;
 setInterval(() => {
   if (ticking || updater.busy) return; ticking = true;
