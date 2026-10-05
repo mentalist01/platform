@@ -230,6 +230,7 @@ const loadStudentGlobalSearch = () => import('./components/StudentGlobalSearch')
 const loadStudentLeaderboardSection = () => import('./components/StudentLeaderboardSection');
 const loadSignupGuestChat = () => import('./components/SignupGuestChat');
 const loadLearningGroupsSection = () => import('./components/LearningGroupsSection');
+const StudentGroupLibrary = React.lazy(() => import('./components/StudentGroupLibrary'));
 const loadGroupTelemostSection = () => import('./components/GroupTelemostSection');
 const GroupVoiceChannels = React.lazy(() => import('./components/GroupVoiceChannels'));
 const loadTeacherCalendarSection = () => import('./components/TeacherCalendarSection');
@@ -20280,7 +20281,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
-        ...(studentHasGroups ? [{ id: 'groups', label: 'Моя группа', icon: Users }] : []),
+        ...(studentHasGroups ? [{ id: 'groups', label: 'Группы и записи', icon: Users }] : []),
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -26462,6 +26463,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           {view === 'recording' && user.role === 'teacher' && <LessonRecordingSection recorder={desktopRecorder} />}
           {view === 'meetings' && user.role === 'teacher' && <GuestMeetingsSection user={user} theme={theme} />}
           {view === 'groups' && ['teacher', 'student'].includes(user.role) && (
+            <StudentGroupLibrary user={user} theme={theme} openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
             <LearningGroupsSection
               role={user.role}
               userId={user.id}
@@ -26490,6 +26492,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               PYTHON_LEVEL_ID={PYTHON_LEVEL_ID}
               LEVELS={LEVELS}
             />
+            </StudentGroupLibrary>
           )}
           {view === 'schedule' && user.role === 'student' && studentLessonWorkspace.group && (
             <button type="button" onClick={() => navigateToView('groups')}

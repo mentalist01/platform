@@ -1295,6 +1295,7 @@ const CallSection = ({
   studentsLoading,
   hideStudentPicker = false,
   channelSelectionMode = false,
+  listenOnly = false,
   uiMode = 'full',
   onRequestExpand,
   onRequestCollapse,
@@ -2095,7 +2096,7 @@ const CallSection = ({
       const meta = peerMetaRef.current.get(peerId) || {};
       const stream = remoteStreamsRef.current.get(peerId) || null;
       const role = typeof meta.role === 'string' ? meta.role.trim() : '';
-      const roleLabel = role ? formatRtcRoleLabel(role) : 'Участник';
+      const roleLabel = meta.listenOnly ? 'Слушатель' : role ? formatRtcRoleLabel(role) : 'Участник';
       const hasScreenState = Object.prototype.hasOwnProperty.call(meta, 'isScreenSharing');
       const hasCameraState = Object.prototype.hasOwnProperty.call(meta, 'isCameraEnabled');
       const hasMediaState = hasScreenState || hasCameraState;
@@ -2377,6 +2378,7 @@ const CallSection = ({
   }, []);
 
   const sendLocalMediaStateToPeer = useCallback((peerId) => {
+    if (listenOnly) return;
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
     const roomId = activeRoomRef.current;
     if (!normalizedPeerId || !roomId) return false;
@@ -2399,7 +2401,7 @@ const CallSection = ({
         },
       },
     });
-  }, [sendWs]);
+  }, [sendWs, listenOnly]);
 
   const broadcastLocalMediaStateToPeers = useCallback(() => {
     peersRef.current.forEach((peerState, peerId) => {
@@ -2456,7 +2458,7 @@ const CallSection = ({
         const screenTrackId = typeof peer?.screenTrackId === 'string' ? peer.screenTrackId.trim() : '';
         const cameraTrackId = typeof peer?.cameraTrackId === 'string' ? peer.cameraTrackId.trim() : '';
         const isVideoEnabled = isScreenSharing || isCameraEnabled;
-        const roleLabel = formatRtcRoleLabel(role);
+        const roleLabel = peer.listenOnly ? 'Слушатель' : formatRtcRoleLabel(role);
         return {
           peerId: `presence:${peerId || index}`,
           stream: null,
@@ -2667,7 +2669,7 @@ const CallSection = ({
   ]);
 
   const syncLocalTracksToPeer = useCallback((peerState) => {
-    if (!peerState?.pc) return;
+    if (!peerState?.pc || listenOnly) return;
     const { pc } = peerState;
     const replaceSenderTrack = (sender, track) => {
       if (!sender || typeof sender.replaceTrack !== 'function') return false;
@@ -2734,7 +2736,7 @@ const CallSection = ({
 
     syncVideoSender('screenSender', liveScreenTrack);
     syncVideoSender('cameraSender', liveCameraTrack);
-  }, [getPreferredOutgoingAudioTrack, replaceLocalStreamAudioTrack, tuneAudioSender, tuneVideoSender]);
+  }, [getPreferredOutgoingAudioTrack, replaceLocalStreamAudioTrack, tuneAudioSender, tuneVideoSender, listenOnly]);
 
   const syncLocalTracksToAllPeers = useCallback(() => {
     peersRef.current.forEach((peerState) => {
@@ -3440,6 +3442,7 @@ const CallSection = ({
   ]);
 
   const ensureMicTrack = useCallback(async () => {
+    if (listenOnly) throw new Error('В режиме слушателя микрофон выключен');
     const existing = localAudioTrackRef.current;
     if (existing && existing.readyState === 'live') {
       existing.enabled = true;
@@ -3556,9 +3559,10 @@ const CallSection = ({
     setMicEnabled(true);
     syncLocalTracksToAllPeers();
     return outputTrack;
-  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, restartLocalSelfSpeakingObserver, syncLocalTracksToAllPeers]);
+  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, restartLocalSelfSpeakingObserver, syncLocalTracksToAllPeers, listenOnly]);
 
   const ensureCameraTrack = useCallback(async () => {
+    if (listenOnly) throw new Error('В режиме слушателя камера выключена');
     const existing = localCameraTrackRef.current;
     if (existing && existing.readyState === 'live') {
       existing.enabled = true;
@@ -3624,7 +3628,7 @@ const CallSection = ({
     setCameraEnabled(true);
     syncLocalTracksToAllPeers();
     return track;
-  }, [stopCameraTrack, syncLocalTracksToAllPeers]);
+  }, [stopCameraTrack, syncLocalTracksToAllPeers, listenOnly]);
 
   const createPeerState = useCallback((peerId, peerMeta = {}) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
@@ -3639,6 +3643,10 @@ const CallSection = ({
     });
     if (reconciliation.ignore) return null;
     reconciliation.replace.forEach(id => detachPeer(id, { closeConnection: true }));
+    if (listenOnly && peerMeta.listenOnly) {
+      peerMetaRef.current.set(normalizedPeerId, peerMeta);
+      return null;
+    }
     const existing = peersRef.current.get(normalizedPeerId);
     if (existing) {
       peerMetaRef.current.set(normalizedPeerId, {
@@ -3653,7 +3661,7 @@ const CallSection = ({
     );
     if (typeof pc.addTransceiver === 'function') {
       try {
-        if (meetingId) pc.addTransceiver('audio', { direction: 'recvonly' });
+        if (meetingId || listenOnly) pc.addTransceiver('audio', { direction: 'recvonly' });
         const existingVideoTransceivers = typeof pc.getTransceivers === 'function'
           ? pc.getTransceivers().filter((transceiver) => transceiver?.receiver?.track?.kind === 'video').length
           : 0;
@@ -3695,6 +3703,7 @@ const CallSection = ({
     };
 
     pc.ontrack = (event) => {
+      if (peerMetaRef.current.get(normalizedPeerId)?.listenOnly) { event.track?.stop(); return; }
       const candidateStreams = Array.isArray(event.streams) ? event.streams.filter(Boolean) : [];
       const existingStream = remoteStreamsRef.current.get(normalizedPeerId) || null;
       const incomingStream = candidateStreams[0] || null;
@@ -3789,7 +3798,7 @@ const CallSection = ({
     syncLocalTracksToPeer(peerState);
     refreshPeerConnectionSummary();
     return peerState;
-  }, [detachPeer, meetingId, refreshPeerConnectionSummary, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers, userId, role]);
+  }, [detachPeer, meetingId, refreshPeerConnectionSummary, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers, userId, role, listenOnly]);
 
   const makeOfferToPeer = useCallback(async (peerId, { iceRestart = false } = {}) => {
     const peerState = peersRef.current.get(peerId);
@@ -4080,6 +4089,12 @@ const CallSection = ({
     }
 
     if (type === 'joined') {
+      if (payload.listenOnly && !listenOnly) {
+        stopMicTrack(false); stopCameraTrack(false); stopScreenTrack(false); closeAllPeers();
+        sendWs({ type: 'leave' }); applyStatus('idle');
+        setError('Откройте это занятие через «Слушать занятия»: здесь доступен только режим слушателя.');
+        return;
+      }
       callJoinedRef.current = true;
       clearJoinAckTimer();
       resetWsReconnectState();
@@ -4152,7 +4167,7 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [isGroupLesson, meetingId, onMeetingEnded, onMeetingNotice, onChannelMove, onChannelPresence, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers]);
+  }, [isGroupLesson, meetingId, onMeetingEnded, onMeetingNotice, onChannelMove, onChannelPresence, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers, listenOnly, sendWs]);
 
   const stopCall = useCallback(({ endRecording = false } = {}) => {
     callAttemptRef.current += 1;
@@ -4384,7 +4399,7 @@ const CallSection = ({
       );
       // Guests may listen without granting microphone access. Turning on the
       // microphone in the preparation screen still requests it explicitly.
-      if (!meetingId || localAudioTrackRef.current?.readyState === 'live' || options?.resumeMicEnabled === true) {
+      if (!listenOnly && (!meetingId || localAudioTrackRef.current?.readyState === 'live' || options?.resumeMicEnabled === true)) {
         await ensureMicTrack();
       }
       if (callAttempt !== callAttemptRef.current) {
@@ -4512,7 +4527,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, isGroupLesson, isTeacher, meetingId, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, isGroupLesson, isTeacher, meetingId, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, listenOnly]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -4635,7 +4650,7 @@ const CallSection = ({
   }, [clearWsReconnectTimer]);
 
   const toggleMic = useCallback(async () => {
-    if (micBusy) return;
+    if (micBusy || listenOnly) return;
     setMicBusy(true);
     setError('');
     try {
@@ -4659,10 +4674,10 @@ const CallSection = ({
     } finally {
       setMicBusy(false);
     }
-  }, [ensureMicTrack, micBusy, playAlertSound, renegotiatePeers, syncLocalTracksToAllPeers]);
+  }, [ensureMicTrack, micBusy, playAlertSound, renegotiatePeers, syncLocalTracksToAllPeers, listenOnly]);
 
   const toggleCamera = useCallback(async () => {
-    if (cameraBusy) return;
+    if (cameraBusy || listenOnly) return;
     if (cameraEnabled) {
       stopCameraTrack(true);
       renegotiatePeers();
@@ -4682,7 +4697,7 @@ const CallSection = ({
     } finally {
       setCameraBusy(false);
     }
-  }, [cameraBusy, cameraEnabled, ensureCameraTrack, renegotiatePeers, status, stopCameraTrack]);
+  }, [cameraBusy, cameraEnabled, ensureCameraTrack, renegotiatePeers, status, stopCameraTrack, listenOnly]);
 
   const runPrejoinCheck = useCallback(async () => {
     if (prejoinCheck.status === 'checking') return;
@@ -4701,14 +4716,14 @@ const CallSection = ({
       error: '',
     });
 
-    let micResult = hasLiveMicTrack || micEnabled ? 'ok' : 'problem';
-    let cameraResult = hasLiveCameraTrack || cameraEnabled ? 'ok' : 'problem';
+    let micResult = listenOnly || hasLiveMicTrack || micEnabled ? 'ok' : 'problem';
+    let cameraResult = listenOnly || hasLiveCameraTrack || cameraEnabled ? 'ok' : 'problem';
     let mediaUnsupported = false;
 
-    const canRequestMedia = typeof navigator !== 'undefined'
+    const canRequestMedia = !listenOnly && typeof navigator !== 'undefined'
       && Boolean(navigator.mediaDevices?.getUserMedia);
 
-    if (!canRequestMedia) {
+    if (!canRequestMedia && !listenOnly) {
       mediaUnsupported = true;
     } else if (micResult !== 'ok' || cameraResult !== 'ok') {
       let combinedStream = null;
@@ -4797,10 +4812,10 @@ const CallSection = ({
       connection: connectionOk ? 'ok' : 'problem',
       error: checkIssues.join(' '),
     });
-  }, [cameraEnabled, micEnabled, prejoinCheck.status, rtcWsUrl]);
+  }, [cameraEnabled, micEnabled, prejoinCheck.status, rtcWsUrl, listenOnly]);
 
   const toggleScreenShare = useCallback(async () => {
-    if (screenBusy) return;
+    if (screenBusy || listenOnly) return;
     if (screenSharing) {
       stopScreenTrack(true);
       void playAlertSound('screenOff');
@@ -4895,6 +4910,7 @@ const CallSection = ({
     }
   }, [
     disposeLocalMixedAudioProcessing,
+    listenOnly,
     isGroupLesson,
     playAlertSound,
     renegotiatePeers,
@@ -5606,9 +5622,9 @@ const CallSection = ({
     && !micBusy
     && !cameraBusy;
   const canStop = isConnecting || isConnected;
-  const canToggleMic = isConnected && !micBusy;
-  const canToggleCamera = isConnected && !cameraBusy;
-  const canToggleScreen = isConnected && !screenBusy;
+  const canToggleMic = !listenOnly && isConnected && !micBusy;
+  const canToggleCamera = !listenOnly && isConnected && !cameraBusy;
+  const canToggleScreen = !listenOnly && isConnected && !screenBusy;
   const qualityClass = connectionStats.quality === 'good'
     ? (isDarkTheme ? 'text-violet-200' : 'text-violet-700')
     : connectionStats.quality === 'ok'
@@ -6279,7 +6295,7 @@ const CallSection = ({
             </div>
           )}
 
-          {meetingId && meetingAudioBlocked && (
+          {(meetingId || listenOnly) && meetingAudioBlocked && (
             <div className={errorBoxClass} role="status">
               <Volume2 size={16} className="mt-0.5 shrink-0" />
               <p>Браузер ждёт разрешения на звук.</p>
@@ -6296,8 +6312,8 @@ const CallSection = ({
                   stream={peer.stream || null}
                   onSpeakingChange={handlePeerSpeakingChange}
                   volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
-                  registerPlayback={meetingId ? registerMeetingAudio : undefined}
-                  onPlaybackBlocked={meetingId ? reportMeetingAudioBlocked : undefined}
+                  registerPlayback={meetingId || listenOnly ? registerMeetingAudio : undefined}
+                  onPlaybackBlocked={meetingId || listenOnly ? reportMeetingAudioBlocked : undefined}
                 />
               ))}
 
@@ -6356,7 +6372,7 @@ const CallSection = ({
                         <button
                           type="button"
                           onClick={toggleMic}
-                          disabled={prejoinMediaBusy}
+                          disabled={prejoinMediaBusy || listenOnly}
                           className="call-prejoin-preview-control"
                           data-live={micEnabled ? 'true' : 'false'}
                           data-tone={prejoinCheck.mic === 'problem' ? 'problem' : 'idle'}
@@ -6369,7 +6385,7 @@ const CallSection = ({
                         <button
                           type="button"
                           onClick={toggleCamera}
-                          disabled={prejoinMediaBusy}
+                          disabled={prejoinMediaBusy || listenOnly}
                           className="call-prejoin-preview-control"
                           data-live={cameraEnabled ? 'true' : 'false'}
                           data-tone={prejoinCheck.camera === 'problem' ? 'problem' : 'idle'}

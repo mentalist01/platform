@@ -23,7 +23,7 @@ export const TeacherSubscriptionReminder = ({ subscription }) => {
           <p className="font-bold">{overdue ? 'Доступ приостановлен' : 'Напоминание об оплате платформы'}</p>
           <p className="mt-1 leading-relaxed">
             {overdue
-              ? `Оплата за ${formatMonth(subscription.month)} не подтверждена. Осталось ${formatMoney(subscription.remaining)}. После оплаты попросите администратора подтвердить платёж.`
+              ? `Оплата за ${formatMonth(subscription.month)} не подтверждена. Осталось ${formatMoney(subscription.remaining)}. ${subscription.autoPaymentEnabled ? 'Перевод с указанным именем плательщика отметится автоматически после получения банковского уведомления.' : 'После оплаты попросите администратора подтвердить платёж.'}`
               : `До ${subscription.effectiveDueDay || subscription.dueDay} числа нужно оплатить ${formatMoney(subscription.remaining)} за ${formatMonth(subscription.month)}.`}
           </p>
         </div>
@@ -44,7 +44,7 @@ const TeacherSubscriptionGate = ({ subscription, onRefresh, onLogout }) => (
         Осталось оплатить <strong className="text-slate-900">{formatMoney(subscription?.remaining)}</strong>.
       </p>
       <p className="mt-2 text-xs leading-relaxed text-slate-500">
-        После оплаты напишите администратору. Он отметит платёж, и доступ восстановится автоматически.
+        {subscription?.autoPaymentEnabled ? 'Переведите месячную сумму с указанным администратору именем плательщика. После банковского уведомления нажмите «Проверить оплату» — доступ восстановится.' : 'После оплаты напишите администратору. Он отметит платёж, и доступ восстановится автоматически.'}
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-2">
         <button type="button" onClick={onRefresh} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">

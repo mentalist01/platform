@@ -19,7 +19,7 @@ if(mode==='preflight') {
   const teachers=new Map();
   for(const session of sessions.sort((a,b)=>(b.lastSeenAtMs||0)-(a.lastSeenAtMs||0))) if(!teachers.has(session.user.id)) teachers.set(session.user.id,session);
   const rooms=new Map(read(directory,'students.json',[]).filter(s=>!s.deletedAt && teachers.has(s.teacherId)).map(s=>[`rtc:${s.teacherId}:${s.id}`,teachers.get(s.teacherId)]));
-  for(const lesson of read(directory,'learning-lesson-sessions.json',[])) if(lesson.rtcRoomId && teachers.has(lesson.teacherId) && lesson.status==='active') rooms.set(lesson.rtcRoomId,teachers.get(lesson.teacherId));
+  for(const lesson of read(directory,'learning-lesson-sessions.json',[])) if(lesson.rtcRoomId && teachers.has(lesson.teacherId) && ['scheduled','active'].includes(lesson.status)) rooms.set(lesson.rtcRoomId,teachers.get(lesson.teacherId));
   const candidates=[...rooms];
   for(let i=0;i<candidates.length;i+=8) await Promise.all(candidates.slice(i,i+8).map(async([room,session])=>{
     const response=await fetch(`https://ivan100.ru/api/rtc/presence?${new URLSearchParams({roomId:room})}`,{headers:{Authorization:`Bearer ${session.token}`},signal:AbortSignal.timeout(25000)});

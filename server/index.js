@@ -8,6 +8,8 @@ import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
+import { matchTeacherPlatformPayment } from './teacherPlatformPayments.js';
+import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } from './groupLibrary.js';
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
@@ -3420,6 +3422,8 @@ const normalizePaymentNotificationEntry = (value) => {
     senderName: normalizePaymentNotificationText(source.senderName).slice(0, 120),
     senderKey: normalizePaymentNameKey(source.senderKey || source.senderName).slice(0, 120),
     matchMode: normalizePaymentNotificationText(source.matchMode).slice(0, 40),
+    paymentTarget: source.paymentTarget === 'teacher-platform' ? 'teacher-platform' : 'student',
+    paymentMonth: normalizeTeacherFinanceMonthKey(source.paymentMonth),
     markKeys: Array.isArray(source.markKeys)
       ? source.markKeys.map((item) => normalizeTeacherCalendarMarkKey(item)).filter(Boolean).slice(0, 20)
       : [],
@@ -3695,6 +3699,9 @@ const normalizeTeacherSubscriptionPayment = (value) => {
     note: normalizeTeacherFinanceText(source.note, 240),
     updatedById: String(source.updatedById || '').trim(),
     updatedByName: normalizeTeacherFinanceText(source.updatedByName, 120),
+    source: source.source === 'tbank' ? 'tbank' : 'manual',
+    notificationId: String(source.notificationId || '').trim().slice(0, 120),
+    notificationHash: String(source.notificationHash || '').trim().slice(0, 80),
   };
 };
 
@@ -3715,6 +3722,8 @@ const normalizeTeacherSubscriptionEntry = (value) => {
   return {
     monthlyFee: roundTeacherFinanceNumber(source.monthlyFee),
     dueDay: normalizeTeacherSubscriptionDueDay(source.dueDay),
+    payerName: normalizeTeacherFinanceText(source.payerName, 120),
+    autoReceipts: source.autoReceipts && typeof source.autoReceipts === 'object' && !Array.isArray(source.autoReceipts) ? source.autoReceipts : {},
     payments,
     updatedAt: normalizeIsoTimestamp(source.updatedAt, ''),
   };
@@ -3773,6 +3782,9 @@ const getTeacherSubscriptionStatus = (teacherId, monthKey = getCurrentTeacherFin
     status,
     accessAllowed: status !== 'overdue',
     paidAt: payment?.paidAt || '',
+    payerName: entry.payerName,
+    autoPaymentEnabled: Boolean(entry.payerName && PAYMENT_NOTIFICATION_SECRET && getPlatformPaymentReceiverId()),
+    paymentSource: payment?.source || '',
   };
 };
 
@@ -16309,6 +16321,12 @@ const resolvePaymentNotificationTeacher = (payload = {}) => {
   return { error: 'Передайте teacherId или задайте PAYMENT_NOTIFICATION_TEACHER_ID.' };
 };
 
+const getPlatformPaymentReceiverId = () => {
+  const teachers = readTeachersDb();
+  const id = PAYMENT_NOTIFICATION_DEFAULT_TEACHER_ID || SIGNUP_DEFAULT_TEACHER_ID || (teachers.length === 1 ? teachers[0].id : '');
+  return teachers.some(teacher => teacher.id === id) ? id : '';
+};
+
 const normalizePaymentLookupToken = (value) => normalizePaymentNameKey(value);
 
 const getPaymentTeacherNameTokens = (teacher) => new Set(
@@ -17856,7 +17874,46 @@ const handleTbankPaymentNotification = async (payload = {}) => {
     return { ok: true, statusCode: 202, entry: result.entry };
   }
 
+  // Kept with the payment, independently of the rolling notification journal.
+  const receipt = Object.values(readTeacherSubscriptionsDb()).flatMap(entry => Object.entries(entry.autoReceipts || {}))
+    .find(([receiptId, value]) => receiptId === id || value?.hash === parsed.rawHash);
+  if (receipt) return { ok: true, statusCode: 200, entry: { ...baseEntry, status: 'duplicate', paymentTarget: 'teacher-platform', reason: 'Этот перевод за платформу уже учтён.' } };
+
   const teacherResult = resolvePaymentNotificationTeacher(payload);
+  const receiver = teacherResult.teacher;
+  const senderLink = receiver && readPaymentSenderLinksDb()[receiver.id]?.links?.[parsed.senderKey];
+  const textToken = normalizePaymentLookupToken(parsed.searchableText);
+  const receiverTokens = getPaymentTeacherNameTokens(receiver);
+  const studentConflict = Boolean(senderLink || (receiver && readStudentsDb().some(student => (
+    student.teacherId === receiver.id && !student.deletedAt && getStudentPaymentAliases(student).some(alias => !receiverTokens.has(alias.token) && textToken.includes(alias.token))
+  ))));
+  const platformMatch = matchTeacherPlatformPayment({
+    teachers: readTeachersDb(), subscriptions: readTeacherSubscriptionsDb(),
+    senderKey: parsed.senderKey, nameKey: normalizePaymentNameKey,
+    amount: parsed.amount, receivedAt: parsed.receivedAt,
+    ownerId: getPlatformPaymentReceiverId(), receiverId: receiver?.id || '', studentConflict,
+  });
+  if (platformMatch) {
+    if (platformMatch.status === 'applied') {
+      const db = readTeacherSubscriptionsDb();
+      const current = normalizeTeacherSubscriptionEntry(db[platformMatch.teacherId]);
+      current.payments[platformMatch.month] = {
+        amount: parsed.amount, paidAt: parsed.receivedAt, source: 'tbank',
+        notificationId: id, notificationHash: parsed.rawHash,
+        note: 'Автоотметка Т-банка', updatedById: '', updatedByName: 'Т-банк',
+      };
+      current.updatedAt = createdAt;
+      current.autoReceipts = { ...current.autoReceipts, [id]: { hash: parsed.rawHash, month: platformMatch.month } };
+      db[platformMatch.teacherId] = current;
+      writeTeacherSubscriptionsDb(db);
+    }
+    const result = storePaymentNotificationResult({
+      ...baseEntry, status: platformMatch.status, teacherId: platformMatch.teacherId,
+      paymentTarget: 'teacher-platform', paymentMonth: platformMatch.month, matchMode: 'teacherPayerName',
+      reason: platformMatch.reason || `Автоматически отмечена оплата платформы за ${platformMatch.month}.`,
+    });
+    return { ok: true, statusCode: platformMatch.status === 'applied' ? 200 : 202, entry: result.entry };
+  }
   if (!teacherResult.teacher) {
     const result = storePaymentNotificationResult({
       ...baseEntry,
@@ -17916,6 +17973,8 @@ const serializePaymentNotificationEntry = (entry = {}, options = {}) => {
     studentName: normalizePaymentNotificationText(entry.studentName).slice(0, 120),
     senderName: normalizePaymentNotificationText(entry.senderName).slice(0, 120),
     matchMode: normalizePaymentNotificationText(entry.matchMode).slice(0, 40),
+    paymentTarget: entry.paymentTarget === 'teacher-platform' ? 'teacher-platform' : 'student',
+    paymentMonth: normalizeTeacherFinanceMonthKey(entry.paymentMonth),
     markKeys: Array.isArray(entry.markKeys) ? entry.markKeys.map((item) => String(item || '').trim()).filter(Boolean) : [],
   };
   if (includeText) {
@@ -22665,6 +22724,7 @@ app.get('/api/payment-notifications', (req, res) => {
   if (!teacher) return;
   const db = readPaymentNotificationsDb();
   const notifications = db.items
+    .filter((entry) => entry.paymentTarget !== 'teacher-platform' || isAdminRole(req.auth))
     .filter((entry) => String(entry.teacherId || '').trim() === teacher.id || !String(entry.teacherId || '').trim())
     .map((entry) => serializePaymentNotificationEntry(entry, { includeText: true }));
   return res.json({ notifications });
@@ -24792,7 +24852,7 @@ const moveLearningVoiceParticipants = (mode) => handleLearningRoute((req, res) =
   const moved = [];
   // Only participants already in voice are moved. No absent user's mic is opened.
   rtcClientsBySocket.forEach((client) => {
-    if (!isStudentRole(client.auth) || parseRtcRoomId(client.roomId)?.sessionId !== lesson.id) return;
+    if (!isStudentRole(client.auth) || client.listenOnly || parseRtcRoomId(client.roomId)?.sessionId !== lesson.id) return;
     const target = mode === 'general' ? channels[0] : channels.find(channel => channel.studentId === client.auth.id);
     if (!target || getRtcRoomAccessError(client.auth, parseRtcRoomId(target.roomId))) return;
     if (client.roomId === target.roomId) return;
@@ -25332,6 +25392,38 @@ app.get('/api/learning-materials', handleLearningRoute((req, res) => {
 }));
 
 const recordingLibraryJobs = teacherId => desktopRecordings.libraryJobs(teacherId).map(job => ({ ...job, teacherId }));
+const libraryStudent = auth => isStudentRole(auth) ? findStudentById(auth.id) : null;
+const hasGroupLibraryAccess = auth => {
+  const student = libraryStudent(auth);
+  return LEARNING_GROUPS_ENABLED && groupLibraryEntitlement(student, readLearningGroupsDb(), learningSubscriptions.read().blocks, readLearningLessonSessionsDb());
+};
+const libraryLessonIsLive = lesson => {
+  const group = getLearningGroupById(lesson.groupId);
+  if (!group || group.deletedAt || group.status === 'completed' || !LEARNING_GROUP_RTC_ENABLED) return false;
+  if (lesson.status === 'active') return true;
+  const now = Date.now(), start = Date.parse(lesson.startAt);
+  return lesson.status === 'scheduled' && now >= start && now < start + lesson.durationMinutes * 60000 + LEARNING_LESSON_OVERRUN_GRACE_MS
+    && Array.from(rtcRooms.get(lesson.rtcRoomId)?.values() || []).some(client => client.auth.role === 'teacher' && client.auth.id === group.teacherId);
+};
+const isGroupLibraryListener = (auth, target) => {
+  if (target?.targetType !== 'lesson' || target.channelId !== 'general') return false;
+  const student = libraryStudent(auth);
+  if (!student) return false;
+  const lesson = readLearningLessonSessionsDb().find(entry => entry.id === target.sessionId);
+  const group = lesson && getLearningGroupById(lesson.groupId);
+  return Boolean(group && !group.deletedAt && group.teacherId === student.teacherId
+    && !getActiveLearningGroupMembers(group).some(member => member.studentId === student.id)
+    && libraryLessonIsLive(lesson) && hasGroupLibraryAccess(auth));
+};
+app.get('/api/student-group-library', handleLearningRoute((req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  reconcileLearningGroupLifecycle();
+  res.setHeader('Cache-Control', 'private, no-store');
+  const allowed = hasGroupLibraryAccess(req.auth);
+  if (!allowed) return res.json({ allowed: false, groups: [], lessons: [], recordings: [] });
+  const student = libraryStudent(req.auth);
+  return res.json({ allowed, ...groupLibraryCatalog(student, readLearningGroupsDb(), readResolvedGroupLessonSessions(), recordingLibraryJobs(student.teacherId), readLearningMaterialsDb(), libraryLessonIsLive) });
+}));
 app.get('/api/lesson-recording-library', handleLearningRoute((req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
@@ -29984,14 +30076,27 @@ app.patch('/api/teacher-subscription', (req, res) => {
   const dueDay = normalizeTeacherSubscriptionDueDay(req.body?.dueDay);
   const db = readTeacherSubscriptionsDb();
   const current = normalizeTeacherSubscriptionEntry(db[teacherId]);
+  const payerName = Object.hasOwn(req.body || {}, 'payerName') ? normalizeTeacherFinanceText(req.body.payerName, 120) : current.payerName;
+  if (payerName && (!cleanPaymentSenderName(payerName) || normalizePaymentNameKey(payerName).length < 3)) return res.status(400).json({ error: 'Укажите имя плательщика точно как в уведомлении Т-банка.' });
+  if (payerName && Object.entries(db).some(([id, entry]) => id !== teacherId && findTeacherById(id) && normalizePaymentNameKey(entry.payerName) === normalizePaymentNameKey(payerName))) {
+    return res.status(409).json({ error: 'Это имя плательщика уже указано у другого преподавателя. Для одинаковых имён нужна ручная отметка.' });
+  }
   db[teacherId] = {
     ...current,
     monthlyFee,
     dueDay,
+    payerName,
     updatedAt: new Date().toISOString(),
   };
   writeTeacherSubscriptionsDb(db);
   return res.json(getTeacherSubscriptionStatus(teacherId));
+});
+
+app.get('/api/teacher-subscription/notifications', (req, res) => {
+  if (!isAdminRole(req.auth)) return forbid(res);
+  return res.json({ notifications: readPaymentNotificationsDb().items.filter(entry => entry.paymentTarget === 'teacher-platform').map(entry => ({
+    ...serializePaymentNotificationEntry(entry), teacherName: findTeacherById(entry.teacherId)?.name || '',
+  })) });
 });
 
 app.post('/api/teacher-subscription/payment', (req, res) => {
@@ -42240,6 +42345,7 @@ const getRtcRoomAccessError = (auth, roomMeta) => {
   if (roomMeta.targetType === 'lesson' && !LEARNING_GROUP_RTC_ENABLED) {
     return 'Групповые звонки доступны только в Яндекс Телемосте';
   }
+  if (isGroupLibraryListener(auth, roomMeta)) return '';
   const access = authorizeLearningRealtimeRoom({
     auth,
     roomId: roomMeta.roomId,
@@ -42316,6 +42422,7 @@ const applyLearningLessonConnectionAttendance = ({ auth, lesson, connectionId },
 };
 
 const applyLearningRtcAttendance = (client, roomId, type, at = new Date().toISOString()) => {
+  if (client?.listenOnly) return false;
   const target = parseLearningLessonRoomTarget(roomId);
   if (!target || target.kind !== 'rtc') return false;
   const lesson = readLearningLessonSessionsDb().find((entry) => entry.id === target.sessionId);
@@ -42331,6 +42438,7 @@ const serializeRtcPeer = (client) => ({
   userId: client.auth.id,
   name: client.auth.name,
   role: client.auth.role,
+  listenOnly: Boolean(client.listenOnly),
   isScreenSharing: Boolean(client.isScreenSharing),
   isCameraEnabled: Boolean(client.isCameraEnabled),
   screenTrackId: typeof client.screenTrackId === 'string' ? client.screenTrackId : '',
@@ -42645,6 +42753,7 @@ const leaveRtcRoom = (client) => {
   const room = rtcRooms.get(roomId);
   applyLearningRtcAttendance(client, roomId, 'leave');
   client.roomId = '';
+  client.listenOnly = false;
   client.isScreenSharing = false;
   client.isCameraEnabled = false;
   client.screenTrackId = '';
@@ -42730,6 +42839,7 @@ const joinRtcRoom = (client, roomMeta) => {
   if (client.roomId && client.roomId !== roomId) {
     leaveRtcRoom(client);
   }
+  client.listenOnly = isGroupLibraryListener(client.auth, roomMeta);
 
   let room = rtcRooms.get(roomId);
   if (!room) {
@@ -42747,6 +42857,7 @@ const joinRtcRoom = (client, roomMeta) => {
       type: 'joined',
       roomId,
       selfId: client.clientId,
+      listenOnly: Boolean(client.listenOnly),
       peers,
     });
     broadcastRtcPresenceUpdate(roomId);
@@ -42764,7 +42875,7 @@ const joinRtcRoom = (client, roomMeta) => {
   client.screenTrackId = '';
   client.cameraTrackId = '';
   client.joinedAt = Date.now();
-  void observeHomeworkRtcLesson(roomMeta).catch(error => console.error('[homework-reminders] failed to track call:', error?.message || error));
+  if (!client.listenOnly) void observeHomeworkRtcLesson(roomMeta).catch(error => console.error('[homework-reminders] failed to track call:', error?.message || error));
   applyLearningRtcAttendance(client, roomId, 'join', new Date(client.joinedAt).toISOString());
   upsertRtcPresenceFileFromClient(client);
 
@@ -42772,6 +42883,7 @@ const joinRtcRoom = (client, roomMeta) => {
     type: 'joined',
     roomId,
     selfId: client.clientId,
+    listenOnly: Boolean(client.listenOnly),
     peers,
   });
 
@@ -42812,6 +42924,12 @@ const handleRtcMessage = (client, rawData, isBinary) => {
   const type = typeof payload?.type === 'string' ? payload.type.trim() : '';
   if (!type) return;
   client.lastHeartbeatAt = Date.now();
+  const requestedRtcTarget = parseRtcRoomId(payload?.roomId || client.roomId);
+  const listener = isGroupLibraryListener(client.auth, requestedRtcTarget);
+  if ((client.listenOnly || listener) && !['join', 'leave', 'watch-presence', 'unwatch-presence', 'signal', 'presence-state', 'ping'].includes(type)) {
+    sendRtcPayload(client.ws, { type: 'error', error: 'В режиме слушателя это действие недоступно' });
+    return;
+  }
   if (isMeetingIdentity(client.auth)) {
     const error = guestMeetings.accessError(client.auth, client.auth.meetingId);
     if (error) {
@@ -42964,9 +43082,10 @@ const handleRtcMessage = (client, rawData, isBinary) => {
       return;
     }
     const accessError = getRtcRoomAccessError(client.auth, parseRtcRoomId(client.roomId));
-    if (accessError) {
+    const modeChanged = Boolean(client.listenOnly) !== isGroupLibraryListener(client.auth, parseRtcRoomId(client.roomId));
+    if (accessError || modeChanged) {
       leaveRtcRoom(client);
-      sendRtcPayload(client.ws, { type: 'session-ended', error: accessError });
+      sendRtcPayload(client.ws, { type: 'session-ended', error: accessError || 'Права доступа изменились. Войдите в занятие снова.' });
       return;
     }
     const targetId = typeof payload?.targetId === 'string' ? payload.targetId.trim() : '';
@@ -42980,6 +43099,10 @@ const handleRtcMessage = (client, rawData, isBinary) => {
       sendRtcPayload(client.ws, { type: 'error', error: 'Собеседник недоступен' });
       return;
     }
+    if (client.listenOnly && !listenerSignalAllowed(signal)) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Слушатель может только получать звук и видео' });
+      return;
+    }
     sendRtcPayload(targetClient.ws, {
       type: 'signal',
       roomId: client.roomId,
@@ -42991,6 +43114,10 @@ const handleRtcMessage = (client, rawData, isBinary) => {
   }
 
   if (type === 'presence-state') {
+    if (client.listenOnly && (payload.isScreenSharing || payload.isCameraEnabled || payload.screenTrackId || payload.cameraTrackId)) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Слушатель не может включать камеру или демонстрацию' });
+      return;
+    }
     if (!client.roomId) {
       sendRtcPayload(client.ws, { type: 'error', error: 'Сначала подключитесь к комнате' });
       return;
@@ -43060,7 +43187,8 @@ const runRtcClientSweep = () => {
     const roomMeta = parseRtcRoomId(client.roomId) || parseMeetingRoomId(client.watchedRoomId);
     if (roomMeta?.targetType === 'lesson' || roomMeta?.targetType === 'meeting' || isMeetingIdentity(client.auth)) {
       const checkedRoom = roomMeta || parseMeetingRoomId(meetingRoomId(client.auth.meetingId));
-      const accessError = getRtcRoomAccessError(client.auth, checkedRoom);
+      const accessError = getRtcRoomAccessError(client.auth, checkedRoom)
+        || (client.roomId && Boolean(client.listenOnly) !== isGroupLibraryListener(client.auth, checkedRoom) ? 'Права доступа изменились. Войдите в занятие снова.' : '');
       if (accessError) {
         sendRtcPayload(client.ws, { type: 'session-ended', error: accessError });
         if (isMeetingIdentity(client.auth) || checkedRoom?.targetType === 'meeting') {

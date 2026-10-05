@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Plus, RefreshCcw, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
+import { saveTeacherPlatformPayment, teacherPlatformNotifications } from '../services/teacherPlatformPayments';
 import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
 import { Button, Card } from './ui';
 
@@ -33,6 +34,26 @@ const AdminPanel = ({
   const [subscriptionDrafts, setSubscriptionDrafts] = useState({});
   const [subscriptionSavingId, setSubscriptionSavingId] = useState(null);
   const [subscriptionPayingId, setSubscriptionPayingId] = useState(null);
+  const [paymentNotifications, setPaymentNotifications] = useState([]);
+  const [paymentNotificationsError, setPaymentNotificationsError] = useState('');
+  const teachersChangedRef = useRef(onTeachersChanged);
+  teachersChangedRef.current = onTeachersChanged;
+  useEffect(() => {
+    let active = true;
+    let appliedIds = null;
+    const load = () => teacherPlatformNotifications().then(data => {
+      if (!active) return;
+      const notifications = data.notifications || [];
+      const nextIds = new Set(notifications.filter(entry => entry.status === 'applied').map(entry => entry.id));
+      if (appliedIds && [...nextIds].some(id => !appliedIds.has(id))) teachersChangedRef.current?.();
+      appliedIds = nextIds;
+      setPaymentNotifications(notifications);
+      setPaymentNotificationsError('');
+    }).catch(error => { if (active) setPaymentNotificationsError(error.message); });
+    load();
+    const timer = setInterval(load, 30000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
 
   const loadAllStudents = async () => {
     setAdminStudentsLoading(true);
@@ -57,9 +78,18 @@ const AdminPanel = ({
       next[teacher.id] = {
         monthlyFee: Number(teacher.subscription?.monthlyFee) > 0 ? String(teacher.subscription.monthlyFee) : '',
         dueDay: String(Number(teacher.subscription?.dueDay) || 10),
+        payerName: teacher.subscription?.payerName || '',
       };
     });
-    setSubscriptionDrafts(next);
+    setSubscriptionDrafts(previous => {
+      const merged = {};
+      for (const [id, draft] of Object.entries(next)) {
+        const old = previous[id];
+        // A new bank receipt can refresh statuses while an administrator edits a payer.
+        merged[id] = old?.dirty ? old : draft;
+      }
+      return merged;
+    });
   }, [teachers]);
 
   const handleCreateTeacher = async () => {
@@ -160,7 +190,8 @@ const AdminPanel = ({
     const dueDay = Math.max(1, Math.min(31, Math.round(Number(draft.dueDay) || 10)));
     setSubscriptionSavingId(teacher.id);
     try {
-      await api.updateTeacherSubscription(teacher.id, monthlyFee, dueDay);
+      await saveTeacherPlatformPayment(teacher.id, monthlyFee, dueDay, draft.payerName || '');
+      setSubscriptionDrafts(previous => ({ ...previous, [teacher.id]: { ...previous[teacher.id], dirty: false } }));
       onTeachersChanged?.();
     } catch (err) {
       alert(err?.message || err);
@@ -207,6 +238,13 @@ const AdminPanel = ({
         <h2 className="text-2xl font-bold text-gray-900">Админка</h2>
         <p className="text-gray-500">Управление учителями и всеми учениками</p>
       </div>
+      {paymentNotifications.length > 0 && <details className="rounded-2xl border border-violet-200 bg-violet-50/50 p-4">
+        <summary className="cursor-pointer text-sm font-bold text-violet-900">Автооплата платформы · {paymentNotifications.filter(entry => entry.status === 'pending').length} на проверке</summary>
+        <div className="mt-3 space-y-2">{paymentNotifications.slice(0, 12).map(entry => <div key={entry.id} className="rounded-xl border border-violet-100 bg-white px-4 py-3 text-xs">
+          <div className="flex flex-wrap justify-between gap-2 font-semibold text-slate-800"><span>{entry.teacherName || entry.senderName || 'Неоднозначный плательщик'}</span><span>{entry.amount.toLocaleString('ru-RU')} ₽ · {entry.paymentMonth}</span></div>
+          <p className={`mt-1 ${entry.status === 'applied' ? 'text-emerald-700' : 'text-amber-700'}`}>{entry.reason}</p>
+        </div>)}</div>
+      </details>}
 
       <BroadcastNotificationsPanel role="admin" />
 
@@ -313,7 +351,7 @@ const AdminPanel = ({
                                 value={subscriptionDrafts[teacher.id]?.monthlyFee || ''}
                                 onChange={(event) => setSubscriptionDrafts((current) => ({
                                   ...current,
-                                  [teacher.id]: { ...(current[teacher.id] || {}), monthlyFee: event.target.value.replace(/[^\d.,]/g, '') },
+                                  [teacher.id]: { ...(current[teacher.id] || {}), dirty: true, monthlyFee: event.target.value.replace(/[^\d.,]/g, '') },
                                 }))}
                                 placeholder="0 — без подписки"
                                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-7 text-sm outline-none focus:border-purple-500"
@@ -330,7 +368,7 @@ const AdminPanel = ({
                               value={subscriptionDrafts[teacher.id]?.dueDay || '10'}
                               onChange={(event) => setSubscriptionDrafts((current) => ({
                                 ...current,
-                                [teacher.id]: { ...(current[teacher.id] || {}), dueDay: event.target.value },
+                                [teacher.id]: { ...(current[teacher.id] || {}), dirty: true, dueDay: event.target.value },
                               }))}
                               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-purple-500"
                             />
@@ -374,6 +412,22 @@ const AdminPanel = ({
                             )}
                           </div>
                         )}
+                        <label className="mt-3 block">
+                          <span className="mb-1 block text-xs font-semibold text-slate-700">Имя плательщика в Т-банке</span>
+                          <input type="text" maxLength={120} value={subscriptionDrafts[teacher.id]?.payerName || ''}
+                            onChange={event => setSubscriptionDrafts(current => ({ ...current, [teacher.id]: { ...current[teacher.id], dirty: true, payerName: event.target.value } }))}
+                            placeholder="Например, Александр П."
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-purple-500" />
+                        </label>
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">Укажите имя точно как в банковском уведомлении и нажмите «Сохранить». Перевод на месячную сумму отмечается за месяц его поступления. Пустое имя отключает автоотметку.</p>
+                        {teacher.subscription?.payerName && <p className={`mt-2 text-xs font-semibold ${teacher.subscription.autoPaymentEnabled ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          {teacher.subscription.autoPaymentEnabled ? '✓ Автоотметка Т-банка подключена' : 'Для автоотметки нужно подключить поток уведомлений Т-банка к счёту владельца платформы'}
+                          {teacher.subscription.paymentSource === 'tbank' && ' · Этот месяц оплачен автоматически'}
+                        </p>}
+                        {paymentNotifications.filter(entry => entry.teacherId === teacher.id && entry.status === 'pending').slice(0, 2).map(entry => <p key={entry.id} className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          Перевод {entry.amount.toLocaleString('ru-RU')} ₽ от {entry.senderName}: {entry.reason}
+                        </p>)}
+                        {paymentNotificationsError && <p className="mt-2 text-xs text-rose-600">История автооплат: {paymentNotificationsError}</p>}
                       </div>
                     </>
                   )}
