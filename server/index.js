@@ -9,6 +9,7 @@ import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCal
 import express from 'express';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
 import { matchTeacherPlatformPayment } from './teacherPlatformPayments.js';
+import { TeacherPaymentConnections } from './teacherPaymentConnections.js';
 import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } from './groupLibrary.js';
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
@@ -725,6 +726,7 @@ const getLearningSubscriptionRoomError = (auth, access) => {
 };
 const paymentNotificationsFile = path.join(dataDir, 'payment-notifications.json');
 const paymentSenderLinksFile = path.join(dataDir, 'payment-sender-links.json');
+const teacherPaymentConnectionsFile = path.join(dataDir, 'teacher-payment-connections.json');
 const teacherSubscriptionsFile = path.join(dataDir, 'teacher-subscriptions.json');
 const finalReviewVideosFile = path.join(dataDir, 'final-review-videos.json');
 const finalReviewNotesFile = path.join(dataDir, 'final-review-notes.json');
@@ -793,6 +795,12 @@ const PAYMENT_NOTIFICATION_DEFAULT_TEACHER_ID = String(
 const SIGNUP_DEFAULT_TEACHER_ID = String(
   process.env.SIGNUP_TEACHER_ID || process.env.DEFAULT_SIGNUP_TEACHER_ID || ''
 ).trim();
+const teacherPaymentConnections = new TeacherPaymentConnections({
+  file: teacherPaymentConnectionsFile,
+  writeJson: (...args) => writeJsonFileAtomic(...args),
+  legacySecret: PAYMENT_NOTIFICATION_SECRET,
+  legacyTeacherId: PAYMENT_NOTIFICATION_DEFAULT_TEACHER_ID || SIGNUP_DEFAULT_TEACHER_ID,
+});
 const SIGNUP_GUEST_NAME_MAX_LENGTH = 80;
 const SIGNUP_GUEST_KEY_MAX_LENGTH = 120;
 const SIGNUP_MESSAGE_MAX_LENGTH = 2000;
@@ -3420,6 +3428,10 @@ const normalizePaymentNotificationEntry = (value) => {
     status: normalizePaymentNotificationStatus(source.status),
     reason: normalizePaymentNotificationText(source.reason).slice(0, PAYMENT_NOTIFICATION_REASON_MAX_LENGTH),
     teacherId: String(source.teacherId || '').trim(),
+    receiverTeacherId: String(source.receiverTeacherId || '').trim(),
+    requestedTeacherId: String(source.requestedTeacherId || '').trim(),
+    authMode: ['personal-key', 'legacy-key'].includes(source.authMode) ? source.authMode : '',
+    keyId: String(source.keyId || '').trim(),
     studentId: String(source.studentId || '').trim(),
     studentName: normalizePaymentNotificationText(source.studentName).slice(0, 120),
     senderName: normalizePaymentNotificationText(source.senderName).slice(0, 120),
@@ -16123,25 +16135,16 @@ const getPaymentNotificationSecretFromRequest = (req, payload = {}) => {
   );
 };
 
-const timingSafeStringEqual = (left, right) => {
-  const leftValue = String(left || '');
-  const rightValue = String(right || '');
-  if (!leftValue || !rightValue) return false;
-  const leftBuffer = Buffer.from(leftValue, 'utf8');
-  const rightBuffer = Buffer.from(rightValue, 'utf8');
-  if (leftBuffer.length !== rightBuffer.length) return false;
-  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
-};
-
 const validatePaymentNotificationSecret = (req, payload = {}) => {
-  if (!PAYMENT_NOTIFICATION_SECRET) {
-    return { ok: false, status: 503, error: 'Не задан MACRODROID_PAYMENT_SECRET на сервере.' };
+  try {
+    const result = teacherPaymentConnections.authenticate(getPaymentNotificationSecretFromRequest(req, payload), payload.teacherId);
+    if (!result.ok) return result;
+    const teacher = findTeacherById(result.teacherId);
+    if (!teacher || teacher.deletedAt) return { ok: false, status: 403, error: 'Преподаватель для ключа оплаты не найден.' };
+    return result;
+  } catch {
+    return { ok: false, status: 503, error: 'Не удалось проверить настройки автооплаты.' };
   }
-  const incomingSecret = getPaymentNotificationSecretFromRequest(req, payload);
-  if (!timingSafeStringEqual(incomingSecret, PAYMENT_NOTIFICATION_SECRET)) {
-    return { ok: false, status: 401, error: 'Неверный секрет уведомления.' };
-  }
-  return { ok: true };
 };
 
 const sanitizeTbankNotificationText = (value) => normalizePaymentNotificationText(value)
@@ -16311,19 +16314,13 @@ const buildPaymentNotificationId = (payload = {}, parsed = {}) => {
 };
 
 const resolvePaymentNotificationTeacher = (payload = {}) => {
-  const requestedTeacherId = normalizeTeacherId(
-    payload.teacherId
-    || PAYMENT_NOTIFICATION_DEFAULT_TEACHER_ID
-    || SIGNUP_DEFAULT_TEACHER_ID
-  );
+  const requestedTeacherId = normalizeTeacherId(payload.teacherId);
   if (requestedTeacherId) {
     const teacher = findTeacherById(requestedTeacherId);
     if (!teacher) return { error: 'Учитель для уведомления не найден.' };
     return { teacher };
   }
-  const teachers = readTeachersDb();
-  if (teachers.length === 1) return { teacher: teachers[0] };
-  return { error: 'Передайте teacherId или задайте PAYMENT_NOTIFICATION_TEACHER_ID.' };
+  return { error: 'Не определён преподаватель по ключу оплаты.' };
 };
 
 const getPlatformPaymentReceiverId = () => {
@@ -17807,10 +17804,30 @@ const storePaymentNotificationResult = (entry) => {
   return { duplicate: false, entry: normalizedEntry };
 };
 
-const storePaymentNotificationProcessingError = (payload = {}, error) => {
+const paymentNotificationIdentity = (payload, context) => {
+  const parsed = parseTbankPaymentNotificationPayload(payload);
+  const originalHash = parsed.rawHash;
+  const legacyId = buildPaymentNotificationId(payload, parsed);
+  if (context.authMode === 'personal-key') {
+    parsed.rawHash = crypto.createHash('sha1').update(`${context.teacherId}\n${originalHash}`).digest('hex');
+  }
+  const id = context.authMode === 'personal-key'
+    ? `tbank-${crypto.createHash('sha1').update(`${context.teacherId}\n${legacyId}`).digest('hex')}`
+    : buildPaymentNotificationId(payload, parsed);
+  return { parsed, id, originalHash, legacyId };
+};
+
+const paymentNotificationReceiverMatches = (entry, teacherId) => (
+  entry.receiverTeacherId
+    ? entry.receiverTeacherId === teacherId
+    : (entry.paymentTarget === 'teacher-platform'
+      ? getPlatformPaymentReceiverId() === teacherId
+      : entry.teacherId === teacherId)
+);
+
+const storePaymentNotificationProcessingError = (payload = {}, error, context = {}) => {
   try {
-    const parsed = parseTbankPaymentNotificationPayload(payload);
-    const id = buildPaymentNotificationId(payload, parsed);
+    const { parsed, id } = paymentNotificationIdentity(payload, context);
     const teacherResult = resolvePaymentNotificationTeacher(payload);
     const message = error?.message || String(error || 'unknown error');
     const result = storePaymentNotificationResult({
@@ -17827,6 +17844,10 @@ const storePaymentNotificationProcessingError = (payload = {}, error) => {
       senderName: parsed.senderName,
       senderKey: parsed.senderKey,
       teacherId: teacherResult.teacher?.id || '',
+      receiverTeacherId: context.teacherId || '',
+      requestedTeacherId: context.requestedTeacherId || '',
+      authMode: context.authMode || '',
+      keyId: context.keyId || '',
       status: 'pending',
       reason: `Ошибка обработки уведомления на сервере: ${message}`.slice(0, PAYMENT_NOTIFICATION_REASON_MAX_LENGTH),
     });
@@ -17837,9 +17858,8 @@ const storePaymentNotificationProcessingError = (payload = {}, error) => {
   }
 };
 
-const handleTbankPaymentNotification = async (payload = {}) => {
-  const parsed = parseTbankPaymentNotificationPayload(payload);
-  const id = buildPaymentNotificationId(payload, parsed);
+const handleTbankPaymentNotification = async (payload = {}, context = {}) => {
+  const { parsed, id, originalHash, legacyId } = paymentNotificationIdentity(payload, context);
   const createdAt = new Date().toISOString();
   const baseEntry = {
     id,
@@ -17854,10 +17874,16 @@ const handleTbankPaymentNotification = async (payload = {}) => {
     rawHash: parsed.rawHash,
     senderName: parsed.senderName,
     senderKey: parsed.senderKey,
+    teacherId: context.teacherId,
+    receiverTeacherId: context.teacherId,
+    requestedTeacherId: context.requestedTeacherId,
+    authMode: context.authMode,
+    keyId: context.keyId,
   };
 
   const existingDb = readPaymentNotificationsDb();
-  const existing = existingDb.items.find((item) => item.id === id || (parsed.rawHash && item.rawHash === parsed.rawHash));
+  const existing = existingDb.items.find((item) => paymentNotificationReceiverMatches(item, context.teacherId)
+    && (item.id === id || item.id === legacyId || item.rawHash === parsed.rawHash || item.rawHash === originalHash));
   if (existing) {
     return {
       ok: true,
@@ -17880,8 +17906,9 @@ const handleTbankPaymentNotification = async (payload = {}) => {
   }
 
   // Kept with the payment, independently of the rolling notification journal.
-  const receipt = Object.values(readTeacherSubscriptionsDb()).flatMap(entry => Object.entries(entry.autoReceipts || {}))
-    .find(([receiptId, value]) => receiptId === id || value?.hash === parsed.rawHash);
+  const receipt = context.teacherId === getPlatformPaymentReceiverId()
+    && Object.values(readTeacherSubscriptionsDb()).flatMap(entry => Object.entries(entry.autoReceipts || {}))
+      .find(([receiptId, value]) => receiptId === id || receiptId === legacyId || value?.hash === parsed.rawHash || value?.hash === originalHash);
   if (receipt) return { ok: true, statusCode: 200, entry: { ...baseEntry, status: 'duplicate', paymentTarget: 'teacher-platform', reason: 'Этот перевод за платформу уже учтён.' } };
 
   const teacherResult = resolvePaymentNotificationTeacher(payload);
@@ -17974,6 +18001,10 @@ const serializePaymentNotificationEntry = (entry = {}, options = {}) => {
     createdAt: normalizePaymentNotificationTimestamp(entry.createdAt, ''),
     reason: normalizePaymentNotificationText(entry.reason),
     teacherId: String(entry.teacherId || '').trim(),
+    receiverTeacherId: String(entry.receiverTeacherId || '').trim(),
+    requestedTeacherId: String(entry.requestedTeacherId || '').trim(),
+    authMode: String(entry.authMode || '').trim(),
+    keyId: String(entry.keyId || '').trim(),
     studentId: String(entry.studentId || '').trim(),
     studentName: normalizePaymentNotificationText(entry.studentName).slice(0, 120),
     senderName: normalizePaymentNotificationText(entry.senderName).slice(0, 120),
@@ -22013,47 +22044,47 @@ app.get('/api/availability', (_req, res) => {
   res.json({ available: true });
 });
 
-app.post('/api/payment-notifications/tbank', async (req, res) => {
-  const payload = parseLoosePaymentNotificationBody(req.body);
-  const secretCheck = validatePaymentNotificationSecret(req, payload);
-  if (!secretCheck.ok) {
-    return res.status(secretCheck.status || 401).json({ ok: false, error: secretCheck.error || 'Unauthorized' });
-  }
-  try {
-    const result = await handleTbankPaymentNotification(payload);
-    return res.status(result.statusCode || 200).json({
-      ok: true,
-      notification: serializePaymentNotificationEntry(result.entry),
-    });
-  } catch (error) {
-    console.error('[payment-notification] failed:', error);
-    const entry = storePaymentNotificationProcessingError(payload, error);
-    return res.status(202).json({
-      ok: true,
-      notification: serializePaymentNotificationEntry(entry || {
-        id: `tbank-error-${Date.now()}`,
-        status: 'pending',
-        reason: 'Не удалось обработать уведомление оплаты.',
-      }),
-    });
-  }
-});
+const paymentNotificationQueue = new Map();
+const enqueuePaymentNotification = (teacherId, action) => {
+  const previous = paymentNotificationQueue.get(teacherId) || Promise.resolve();
+  const current = previous.catch(() => {}).then(action);
+  paymentNotificationQueue.set(teacherId, current);
+  const cleanup = () => {
+    if (paymentNotificationQueue.get(teacherId) === current) paymentNotificationQueue.delete(teacherId);
+  };
+  current.then(cleanup, cleanup);
+  return current;
+};
 
-app.post('/api/payment-notifications/macrodroid', async (req, res) => {
+const receivePaymentNotification = async (req, res) => {
   const payload = parseLoosePaymentNotificationBody(req.body);
-  const secretCheck = validatePaymentNotificationSecret(req, payload);
-  if (!secretCheck.ok) {
-    return res.status(secretCheck.status || 401).json({ ok: false, error: secretCheck.error || 'Unauthorized' });
+  const context = validatePaymentNotificationSecret(req, payload);
+  if (!context.ok) {
+    return res.status(context.status || 401).json({ ok: false, error: context.error || 'Unauthorized' });
   }
+  res.setHeader('Cache-Control', 'no-store');
+  // Explicit dry runs never retire the legacy key or create a financial record.
+  if (payload.test === true) return res.json({ ok: true, test: true, teacherId: context.teacherId, authMode: context.authMode });
+  const boundPayload = { ...payload, teacherId: context.teacherId };
   try {
-    const result = await handleTbankPaymentNotification(payload);
+    const result = await enqueuePaymentNotification(context.teacherId, async () => {
+      // MacroDroid's action test has no notification-trigger variables.
+      if (String(payload.text || '').trim() === '{notification}' && !payload.amount) {
+        const connection = { status: 'connected', reason: 'Тестовый запрос с телефона получен.' };
+        teacherPaymentConnections.record(context, connection);
+        return { statusCode: 200, connection };
+      }
+      const handled = await handleTbankPaymentNotification(boundPayload, context);
+      teacherPaymentConnections.record(context, handled.entry);
+      return handled;
+    });
     return res.status(result.statusCode || 200).json({
       ok: true,
-      notification: serializePaymentNotificationEntry(result.entry),
+      ...(result.connection ? { connection: result.connection } : { notification: serializePaymentNotificationEntry(result.entry) }),
     });
   } catch (error) {
     console.error('[payment-notification] failed:', error);
-    const entry = storePaymentNotificationProcessingError(payload, error);
+    const entry = storePaymentNotificationProcessingError(boundPayload, error, context);
     return res.status(202).json({
       ok: true,
       notification: serializePaymentNotificationEntry(entry || {
@@ -22063,7 +22094,9 @@ app.post('/api/payment-notifications/macrodroid', async (req, res) => {
       }),
     });
   }
-});
+};
+app.post('/api/payment-notifications/tbank', receivePaymentNotification);
+app.post('/api/payment-notifications/macrodroid', receivePaymentNotification);
 
 registerDesktopDeviceRoutes(app, desktopRecordings, {
   lessonTopic: (teacherId,payload) => {
@@ -22727,7 +22760,27 @@ app.put(
   }
 );
 
+const ownPaymentConnection = (req, res, create) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!isTeacherRole(req.auth)) return forbid(res);
+  const requested = req.body?.teacherId || req.query?.teacherId;
+  if (requested && requested !== req.auth.id) return forbid(res);
+  const teacher = ensureTeacherAccess(req, res, req.auth.id);
+  if (!teacher) return;
+  try {
+    const connection = create
+      ? teacherPaymentConnections.ensure(teacher.id, { rotate: req.body?.rotate === true })
+      : teacherPaymentConnections.settings(teacher.id);
+    return res.json({ connection });
+  } catch (error) {
+    return res.status(503).json({ error: error.message });
+  }
+};
+app.get('/api/teacher-payment-connection', (req, res) => ownPaymentConnection(req, res, false));
+app.post('/api/teacher-payment-connection', (req, res) => ownPaymentConnection(req, res, true));
+
 app.get('/api/payment-notifications', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const { teacherId } = req.query || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
@@ -22736,7 +22789,8 @@ app.get('/api/payment-notifications', (req, res) => {
   const db = readPaymentNotificationsDb();
   const notifications = db.items
     .filter((entry) => entry.paymentTarget !== 'teacher-platform' || isAdminRole(req.auth))
-    .filter((entry) => String(entry.teacherId || '').trim() === teacher.id || !String(entry.teacherId || '').trim())
+    .filter((entry) => paymentNotificationReceiverMatches(entry, teacher.id)
+      || (isAdminRole(req.auth) && !entry.teacherId && !entry.receiverTeacherId))
     .map((entry) => serializePaymentNotificationEntry(entry, { includeText: true }));
   return res.json({ notifications });
 });

@@ -1,0 +1,35 @@
+.payment-connection { color: #18202c; background: #fff; padding: 20px; min-width: 0; letter-spacing: 0; }
+.payment-connection__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.payment-connection h2 { margin: 0; font-size: 22px; font-weight: 700; }
+.payment-connection h3 { margin: 28px 0 12px; font-size: 17px; font-weight: 700; }
+.payment-connection__status, .payment-connection dt, .payment-connection__empty { color: #536171; font-size: 13px; }
+.payment-connection button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #147ca2; border-radius: 6px; padding: 9px 12px; color: white; background: #087d9f; font-size: 13px; font-weight: 600; max-width: 100%; }
+.payment-connection button:disabled { opacity: .55; cursor: wait; }
+.payment-connection button:hover:not(:disabled) { filter: brightness(.94); }
+.payment-connection button:focus-visible { outline: 2px solid #097d9f; outline-offset: 3px; }
+.payment-connection button.payment-connection__secondary, .payment-connection button.payment-connection__icon { color: #334354; border-color: #cbd5df; background: white; }
+.payment-connection button.payment-connection__icon { flex: 0 0 36px; width: 36px; height: 36px; padding: 0; }
+.payment-connection__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.payment-connection__details { display: flex; flex-wrap: wrap; gap: 16px 32px; margin: 20px 0; }
+.payment-connection__details dd { margin: 4px 0 0; font-size: 14px; }
+.payment-connection__url { flex: 1 1 100%; min-width: 0; }
+.payment-connection__url dd { display: flex; align-items: center; gap: 10px; }
+.payment-connection__url code { overflow-wrap: anywhere; min-width: 0; }
+.payment-connection__body { background: #f4f7f9; border: 1px solid #dce4eb; border-radius: 6px; padding: 16px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
+.payment-connection__notice, .payment-connection__success, .payment-connection__error { padding: 12px 0 12px 12px; border-left: 3px solid #b78213; margin: 16px 0; font-size: 13px; }
+.payment-connection__success { border-color: #158255; color: #14623f; }
+.payment-connection__error { border-color: #c73843; color: #a62833; }
+.payment-connection__reason { color: #596777; font-size: 12px; overflow-wrap: anywhere; margin-top: 5px; }
+.payment-connection__history { overflow-x: auto; max-width: 100%; }
+.payment-connection table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 13px; text-align: left; }
+.payment-connection th { background: #f4f7f9; color: #536171; font-size: 12px; font-weight: 600; }
+.payment-connection td, .payment-connection th { padding: 12px; border-bottom: 1px solid #e2e7ed; vertical-align: top; }
+.payment-connection td:first-child { width: 130px; }
+.payment-connection td:nth-child(3) { white-space: nowrap; }
+.payment-connection td:nth-child(4) { min-width: 250px; }
+.payment-connection [data-status="applied"] { color: #137344; }
+.payment-connection [data-status="pending"] { color: #a2680b; }
+.payment-connection details { margin-top: 8px; font-size: 12px; }
+.payment-connection summary { cursor: pointer; color: #087d9f; }
+.payment-connection details code { display: block; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .payment-connection { padding: 12px; } .payment-connection h2 { font-size: 20px; } .payment-connection__actions button { white-space: normal; text-align: left; } }
