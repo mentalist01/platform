@@ -1,0 +1,113 @@
+/* A quiet, luminous lobby. Decorative layers never receive input or affect
+   the measured layout; the existing bounded body remains the scroll owner. */
+.call-workspace.call-panel-root--inline[data-call-role] { position: relative; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage {
+  position: relative;
+  isolation: isolate;
+  gap: 16px 36px;
+  padding: 28px;
+  border-radius: 32px;
+  border-color: #fff;
+  background: linear-gradient(145deg, #ffffffed, #fffaffed) !important;
+  box-shadow: 0 28px 80px #6031a71a, 0 2px 8px #6031a708, inset 0 1px #fff;
+}
+.call-lobby-aura { position: absolute; inset: 0; z-index: -1; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.call-lobby-aura span { position: absolute; border-radius: 50%; width: 360px; height: 360px; filter: blur(70px); background: #e8d8ff; opacity: .36; right: -170px; top: -220px; animation: callLobbyLight 16s ease-in-out infinite alternate; }
+.call-lobby-aura span + span { top: auto; bottom: -280px; right: 10%; background: #e2eaff; animation-delay: -8s; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-intro { align-self: end; padding-top: 12px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-kicker { margin-bottom: 14px; padding: 6px 10px; border: 1px solid #e9dffc; border-radius: 8px; background: #f6f1ff; color: #8753cd; font-size: 10px; font-weight: 700; letter-spacing: .06em; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-title { max-width: 320px; font-size: clamp(28px, 3.1cqw, 36px); line-height: 1.1; letter-spacing: -.045em; font-weight: 750; }
+.call-lobby-title-accent { display: block; color: #8742da; background: linear-gradient(100deg, #773ade, #c450d9); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-intro > p:last-child { margin-top: 12px; font-size: 12px; line-height: 1.65; max-width: 290px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview { position: relative; isolation: isolate; min-height: 336px; border-radius: 24px; border: 1px solid #c6a4fd80; background: linear-gradient(140deg, #2e1a53, #1a1638 60%, #132d44); box-shadow: inset 0 1px #ffffff24, 0 16px 34px #35225520; }
+.call-lobby-scene { position: absolute; inset: 0; overflow: hidden; z-index: -1; pointer-events: none; }
+.call-lobby-scene span { position: absolute; width: 220px; height: 220px; border-radius: 50%; filter: blur(45px); background: #b76bff; opacity: .38; left: -12%; top: -12%; animation: callLobbyLight 14s ease-in-out infinite alternate; }
+.call-lobby-scene span:nth-child(2) { left: auto; top: auto; right: -15%; bottom: 8%; background: #36b9dc; opacity: .24; animation-delay: -7s; }
+.call-lobby-scene span:nth-child(3) { left: 35%; top: 25%; width: 140px; height: 140px; background: #c46ddd; opacity: .2; animation-delay: -4s; }
+.call-lobby-scene i { position: absolute; width: 310px; height: 310px; left: calc(50% - 155px); top: calc(50% - 184px); border: 1px solid #d1b5ff16; border-radius: 50%; transform: rotate(-24deg) scaleY(.8); }
+.call-lobby-scene i + i { width: 230px; height: 230px; left: calc(50% - 115px); top: calc(50% - 144px); border-color: #d1b5ff24; transform: rotate(24deg) scaleX(.92); }
+.call-lobby-scene i::before { content: ''; position: absolute; width: 5px; height: 5px; border-radius: 50%; background: #ddc6ff; top: 24%; right: 12%; box-shadow: 0 0 16px #e0b7ff; animation: callLobbySpark 4s ease-in-out infinite alternate; }
+.call-lobby-scene i + i::before { top: auto; right: auto; bottom: 18%; left: 12%; background: #80d9e8; animation-delay: -2s; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media { min-height: 256px; flex-basis: 256px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder { padding: 64px 20px 26px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder > div { position: relative; width: 112px; height: 112px; flex-shrink: 0; border-radius: 32px; font-size: 40px; background: linear-gradient(145deg, #bc8bff, #8450e6 55%, #a944d1); border-color: #e4ccff8c; box-shadow: 0 20px 46px #10081e50, inset 0 2px 2px #ffffff38; animation: callLobbyPortrait 7s ease-in-out infinite; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder > div::after { content: ''; position: absolute; inset: -10px; border: 1px solid #d7b3ff35; border-radius: 42px; pointer-events: none; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder p { color: #dbcfed; font-size: 11px; margin-top: 22px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-chip { top: 16px; left: 16px; padding: 7px 10px; color: #f1e9ff; background: #ffffff0d; border-color: #ffffff1a; backdrop-filter: blur(8px); font-size: 10px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-controls { padding: 12px; gap: 8px; border-color: #ffffff12; background: #100e2466; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-control { min-height: 52px; border: 1px solid #ffffff1a; color: #e1d6f3; background: #ffffff09; transition: background .2s, border-color .2s, transform .2s; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-control:not(:disabled):hover { background: #ffffff17; border-color: #bda0e480; transform: translateY(-2px); }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-control[data-live='true'] { background: #8850da4d; border-color: #b47bea80; color: #fff; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-control[data-tone='problem'] { color: #ffd4df; border-color: #f88eb580; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-side-stack { margin-top: 4px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-card { padding-top: 16px; border-top: 1px solid var(--call-border); }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-identity { gap: 12px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-avatar { width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(145deg, #f2e9ff, #fff2fd); color: #8544d3; border-color: #ead9fc; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-role { font-size: 9px; letter-spacing: .08em; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-name { font-size: 15px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-presence { display: inline-flex; padding: 4px 8px; border-radius: 6px; background: var(--call-soft); margin-top: 10px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-state-copy { line-height: 1.6; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-chat-link { margin-top: 8px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage > .call-device-panel { padding: 12px 0 0; border-top: 1px solid var(--call-border); }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-footer { bottom: -24px; border-radius: 16px; background: transparent; }
+.call-workspace.call-panel-root[data-call-role] .call-primary-cta { position: relative; overflow: hidden; min-height: 50px; border-radius: 14px; border-color: #9555de; background: linear-gradient(115deg, #7534d8, #a13bce); box-shadow: 0 8px 20px #8632d530, inset 0 1px #ffffff33; font-size: 13px; }
+.call-workspace.call-panel-root[data-call-role] .call-primary-cta::after { display: block; content: ''; position: absolute; inset: -100% -20%; background: linear-gradient(100deg, transparent 35%, #ffffff20 50%, transparent 65%); transform: translateX(-80%) skewX(-20deg); transition: transform .7s; pointer-events: none; }
+.call-workspace.call-panel-root[data-call-role] .call-primary-cta:not(:disabled):hover::after { transform: translateX(80%) skewX(-20deg); }
+.call-entry-arrow { margin-left: auto; transition: transform .25s; }
+.call-primary-cta:hover .call-entry-arrow { transform: translateX(3px); }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-footer > p { margin-top: 3px; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage[data-state='connecting'] .call-lobby-scene span { animation-duration: 3s; }
+.call-workspace.call-panel-root[data-call-role] .call-prejoin-stage[data-state='connecting'] .call-prejoin-preview-media .call-media-placeholder > div::after { animation: callLobbyConnect 1.2s ease-out infinite; }
+html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-prejoin-stage { background: linear-gradient(145deg, #221934, #171225) !important; border-color: #4c345f; box-shadow: 0 30px 80px #03010d66, inset 0 1px #ffffff0c; }
+html[data-theme='dark'] .call-lobby-aura span { opacity: .07; }
+html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-prejoin-kicker { background: #352044; color: #d4a9ff; border-color: #57366f; }
+html[data-theme='dark'] .call-lobby-title-accent { background-image: linear-gradient(100deg, #c394ff, #f098ec); }
+html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview { background: linear-gradient(140deg, #2e1a53, #1a1638 60%, #132d44); border-color: #644281; }
+html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-prejoin-stage .call-waiting-avatar { background: linear-gradient(145deg, #472a60, #352040); border-color: #624080; color: #e2b9ff; }
+html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-control { background: #ffffff09; border-color: #ffffff1a; color: #e1d6f3; }
+html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-control[data-live='true'] { background: #8850da4d; border-color: #b47bea80; color: #fff; }
+html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-prejoin-footer { background: transparent; }
+.call-entry-transition { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 15; isolation: isolate; }
+.call-entry-transition__surface { position: absolute; transform-origin: top left; border-radius: 22px; background: radial-gradient(ellipse at 20% 30%, #b48ce84d, transparent 55%), linear-gradient(135deg, #f3efff, #f9f3ff 50%, #eef8ff); box-shadow: inset 0 0 70px #b886ea18; }
+.call-entry-transition__light { position: absolute; inset: 0; border-radius: inherit; }
+html[data-theme='dark'] .call-entry-transition__surface { background: radial-gradient(ellipse at 20% 30%, #ab67ec33, transparent 55%), linear-gradient(135deg, #241b42, #201c35 55%, #112a3b); }
+.call-entry-transition__portrait { position: absolute; display: flex; align-items: center; justify-content: center; transform-origin: top left; background: linear-gradient(145deg, #bc8bff, #8450e6 55%, #a944d1); color: #fff; font-size: 40px; border: 1px solid #e4ccff8c; box-shadow: 0 20px 46px #10081e30; overflow: hidden; object-fit: contain; }
+.call-entry-transition__portrait img { width: 100%; height: 100%; object-fit: cover; }
+.call-workspace[data-call-entry='active'] .call-media-grid { animation: callEntryReveal .86s ease both; }
+.call-workspace[data-call-entry='active'] .call-main-header { animation: callEntryHeader .65s cubic-bezier(.22,1,.36,1) both; }
+.call-workspace[data-call-entry='active'] .call-controls-rail { animation: callEntryControls .7s cubic-bezier(.22,1,.36,1) both; }
+@container (max-width: 600px) {
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-stage { gap: 18px; padding: 20px; border-radius: 24px; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-intro { padding-top: 0; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-title { font-size: 28px; }
+  .call-lobby-title-accent { display: inline; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview { min-height: 274px; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media { min-height: 200px; flex-basis: 200px; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder { padding: 48px 20px 16px; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder > div { width: 80px; height: 80px; border-radius: 24px; font-size: 30px; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder > div::after { border-radius: 34px; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder p { margin-top: 18px; }
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-footer { padding: 12px 0 0; bottom: 0; background: var(--call-surface); }
+  html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-prejoin-footer { background: #191327; }
+}
+@keyframes callLobbyLight { from { transform: translate3d(-6%, -4%, 0) scale(.9); } to { transform: translate3d(10%, 12%, 0) scale(1.1); } }
+@keyframes callLobbyPortrait { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes callLobbySpark { from { opacity: .35; } to { opacity: 1; } }
+@keyframes callLobbyConnect { from { transform: scale(1); opacity: .9; } to { transform: scale(1.35); opacity: 0; } }
+@keyframes callEntryReveal { 0%,45% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes callEntryHeader { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+@keyframes callEntryControls { from { opacity: .2; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .call-workspace.call-panel-root[data-call-role] .call-lobby-scene span,
+  .call-workspace.call-panel-root[data-call-role] .call-lobby-aura span,
+  .call-workspace.call-panel-root[data-call-role] .call-lobby-scene i::before,
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder > div,
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-media .call-media-placeholder > div::after,
+  .call-workspace[data-call-entry='active'] .call-media-grid,
+  .call-workspace[data-call-entry='active'] .call-main-header,
+  .call-workspace[data-call-entry='active'] .call-controls-rail { animation: none !important; }
+  .call-workspace.call-panel-root[data-call-role] .call-primary-cta,
+  .call-workspace.call-panel-root[data-call-role] .call-primary-cta::after,
+  .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview-control,
+  .call-entry-arrow { transition: none !important; }
+}

@@ -8,6 +8,7 @@ import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
 import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRooms';
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
+import { useCallEntryTransition } from '../hooks/useCallEntryTransition';
 import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCapture';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../utils/socketRecovery.js';
@@ -16,6 +17,7 @@ import { createPeerRecovery, getRtcPeerConnectionState, reconcileRtcPeer } from 
 import './CallSection.css';
 import './CallWorkspace.css';
 import './CallMiniPanel.css';
+import './CallLobby.css';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -1444,6 +1446,7 @@ const CallSection = ({
   const collapsedPanelRef = useRef(null);
   const floatingPanelRef = useRef(null);
   const inlinePanelRef = useRef(null);
+  const prepareCallEntry = useCallEntryTransition(status, inlinePanelRef, floatingPanelRef);
   const panelDragStateRef = useRef(null);
   const panelDragClickSuppressedUntil = useRef(0);
   const activeRoomRef = useRef('');
@@ -6181,9 +6184,10 @@ const CallSection = ({
                 <footer className="call-prejoin-footer">
                   <p><span className="call-prejoin-footer-dot" />{listenOnly ? 'Вход в режиме слушателя' : 'Подключитесь, когда будете готовы'}</p>
                   {isConnecting && <button type="button" onClick={stopCall} className={prejoinSecondaryActionClass}>Отменить</button>}
-                  <button type="button" onClick={startCall} disabled={!canStart} className={heroPrimaryButtonClass} aria-label={joinButtonLabel}>
+                  <button type="button" onClick={() => { prepareCallEntry(); startCall(); }} disabled={!canStart} className={heroPrimaryButtonClass} aria-label={joinButtonLabel}>
                     {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
                     <span>{joinButtonLabel}</span>
+                    {!isConnecting && <SendHorizontal size={18} className="call-entry-arrow" aria-hidden="true" />}
                   </button>
                 </footer>
               )}
@@ -6412,19 +6416,21 @@ const CallSection = ({
                   data-state={statusTone}
                   data-role={isTeacher ? 'teacher' : 'student'}
                 >
+                  <div className="call-lobby-aura" aria-hidden="true"><span /><span /></div>
                   <div className="call-prejoin-main min-w-0">
                     <div className="call-prejoin-intro">
                       <span className="call-prejoin-kicker"><Video size={14} />{meetingId ? 'Перед встречей' : 'Перед уроком'}</span>
                       {callHeroEyebrow && <p className={heroEyebrowClass}>{callHeroEyebrow}</p>}
                       {showCallMainHeader ? (
-                        <h3 className={heroTitleClass}>{callHeroTitle}</h3>
+                        <h3 className={heroTitleClass}>{callHeroTitle === 'Готовы к уроку?' ? <>Готовы к <span className="call-lobby-title-accent">уроку?</span></> : callHeroTitle}</h3>
                       ) : (
-                        <h2 className={heroTitleClass}>{callHeroTitle}</h2>
+                        <h2 className={heroTitleClass}>{callHeroTitle === 'Готовы к уроку?' ? <>Готовы к <span className="call-lobby-title-accent">уроку?</span></> : callHeroTitle}</h2>
                       )}
                       {callHeroDescription && <p className={heroDescriptionClass}>{callHeroDescription}</p>}
                     </div>
 
                     <div className="call-prejoin-preview" data-camera-enabled={cameraEnabled ? 'true' : 'false'}>
+                      <div className="call-lobby-scene" aria-hidden="true"><span /><span /><span /><i /><i /></div>
                       <MediaTile
                         stream={prejoinCameraStream}
                         title={prejoinSelfName}
@@ -6568,7 +6574,7 @@ const CallSection = ({
                 </div>
                 <div className="call-media-grid flex flex-wrap items-center justify-center gap-5 md:gap-8">
                   {voiceCallParticipants.map((peer, index) => {
-                    const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
+                    const initial = String(peer.isSelf ? prejoinSelfName : peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
                     if (peer.isSelf && peer.hasVideo) {
                       return (
                         <div

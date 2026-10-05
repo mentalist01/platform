@@ -21,6 +21,8 @@ for (const selector of ['.call-media-grid .call-participant-entry--video', '.cal
 for (const selector of ['.call-workspace.call-panel-root', '.call-workspace.call-panel-root[data-call-role] .call-workspace-body', '.call-workspace.call-panel-root[data-call-role] .call-controls-rail', '.call-workspace.call-panel-root[data-call-role] .call-prejoin-footer']) assert.ok(callStyles.includes(selector), `Bounded call workspace style missing: ${selector}`);
 for (const marker of ['callAmbientDrift', 'callAvatarFloat', 'callVoiceWave', 'prefers-reduced-motion', 'width:112px']) assert.ok(callStyles.includes(marker), `Animated call style missing: ${marker}`);
 for (const marker of ['.call-prejoin-kicker', '.call-mini-panel__return', '.call-game-overlay--cabinet', 'width:min(960px,100%)', '#151127']) assert.ok(callStyles.includes(marker), `Preparation/mini-panel style missing: ${marker}`);
+for (const marker of ['call-lobby-scene', 'call-lobby-title-accent', 'call-entry-transition__portrait', 'prefers-reduced-motion: reduce']) assert.ok(fs.readFileSync(path.join(directory, 'assets', callJs), 'utf8').includes(marker), `Call entry missing: ${marker}`);
+for (const marker of ['callLobbyLight', 'callLobbyPortrait', 'callEntryReveal', '.call-entry-transition', 'pointer-events:none']) assert.ok(callStyles.includes(marker), `Luminous call entry style missing: ${marker}`);
 console.log('Interactive minimap, empty code sections and teacher homework reminders verified in this build.');
 if (mode === 'verify') {
   const get = async (route, token) => {
