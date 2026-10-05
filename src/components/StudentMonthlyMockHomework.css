@@ -62,6 +62,9 @@
 .monthly-mock-assignment input { width: 16px; height: 16px; accent-color: #7c3aed; }
 .monthly-mock-assignment label:has(input:disabled) { opacity: .6; cursor: default; }
 .monthly-mock-assignment small { display: block; margin-top: 4px; color: #64748b; font-size: 11px; line-height: 1.5; }
+.monthly-mock-assignment__publication { margin-top: 8px; }
+.monthly-mock-assignment__publication select { padding: 6px 10px; min-height: 34px; border: 1px solid rgb(var(--ink) / .18); border-radius: 9px; background: rgb(var(--surface)); color: inherit; font: inherit; }
+.monthly-mock-assignment__publication select:focus-visible { outline: 2px solid #8b5cf6; outline-offset: 3px; }
 
 html[data-theme='dark'] .student-monthly-mock { --mock-ink: #f0eaff; --mock-muted: #aba3c0; --mock-accent: #bb96ff; --mock-line: #514467; --mock-soft: #332344; border-color: #4b3a65; background: radial-gradient(ellipse at 86% 0, #38274f, transparent 60%), linear-gradient(115deg, #1c2032, #211c33); box-shadow: 0 8px 32px #00000016, inset 0 1px 0 #ffffff09; }
 html[data-theme='dark'] .student-monthly-mock__status { background: #35264b; border-color: #5e447b; color: #c5a6f1; }

@@ -23,6 +23,7 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
   });
   const deadlineDay = new Intl.DateTimeFormat('ru-RU', { timeZone: MONTHLY_MOCK_TIME_ZONE, day: 'numeric' }).format(period.endMs - 1);
   const deadlineMonth = new Intl.DateTimeFormat('ru-RU', { timeZone: MONTHLY_MOCK_TIME_ZONE, month: 'long' }).format(period.endMs - 1);
+  if (data?.publicationPending) return null;
   return <section className="student-monthly-mock" aria-label="Пробник месяца" data-status={status}>
     <header className="student-monthly-mock__header">
       <span className="student-monthly-mock__icon"><BookOpen size={22} aria-hidden="true" /></span>

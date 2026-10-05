@@ -742,6 +742,7 @@ const ProgressSection = ({
   const [mockAccessMode, setMockAccessMode] = useState(MOCK_ATTEMPT_MODE_TIMER);
   const [mockAccessSaving, setMockAccessSaving] = useState(false);
   const [mockAccessMonthly, setMockAccessMonthly] = useState(false);
+  const [mockAccessPublicationDay, setMockAccessPublicationDay] = useState(1);
   const [monthlyMockSavingId, setMonthlyMockSavingId] = useState('');
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [editingTaskTitle, setEditingTaskTitle] = useState('');
@@ -1644,8 +1645,12 @@ const ProgressSection = ({
       return undefined;
     }
     let cancelled = false;
+    let pending = false;
     setMockExamsLoading(true);
-    api.getMockExams(role === 'student' ? effectiveStudentId : null)
+    const load = () => {
+      if (pending) return;
+      pending = true;
+      api.getMockExams(role === 'student' ? effectiveStudentId : null)
       .then((data) => {
         if (cancelled) return;
         setMockExams(Array.isArray(data) ? data : []);
@@ -1657,9 +1662,25 @@ const ProgressSection = ({
         setMockExamsError(err?.message || err);
       })
       .finally(() => {
+        pending = false;
         if (!cancelled) setMockExamsLoading(false);
-    });
-    return () => { cancelled = true; };
+      });
+    };
+    load();
+    const loadVisible = () => { if (document.visibilityState !== 'hidden') load(); };
+    const timer = role === 'student' ? setInterval(loadVisible, 30_000) : null;
+    if (role === 'student') {
+      window.addEventListener('focus', loadVisible);
+      window.addEventListener('online', loadVisible);
+      document.addEventListener('visibilitychange', loadVisible);
+    }
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      window.removeEventListener('focus', loadVisible);
+      window.removeEventListener('online', loadVisible);
+      document.removeEventListener('visibilitychange', loadVisible);
+    };
   }, [effectiveStudentId, role, shouldLoadMockData]);
 
   useEffect(() => {
@@ -2475,6 +2496,7 @@ const ProgressSection = ({
     setMockAccessStudents(access.students);
     setMockAccessMode(access.mode);
     setMockAccessMonthly((exam.monthlyAssignedMonths || []).includes(getMonthlyMockMonth()));
+    setMockAccessPublicationDay(exam.monthlyPublicationDay || 1);
   };
 
   const closeMockAccessEditor = () => {
@@ -2484,6 +2506,7 @@ const ProgressSection = ({
     setMockAccessMode(MOCK_ATTEMPT_MODE_TIMER);
     setMockAccessSaving(false);
     setMockAccessMonthly(false);
+    setMockAccessPublicationDay(1);
   };
 
   const toggleMockAccessStudent = (studentIdValue) => {
@@ -2498,7 +2521,7 @@ const ProgressSection = ({
     setMockAccessSaving(true);
     try {
       const payload = {
-        monthlyAssignment: { month: getMonthlyMockMonth(), assigned: mockAccessMonthly && mockAccessAll },
+        monthlyAssignment: { month: getMonthlyMockMonth(), assigned: mockAccessMonthly && mockAccessAll, publicationDay: mockAccessPublicationDay },
         access: {
           all: Boolean(mockAccessAll),
           students: mockAccessAll ? [] : mockAccessStudents,
@@ -2508,6 +2531,7 @@ const ProgressSection = ({
       const saved = await api.updateMockExam(mockAccessExamId, payload);
       applySavedMonthlyMock(saved, mockAccessMonthly && mockAccessAll);
       setMockAccessMonthly((saved.monthlyAssignedMonths || []).includes(getMonthlyMockMonth()));
+      setMockAccessPublicationDay(saved.monthlyPublicationDay || 1);
       const normalized = normalizeMockExamAccess(saved.access, LEGACY_MOCK_EXAM_ACCESS);
       setMockAccessAll(normalized.all);
       setMockAccessStudents(normalized.students);
@@ -2526,13 +2550,16 @@ const ProgressSection = ({
       : exam));
   };
 
-  const handleMonthlyMockAssignment = async (exam, assigned) => {
+  const handleMonthlyMockAssignment = async (exam, assigned, publicationDay = exam.monthlyPublicationDay || 1) => {
     if (monthlyMockSavingId || mockAccessSaving) return;
     setMonthlyMockSavingId(exam.id);
     try {
-      const saved = await api.updateMockExam(exam.id, { monthlyAssignment: { month: getMonthlyMockMonth(), assigned } });
+      const saved = await api.updateMockExam(exam.id, { monthlyAssignment: { month: getMonthlyMockMonth(), assigned, publicationDay } });
       applySavedMonthlyMock(saved, assigned);
-      if (mockAccessExamId === exam.id) setMockAccessMonthly(assigned);
+      if (mockAccessExamId === exam.id) {
+        setMockAccessMonthly(assigned);
+        setMockAccessPublicationDay(saved.monthlyPublicationDay || 1);
+      }
     } catch (error) { alert(error?.message || 'Не удалось назначить пробник месяца'); }
     finally { setMonthlyMockSavingId(''); }
   };
@@ -3980,7 +4007,9 @@ const ProgressSection = ({
                   checked={(exam.monthlyAssignedMonths || []).includes(getMonthlyMockMonth())}
                   disabled={Boolean(monthlyMockSavingId) || mockAccessSaving || (!access.all || !filledTaskCount) && !(exam.monthlyAssignedMonths || []).includes(getMonthlyMockMonth())}
                   onChange={assigned => void handleMonthlyMockAssignment(exam, assigned)}
-                  hint={monthlyMockSavingId === exam.id ? 'Сохраняем…' : !access.all || !filledTaskCount ? 'Добавьте задания и откройте доступ всем ученикам в разделе «Доступ».' : 'Появится в домашке всех ваших учеников со сроком до конца месяца.'}
+                  publicationDay={exam.monthlyPublicationDay || 1}
+                  onPublicationDayChange={day => void handleMonthlyMockAssignment(exam, true, day)}
+                  hint={monthlyMockSavingId === exam.id ? 'Сохраняем…' : !access.all || !filledTaskCount ? 'Добавьте задания и откройте доступ всем ученикам в разделе «Доступ».' : 'Появится в выбранный день в домашке и списке пробников ваших учеников. Срок — до конца месяца.'}
                 />
                 <MonthlyMockReviewEditor exam={exam} onSaved={saved => setMockExams(previous => previous.map(entry => entry.id === saved.id ? { ...entry, ...saved } : entry))} />
               </div>
@@ -4121,7 +4150,8 @@ const ProgressSection = ({
               Всем ученикам
             </label>
             <MonthlyMockAssignmentCheckbox checked={mockAccessMonthly} disabled={mockAccessSaving || !mockAccessAll || !filledTaskCount}
-              onChange={setMockAccessMonthly} hint="В этом месяце в домашке будет один выбранный пробник. Новый выбор заменит предыдущий." />
+              onChange={setMockAccessMonthly} publicationDay={mockAccessPublicationDay} onPublicationDayChange={setMockAccessPublicationDay}
+              hint="В этом месяце в домашке будет один выбранный пробник. Новый выбор заменит предыдущий. День публикации сохранится вместе с доступом." />
             {!mockAccessAll && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
                 {studentsList.map((student) => {

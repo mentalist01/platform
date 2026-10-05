@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMonthlyMockStatus, collectMonthlyMockCompletions, getMonthlyMockMonth, getMonthlyMockPeriod, normalizeMonthlyMockExemptions, prepareMonthlyMockHomeworkGoals, getAssignedMonthlyMockExam, updateMonthlyMockAssignment } from './monthlyMockExam.js';
+import { buildMonthlyMockStatus, collectMonthlyMockCompletions, getMonthlyMockMonth, getMonthlyMockPeriod, normalizeMonthlyMockExemptions, prepareMonthlyMockHomeworkGoals, getAssignedMonthlyMockExam, updateMonthlyMockAssignment, getMonthlyMockPublication, isMonthlyMockPublished, normalizeMonthlyMockPublicationDay, normalizeMonthlyMockPublicationDays } from './monthlyMockExam.js';
 
 const period = getMonthlyMockPeriod('2026-09');
 const now = Date.parse('2026-09-07T15:00:00Z');
@@ -86,4 +86,45 @@ test('only the designated whole exam completed in the required month counts', ()
   assert.equal(buildMonthlyMockStatus(data, exams, period, now, 'new').status, 'pending');
   assert.equal(buildMonthlyMockStatus(data, exams, period, now, 'exam').completedCount, 1);
   assert.equal(buildMonthlyMockStatus({ mockAttempts: { exam: { ...finished, finishedAt: '2026-08-02' } } }, exams, period, now, 'exam').status, 'pending');
+});
+
+test('scheduled publication starts exactly at Moscow midnight of the selected day', () => {
+  const exam = { monthlyAssignments: { a: ['2026-09'] }, monthlyPublicationDays: { a: { '2026-09': 10 } } };
+  const start = Date.parse('2026-09-09T21:00:00Z');
+  assert.deepEqual(getMonthlyMockPublication(exam, 'a', '2026-09'), { day: 10, publishesAtMs: start });
+  assert.equal(isMonthlyMockPublished(exam, 'a', '2026-09', start - 1), false);
+  assert.equal(isMonthlyMockPublished(exam, 'a', '2026-09', start), true);
+});
+
+test('publication is scoped by teacher and month; existing assignments start on day one', () => {
+  const exam = { monthlyAssignments: { a: ['2026-09'], b: ['2026-09'] }, monthlyPublicationDays: { a: { '2026-09': 10 } } };
+  assert.equal(isMonthlyMockPublished(exam, 'a', '2026-09', now), false);
+  assert.equal(isMonthlyMockPublished(exam, 'b', '2026-09', now), true);
+  assert.equal(isMonthlyMockPublished(exam, 'c', '2026-09', now), true);
+  assert.equal(isMonthlyMockPublished(exam, 'a', '2026-10', now), true);
+  assert.equal(getMonthlyMockPublication(exam, 'b', '2026-09').day, 1);
+  assert.equal(getMonthlyMockPublication({}, 'a', '2026-09'), null);
+});
+
+test('publication validates integer days against the actual month, including leap years', () => {
+  for (const day of [0, -1, 1.5, 32, '10', true, null, [], {}]) assert.equal(normalizeMonthlyMockPublicationDay(day, '2026-09'), null);
+  assert.equal(normalizeMonthlyMockPublicationDay(31, '2026-09'), null);
+  assert.equal(normalizeMonthlyMockPublicationDay(31, '2026-10'), 31);
+  assert.equal(normalizeMonthlyMockPublicationDay(29, '2026-02'), null);
+  assert.equal(normalizeMonthlyMockPublicationDay(29, '2028-02'), 29);
+  assert.equal(normalizeMonthlyMockPublicationDay(1, 'bad'), null);
+  assert.deepEqual(normalizeMonthlyMockPublicationDays({ a: { '2026-02': 29, '2026-09': 10, bad: 2 }, b: [] }), { a: { '2026-09': 10 } });
+});
+
+test('editing designation retains its publication day while replacement clears only this month', () => {
+  const exams = [{ id: 'one', access: { all: true }, tasks: { 1: {} }, monthlyAssignments: { a: ['2026-08', '2026-09'], b: ['2026-09'] }, monthlyPublicationDays: { a: { '2026-08': 15, '2026-09': 10 }, b: { '2026-09': 20 } } }, { id: 'two' }];
+  const same = updateMonthlyMockAssignment(exams, { examId: 'one', teacherId: 'a', month: '2026-09', assigned: true });
+  assert.equal(getMonthlyMockPublication(same[0], 'a', '2026-09').day, 10);
+  const next = updateMonthlyMockAssignment(same, { examId: 'two', teacherId: 'a', month: '2026-09', assigned: true, publicationDay: 12 });
+  assert.deepEqual(next[0].monthlyPublicationDays, { a: { '2026-08': 15 }, b: { '2026-09': 20 } });
+  assert.equal(getMonthlyMockPublication(next[1], 'a', '2026-09').day, 12);
+  const removed = updateMonthlyMockAssignment(next, { examId: 'two', teacherId: 'a', month: '2026-09', assigned: false });
+  assert.equal(getMonthlyMockPublication(removed[1], 'a', '2026-09'), null);
+  assert.deepEqual(removed[1].monthlyPublicationDays, {});
+  assert.equal(exams[0].monthlyPublicationDays.a['2026-09'], 10, 'source data is not mutated');
 });

@@ -76,6 +76,9 @@ import {
   getMonthlyMockPeriod,
   getAssignedMonthlyMockExam,
   normalizeMonthlyMockAssignments,
+  normalizeMonthlyMockPublicationDay,
+  getMonthlyMockPublication,
+  isMonthlyMockPublished,
   updateMonthlyMockAssignment,
   normalizeMonthlyMockCompletions,
   normalizeMonthlyMockExemptions,
@@ -7311,6 +7314,8 @@ const normalizeMockExamAccessForSave = (access) => {
 
 const isMockExamVisibleToStudent = (exam, studentId) => {
   if (!exam) return false;
+  const teacherId = readStudentsDb().find(student => student.id === studentId)?.teacherId;
+  if (!isMonthlyMockPublished(exam, teacherId)) return false;
   const access = normalizeMockExamAccess(exam.access, true);
   if (access.all) return true;
   if (!studentId) return false;
@@ -19370,6 +19375,7 @@ const sanitizeMockExamForStudent = (exam) => {
   });
   safe.tasks = sanitizedTasks;
   delete safe.monthlyAssignments;
+  delete safe.monthlyPublicationDays;
   delete safe.monthlyReviewVideos;
   delete safe.monthlyReviewPublications;
   delete safe.monthlyReviewVideoUrl;
@@ -19387,15 +19393,17 @@ const serializeMockAttemptForClient = (attempt, options = {}) => {
   };
 };
 
-const sanitizeStudentDataForClient = (studentData) => {
+const sanitizeStudentDataForClient = (studentData, studentId = '') => {
   if (!studentData || typeof studentData !== 'object' || Array.isArray(studentData)) return {};
   const safe = { ...studentData };
+  const teacherId = studentId ? readStudentsDb().find(student => student.id === studentId)?.teacherId : '';
+  const unpublishedIds = new Set(studentId ? readMockExamsDb().filter(exam => !isMonthlyMockPublished(exam, teacherId)).map(exam => exam.id) : []);
   const attempts = studentData.mockAttempts && typeof studentData.mockAttempts === 'object'
     && !Array.isArray(studentData.mockAttempts)
     ? studentData.mockAttempts
     : {};
   safe.mockAttempts = Object.entries(attempts).reduce((result, [examId, attempt]) => {
-    if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt)) return result;
+    if (unpublishedIds.has(examId) || !attempt || typeof attempt !== 'object' || Array.isArray(attempt)) return result;
     const snapshot = createMockExamSnapshot(attempt.examSnapshot);
     result[examId] = snapshot
       ? { ...attempt, examSnapshot: sanitizeMockExamForStudent(snapshot) }
@@ -19403,7 +19411,8 @@ const sanitizeStudentDataForClient = (studentData) => {
     return result;
   }, {});
   const queue = normalizeMockExamFollowupQueue(studentData.mockTestingQueue);
-  const normalizedAttemptResults = normalizeMockExamFollowupHistory(studentData.mockAttemptResults);
+  const normalizedAttemptResults = normalizeMockExamFollowupHistory(studentData.mockAttemptResults).filter(result => !unpublishedIds.has(result.examId));
+  if (Array.isArray(safe.monthlyMockCompletions)) safe.monthlyMockCompletions = safe.monthlyMockCompletions.filter(entry => !unpublishedIds.has(entry.examId));
   const markedAttemptExamIds = new Set(normalizedAttemptResults
     .filter((result) => (
       result?.isFirstAttempt === true
@@ -19458,11 +19467,13 @@ const serializeMockExamEntry = (exam, options = {}) => {
     : null;
   safeExam.requiredTargetTaskKeys = homeworkAssignment?.targetTaskKeys || [];
   safeExam.monthlyAssignedMonths = normalizeMonthlyMockAssignments(exam.monthlyAssignments)[options.monthlyTeacherId] || [];
+  safeExam.monthlyPublicationDay = getMonthlyMockPublication(exam, options.monthlyTeacherId)?.day || 1;
   if (safeExam.monthlyAssignedMonths.includes(getMonthlyMockMonth()) && safeExam.access.all) {
     safeExam.requiredTargetTaskKeys = [];
     safeExam.requiredMode = safeExam.access.mode;
   }
   delete safeExam.monthlyAssignments;
+  delete safeExam.monthlyPublicationDays;
   delete safeExam.monthlyReviewVideos;
   delete safeExam.monthlyReviewPublications;
   delete safeExam.monthlyReviewVideoUrl;
@@ -28871,18 +28882,21 @@ app.get('/api/monthly-mock-status', (req, res) => {
   ));
   const progressDb = readProgressDb();
   const exams = readMockExamsDb();
+  const assignedExam = getAssignedMonthlyMockExam(exams, students[0]?.teacherId, period.month);
+  const publicationPending = isStudentRole(req.auth) && Boolean(assignedExam)
+    && !isMonthlyMockPublished(assignedExam, students[0]?.teacherId, period.month, now);
   const rows = students.map((student) => ({
     studentId: student.id,
     name: student.name,
-    ...buildMonthlyMockStatus(progressDb[student.id] || {}, exams, period, now,
+    ...buildMonthlyMockStatus(publicationPending ? {} : progressDb[student.id] || {}, exams, period, now,
       getAssignedMonthlyMockExam(exams, student.teacherId, period.month)?.id || ''),
   }));
   res.setHeader('Cache-Control', 'no-store');
   return res.json({
     period, currentMonth, generatedAt: new Date(now).toISOString(), rows,
-    ...(isStudentRole(req.auth) ? { assignment: (() => {
+    ...(isStudentRole(req.auth) ? { publicationPending, assignment: (() => {
       const exam = getAssignedMonthlyMockExam(exams, students[0]?.teacherId, period.month);
-      return exam && students.length ? {
+      return exam && students.length && !publicationPending ? {
         examId: exam.id, title: exam.title, taskCount: Object.keys(exam.tasks).length,
         mode: normalizeMockExamAccess(exam.access).mode,
         dueAt: new Date(period.endMs - 1).toISOString(),
@@ -30763,6 +30777,7 @@ app.put('/api/tests', (req, res) => {
 });
 
 app.get('/api/mock-exams', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const list = readMockExamsDb();
   const { studentId } = req.query || {};
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
@@ -32211,10 +32226,14 @@ app.patch('/api/mock-exams/:id', (req, res) => {
     if (month !== getMonthlyMockMonth() || typeof assigned !== 'boolean') {
       return res.status(400).json({ error: 'Отметить пробник можно только для текущего месяца. Обновите страницу.' });
     }
+    const publicationDay = monthlyAssignment?.publicationDay;
+    if (publicationDay !== undefined && normalizeMonthlyMockPublicationDay(publicationDay, month) === null) {
+      return res.status(400).json({ error: 'Выберите существующий день текущего месяца для публикации пробника.' });
+    }
     if (assigned && (!normalizeMockExamAccess(next.access).all || !Object.keys(next.tasks).length || isPersonalRandomMockExam(next))) {
       return res.status(400).json({ error: 'Добавьте задания и откройте доступ всем ученикам, затем отметьте пробник месяца.' });
     }
-    list = updateMonthlyMockAssignment(list, { examId: id, teacherId: req.auth.id, month, assigned });
+    list = updateMonthlyMockAssignment(list, { examId: id, teacherId: req.auth.id, month, assigned, publicationDay });
   }
   writeMockExamsDb(list);
   res.json(serializeMockExamEntry(list[idx], { monthlyTeacherId: getTaskContentTeacherIdForAuth(req.auth) }));
@@ -33297,7 +33316,7 @@ app.get('/api/student-data', (req, res) => {
   if (!student) return;
   const data = getStudentData(student.id);
   const progress = recomputeProgressFromSolved(data);
-  res.json(sanitizeStudentDataForClient({ ...data, progress }));
+  res.json(sanitizeStudentDataForClient({ ...data, progress }, isStudentRole(req.auth) ? student.id : ''));
 });
 
 app.patch('/api/student-notes', (req, res) => {

@@ -170,6 +170,33 @@ export const normalizeMonthlyMockAssignments = (value) => {
   }));
 };
 
+export const normalizeMonthlyMockPublicationDay = (value, month = getMonthlyMockMonth()) => {
+  const period = getMonthlyMockPeriod(month);
+  const lastDay = period ? Math.round((period.endMs - period.startMs) / 86_400_000) : 0;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= lastDay ? value : null;
+};
+
+export const normalizeMonthlyMockPublicationDays = (value) => {
+  if (!record(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([teacherId, months]) => {
+    if (!text(teacherId) || !record(months)) return [];
+    const days = Object.fromEntries(Object.entries(months).filter(([month, day]) => normalizeMonthlyMockPublicationDay(day, month) !== null));
+    return Object.keys(days).length ? [[text(teacherId), days]] : [];
+  }));
+};
+
+export const getMonthlyMockPublication = (exam, teacherId, month = getMonthlyMockMonth()) => {
+  const period = getMonthlyMockPeriod(month);
+  if (!period || !normalizeMonthlyMockAssignments(exam?.monthlyAssignments)[text(teacherId)]?.includes(month)) return null;
+  const day = normalizeMonthlyMockPublicationDay(exam?.monthlyPublicationDays?.[text(teacherId)]?.[month], month) ?? 1;
+  return { day, publishesAtMs: period.startMs + (day - 1) * 86_400_000 };
+};
+
+export const isMonthlyMockPublished = (exam, teacherId, month = getMonthlyMockMonth(), now = Date.now()) => {
+  const publication = getMonthlyMockPublication(exam, teacherId, month);
+  return !publication || Number(now) >= publication.publishesAtMs;
+};
+
 export const getAssignedMonthlyMockExam = (exams, teacherId, month = getMonthlyMockMonth()) => (
   (Array.isArray(exams) ? exams : []).find(exam => (
     normalizeMonthlyMockAssignments(exam?.monthlyAssignments)[text(teacherId)]?.includes(month)
@@ -179,12 +206,21 @@ export const getAssignedMonthlyMockExam = (exams, teacherId, month = getMonthlyM
 );
 
 // Replace only this teacher's designation for this month; keep earlier months.
-export const updateMonthlyMockAssignment = (exams, { examId, teacherId, month, assigned }) => exams.map(exam => {
+export const updateMonthlyMockAssignment = (exams, { examId, teacherId, month, assigned, publicationDay }) => exams.map(exam => {
   const assignments = normalizeMonthlyMockAssignments(exam.monthlyAssignments);
   const previous = assignments[teacherId] || [];
   const months = assigned || exam.id === examId ? previous.filter(value => value !== month) : previous;
   if (assigned && exam.id === examId) months.push(month);
   if (months.length) assignments[teacherId] = [...new Set(months)].sort();
   else delete assignments[teacherId];
-  return { ...exam, monthlyAssignments: assignments };
+  const publications = normalizeMonthlyMockPublicationDays(exam.monthlyPublicationDays);
+  const days = { ...publications[teacherId] };
+  if (assigned || exam.id === examId) delete days[month];
+  if (assigned && exam.id === examId) {
+    days[month] = normalizeMonthlyMockPublicationDay(publicationDay, month)
+      ?? getMonthlyMockPublication(exam, teacherId, month)?.day ?? 1;
+  }
+  if (Object.keys(days).length) publications[teacherId] = days;
+  else delete publications[teacherId];
+  return { ...exam, monthlyAssignments: assignments, monthlyPublicationDays: publications };
 });
