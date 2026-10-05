@@ -1,0 +1,47 @@
+/* The same readable voice cards are used over the cabinet and fullscreen video. */
+.call-mini-panel.call-game-overlay-shell {
+  width: 290px;
+  max-width: calc(100vw - 24px);
+  padding: 12px !important;
+  border: 1px solid #e5d9fb !important;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #fff, #f6f0ff) !important;
+  box-shadow: 0 12px 36px #40216a26, inset 0 1px #ffffffa0 !important;
+  color: #36224c;
+  animation: none;
+  overflow: auto;
+  max-height: calc(100dvh - 24px);
+}
+.call-mini-panel__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.call-mini-panel__handle { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 10px; color: #8a719f; }
+.call-mini-panel__handle > svg { flex-shrink: 0; }
+.call-mini-panel__return { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; min-height: 30px; padding: 6px 8px; border: 1px solid #dfccf6; border-radius: 9px; background: #efe5ff; color: #7337c8; font-size: 10px; font-weight: 700; cursor: pointer; }
+.call-mini-panel__return:hover { background: #e3d2fb; }
+.call-mini-panel__return:focus-visible { outline: 3px solid #a78bfa; outline-offset: 2px; }
+.call-game-overlay.call-game-overlay--cabinet,
+.call-game-overlay.call-game-overlay--fullscreen { --voice-ink: #36224c; --voice-muted: #8a719f; --voice-soft: #eee5fb; --voice-border: #e5d9fb; width: 100%; align-items: stretch; gap: 8px; max-height: none; margin: 0; padding: 0 !important; color: var(--voice-ink); }
+.call-game-overlay.call-game-overlay--fullscreen { width: 270px; max-width: calc(100% - 28px); padding: 12px !important; border: 1px solid #655076 !important; border-radius: 20px; background: #1b142be8 !important; box-shadow: 0 12px 36px #0005 !important; --voice-ink: #eee5fb; --voice-muted: #bfacd5; --voice-soft: #342442; --voice-border: #584069; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__list { align-items: stretch; gap: 6px; min-width: 0; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__row { gap: 10px; width: 100%; min-width: 0; max-width: none; min-height: 48px; padding: 4px; border: 1px solid transparent; border-radius: 14px; opacity: 1 !important; filter: none !important; transform: none; transition: background .2s, border-color .2s; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__row[data-speaking='true'] { background: var(--voice-soft); border-color: var(--voice-border); }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__avatar { width: 38px; height: 38px; flex-basis: 38px; border-radius: 12px; border-color: #ffffff50; background: linear-gradient(145deg, #a579fa, #783fdf 70%, #aa4ad6); color: #fff; box-shadow: 0 4px 12px #7c3aed20, inset 0 1px #ffffff70; font-size: 14px; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__row[data-speaking='true'] .call-game-overlay__avatar { border-color: #d8b4fe; background: linear-gradient(145deg, #a579fa, #783fdf 70%, #aa4ad6); box-shadow: 0 0 0 3px #a78bfa25, 0 4px 16px #7c3aed35; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__row[data-muted='true'] .call-game-overlay__avatar { background: linear-gradient(145deg, #b4a1d0, #8975a6); }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__row .call-game-overlay__plate { flex: 1; min-width: 0; max-width: none; min-height: 38px; gap: 6px; padding: 0; margin: 0; overflow: visible; border: 0; border-radius: 0; background: transparent; color: var(--voice-ink); box-shadow: none; backdrop-filter: none; text-shadow: none; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__plate::before,
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__plate::after { display: none; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__name { flex: 1; max-width: none; color: var(--voice-ink); font-size: 12px; font-weight: 600; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__mic { min-width: 30px; min-height: 30px; padding: 3px; border: 1px solid var(--voice-border); border-radius: 10px; background: var(--voice-soft); color: var(--voice-muted); }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__row .call-game-overlay__meter { border: 0; background: transparent; box-shadow: none; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__meter span { background: #ad94c7; animation: none; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__row[data-speaking='true'] .call-game-overlay__meter span { background: #9b62e4; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__icon { background: transparent; color: var(--voice-muted); }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__row[data-muted='true'] .call-game-overlay__icon { color: #c36f93; }
+:is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__toggle { justify-content: center; border-color: var(--voice-border); border-radius: 10px; background: var(--voice-soft); color: var(--voice-ink); font-size: 11px; }
+html[data-theme='dark'] .call-mini-panel.call-game-overlay-shell { background: linear-gradient(145deg, #241835, #181127) !important; border-color: #503763 !important; box-shadow: 0 12px 36px #07031066 !important; color: #eee5fb; }
+html[data-theme='dark'] .call-mini-panel__handle { color: #bfacd5; }
+html[data-theme='dark'] .call-mini-panel__return { background: #3c2459; color: #e0c7fb; border-color: #6a458c; }
+html[data-theme='dark'] .call-game-overlay.call-game-overlay--cabinet { --voice-ink: #eee5fb; --voice-muted: #bfacd5; --voice-soft: #342442; --voice-border: #584069; }
+@media (prefers-reduced-motion: reduce) {
+  :is(.call-game-overlay--cabinet, .call-game-overlay--fullscreen) .call-game-overlay__meter span { animation: none !important; }
+}

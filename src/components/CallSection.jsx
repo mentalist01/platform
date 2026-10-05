@@ -15,6 +15,7 @@ import { clearCallResume, saveCallResume } from '../utils/callResume.js';
 import { createPeerRecovery, getRtcPeerConnectionState, reconcileRtcPeer } from '../utils/peerRecovery.js';
 import './CallSection.css';
 import './CallWorkspace.css';
+import './CallMiniPanel.css';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -5376,10 +5377,14 @@ const CallSection = ({
       });
     };
     window.addEventListener('resize', handleResize);
+    const panelObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(handleResize) : null;
+    if (collapsedPanelRef.current) panelObserver?.observe(collapsedPanelRef.current);
+    if (floatingPanelRef.current) panelObserver?.observe(floatingPanelRef.current);
     return () => {
       window.removeEventListener('resize', handleResize);
+      panelObserver?.disconnect();
     };
-  }, []);
+  }, [isCollapsedUi, isFloatingUi]);
 
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
@@ -5796,7 +5801,7 @@ const CallSection = ({
   const sectionShellClass = isDarkTheme
     ? `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl bg-[#0d0b1f]/95 p-4 shadow-[0_24px_64px_rgba(46,16,101,0.38)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`
     : `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-violet-200/80 bg-[rgba(252,248,255,0.98)] p-4 shadow-[0_26px_72px_rgba(88,28,135,0.14)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`;
-  const collapsedCardClass = 'call-collapsed-card call-game-overlay';
+  const collapsedCardClass = 'call-collapsed-card call-game-overlay call-game-overlay--cabinet';
   const floatingToolbarClass = isDarkTheme
     ? 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-500/12 bg-[#100d22]/88 px-3 py-2 cursor-grab active:cursor-grabbing'
     : 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-200/80 bg-white/90 px-3 py-2 cursor-grab active:cursor-grabbing';
@@ -6137,12 +6142,18 @@ const CallSection = ({
       <div
         ref={collapsedPanelRef}
         data-group-lesson={isGroupLesson ? 'true' : undefined}
-        className="call-collapsed-shell call-game-overlay-shell fixed bottom-20 right-4 z-50 md:bottom-20 md:right-6"
+        className="call-collapsed-shell call-game-overlay-shell call-mini-panel fixed bottom-20 right-4 z-50 md:bottom-20 md:right-6"
         style={collapsedPanelStyle}
         onPointerDown={(event) => startPanelDrag(event, 'collapsed')}
         onDoubleClick={() => { if (Date.now() >= panelDragClickSuppressedUntil.current) collapsedOpenHandler?.(); }}
         title="Перетащите панель. Двойной клик по имени или аватару откроет звонок."
       >
+        <div className="call-mini-panel__header">
+          <span data-panel-drag-handle className="call-mini-panel__handle"><Move size={14} /><span>Звонок продолжается</span></span>
+          <button type="button" className="call-mini-panel__return" onClick={() => collapsedOpenHandler?.()} onDoubleClick={event => event.stopPropagation()} aria-label="Вернуться в звонок">
+            <Maximize2 size={14} /><span>В звонок</span>
+          </button>
+        </div>
         <CallGameVoiceOverlay participants={overlayVoiceParticipants} className={collapsedCardClass} />
       </div>
     );
@@ -6403,6 +6414,7 @@ const CallSection = ({
                 >
                   <div className="call-prejoin-main min-w-0">
                     <div className="call-prejoin-intro">
+                      <span className="call-prejoin-kicker"><Video size={14} />{meetingId ? 'Перед встречей' : 'Перед уроком'}</span>
                       {callHeroEyebrow && <p className={heroEyebrowClass}>{callHeroEyebrow}</p>}
                       {showCallMainHeader ? (
                         <h3 className={heroTitleClass}>{callHeroTitle}</h3>
@@ -6427,7 +6439,7 @@ const CallSection = ({
                       />
                       <span className="call-prejoin-preview-chip">
                         <Camera size={14} />
-                        Ваше превью
+                        {prejoinSelfName}
                       </span>
                       {micEnabled && (
                         <span
@@ -6471,49 +6483,6 @@ const CallSection = ({
 
                   <div className="call-prejoin-side-stack">
                     {isTeacher && teacherPickerNode}
-                    <div className="call-device-panel">
-                    <div
-                      className="call-prejoin-connection-card"
-                      data-tone={prejoinConnectionTone}
-                      aria-label={`Связь: ${prejoinConnectionSummary}`}
-                    >
-                      <span className="call-prejoin-connection-icon" aria-hidden="true">
-                        <Signal size={17} />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="call-prejoin-connection-label">Связь</p>
-                        <p className="call-prejoin-connection-value" aria-live="polite">{prejoinConnectionSummary}</p>
-                      </div>
-                      {prejoinConnectionTone !== 'idle' && (
-                        <span className="call-prejoin-connection-state" data-tone={prejoinConnectionTone} aria-hidden="true">
-                          {prejoinConnectionTone === 'checking'
-                            ? <Loader2 size={16} className="animate-spin" />
-                            : prejoinConnectionTone === 'good'
-                              ? <CheckCircle2 size={16} />
-                              : <AlertCircle size={16} />}
-                        </span>
-                      )}
-                      {!isConnecting && (
-                        <button
-                          type="button"
-                          onClick={runPrejoinCheck}
-                          disabled={prejoinMediaBusy}
-                          className={`${prejoinSecondaryActionClass} call-device-check-action`}
-                          aria-label="Проверить доступ к микрофону, камере и связь"
-                        >
-                          {prejoinCheckBusy ? <Loader2 size={16} className="animate-spin" /> : <Settings size={16} />}
-                          <span className="call-control-label">{prejoinCheckButtonLabel}</span>
-                        </button>
-                      )}
-                    </div>
-                    {prejoinCheck.error && (
-                      <p className="call-prejoin-check-note" data-tone="problem" role="alert">{prejoinCheck.error}</p>
-                    )}
-                    <button type="button" onClick={testAlertSound} className={`${prejoinSecondaryActionClass} mt-2 w-full justify-center`}>
-                      <Volume2 size={16} />
-                      <span>Проверить звук</span>
-                    </button>
-                    </div>
 
                     <aside className={waitingCardClass} data-presence={hasRemoteParticipant ? 'live' : 'idle'}>
                     <div className="call-prejoin-side-head">
@@ -6539,13 +6508,58 @@ const CallSection = ({
                       )}
                     </div>
                     {!isGroupLesson && !isTeacher && !telemostLoading && !telemostUrl && !telemostError && (
-                      <p className="call-telemost-status" data-tone="muted">Резервная ссылка Телемоста пока не настроена.</p>
+                      <details className="call-prejoin-backup"><summary>Резервный вход</summary><p className="call-telemost-status" data-tone="muted">Резервная ссылка Телемоста пока не настроена.</p></details>
                     )}
                     {!isGroupLesson && !isTeacher && telemostError && <p className="call-telemost-status" data-tone="error" role="alert">{telemostError}</p>}
                     {!isGroupLesson && !isTeacher && !telemostError && telemostNotice && <p className="call-telemost-status" data-tone="success">{telemostNotice}</p>}
                     {showInlineLessonChat && <button type="button" className="call-waiting-chat-link" onClick={() => setLessonChatExpanded(true)}><MessageSquare size={15} /><span>Открыть чат</span>{chatBadgeText && <span className="call-waiting-chat-count">{chatBadgeText}</span>}</button>}
                     </aside>
                   </div>
+                  <div className="call-device-panel">
+                  <div
+                    className="call-prejoin-connection-card"
+                    data-tone={prejoinConnectionTone}
+                    aria-label={`Связь: ${prejoinConnectionSummary}`}
+                  >
+                    <span className="call-prejoin-connection-icon" aria-hidden="true">
+                      <Signal size={17} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="call-prejoin-connection-label">Связь</p>
+                      <p className="call-prejoin-connection-value" aria-live="polite">{prejoinConnectionSummary}</p>
+                    </div>
+                    {prejoinConnectionTone !== 'idle' && (
+                      <span className="call-prejoin-connection-state" data-tone={prejoinConnectionTone} aria-hidden="true">
+                        {prejoinConnectionTone === 'checking'
+                          ? <Loader2 size={16} className="animate-spin" />
+                          : prejoinConnectionTone === 'good'
+                            ? <CheckCircle2 size={16} />
+                            : <AlertCircle size={16} />}
+                      </span>
+                    )}
+                    {!isConnecting && (
+                      <button
+                        type="button"
+                        onClick={runPrejoinCheck}
+                        disabled={prejoinMediaBusy}
+                        className={`${prejoinSecondaryActionClass} call-device-check-action`}
+                        aria-label="Проверить доступ к микрофону, камере и связь"
+                      >
+                        {prejoinCheckBusy ? <Loader2 size={16} className="animate-spin" /> : <Settings size={16} />}
+                        <span className="call-control-label">{prejoinCheckButtonLabel}</span>
+                      </button>
+                    )}
+                  </div>
+                  {prejoinCheck.error && (
+                    <p className="call-prejoin-check-note" data-tone="problem" role="alert">{prejoinCheck.error}</p>
+                  )}
+                  <button type="button" onClick={testAlertSound} className={`${prejoinSecondaryActionClass} mt-2 w-full justify-center`}>
+                    <Volume2 size={16} />
+                    <span>Проверить звук</span>
+                  </button>
+                  </div>
+
+                  {callActions}
                 </section>
               ) : (
                 <section className={mediaSectionClass} data-video-count={voiceCallParticipants.filter((peer) => peer.hasVideo).length}>
@@ -6888,7 +6902,7 @@ const CallSection = ({
             )}
 
           </div>
-          {callActions}
+          {isConnected && callActions}
 
           {micSettingsOpen && micSettingsPosition && typeof document !== 'undefined' && createPortal(
             <div
