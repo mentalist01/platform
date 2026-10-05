@@ -24,6 +24,7 @@ rollback_client_on_error() {
 trap rollback_client_on_error EXIT
 node --test server/groupLibrary.test.js server/groupLibrary.integration.test.js server/teacherPlatformPayments.test.js server/teacherPlatformPayments.integration.test.js server/teacherSubscription.integration.test.js server/learningVoiceChannels.integration.test.js server/learningGroups.test.js server/learningGroups.integration.test.js server/learningSubscriptions.test.js server/learningSubscriptions.integration.test.js src/utils/rtcRooms.test.js > "$backup/tests.log" 2>&1
 node --test tools/lesson-recorder/*.test.mjs src/utils/recordingHealth.test.js server/recorderPackage.test.js server/desktopRecording.test.js server/desktopRecording.integration.test.js > "$backup/recorder-tests.log" 2>&1
+node --test src/utils/pythonTaskPractice.test.js src/utils/pythonProgress.test.js server/weeklyTaskPractice.test.js server/pythonTaskPractice.integration.test.js server/questionAnswerCheck.integration.test.js server/mockExamCorrections.integration.test.js server/mockExamTaskAnalytics.integration.test.js > "$backup/python-practice-tests.log" 2>&1
 stage="dist-group-library-payments-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-group-library-payments-release.mjs local "$stage"
@@ -33,6 +34,7 @@ node scripts/check-board-pages-release.mjs local "$stage"
 node scripts/check-monthly-mock-release.mjs local "$stage"
 node scripts/check-recorder-ui-release.mjs local "$stage"
 node scripts/check-recording-reliability-release.mjs local "$stage"
+node scripts/check-python-practice-release.mjs local "$stage"
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 # Preserve old chunks for users with an already open client.
 cp -a "$stage/assets/." dist/assets/
@@ -58,6 +60,7 @@ node scripts/check-monthly-mock-release.mjs verify "$stage" /root/platform-data
 node scripts/check-lesson-tools-release.mjs verify "$stage" /root/platform-data
 node scripts/check-recorder-ui-release.mjs verify "$stage"
 node scripts/check-recording-reliability-release.mjs verify "$stage"
+node scripts/check-python-practice-release.mjs verify "$stage"
 cmp -s ecosystem.config.cjs "$backup/ecosystem.config.cjs"
 pm2 save
 printf '\nGROUP_LIBRARY_PAYMENTS_RELEASE_OK %s backup=%s\n' "$revision" "$backup"

@@ -22,9 +22,20 @@ function isExternal(value) {
   return !/^(localhost|.*\.localhost|.*\.local|127(?:\.\d+){3}|0\.0\.0\.0|10(?:\.\d+){3}|192\.168(?:\.\d+){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d+){2}|169\.254(?:\.\d+){2}|\[.*\])$/.test(host);
 }
 function classifyNavigation(value) {
+  if (isWorkbookHelper(value)) return 'workbook-helper';
   if (isPlatform(value) || isPlatformBlob(value)) return 'platform';
   if (isRecorder(value)) return 'recorder';
   return isExternal(value) ? 'external' : 'blocked';
+}
+function isWorkbookHelper(value) {
+  if (typeof value !== 'string' || value.length > 4096) return false;
+  const url = parsed(value);
+  if (!url || url.protocol !== 'ivan-ege:' || url.hostname !== 'workbook' || url.port || url.pathname !== '/open' || url.hash) return false;
+  const keys = [...url.searchParams.keys()];
+  if (keys.length !== 2 || !keys.includes('origin') || !keys.includes('ticket')) return false;
+  const origin = parsed(url.searchParams.get('origin'));
+  return Boolean(origin && isPlatform(origin.href) && origin.pathname === '/' && !origin.search && !origin.hash
+    && /^[a-zA-Z0-9_.~-]{16,512}$/.test(url.searchParams.get('ticket') || ''));
 }
 function isLocalPage(value, filename) {
   return value?.split(/[?#]/, 1)[0] === pathToFileURL(path.resolve(filename)).href;
@@ -52,4 +63,4 @@ function sharingResult({ sources, sourceId, withAudio, request }) {
   if (!source) return {};
   return { video: source, ...(withAudio && request.audioRequested ? { audio: 'loopback' } : {}) };
 }
-module.exports = { PLATFORM_URL, RECORDER_URL, isPlatform, isRecorder, isPlatformBlob, isUploadedFile, isExternal, classifyNavigation, isLocalPage, canRequestPermission, safeDownloadName, browserUserAgent, canDownload, sharingResult };
+module.exports = { PLATFORM_URL, RECORDER_URL, isPlatform, isRecorder, isPlatformBlob, isUploadedFile, isExternal, isWorkbookHelper, classifyNavigation, isLocalPage, canRequestPermission, safeDownloadName, browserUserAgent, canDownload, sharingResult };

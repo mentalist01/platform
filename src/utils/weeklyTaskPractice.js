@@ -534,7 +534,7 @@ const getSrsReviewStats = (rawAttempts, dueDay, referenceDay, target, windowDays
         qualifiedAt: attempt.iso,
         qualifiedDay: attempt.dayNumber,
         score,
-        rating: score >= 4 ? 'strong' : (score === 3 ? 'medium' : 'weak'),
+        rating: score / target >= 0.8 ? 'strong' : (score / target >= 0.6 ? 'medium' : 'weak'),
       };
       break;
     }
@@ -569,6 +569,7 @@ export const buildWeeklyTaskPracticeStats = (
     target = WEEKLY_TASK_PRACTICE_TARGET,
     refreshTarget = WEEKLY_TASK_PRACTICE_REFRESH_TARGET,
     windowDays = WEEKLY_TASK_PRACTICE_WINDOW_DAYS,
+    taskTargets = {},
   } = {}
 ) => {
   const safeTarget = Math.max(1, Math.trunc(Number(target) || WEEKLY_TASK_PRACTICE_TARGET));
@@ -666,8 +667,11 @@ export const buildWeeklyTaskPracticeStats = (
     ...historicalQuestionKeysByTask.keys(),
     ...Object.keys(storedMilestones),
     ...positiveProgressByTask.keys(),
+    ...Object.keys(taskTargets),
   ]);
   taskKeys.forEach((taskKey) => {
+    const topicTarget = Math.max(1, Math.trunc(Number(taskTargets[taskKey]?.target) || safeTarget));
+    const topicRefreshTarget = Math.min(topicTarget, Math.max(1, Math.trunc(Number(taskTargets[taskKey]?.refreshTarget) || safeRefreshTarget)));
     const events = eventsByTask.get(taskKey) || [];
     const historicalQuestionKeys = historicalQuestionKeysByTask.get(taskKey) || new Set();
     const hasLegacyProgressFallback = positiveProgressByTask.has(taskKey)
@@ -676,8 +680,8 @@ export const buildWeeklyTaskPracticeStats = (
       events,
       answerAttemptsByTask.get(taskKey) || [],
       referenceDay,
-      safeTarget,
-      safeRefreshTarget,
+      topicTarget,
+      topicRefreshTarget,
       safeWindowDays,
       historicalQuestionKeys,
       storedMilestones[taskKey] || null,
@@ -1023,7 +1027,7 @@ export const getWeeklyTaskPracticeIndicator = (
     : refreshTarget;
   const qualifiedAt = rawQualifiedAt
     || (hasEstablishedPractice ? refreshQualifiedAt : '');
-  const phase = target === initialTarget ? 'initial' : 'refresh';
+  const phase = !hasEstablishedPractice || isInitialCompletionCurrent ? 'initial' : 'refresh';
   const base = {
     currentCount,
     target,

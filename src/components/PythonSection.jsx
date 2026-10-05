@@ -28,6 +28,9 @@ import {
 import { deleteTheoryRecordingDraftSnapshot } from '../utils/theoryRecordingDraftStore';
 import { getRutubeEmbedUrl } from '../utils/learningGroups';
 import { buildCurrentPythonProgressMap } from '../utils/pythonProgress';
+import { buildPracticeStatsForTests, getPythonReviewQuestionIndex, isPythonReviewDue } from '../utils/pythonTaskPractice';
+import { getWeeklyTaskPracticeIndicator } from '../utils/weeklyTaskPractice';
+import PythonPracticePanel, { PythonPracticeBadge } from './PythonPracticePanel';
 import {
   PYTHON_TASK_SECTION_IDS,
   PYTHON_TASK_SECTION_META,
@@ -440,6 +443,7 @@ const PythonSection = ({
   }, [taskSections]);
   const [activeTaskSectionId, setActiveTaskSectionId] = useState('topics');
   const [activeTask, setActiveTask] = useState(null);
+  const [activePracticeReview, setActivePracticeReview] = useState(null);
   const [reviewTask, setReviewTask] = useState(null);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
   const [activeSubsectionId, setActiveSubsectionId] = useState(null);
@@ -581,6 +585,7 @@ const PythonSection = ({
       return;
     }
     setActiveTaskSectionId(String(target.sectionId || 'topics'));
+    setActivePracticeReview(null);
     setActiveTask(target);
     setActiveSubsectionId(String(openTask.subsectionId || '').trim() || null);
     setActiveTheoryLaunch(openTask.openTheory === true
@@ -700,6 +705,23 @@ const PythonSection = ({
       levelId: PYTHON_LEVEL_ID,
     });
   }, [PYTHON_LEVEL_ID, progress, role, studentData, taskList, testsDb]);
+  const practiceStats = useMemo(() => buildPracticeStatsForTests(studentData, testsDb), [studentData, testsDb]);
+  const practiceItems = useMemo(() => taskList.map(task => ({
+    task,
+    indicator: getWeeklyTaskPracticeIndicator(practiceStats[task.number], {
+      progress: progressMap[task.id],
+      availableQuestionCount: new Set((testsDb?.[task.number]?.[PYTHON_LEVEL_ID] || []).map((question, index) => String(question.id ?? index))).size,
+    }),
+  })), [taskList, practiceStats, progressMap, testsDb, PYTHON_LEVEL_ID]);
+  const openPythonPractice = (task) => {
+    if (role === 'teacher') { setReviewTask(task); return; }
+    const stats = practiceStats[task.number];
+    setActiveTaskSectionId(String(task.sectionId || 'topics'));
+    setActiveQuestionIndex(getPythonReviewQuestionIndex({ task, testsDb, studentData, stats }));
+    setActiveSubsectionId(null); setActiveTheoryLaunch(null);
+    setActivePracticeReview({ cycle: String(stats?.nextDueDay ?? 'legacy') });
+    setActiveTask(task);
+  };
   const activeTaskSection = useMemo(
     () => sectionTabs.find((section) => section.id === activeTaskSectionId) || sectionTabs[0] || null,
     [sectionTabs, activeTaskSectionId]
@@ -1548,6 +1570,8 @@ const PythonSection = ({
       setReviewTask(focusTask);
       return;
     }
+    if (isPythonReviewDue(practiceItems.find(item => item.task.id === focusTask.id)?.indicator)) { openPythonPractice(focusTask); return; }
+    setActivePracticeReview(null);
     setActiveQuestionIndex(null);
     setActiveSubsectionId(null);
     setActiveTheoryLaunch(null);
@@ -1731,6 +1755,7 @@ const PythonSection = ({
 
   const renderTaskCard = (task, idx, section) => {
     const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
+    const practiceIndicator = practiceItems.find(item => item.task.id === task.id)?.indicator;
     const clickable = role === 'student';
     const isSelected = String(activeTask?.id || '') === String(task.id || '');
     const progressState = val >= 85 ? 'mastered' : (val >= 55 ? 'steady' : (val > 0 ? 'warming' : 'start'));
@@ -1750,6 +1775,8 @@ const PythonSection = ({
     };
     const openTaskCard = () => {
       if (!clickable) return;
+      if (isPythonReviewDue(practiceIndicator)) { openPythonPractice(task); return; }
+      setActivePracticeReview(null);
       setActiveQuestionIndex(null);
       setActiveSubsectionId(null);
       setActiveTheoryLaunch(null);
@@ -1852,6 +1879,7 @@ const PythonSection = ({
               style={{ width: `${val}%` }}
             />
           </div>
+          <PythonPracticeBadge indicator={practiceIndicator} />
         </div>
       </Card>
     );
@@ -2090,6 +2118,8 @@ const PythonSection = ({
         </div>
       )}
 
+      <PythonPracticePanel items={practiceItems} role={role} onOpen={openPythonPractice} />
+
       {role === 'student' && (
         <div className="md:hidden">
           <div className="mobile-topic-path-card rounded-3xl border border-purple-200/80 bg-white/85 p-3 shadow-[0_10px_24px_rgba(99,102,241,0.12)]">
@@ -2151,6 +2181,8 @@ const PythonSection = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (isPythonReviewDue(practiceItems.find(item => item.task.id === node.task.id)?.indicator)) { openPythonPractice(node.task); return; }
+                        setActivePracticeReview(null);
                         setActiveQuestionIndex(null);
                         setActiveSubsectionId(null);
                         setActiveTheoryLaunch(null);
@@ -2871,8 +2903,12 @@ const PythonSection = ({
         <PythonTestModal
           theme={theme}
           task={activeTask}
+          reviewMode={Boolean(activePracticeReview)}
+          reviewCycle={activePracticeReview?.cycle || ''}
+          onPracticeUpdated={() => { if (studentId) api.getStudentData(studentId).then(data => setStudentData(normalizeLoadedStudentData(data))).catch(() => {}); }}
           onClose={() => {
             setActiveTask(null);
+            setActivePracticeReview(null);
             setActiveQuestionIndex(null);
             setActiveSubsectionId(null);
             setActiveTheoryLaunch(null);
@@ -2905,7 +2941,7 @@ const PythonSection = ({
           ALLOW_MAIN_THREAD_PYTHON_FALLBACK={ALLOW_MAIN_THREAD_PYTHON_FALLBACK}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
-            const quickTaskHandled = onQuickHomeworkTaskSolved?.({
+            const quickTaskHandled = !activePracticeReview && onQuickHomeworkTaskSolved?.({
               taskId,
               score,
               options,

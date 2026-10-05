@@ -111,9 +111,16 @@ function guardWebContents(contents, kind) {
   contents.on('will-navigate', (event, url) => { if (!allowed(url)) event.preventDefault(); });
   contents.on('will-redirect', (event, url) => { if (!allowed(url)) event.preventDefault(); });
   contents.on('will-frame-navigate', event => {
-    if (event.isMainFrame && !allowed(event.url)) { event.preventDefault(); void openLink(event.url); }
+    if (event.isMainFrame && !allowed(event.url)) {
+      event.preventDefault();
+      if (policy.isWorkbookHelper(event.url) && !ownedPlatform(contents)) return;
+      void openLink(event.url);
+    }
   });
-  contents.setWindowOpenHandler(({ url }) => { void openLink(url); return { action: 'deny' }; });
+  contents.setWindowOpenHandler(({ url, referrer }) => {
+    if (policy.isWorkbookHelper(url) && (!ownedPlatform(contents) || !policy.isPlatform(referrer?.url))) return { action: 'deny' };
+    void openLink(url); return { action: 'deny' };
+  });
   contents.on('page-title-updated', event => event.preventDefault());
   contents.on('context-menu', (_event, params) => {
     const template = imageContextMenu(contents, params, async (source, url) => {
@@ -130,6 +137,7 @@ function guardWebContents(contents, kind) {
 }
 async function openLink(url) {
   const type = policy.classifyNavigation(url);
+  if (type === 'workbook-helper') return shell.openExternal(url).catch(() => dialog.showMessageBox(mainWindow, { title: 'Excel / LibreOffice', message: 'Не удалось открыть помощник таблиц. Проверьте, что помощник Excel / LibreOffice установлен, и повторите.', buttons: ['ОК'] }));
   if (type === 'recorder') return openRecorder(new URL(url).pathname + new URL(url).hash).catch(() => dialog.showMessageBox(mainWindow, { title: 'Пульт записи', message: 'Не удалось открыть пульт. Проверьте, что помощник запущен, и повторите.', buttons: ['ОК'] }));
   if (type === 'platform') {
     const child = new BrowserWindow({ title: TITLE, ...windowPlacement(1180, 820), icon, autoHideMenuBar: true, webPreferences: { session: platformSession, sandbox: true, contextIsolation: true, nodeIntegration: false } });

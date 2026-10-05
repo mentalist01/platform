@@ -28,6 +28,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 import { api } from '../services/api';
+import { getPythonReviewSolvedIds, pythonReviewDraftKey } from '../utils/pythonTaskPractice';
 import useQuestionSolveTimer from '../hooks/useQuestionSolveTimer';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
@@ -270,6 +271,9 @@ const PythonTestModal = ({
   normalizeXpTotal,
   buildGoogleDocFullUrl,
   codeSyncRoomId = '',
+  reviewMode = false,
+  reviewCycle = '',
+  onPracticeUpdated,
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
   const documentTheme = typeof document !== 'undefined'
@@ -280,6 +284,7 @@ const PythonTestModal = ({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
   const [solvedIds, setSolvedIds] = useState(new Set());
+  const [reviewSolvedIds, setReviewSolvedIds] = useState(new Set());
   const [solvedCodeById, setSolvedCodeById] = useState({});
   const [answerHistoryById, setAnswerHistoryById] = useState({});
   const [answerHistoryLoading, setAnswerHistoryLoading] = useState(Boolean(studentId));
@@ -363,10 +368,13 @@ const PythonTestModal = ({
   const activeQuestionHistory = Array.isArray(answerHistoryById?.[activeQuestionId])
     ? answerHistoryById[activeQuestionId]
     : [];
-  const activeQuestionAlreadySolved = solvedIds.has(activeQuestionId)
-    || activeQuestionHistory.some((entry) => entry?.correct === true);
+  const visibleSolvedIds = useMemo(() => reviewMode
+    ? new Set([...reviewSolvedIds, ...getPythonReviewSolvedIds(answerHistoryById, reviewCycle)])
+    : solvedIds, [reviewMode, reviewSolvedIds, answerHistoryById, reviewCycle, solvedIds]);
+  const activeQuestionAlreadySolved = visibleSolvedIds.has(activeQuestionId)
+    || (!reviewMode && activeQuestionHistory.some((entry) => entry?.correct === true));
   const activeQuestionTimerKey = activeQuestionId
-    ? `${task?.number || task?.id}:${PYTHON_LEVEL_ID}:${activeQuestionId}`
+    ? `${task?.number || task?.id}:${PYTHON_LEVEL_ID}:${activeQuestionId}${reviewMode ? `:review:${reviewCycle}` : ''}`
     : '';
   const getActiveQuestionSolveDurationMs = useQuestionSolveTimer({
     questionKey: activeQuestionTimerKey,
@@ -399,9 +407,9 @@ const PythonTestModal = ({
   }, [task?.number, PYTHON_LEVEL_ID]);
   const activeQuestionCodeLoaded = Boolean(questionCodeById?.[activeQuestionId]?.loaded);
   const collabRoomId = useMemo(() => {
-    if (!collabBaseRoomId || !task?.number || !activeQuestionId) return '';
+    if (reviewMode || !collabBaseRoomId || !task?.number || !activeQuestionId) return '';
     return `py-collab:${collabBaseRoomId}:${task.number}:${PYTHON_LEVEL_ID}:${activeQuestionId}`;
-  }, [collabBaseRoomId, task?.number, PYTHON_LEVEL_ID, activeQuestionId]);
+  }, [collabBaseRoomId, task?.number, PYTHON_LEVEL_ID, activeQuestionId, reviewMode, reviewCycle]);
   const theoryVariantsForVisibility = useMemo(
     () => resolveTheoryVariantsForSubsection(taskEntry, selectedSubsectionId || PYTHON_DEFAULT_SUBSECTION_ID),
     [taskEntry, selectedSubsectionId]
@@ -562,7 +570,9 @@ const PythonTestModal = ({
   const getQuestionIndexKey = () => {
     const safeStudentId = studentId || 'anon';
     const taskNum = task?.number || 'task';
-    return `py_last_q_${safeStudentId}_${taskNum}`;
+    return reviewMode
+      ? pythonReviewDraftKey({ studentId: safeStudentId, taskNumber: taskNum, questionId: '__index__', cycle: reviewCycle })
+      : `py_last_q_${safeStudentId}_${taskNum}`;
   };
 
   const getQuestionCodeEntry = (questionId, source = null) => {
@@ -638,7 +648,7 @@ const PythonTestModal = ({
   const getFallbackCodeForQuestion = (question, questionId, serverStarterCode = '') => {
     const key = String(questionId ?? '').trim();
     const solvedCode = solvedCodeById?.[key];
-    if (typeof solvedCode === 'string' && solvedCode.length > 0) return normalizeCodeText(solvedCode);
+    if (!reviewMode && typeof solvedCode === 'string' && solvedCode.length > 0) return normalizeCodeText(solvedCode);
     if (typeof serverStarterCode === 'string' && serverStarterCode.length > 0) return normalizeCodeText(serverStarterCode);
     if (typeof question?.starterCode === 'string') return normalizeCodeText(question.starterCode);
     return '';
@@ -667,6 +677,19 @@ const PythonTestModal = ({
     if (!key) return;
     if (questionCodeLoadingByIdRef.current?.[key]) return;
     const cached = getQuestionCodeEntry(key);
+    if (reviewMode) {
+      if (cached.loaded && !force) return;
+      let draft = null;
+      try { draft = JSON.parse(window.localStorage.getItem(pythonReviewDraftKey({ studentId, taskNumber: task.number, questionId: key, cycle: reviewCycle }))); } catch {}
+      setQuestionCodeEntry(key, {
+        code: typeof draft?.code === 'string' ? draft.code : getFallbackCodeForQuestion(question, key),
+        input: typeof draft?.input === 'string' ? draft.input : '',
+        updatedAt: draft?.updatedAt || '',
+        starterCode: typeof question?.starterCode === 'string' ? question.starterCode : '',
+      });
+      setQuestionCodeDirty(key, false);
+      return;
+    }
     if (cached.loaded && !force) {
       const hasSavedSnapshot = Boolean(String(cached.updatedAt || '').trim());
       const isDirty = Boolean(questionCodeDirtyByIdRef.current?.[key]);
@@ -775,6 +798,13 @@ const PythonTestModal = ({
       return false;
     }
     const entry = getQuestionCodeEntry(key);
+    if (reviewMode) {
+      try {
+        const updatedAt = new Date().toISOString();
+        window.localStorage.setItem(pythonReviewDraftKey({ studentId, taskNumber: task.number, questionId: key, cycle: reviewCycle }), JSON.stringify({ code: entry.code, input: entry.input, updatedAt }));
+        setQuestionCodeEntry(key, { updatedAt }); setQuestionCodeDirty(key, false); clearQuestionCodeError(key); return true;
+      } catch { setQuestionCodeError(key, 'Не удалось сохранить черновик повторения на этом устройстве'); return false; }
+    }
     const sentVersion = getQuestionCodeVersion(key);
     setQuestionCodeSavingById((prev) => ({ ...(prev || {}), [key]: true }));
     try {
@@ -983,6 +1013,7 @@ const PythonTestModal = ({
       setSelectedSubsectionId(PYTHON_DEFAULT_SUBSECTION_ID);
     }
     setSolvedIds(new Set());
+    setReviewSolvedIds(new Set());
     setSolvedCodeById({});
     setAnswerHistoryById({});
     setAnswerHistoryLoading(Boolean(studentId));
@@ -1607,6 +1638,7 @@ const PythonTestModal = ({
           setAnswerHistoryById(
             history && typeof history === 'object' && !Array.isArray(history) ? history : {}
           );
+          onPracticeUpdated?.();
         } catch {
           // The next modal opening will restore the persisted timer baseline.
         }
@@ -1616,6 +1648,7 @@ const PythonTestModal = ({
         if (studentId) {
           try {
             const resp = await api.solveQuestion(solvePayload);
+            if (reviewMode) setReviewSolvedIds(prev => new Set([...prev, currentId]));
             setSolvedIds((prev) => {
               const next = new Set(prev);
               next.add(currentId);
@@ -1782,7 +1815,7 @@ const PythonTestModal = ({
   const showSubsectionNav = visibleSubsections.length > 1 || subsectionModel.hasCustomSubsections;
   const currentQuestion = questions[currentIndex];
   const currentId = String(currentQuestion?.id ?? '').trim();
-  const isSolved = solvedIds.has(currentId);
+  const isSolved = visibleSolvedIds.has(currentId);
   const questionCodeEntry = getQuestionCodeEntry(currentId, questionCodeById);
   const resolvedCode = resolveCurrentQuestionCode(currentQuestion, currentIndex, questionCodeById);
   const questionCodeLoading = Boolean(questionCodeLoadingById?.[currentId]);
@@ -1815,8 +1848,11 @@ const PythonTestModal = ({
   const currentQuestionDisplayIndex = Math.max(1, currentQuestionPosition + 1);
   const totalVisibleQuestions = Math.max(visibleQuestionItems.length, 1);
   const solvedVisibleCount = visibleQuestionItems.reduce((count, item) => (
-    solvedIds.has(String(item.question?.id ?? item.questionIndex)) ? count + 1 : count
+    visibleSolvedIds.has(String(item.question?.id ?? item.questionIndex)) ? count + 1 : count
   ), 0);
+  const displayedMastery = reviewMode
+    ? Math.round(solvedVisibleCount / Math.max(1, visibleQuestionItems.length) * 100)
+    : currentMastery;
   const activeTheorySubsectionId = activeSubsection?.id || PYTHON_DEFAULT_SUBSECTION_ID;
   const theoryVariants = resolveTheoryVariantsForSubsection(taskEntry, activeTheorySubsectionId);
   const availableTheoryTypes = getTheoryVariantList(theoryVariants);
@@ -2024,8 +2060,9 @@ const PythonTestModal = ({
 
   const modal = (
     <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
-      <div data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className={`python-runtime-modal-shell python-runtime-modal-shell--solve surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
-        <div className="h-full w-full overflow-hidden">
+      <div data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className={`python-runtime-modal-shell python-runtime-modal-shell--solve surface-card modal-card modal-card--fullscreen flex flex-col rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
+        {reviewMode && <div className="shrink-0 border-b border-violet-200 bg-violet-50 px-4 py-2 text-xs text-violet-800"><strong>Повторение Python</strong> · Напишите решение заново. Черновик повторения сохраняется отдельно на этом устройстве; прошлый прогресс сохранён.</div>}
+        <div className="min-h-0 w-full flex-1 overflow-hidden">
           <div
             className={`flex h-full flex-col overflow-hidden ${
               isVeryCompactRuntimeViewport
@@ -2064,24 +2101,24 @@ const PythonTestModal = ({
               <div className={`python-runtime-progress-card rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
                 <div className="flex items-center justify-between gap-2.5">
                   <div className="python-runtime-progress-summary flex items-center gap-1.5">
-                    <span className={`python-runtime-progress-label text-[10px] font-semibold ${mutedTextClass}`}>Прогресс темы</span>
+                    <span className={`python-runtime-progress-label text-[10px] font-semibold ${mutedTextClass}`}>{reviewMode ? 'Повторено' : 'Прогресс темы'}</span>
                     <span className={`python-runtime-progress-count text-[11px] font-bold ${secondaryTextClass}`}>
                       {`${solvedVisibleCount} / ${visibleQuestionItems.length || 0}`}
                     </span>
                   </div>
-                  <div className={`text-base font-black ${primaryTextClass}`}>{currentMastery}%</div>
+                  <div className={`text-base font-black ${primaryTextClass}`}>{displayedMastery}%</div>
                 </div>
                 <div
                   className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-700/70' : 'bg-slate-200/80'}`}
                   role="progressbar"
-                  aria-label="Прогресс темы"
+                  aria-label={reviewMode ? 'Прогресс повторения' : 'Прогресс темы'}
                   aria-valuemin="0"
                   aria-valuemax="100"
-                  aria-valuenow={Math.max(0, Math.min(100, currentMastery))}
+                  aria-valuenow={Math.max(0, Math.min(100, displayedMastery))}
                 >
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-violet-600 via-purple-500 to-fuchsia-500 transition-all duration-500"
-                    style={{ width: `${Math.max(0, Math.min(100, currentMastery))}%` }}
+                    style={{ width: `${Math.max(0, Math.min(100, displayedMastery))}%` }}
                   />
                 </div>
               </div>
@@ -2157,7 +2194,7 @@ const PythonTestModal = ({
               >
                 {visibleQuestionItems.map((item) => {
                   const qId = String(item.question?.id ?? item.questionIndex);
-                  const solved = solvedIds.has(qId);
+                  const solved = visibleSolvedIds.has(qId);
                   const isCurrent = item.questionIndex === currentIndex;
                   const buttonClass = isCurrent
                     ? (solved
@@ -2587,9 +2624,9 @@ const PythonTestModal = ({
               </div>
               <div className="python-runtime-editor-controls flex min-w-0 flex-wrap items-center gap-1.5">
                 <div className="python-runtime-editor-statuses flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span data-state={realtimeStatus} title="Состояние совместного редактора" className={`python-runtime-status python-runtime-status--realtime inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${realtimeStateClass}`}>
+                  <span data-state={realtimeStatus} title={reviewMode ? 'Черновик повторения на этом устройстве' : 'Состояние совместного редактора'} className={`python-runtime-status python-runtime-status--realtime inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${realtimeStateClass}`}>
                     <RealtimeStatusIcon size={11} className={realtimeStatus === 'connecting' ? 'animate-spin' : ''} />
-                    {realtimeStatusLabel}
+                    {reviewMode ? 'Самостоятельное повторение' : realtimeStatusLabel}
                   </span>
                   <span data-state={questionCodeDirty ? 'dirty' : ((questionCodeSaving || questionCodeLoading) ? 'saving' : 'saved')} title={questionCodeUpdatedAtLabel ? `Последнее сохранение: ${questionCodeUpdatedAtLabel}` : 'Код сохраняется автоматически'} className={`python-runtime-status python-runtime-status--save inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${saveStateClass}`}>
                     <CheckCircle2 size={11} />
@@ -2646,6 +2683,12 @@ const PythonTestModal = ({
                   beforeMount={ensureMonacoColorTheme}
                   defaultValue={collabRoomId ? '' : resolvedCode}
                   onMount={handleEditorMount}
+                  onChange={reviewMode ? value => {
+                    setQuestionCodeEntry(currentId, { code: value || '' });
+                    bumpQuestionCodeVersion(currentId);
+                    setQuestionCodeDirty(currentId, true);
+                    scheduleQuestionSave(currentId);
+                  } : undefined}
                   options={editorOptions}
                   loading={<div className={`p-4 text-sm ${mutedTextClass}`}>Загрузка редактора...</div>}
                 />

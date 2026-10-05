@@ -9,13 +9,13 @@ const vm = require('node:vm');
 
 // Exercise the app's window and IPC lifecycle without a real call, recorder or OBS.
 function fixture() {
-  const windows = [], handlers = new Map(), privacyCalls = [];
+  const windows = [], handlers = new Map(), privacyCalls = [], externalCalls = [];
   let nextId = 0;
   class Contents extends EventEmitter {
     constructor() { super(); this.id = ++nextId; this.mainFrame = { url: '' }; }
     isDestroyed() { return false; }
     getURL() { return this.mainFrame.url; }
-    setWindowOpenHandler() {}
+    setWindowOpenHandler(handler) { this.windowOpen = handler; }
     send() {}
     async loadURL(url) { this.navigationCount = (this.navigationCount || 0) + 1; this.mainFrame.url = url; this.emit('did-finish-load'); }
     focus() { this.owner?.emit('focus'); }
@@ -59,6 +59,7 @@ function fixture() {
   });
   const filename = path.resolve(__dirname, '../main.cjs'), realRequire = createRequire(filename);
   const electron = { app, BrowserWindow: Window, WebContentsView: View, session: { fromPartition: ses },
+    shell: { openExternal: async url => { externalCalls.push(url); } },
     Menu: { buildFromTemplate: () => ({}), setApplicationMenu() {} },
     ipcMain: { handle: (name, handler) => handlers.set(name, handler), on() {} },
   };
@@ -79,7 +80,7 @@ function fixture() {
     },
   });
   vm.runInContext(fs.readFileSync(filename, 'utf8') + '\nglobalThis.lifecycle = { start, openRecorder };', context, { filename });
-  return { ...context.lifecycle, windows, handlers, privacyCalls };
+  return { ...context.lifecycle, windows, handlers, privacyCalls, externalCalls };
 }
 
 test('recorder remains open beside the call without masking OBS or navigating the cabinet', async () => {
@@ -104,4 +105,21 @@ test('recorder remains open beside the call without masking OBS or navigating th
   assert.equal(f.windows.filter(window => window.options.title === 'IVAN100 — Пульт записи').length, 1);
   assert.ok(recorder.visible);
   assert.deepEqual(f.privacyCalls, []);
+});
+
+test('workbook launch reaches the installed helper while the cabinet stays open', async () => {
+  const f = fixture(); await f.start();
+  const contents = f.windows[0].platformView.webContents;
+  if (!contents.getURL()) await once(contents, 'did-finish-load');
+  const platformUrl = contents.getURL();
+  const uri = 'ivan-ege://workbook/open?origin=https%3A%2F%2Fivan100.ru&ticket=fixture-ticket-123456';
+  const event = { url: uri, isMainFrame: true, preventDefault() { this.prevented = true; } };
+  contents.emit('will-frame-navigate', event);
+  assert.equal(event.prevented, true);
+  assert.deepEqual(f.externalCalls, [uri]);
+  assert.equal(contents.getURL(), platformUrl);
+  contents.mainFrame.url = 'https://rutube.ru/';
+  contents.emit('will-frame-navigate', { ...event, prevented: false });
+  contents.windowOpen({ url: uri, referrer: { url: platformUrl } });
+  assert.deepEqual(f.externalCalls, [uri], 'foreign pages cannot launch the native helper');
 });

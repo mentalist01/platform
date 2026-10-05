@@ -26,10 +26,10 @@ async function main() {
   if (metadata.version !== pkg.version || metadata.files?.length !== 1 || metadata.files[0].url !== installer
     || metadata.files[0].sha512 !== sha512 || metadata.files[0].size !== bytes.length) throw new Error('Build metadata differs from installer');
   const notes = path.join(directory, 'release-notes.md');
-  fs.writeFileSync(notes, `IVAN100 Учитель ${pkg.version} для Windows.\n\nИсправлена демонстрация в комнате урока: приложение открывает выбор кабинета, окна программы или экрана. Звук передаётся только при выборе соответствующей галочки. Исправление проверено в Electron с получением живой видеодорожки.\n\nДля установки после завершения урока и записи нажмите «Обновления» → «Обновить». Приложение сохраняет папку установки, ярлыки, входы и настройки.\n`);
+  fs.writeFileSync(notes, `IVAN100 Учитель ${pkg.version} для Windows.\n\nИсправлена кнопка «Excel / LibreOffice»: таблица открывается через установленный помощник, кабинет остаётся на месте. Сохранено исправление демонстрации экрана из версии 0.1.7.\n\nДля установки после завершения урока и записи нажмите «Обновления» → «Обновить». Приложение сохраняет папку установки, ярлыки, входы и настройки.\n`);
   let release = exists(tag);
   if (!release) {
-    gh(['release', 'create', tag, '--repo', repo, '--target', revision, '--draft', '--prerelease', '--title', `IVAN100 Учитель ${pkg.version} — исправление демонстрации`, '--notes-file', notes]);
+    gh(['release', 'create', tag, '--repo', repo, '--target', revision, '--draft', '--prerelease', '--title', `IVAN100 Учитель ${pkg.version} — открытие таблиц`, '--notes-file', notes]);
     release = exists(tag);
   }
   if (release.isDraft) {

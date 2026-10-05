@@ -110,9 +110,9 @@ import {
 } from '../src/utils/notesSharing.js';
 import {
   buildWeeklyTaskPracticeMilestones,
-  buildWeeklyTaskPracticeStats,
   normalizeWeeklyTaskPracticeMilestones,
 } from '../src/utils/weeklyTaskPractice.js';
+import { buildPracticeStatsForTests } from '../src/utils/pythonTaskPractice.js';
 import {
   MOCK_EXAM_MODE_CLASSIC,
   MOCK_EXAM_MODE_TIMER,
@@ -31996,7 +31996,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       nextMockTimerChests.push(chestRecord);
     }
   });
-  const baselinePracticeStats = buildWeeklyTaskPracticeStats(data, {
+  const baselinePracticeStats = buildPracticeStatsForTests(data, readTestsDbForStudent(student), {
     gameTheoryTask: GAME_THEORY_TASK,
     referenceDate: new Date(savedAt),
     referenceDayKey: resolvedDayKey,
@@ -32420,10 +32420,10 @@ app.post('/api/progress/solve', async (req, res) => {
     );
     taskEntry[levelKey] = levelEntry;
     solvedByTask[taskKey] = taskEntry;
-    const attemptPracticeStats = buildWeeklyTaskPracticeStats({
+    const attemptPracticeStats = buildPracticeStatsForTests({
       ...data,
       solvedByTask,
-    }, {
+    }, testsDb, {
       gameTheoryTask: GAME_THEORY_TASK,
       referenceDate: practiceReferenceDate,
       referenceDayKey: resolvedDayKey,
@@ -32491,7 +32491,7 @@ app.post('/api/progress/solve', async (req, res) => {
   );
   taskEntry[levelKey] = levelEntry;
   solvedByTask[taskKey] = taskEntry;
-  const baselinePracticeStats = buildWeeklyTaskPracticeStats(data, {
+  const baselinePracticeStats = buildPracticeStatsForTests(data, testsDb, {
     gameTheoryTask: GAME_THEORY_TASK,
     referenceDate: practiceReferenceDate,
     referenceDayKey: resolvedDayKey,
@@ -32574,13 +32574,13 @@ app.post('/api/progress/solve', async (req, res) => {
   const progress = { ...(data.progress || {}) };
   progress[taskKey] = taskProgress;
 
-  const nextPracticeStats = buildWeeklyTaskPracticeStats({
+  const nextPracticeStats = buildPracticeStatsForTests({
     ...data,
     progress,
     solvedByTask,
     solvedEvents,
     weeklyTaskPracticeMilestones: baselinePracticeMilestones,
-  }, {
+  }, testsDb, {
     gameTheoryTask: GAME_THEORY_TASK,
     referenceDate: practiceReferenceDate,
     referenceDayKey: resolvedDayKey,

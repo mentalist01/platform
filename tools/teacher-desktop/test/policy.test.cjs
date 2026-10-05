@@ -36,6 +36,14 @@ test('Windows downloads retain extensions without paths or reserved device names
   assert.equal(policy.safeDownloadName('CON.txt'), 'Файл-CON.txt');
   assert.equal(policy.safeDownloadName('..'), 'Файл-скачивание');
 });
+test('workbook helper accepts only the platform open action with a single scoped ticket', () => {
+  const valid = 'ivan-ege://workbook/open?origin=https%3A%2F%2Fivan100.ru&ticket=0123456789abcdef';
+  assert.equal(policy.isWorkbookHelper(valid), true);
+  assert.equal(policy.classifyNavigation(valid), 'workbook-helper');
+  for (const url of [valid.replace('workbook/open', 'workbook/delete'), valid.replace('ivan100.ru', 'evil.example'), valid.replace('ivan100.ru', 'ivan100.ru%2Fuploads%2Ffile'), valid.replace('0123456789abcdef', 'short'), valid + '&ticket=secondvalidticket', valid + '&origin=https%3A%2F%2Fivan100.ru', valid + '#x', valid.replace('://workbook', '://user@workbook'), valid.replace('0123456789abcdef', '%22%26start%20calc.exe')]) {
+    assert.equal(policy.isWorkbookHelper(url), false, url); assert.equal(policy.classifyNavigation(url), 'blocked', url);
+  }
+});
 test('screen sharing uses the chosen source and never starts computer audio by default', () => {
   const frame = {}; frame.top = frame;
   const sources = [{ id: 'window:1', name: 'Writer' }, { id: 'screen:1', name: 'Screen 1' }];
