@@ -7,7 +7,7 @@ revision=$(git rev-parse --short HEAD)
 backup=$(mktemp -d /root/group-library-payments-backup-XXXXXX)
 cp -a dist "$backup/dist"
 cp -a ecosystem.config.cjs "$backup/"
-for name in teacher-finances teacher-calendar-marks learning-groups learning-lesson-sessions learning-subscriptions mock-exams desktop-recordings teacher-subscriptions payment-notifications payment-sender-links; do
+for name in teacher-finances teacher-calendar-marks learning-groups learning-lesson-sessions learning-subscriptions mock-exams desktop-recordings teacher-subscriptions payment-notifications payment-sender-links teacher-payment-connections; do
   if [[ -f "/root/platform-data/$name.json" ]]; then cp -a "/root/platform-data/$name.json" "$backup/"; fi
 done
 published=0
@@ -29,6 +29,7 @@ node --test src/utils/boardTaskClipboard.test.js > "$backup/board-task-clipboard
 node --test src/utils/collabSolutions.test.js > "$backup/code-sections-tests.log" 2>&1
 node --test src/utils/monthlyMockExam.test.js server/monthlyMockPublication.integration.test.js server/monthlyMockAssignment.integration.test.js server/monthlyMockStatus.integration.test.js server/monthlyMockReview.test.js server/mockExamMode.test.js > "$backup/monthly-publication-tests.log" 2>&1
 node --test src/utils/teacherUpdates.test.js > "$backup/teacher-updates-tests.log" 2>&1
+node --test server/teacherPaymentConnections.test.js server/teacherPaymentConnections.integration.test.js > "$backup/payment-connections-tests.log" 2>&1
 stage="dist-group-library-payments-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-group-library-payments-release.mjs local "$stage"
@@ -41,6 +42,7 @@ node scripts/check-recording-reliability-release.mjs local "$stage"
 node scripts/check-python-practice-release.mjs local "$stage"
 node scripts/check-board-task-clipboard-release.mjs local "$stage"
 node scripts/check-lesson-tools-release.mjs local "$stage"
+node scripts/check-payment-keys-release.mjs local "$stage"
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 # Preserve old chunks for users with an already open client.
 cp -a "$stage/assets/." dist/assets/
@@ -68,6 +70,7 @@ node scripts/check-recorder-ui-release.mjs verify "$stage"
 node scripts/check-recording-reliability-release.mjs verify "$stage"
 node scripts/check-python-practice-release.mjs verify "$stage"
 node scripts/check-board-task-clipboard-release.mjs verify "$stage"
+node scripts/check-payment-keys-release.mjs verify "$stage" /root/platform-data
 cmp -s ecosystem.config.cjs "$backup/ecosystem.config.cjs"
 pm2 save
 printf '\nGROUP_LIBRARY_PAYMENTS_RELEASE_OK %s backup=%s\n' "$revision" "$backup"

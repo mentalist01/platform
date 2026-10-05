@@ -14,6 +14,7 @@ import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../ut
 import { clearCallResume, saveCallResume } from '../utils/callResume.js';
 import { createPeerRecovery, getRtcPeerConnectionState, reconcileRtcPeer } from '../utils/peerRecovery.js';
 import './CallSection.css';
+import './CallWorkspace.css';
 
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -82,9 +83,7 @@ const MIC_SETTINGS_POPUP_OFFSET = 10;
 const MIC_SETTINGS_POPUP_MARGIN = 8;
 const MIC_SETTINGS_POPUP_ESTIMATED_HEIGHT = 330;
 const RTC_MIC_SETTINGS_STORAGE_KEY_PREFIX = 'ege_rtc_mic_settings_v4';
-const CALL_BACKGROUND_PARTICLE_COUNT = 14;
 const CALL_CHAT_POLL_INTERVAL_MS = 4500;
-const INLINE_PANEL_BOTTOM_GAP_PX = 2;
 const LESSON_CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const LESSON_CHAT_ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
 const PREJOIN_SIGNAL_PROBE_TIMEOUT_MS = 3500;
@@ -1299,6 +1298,7 @@ const CallSection = ({
   channelSelectionMode = false,
   listenOnly = false,
   uiMode = 'full',
+  fitToContainer = false,
   onRequestExpand,
   onRequestCollapse,
   onRequestOpenCall,
@@ -1396,7 +1396,6 @@ const CallSection = ({
   const [collapsedPanelPosition, setCollapsedPanelPosition] = useState(null);
   const [floatingPanelPosition, setFloatingPanelPosition] = useState(null);
   const [fullscreenPortalTarget, setFullscreenPortalTarget] = useState(null);
-  const [inlinePanelMinHeightPx, setInlinePanelMinHeightPx] = useState(0);
   const [selfSpeaking, setSelfSpeaking] = useState(false);
   const [peerConnectionSummary, setPeerConnectionSummary] = useState({
     total: 0,
@@ -1767,29 +1766,6 @@ const CallSection = ({
     };
     requestAnimationFrame(scrollToBottom);
   }, [lessonChatExpanded, showInlineLessonChat]);
-
-  useEffect(() => {
-    if (!showInlineLessonChat || isFloatingUi || typeof window === 'undefined') {
-      setInlinePanelMinHeightPx(0);
-      return undefined;
-    }
-    const recalculateInlinePanelMinHeight = () => {
-      const node = inlinePanelRef.current;
-      if (!node) return;
-      const rect = node.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const availableHeight = Math.max(0, viewportHeight - Math.max(rect.top, 0) - INLINE_PANEL_BOTTOM_GAP_PX);
-      const nextHeight = Math.floor(availableHeight);
-      setInlinePanelMinHeightPx((prev) => (Math.abs(prev - nextHeight) > 1 ? nextHeight : prev));
-    };
-    recalculateInlinePanelMinHeight();
-    window.addEventListener('resize', recalculateInlinePanelMinHeight);
-    window.addEventListener('scroll', recalculateInlinePanelMinHeight, { passive: true });
-    return () => {
-      window.removeEventListener('resize', recalculateInlinePanelMinHeight);
-      window.removeEventListener('scroll', recalculateInlinePanelMinHeight);
-    };
-  }, [isFloatingUi, showInlineLessonChat]);
 
   useEffect(() => {
     if (!lessonChatPreviewImage || typeof window === 'undefined') return undefined;
@@ -5820,12 +5796,6 @@ const CallSection = ({
   const sectionShellClass = isDarkTheme
     ? `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl bg-[#0d0b1f]/95 p-4 shadow-[0_24px_64px_rgba(46,16,101,0.38)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`
     : `call-section-shell call-scene-shell relative overflow-hidden rounded-3xl border border-violet-200/80 bg-[rgba(252,248,255,0.98)] p-4 shadow-[0_26px_72px_rgba(88,28,135,0.14)] md:p-6 ${sceneStatusClass} ${sceneConnectionClass}`;
-  const sectionGlowPrimaryClass = isDarkTheme
-    ? 'call-aurora call-aurora--primary pointer-events-none absolute -left-16 -top-20 h-60 w-60 rounded-full bg-violet-500/12 blur-3xl'
-    : 'call-aurora call-aurora--primary pointer-events-none absolute -left-20 -top-24 h-72 w-72 rounded-full bg-violet-300/42 blur-3xl';
-  const sectionGlowSecondaryClass = isDarkTheme
-    ? 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-20 right-[-18px] h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl'
-    : 'call-aurora call-aurora--secondary pointer-events-none absolute -bottom-28 right-[-30px] h-72 w-72 rounded-full bg-fuchsia-200/34 blur-3xl';
   const collapsedCardClass = 'call-collapsed-card call-game-overlay';
   const floatingToolbarClass = isDarkTheme
     ? 'call-floating-toolbar mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-500/12 bg-[#100d22]/88 px-3 py-2 cursor-grab active:cursor-grabbing'
@@ -5879,7 +5849,8 @@ const CallSection = ({
         </div>
       )}
       {effectiveStudentId && (
-        <div className="call-telemost-editor">
+        <details className="call-telemost-editor call-workspace-disclosure">
+          <summary><Video size={16} /> Резервный Телемост <span>{telemostUrl ? 'Настроен' : 'Настроить'}</span></summary>
           <div className="call-telemost-editor__head">
             <span className="call-telemost-editor__icon" aria-hidden="true">
               <Video size={16} />
@@ -5950,7 +5921,7 @@ const CallSection = ({
           </form>
           {telemostError && <p className="call-telemost-editor__message" data-tone="error" role="alert">{telemostError}</p>}
           {!telemostError && telemostNotice && <p className="call-telemost-editor__message" data-tone="success">{telemostNotice}</p>}
-        </div>
+        </details>
       )}
     </div>
   );
@@ -5976,7 +5947,7 @@ const CallSection = ({
   const callLayoutClass = showInlineLessonChat && lessonChatExpanded
     ? 'call-experience-grid mt-4 grid min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start'
     : 'call-experience-grid mt-4 grid min-h-0 gap-3';
-  const callMainColumnClass = 'call-main-column min-w-0 space-y-3 md:space-y-4';
+  const callMainColumnClass = 'call-main-column min-w-0';
   const heroPanelClass = isDarkTheme
     ? 'call-hero-panel grid gap-4 rounded-[20px] border border-slate-700/70 bg-slate-950/72 p-5 shadow-[0_18px_44px_rgba(2,6,23,0.26)] md:p-7'
     : 'call-hero-panel grid gap-5 rounded-[20px] border border-slate-200/90 bg-white p-5 shadow-[0_18px_48px_rgba(15,23,42,0.08)] md:p-7';
@@ -6088,7 +6059,7 @@ const CallSection = ({
   const lessonChatCollapseClass = isDarkTheme
     ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-transparent bg-white/6 text-slate-200 transition hover:bg-white/10'
     : 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100';
-  const lessonChatBodyClass = 'flex min-h-0 flex-1 flex-col';
+  const lessonChatBodyClass = 'call-chat-body flex min-h-0 flex-1 flex-col';
   const lessonChatListClass = lessonChatMessages.length > 0
     ? 'call-lesson-chat-list flex flex-1 min-h-[120px] flex-col justify-end gap-2 overflow-y-auto pr-1 pb-2'
     : 'call-lesson-chat-list flex-1 min-h-[120px] overflow-y-auto pr-1 pb-2';
@@ -6149,13 +6120,6 @@ const CallSection = ({
       width: Number.isFinite(floatingPanelPosition.width) ? `${floatingPanelPosition.width}px` : undefined,
     }
     : undefined;
-  const inlinePanelHeightPx = Math.max(0, Math.floor(Number(inlinePanelMinHeightPx) || 0));
-  const inlinePanelStyle = showInlineLessonChat && inlinePanelHeightPx > 0
-    ? {
-      height: `${inlinePanelHeightPx}px`,
-      maxHeight: `${inlinePanelHeightPx}px`,
-    }
-    : undefined;
 
   if (isHiddenUi) {
     return null;
@@ -6201,13 +6165,133 @@ const CallSection = ({
     );
   }
 
+  const callActions = (<>
+              {!isConnected && !(meetingId && autoStartToken) && (
+                <footer className="call-prejoin-footer">
+                  <p><span className="call-prejoin-footer-dot" />{listenOnly ? 'Вход в режиме слушателя' : 'Подключитесь, когда будете готовы'}</p>
+                  {isConnecting && <button type="button" onClick={stopCall} className={prejoinSecondaryActionClass}>Отменить</button>}
+                  <button type="button" onClick={startCall} disabled={!canStart} className={heroPrimaryButtonClass} aria-label={joinButtonLabel}>
+                    {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
+                    <span>{joinButtonLabel}</span>
+                  </button>
+                </footer>
+              )}
+
+
+              {isConnected && (
+                <div className={`${controlsWrapClass} call-controls-layout call-controls-layout--compact ${sceneStatusClass}`}>
+                <div className="call-controls-group call-controls-group--media">
+                  <button
+                    type="button"
+                    onClick={toggleMic}
+                    disabled={!canToggleMic}
+                    data-live={micEnabled ? 'true' : 'false'}
+                    className={`${compactControlButtonClass} call-control-btn--mic ${micEnabled ? 'call-control-btn--active' : ''} ${
+                      micEnabled
+                        ? micOnControlClass
+                        : neutralControlClass
+                    }`}
+                    aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+                    title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
+                  >
+                    {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleCamera}
+                    disabled={!canToggleCamera}
+                    data-live={cameraEnabled ? 'true' : 'false'}
+                    className={`${compactControlButtonClass} call-control-btn--camera ${cameraEnabled ? 'call-control-btn--active' : ''} ${
+                      cameraEnabled
+                        ? cameraOnControlClass
+                        : neutralControlClass
+                    }`}
+                    aria-label={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
+                    title={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
+                  >
+                    {cameraBusy ? <Loader2 size={18} className="animate-spin" /> : (cameraEnabled ? <Camera size={18} /> : <CameraOff size={18} />)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleScreenShare}
+                    disabled={!canToggleScreen}
+                    data-live={screenSharing ? 'true' : 'false'}
+                    className={`${compactControlButtonClass} call-control-btn--screen ${screenSharing ? 'call-control-btn--active' : ''} ${
+                      screenSharing
+                        ? screenOnControlClass
+                        : neutralControlClass
+                    }`}
+                    aria-label={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
+                    title={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
+                  >
+                    {screenBusy ? <Loader2 size={18} className="animate-spin" /> : (screenSharing ? <MonitorX size={18} /> : <MonitorUp size={18} />)}
+                    <span className="call-workspace-action-label">{screenSharing ? 'Остановить показ' : 'Показать экран'}</span>
+                  </button>
+                </div>
+                <div className="call-controls-group call-controls-group--utility">
+                  {showInlineLessonChat && (
+                    <button
+                      type="button"
+                      className={lessonChatToggleClass}
+                      onClick={() => setLessonChatExpanded((prev) => !prev)}
+                      aria-label={lessonChatToggleText}
+                      title={lessonChatToggleText}
+                      aria-expanded={lessonChatExpanded}
+                      aria-controls="call-lesson-chat-panel"
+                      data-live={lessonChatExpanded ? 'true' : 'false'}
+                    >
+                      <MessageSquare size={16} />
+                      {chatBadgeText && (
+                        <span className={`call-chat-badge absolute -right-1 -top-1 ${lessonChatExpanded ? '' : 'is-live'}`}>{chatBadgeText}</span>
+                      )}
+                    </button>
+                  )}
+                  <div ref={micSettingsWrapRef} className="relative">
+                    <button
+                      ref={micSettingsButtonRef}
+                      type="button"
+                      onClick={() => {
+                        setMicSettingsOpen((prev) => {
+                          const next = !prev;
+                          if (!next) {
+                            setMicSettingsPosition(null);
+                          }
+                          return next;
+                        });
+                      }}
+                      disabled={!canToggleMic}
+                      className={`${compactControlButtonClass} call-control-btn--settings ${micSettingsOpen ? micSettingsButtonActiveClass : neutralControlClass}`}
+                      aria-label="Ещё настройки"
+                      title="Ещё настройки"
+                    >
+                      <Settings size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="call-controls-group call-controls-group--danger">
+                  <button
+                    type="button"
+                    onClick={() => { stopCall({ endRecording: true }); if (meetingId) onMeetingLeft?.(); }}
+                    disabled={!canStop}
+                    className={`${compactControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
+                    aria-label="Завершить звонок"
+                    title="Завершить звонок"
+                  >
+                    <PhoneOff size={18} />
+                    <span className="call-workspace-action-label">Выйти</span>
+                  </button>
+                </div>
+                </div>
+              )}
+  </>);
+
   const panelNode = (
     <div
       ref={isFloatingUi ? floatingPanelRef : inlinePanelRef}
       className={isFloatingUi
-        ? 'call-panel-root call-panel-root--floating fixed inset-x-2 top-2 z-50 max-h-[calc(100vh-1rem)] overflow-y-auto md:inset-x-auto md:right-4 md:top-4 md:w-[min(980px,calc(100vw-2rem))]'
-        : `call-panel-root call-panel-root--inline ${!isConnected ? 'call-panel-root--prejoin' : ''} animate-fadeIn ${showInlineLessonChat ? 'flex min-h-0 flex-col overflow-hidden pb-2' : 'pb-10'}`}
-      style={isFloatingUi ? floatingPanelStyle : inlinePanelStyle}
+        ? 'call-panel-root call-workspace call-panel-root--floating fixed inset-x-2 top-2 z-50 md:inset-x-auto md:right-4 md:top-4 md:w-[min(980px,calc(100vw-2rem))]'
+        : `call-panel-root call-workspace call-panel-root--inline ${fitToContainer ? 'call-workspace--bounded' : 'call-workspace--standalone'} ${!isConnected ? 'call-panel-root--prejoin' : ''}`}
+      style={isFloatingUi ? floatingPanelStyle : undefined}
       data-tour="call"
       data-call-role={role}
       data-call-mode={meetingId ? 'meeting' : isGroupLesson ? 'group' : 'individual'}
@@ -6215,26 +6299,10 @@ const CallSection = ({
       data-call-group-id={isGroupLesson ? normalizedGroupId || undefined : undefined}
       data-call-roster-size={isGroupLesson ? normalizedParticipantIds.length : undefined}
       data-call-phase={isConnected ? 'connected' : 'prejoin'}
+      data-chat-open={showInlineLessonChat && lessonChatExpanded ? 'true' : 'false'}
     >
       <section className={sectionShellClass}>
-        <div className={sectionGlowPrimaryClass} />
-        <div className={sectionGlowSecondaryClass} />
-        <div className="call-grid-overlay" aria-hidden="true" />
-        <div className="call-noise-overlay" aria-hidden="true" />
-        <div className="call-orbit-ring call-orbit-ring--one" aria-hidden="true" />
-        <div className="call-orbit-ring call-orbit-ring--two" aria-hidden="true" />
-        <div className="call-particle-field" aria-hidden="true">
-          {Array.from({ length: CALL_BACKGROUND_PARTICLE_COUNT }).map((_, index) => (
-            <span key={`call-bg-particle-${index}`} style={{ '--call-particle-index': index }} />
-          ))}
-        </div>
-        <div className="call-light-ribbon call-light-ribbon--one" aria-hidden="true" />
-        <div className="call-light-ribbon call-light-ribbon--two" aria-hidden="true" />
-        <div className="call-scene-sweep" aria-hidden="true" />
-        <div className="call-energy-wave call-energy-wave--one" aria-hidden="true" />
-        <div className="call-energy-wave call-energy-wave--two" aria-hidden="true" />
-
-        <div className="relative z-10">
+        <div className="call-workspace-content relative z-10">
           {isFloatingUi && (
             <div className={floatingToolbarClass} onPointerDown={(event) => startPanelDrag(event, 'floating')}>
               <div className="flex items-center gap-2">
@@ -6278,8 +6346,6 @@ const CallSection = ({
             </header>
           )}
 
-          {isTeacher && isConnected && teacherPickerNode}
-
           {resolvedError && (
             <div className={errorBoxClass}>
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
@@ -6318,7 +6384,8 @@ const CallSection = ({
                   onPlaybackBlocked={meetingId || listenOnly ? reportMeetingAudioBlocked : undefined}
                 />
               ))}
-
+              <div className="call-workspace-body" tabIndex={0} aria-label={isConnected ? 'Видео и дополнительные параметры звонка' : 'Подготовка к уроку'}>
+              {isTeacher && isConnected && teacherPickerNode}
               {!isConnected && meetingId && autoStartToken ? (
                 <section className={`${heroPanelClass} p-8 flex flex-col items-center justify-center gap-4 min-h-[220px]`} role="status">
                   <Loader2 size={24} className="animate-spin text-violet-500" />
@@ -6464,71 +6531,24 @@ const CallSection = ({
                       <p className="call-waiting-state-copy">{prejoinWaitingCopy}</p>
                     </div>
 
-                    <div className="call-prejoin-side-actions">
-                      <button
-                        type="button"
-                        onClick={startCall}
-                        disabled={!canStart}
-                        data-live={isConnecting ? 'true' : 'false'}
-                        data-attention={!isConnecting ? 'true' : 'false'}
-                        className={heroPrimaryButtonClass}
-                        aria-label={joinButtonLabel}
-                        title={joinButtonLabel}
-                      >
-                        {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Phone size={18} />}
-                        <span className="call-control-label">{joinButtonLabel}</span>
-                      </button>
+                    <div className="call-prejoin-side-actions call-prejoin-secondary-actions">
                       {!isGroupLesson && !isTeacher && telemostUrl && (
-                        <a
-                          href={telemostUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={handleStudentTelemostOpen}
-                          className={`${prejoinSecondaryActionClass} call-telemost-join-action`}
-                        >
-                          <Video size={18} />
-                          <span className="call-control-label">Войти через Телемост</span>
-                          <ExternalLink size={15} />
+                        <a href={telemostUrl} target="_blank" rel="noopener noreferrer" onClick={handleStudentTelemostOpen} className={`${prejoinSecondaryActionClass} call-telemost-join-action`}>
+                          <Video size={18} /><span>Войти через Телемост</span><ExternalLink size={15} />
                         </a>
-                      )}
-                      {isConnecting && (
-                        <button
-                          type="button"
-                          onClick={stopCall}
-                          className={prejoinSecondaryActionClass}
-                        >
-                          <span className="call-control-label">Отменить</span>
-                        </button>
                       )}
                     </div>
                     {!isGroupLesson && !isTeacher && !telemostLoading && !telemostUrl && !telemostError && (
-                      <p className="call-telemost-status" data-tone="muted">
-                        Резервная ссылка Телемоста пока не настроена.
-                      </p>
+                      <p className="call-telemost-status" data-tone="muted">Резервная ссылка Телемоста пока не настроена.</p>
                     )}
-                    {!isGroupLesson && !isTeacher && telemostError && (
-                      <p className="call-telemost-status" data-tone="error" role="alert">{telemostError}</p>
-                    )}
-                    {!isGroupLesson && !isTeacher && !telemostError && telemostNotice && (
-                      <p className="call-telemost-status" data-tone="success">{telemostNotice}</p>
-                    )}
-
-                    {showInlineLessonChat && (
-                      <button
-                        type="button"
-                        className="call-waiting-chat-link"
-                        onClick={() => setLessonChatExpanded(true)}
-                      >
-                        <MessageSquare size={15} />
-                        <span>Открыть чат</span>
-                        {chatBadgeText && <span className="call-waiting-chat-count">{chatBadgeText}</span>}
-                      </button>
-                    )}
+                    {!isGroupLesson && !isTeacher && telemostError && <p className="call-telemost-status" data-tone="error" role="alert">{telemostError}</p>}
+                    {!isGroupLesson && !isTeacher && !telemostError && telemostNotice && <p className="call-telemost-status" data-tone="success">{telemostNotice}</p>}
+                    {showInlineLessonChat && <button type="button" className="call-waiting-chat-link" onClick={() => setLessonChatExpanded(true)}><MessageSquare size={15} /><span>Открыть чат</span>{chatBadgeText && <span className="call-waiting-chat-count">{chatBadgeText}</span>}</button>}
                     </aside>
                   </div>
                 </section>
               ) : (
-                <section className={mediaSectionClass}>
+                <section className={mediaSectionClass} data-video-count={voiceCallParticipants.filter((peer) => peer.hasVideo).length}>
                 <div className="call-media-grid flex flex-wrap items-center justify-center gap-5 md:gap-8">
                   {voiceCallParticipants.map((peer, index) => {
                     const initial = String(peer.title || 'U').trim().charAt(0).toUpperCase() || 'U';
@@ -6621,7 +6641,8 @@ const CallSection = ({
               </section>
             )}
               {isTeacher && isConnected && !isGroupLesson && (
-                <>
+                <details className="call-workspace-disclosure call-workspace-diagnostics">
+                  <summary><Signal size={14} /> Диагностика связи <span>{qualityText}</span></summary>
                   <div className={statsGridTextClass}>
                     <p className={statCardClass}>
                       <span className="inline-flex items-center gap-1"><Users size={13} /> Участники:</span>{' '}
@@ -6649,7 +6670,7 @@ const CallSection = ({
                     )}
                     {' '}· RTT: {Math.round(Math.max(connectionStats.rttMs, connectionStats.outboundRttMs))} мс
                   </p>
-                </>
+                </details>
               )}
 
               {!isGroupLesson && !isTeacher && isConnected && telemostUrl && (
@@ -6676,108 +6697,8 @@ const CallSection = ({
                   </a>
                 </aside>
               )}
+              </div>
 
-              {isConnected && (
-                <div className={`${controlsWrapClass} call-controls-layout call-controls-layout--compact ${sceneStatusClass}`}>
-                <div className="call-controls-group call-controls-group--media">
-                  <button
-                    type="button"
-                    onClick={toggleMic}
-                    disabled={!canToggleMic}
-                    data-live={micEnabled ? 'true' : 'false'}
-                    className={`${compactControlButtonClass} call-control-btn--mic ${micEnabled ? 'call-control-btn--active' : ''} ${
-                      micEnabled
-                        ? micOnControlClass
-                        : neutralControlClass
-                    }`}
-                    aria-label={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-                    title={micEnabled ? 'Выключить микрофон' : 'Включить микрофон'}
-                  >
-                    {micBusy ? <Loader2 size={18} className="animate-spin" /> : (micEnabled ? <Mic size={18} /> : <MicOff size={18} />)}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleCamera}
-                    disabled={!canToggleCamera}
-                    data-live={cameraEnabled ? 'true' : 'false'}
-                    className={`${compactControlButtonClass} call-control-btn--camera ${cameraEnabled ? 'call-control-btn--active' : ''} ${
-                      cameraEnabled
-                        ? cameraOnControlClass
-                        : neutralControlClass
-                    }`}
-                    aria-label={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
-                    title={cameraEnabled ? 'Выключить камеру' : 'Включить камеру'}
-                  >
-                    {cameraBusy ? <Loader2 size={18} className="animate-spin" /> : (cameraEnabled ? <Camera size={18} /> : <CameraOff size={18} />)}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleScreenShare}
-                    disabled={!canToggleScreen}
-                    data-live={screenSharing ? 'true' : 'false'}
-                    className={`${compactControlButtonClass} call-control-btn--screen ${screenSharing ? 'call-control-btn--active' : ''} ${
-                      screenSharing
-                        ? screenOnControlClass
-                        : neutralControlClass
-                    }`}
-                    aria-label={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
-                    title={screenSharing ? 'Остановить показ экрана' : 'Показать экран'}
-                  >
-                    {screenBusy ? <Loader2 size={18} className="animate-spin" /> : (screenSharing ? <MonitorX size={18} /> : <MonitorUp size={18} />)}
-                  </button>
-                </div>
-                <div className="call-controls-group call-controls-group--utility">
-                  {showInlineLessonChat && (
-                    <button
-                      type="button"
-                      className={lessonChatToggleClass}
-                      onClick={() => setLessonChatExpanded((prev) => !prev)}
-                      aria-expanded={lessonChatExpanded}
-                      aria-controls="call-lesson-chat-panel"
-                      data-live={lessonChatExpanded ? 'true' : 'false'}
-                    >
-                      <MessageSquare size={16} />
-                      {chatBadgeText && (
-                        <span className={`call-chat-badge absolute -right-1 -top-1 ${lessonChatExpanded ? '' : 'is-live'}`}>{chatBadgeText}</span>
-                      )}
-                    </button>
-                  )}
-                  <div ref={micSettingsWrapRef} className="relative">
-                    <button
-                      ref={micSettingsButtonRef}
-                      type="button"
-                      onClick={() => {
-                        setMicSettingsOpen((prev) => {
-                          const next = !prev;
-                          if (!next) {
-                            setMicSettingsPosition(null);
-                          }
-                          return next;
-                        });
-                      }}
-                      disabled={!canToggleMic}
-                      className={`${compactControlButtonClass} call-control-btn--settings ${micSettingsOpen ? micSettingsButtonActiveClass : neutralControlClass}`}
-                      aria-label="Ещё настройки"
-                      title="Ещё настройки"
-                    >
-                      <Settings size={16} />
-                    </button>
-                  </div>
-                </div>
-                <div className="call-controls-group call-controls-group--danger">
-                  <button
-                    type="button"
-                    onClick={() => { stopCall({ endRecording: true }); if (meetingId) onMeetingLeft?.(); }}
-                    disabled={!canStop}
-                    className={`${compactControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
-                    aria-label="Завершить звонок"
-                    title="Завершить звонок"
-                  >
-                    <PhoneOff size={18} />
-                  </button>
-                </div>
-                </div>
-              )}
             </div>
 
             {showInlineLessonChat && lessonChatExpanded && (
@@ -6964,6 +6885,7 @@ const CallSection = ({
             )}
 
           </div>
+          {callActions}
 
           {micSettingsOpen && micSettingsPosition && typeof document !== 'undefined' && createPortal(
             <div

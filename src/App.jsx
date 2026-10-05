@@ -26932,6 +26932,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               studentsLoading={studentsLoading}
               hideStudentPicker={user.role === 'teacher'}
               uiMode={callUiMode}
+              fitToContainer
               theme={theme}
               autoStartToken={callAutoStartToken}
               reloadCall={reloadCall}
