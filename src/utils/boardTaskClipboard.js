@@ -2,8 +2,10 @@ export const BOARD_TASK_CLIPBOARD_VERSION = 1;
 export const BOARD_TASK_CLIPBOARD_KIND = 'ege-board-task';
 export const BOARD_TASK_CLIPBOARD_MIME = 'application/x-ege-board-task+json';
 export const BOARD_TASK_CLIPBOARD_MARKER_PREFIX = '__EGE_BOARD_TASK_V1__:';
+export const BOARD_TASK_CLIPBOARD_PACKET_PREFIX = '__EGE_BOARD_TASK_V2__:';
 export const BOARD_TASK_CLIPBOARD_STORAGE_PREFIX = 'ege_board_task_clipboard_v1:';
 export const BOARD_TASK_CLIPBOARD_TTL_MS = 15 * 60 * 1000;
+export const BOARD_TASK_CLIPBOARD_MAX_PACKET_LENGTH = 4_000_000;
 
 const MAX_QUESTION_TEXT_LENGTH = 100_000;
 const MAX_SCREENSHOTS = 12;
@@ -11,7 +13,6 @@ const MAX_SCREENSHOT_URL_LENGTH = 8_192;
 const MAX_ANSWER_COUNT = 100;
 const MAX_ANSWER_LENGTH = 20_000;
 const MAX_CODE_LENGTH = 20_000;
-const MAX_STORAGE_ENTRIES_TO_SCAN = 200;
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 
@@ -186,7 +187,7 @@ const resolveDocument = (options) => {
 const getStorageKey = (token) => `${BOARD_TASK_CLIPBOARD_STORAGE_PREFIX}${token}`;
 
 const parseJsonRecord = (value) => {
-  if (typeof value !== 'string' || !value.trim()) return null;
+  if (typeof value !== 'string' || value.length > BOARD_TASK_CLIPBOARD_MAX_PACKET_LENGTH || !value.trim()) return null;
   try {
     const parsed = JSON.parse(value);
     return isRecord(parsed) ? parsed : null;
@@ -211,58 +212,15 @@ const removeStorageItem = (storage, key) => {
   }
 };
 
-const pruneExpiredStorageEntries = (storage, nowMs) => {
-  if (!storage?.key || !Number.isFinite(Number(storage.length))) return;
-  const keys = [];
-  const count = Math.min(Number(storage.length), MAX_STORAGE_ENTRIES_TO_SCAN);
-  for (let index = 0; index < count; index += 1) {
-    try {
-      const key = storage.key(index);
-      if (typeof key === 'string' && key.startsWith(BOARD_TASK_CLIPBOARD_STORAGE_PREFIX)) {
-        keys.push(key);
-      }
-    } catch {
-      return;
-    }
-  }
-  keys.forEach((key) => {
-    try {
-      const envelope = parseJsonRecord(storage.getItem(key));
-      const expiresAt = Number(envelope?.expiresAt);
-      if (!envelope || !Number.isFinite(expiresAt) || expiresAt <= nowMs) {
-        removeStorageItem(storage, key);
-      }
-    } catch {
-      removeStorageItem(storage, key);
-    }
-  });
-};
-
 const normalizeToken = (value) => {
   const token = normalizeText(value, 128);
   return /^[A-Za-z0-9_-]{8,128}$/.test(token) ? token : '';
 };
 
-const createClipboardToken = (providedFactory, nowMs) => {
-  if (typeof providedFactory === 'function') {
-    const provided = normalizeToken(providedFactory());
-    if (provided) return provided;
-  }
-  try {
-    const uuid = normalizeToken(globalThis?.crypto?.randomUUID?.());
-    if (uuid) return uuid;
-  } catch {
-    // Use a non-cryptographic identifier only when randomUUID is unavailable.
-  }
-  return normalizeToken(
-    `${Math.max(0, Math.trunc(nowMs)).toString(36)}-${Math.random().toString(36).slice(2, 14)}`
-  );
-};
-
-const copyMarkerWithDocument = (marker, documentObject) => {
+const copyTextWithDocument = (text, documentObject) => {
   if (!documentObject?.createElement || !documentObject?.body?.appendChild) return false;
   const textarea = documentObject.createElement('textarea');
-  textarea.value = marker;
+  textarea.value = text;
   textarea.setAttribute?.('readonly', '');
   if (textarea.style) {
     textarea.style.position = 'fixed';
@@ -282,9 +240,9 @@ const copyMarkerWithDocument = (marker, documentObject) => {
 };
 
 /**
- * Stores a short-lived payload in localStorage and puts only its opaque marker in
- * text/plain clipboard data. Resolves to the normalized payload on success, or
- * null when the input, storage, or clipboard is unavailable.
+ * Copies the complete, short-lived task in text/plain so a different browser or
+ * desktop profile can paste it without access to the source profile's storage.
+ * Only normalized task fields are included; correct answers are never copied.
  */
 export const writeBoardTaskToClipboard = async (value, options = {}) => {
   const normalized = normalizeBoardTaskClipboardPayload(value);
@@ -293,13 +251,8 @@ export const writeBoardTaskToClipboard = async (value, options = {}) => {
   const nowMs = resolveNow(hasOwn(options, 'now') ? options.now : Date.now);
   const requestedTtl = Number(options.ttlMs);
   const ttlMs = Number.isFinite(requestedTtl) && requestedTtl > 0
-    ? requestedTtl
+    ? Math.min(requestedTtl, BOARD_TASK_CLIPBOARD_TTL_MS)
     : BOARD_TASK_CLIPBOARD_TTL_MS;
-  const token = createClipboardToken(options.createToken, nowMs);
-  const storage = resolveStorage(options);
-  if (!token || !storage?.setItem) return null;
-
-  const storageKey = getStorageKey(token);
   const envelope = {
     version: BOARD_TASK_CLIPBOARD_VERSION,
     createdAt: nowMs,
@@ -307,50 +260,73 @@ export const writeBoardTaskToClipboard = async (value, options = {}) => {
     payload: normalized,
   };
 
-  try {
-    pruneExpiredStorageEntries(storage, nowMs);
-    storage.setItem(storageKey, JSON.stringify(envelope));
-  } catch {
-    return null;
-  }
-
-  const marker = `${BOARD_TASK_CLIPBOARD_MARKER_PREFIX}${token}`;
+  const packet = `${BOARD_TASK_CLIPBOARD_PACKET_PREFIX}${JSON.stringify(envelope)}`;
+  if (packet.length > BOARD_TASK_CLIPBOARD_MAX_PACKET_LENGTH) return null;
   const clipboard = resolveClipboard(options);
   let copied = false;
   if (typeof clipboard?.writeText === 'function') {
     try {
-      await clipboard.writeText(marker);
+      await clipboard.writeText(packet);
       copied = true;
     } catch {
       copied = false;
     }
   }
-  if (!copied) copied = copyMarkerWithDocument(marker, resolveDocument(options));
-  if (!copied) {
-    removeStorageItem(storage, storageKey);
-    return null;
-  }
+  if (!copied) copied = copyTextWithDocument(packet, resolveDocument(options));
+  if (!copied) return null;
 
   return normalized;
 };
 
 const readClipboardData = (clipboardData, mime) => {
   try {
-    return typeof clipboardData?.getData === 'function' ? clipboardData.getData(mime) : '';
+    const value = clipboardData?.getData?.(mime);
+    return typeof value === 'string' ? value : '';
   } catch {
     return '';
   }
 };
 
 const readMarkerToken = (value) => {
-  const text = normalizeText(value, BOARD_TASK_CLIPBOARD_MARKER_PREFIX.length + 128);
+  if (typeof value !== 'string' || value.length > BOARD_TASK_CLIPBOARD_MARKER_PREFIX.length + 128) return '';
+  const text = value.trim();
   if (!text.startsWith(BOARD_TASK_CLIPBOARD_MARKER_PREFIX)) return '';
   return normalizeToken(text.slice(BOARD_TASK_CLIPBOARD_MARKER_PREFIX.length));
 };
 
+const readClipboardText = (clipboardData) => (
+  readClipboardData(clipboardData, 'text/plain') || readClipboardData(clipboardData, 'Text')
+);
+
+const readPortablePacket = (text, nowMs) => {
+  if (typeof text !== 'string' || text.length > BOARD_TASK_CLIPBOARD_MAX_PACKET_LENGTH) return null;
+  if (!text.startsWith(BOARD_TASK_CLIPBOARD_PACKET_PREFIX)) return null;
+  const envelope = parseJsonRecord(text.slice(BOARD_TASK_CLIPBOARD_PACKET_PREFIX.length));
+  if (envelope?.version !== BOARD_TASK_CLIPBOARD_VERSION
+    || envelope.payload?.kind !== BOARD_TASK_CLIPBOARD_KIND
+    || envelope.payload?.version !== BOARD_TASK_CLIPBOARD_VERSION) return null;
+  const createdAt = envelope.createdAt;
+  const expiresAt = envelope.expiresAt;
+  if (!Number.isFinite(createdAt) || !Number.isFinite(expiresAt)
+    || createdAt > nowMs || expiresAt <= nowMs || expiresAt <= createdAt
+    || expiresAt - createdAt > BOARD_TASK_CLIPBOARD_TTL_MS) return null;
+  return normalizeBoardTaskClipboardPayload(envelope.payload);
+};
+
+// Used to explain an expired or old cross-profile marker instead of silently
+// ignoring a task paste. Ordinary clipboard text/images are unaffected.
+export const hasBoardTaskClipboardData = (event) => {
+  const data = event?.clipboardData;
+  const text = readClipboardText(data);
+  return Boolean(readClipboardData(data, BOARD_TASK_CLIPBOARD_MIME))
+    || text.startsWith(BOARD_TASK_CLIPBOARD_PACKET_PREFIX)
+    || text.startsWith(BOARD_TASK_CLIPBOARD_MARKER_PREFIX);
+};
+
 /**
  * Synchronously reads a task from a paste ClipboardEvent. A direct custom MIME
- * payload wins; ordinary text clipboard data is resolved through its TTL marker.
+ * payload wins; portable text packets work across profiles. Legacy storage
+ * markers remain readable in their original profile until their TTL expires.
  */
 export const readBoardTaskFromPasteEvent = (event, options = {}) => {
   const clipboardData = event?.clipboardData;
@@ -361,8 +337,8 @@ export const readBoardTaskFromPasteEvent = (event, options = {}) => {
   const directPayload = getEnvelopePayload(direct, nowMs);
   if (directPayload) return directPayload;
 
-  const marker = readClipboardData(clipboardData, 'text/plain')
-    || readClipboardData(clipboardData, 'Text');
+  const marker = readClipboardText(clipboardData);
+  if (marker.startsWith(BOARD_TASK_CLIPBOARD_PACKET_PREFIX)) return readPortablePacket(marker, nowMs);
   const token = readMarkerToken(marker);
   if (!token) return null;
 

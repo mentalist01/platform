@@ -129,7 +129,7 @@ import {
   parseLessonTargetValue,
   selectLearningGroupWorkspaceLesson,
 } from './utils/lessonTargets';
-import { readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
+import { hasBoardTaskClipboardData, readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
 import {
   normalizePythonTaskCatalog,
@@ -16062,6 +16062,11 @@ const BoardCanvasSection = ({
         } catch (error) {
           setPasteError(error?.message || 'Не удалось вставить задание');
         }
+        return;
+      }
+      if (hasBoardTaskClipboardData(event)) {
+        event.preventDefault();
+        setPasteError('Не удалось прочитать скопированное задание. Скопируйте задание ещё раз и вставьте на доску.');
         return;
       }
       const clipboardItems = event.clipboardData?.items || [];

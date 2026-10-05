@@ -4,9 +4,13 @@ import assert from 'node:assert/strict';
 import {
   BOARD_TASK_CLIPBOARD_KIND,
   BOARD_TASK_CLIPBOARD_MARKER_PREFIX,
+  BOARD_TASK_CLIPBOARD_PACKET_PREFIX,
+  BOARD_TASK_CLIPBOARD_MAX_PACKET_LENGTH,
   BOARD_TASK_CLIPBOARD_MIME,
   BOARD_TASK_CLIPBOARD_STORAGE_PREFIX,
+  BOARD_TASK_CLIPBOARD_TTL_MS,
   BOARD_TASK_CLIPBOARD_VERSION,
+  hasBoardTaskClipboardData,
   normalizeBoardTaskClipboardPayload,
   readBoardTaskFromPasteEvent,
   writeBoardTaskToClipboard,
@@ -59,6 +63,19 @@ const taskFixture = {
   arbitraryHtml: '<script>alert(1)</script>',
 };
 
+const textPasteEvent = (text) => ({
+  clipboardData: { getData: (mime) => (mime === 'text/plain' ? text : '') },
+});
+
+const envelopeFor = (payload = taskFixture) => ({
+  version: BOARD_TASK_CLIPBOARD_VERSION,
+  createdAt: 10_000,
+  expiresAt: 12_000,
+  payload: normalizeBoardTaskClipboardPayload(payload),
+});
+
+const packetFor = (envelope) => `${BOARD_TASK_CLIPBOARD_PACKET_PREFIX}${JSON.stringify(envelope)}`;
+
 test('normalizes a board task into a bounded, allow-listed payload', () => {
   const normalized = normalizeBoardTaskClipboardPayload(taskFixture);
 
@@ -107,7 +124,7 @@ test('infers answer fields and rejects empty tasks', () => {
   assert.deepEqual(normalized.studentAnswers, ['a', 'b']);
 });
 
-test('writes an opaque marker and a payload with a storage TTL', async () => {
+test('copies a complete task that a separate desktop profile can paste without source storage', async () => {
   const storage = makeStorage();
   let clipboardText = '';
   const copied = await writeBoardTaskToClipboard(taskFixture, {
@@ -115,31 +132,67 @@ test('writes an opaque marker and a payload with a storage TTL', async () => {
     clipboard: { writeText: async (value) => { clipboardText = value; } },
     now: 1_000,
     ttlMs: 5_000,
-    createToken: () => 'fixed-token-123',
   });
 
   assert.deepEqual(copied, normalizeBoardTaskClipboardPayload(taskFixture));
-  assert.equal(clipboardText, `${BOARD_TASK_CLIPBOARD_MARKER_PREFIX}fixed-token-123`);
-  const stored = JSON.parse(storage.getItem(`${BOARD_TASK_CLIPBOARD_STORAGE_PREFIX}fixed-token-123`));
-  assert.equal(stored.createdAt, 1_000);
-  assert.equal(stored.expiresAt, 6_000);
-  assert.deepEqual(stored.payload, copied);
-  assert.equal('expectedAnswers' in stored.payload, false);
-  assert.equal(JSON.stringify(stored).includes('expectedAnswers'), false);
+  assert.equal(storage.length, 0);
+  const envelope = JSON.parse(clipboardText.slice(BOARD_TASK_CLIPBOARD_PACKET_PREFIX.length));
+  assert.equal(envelope.createdAt, 1_000);
+  assert.equal(envelope.expiresAt, 6_000);
+  assert.deepEqual(envelope.payload, copied);
+  assert.equal(clipboardText.includes('expectedAnswers'), false);
+  assert.equal(clipboardText.includes('arbitraryHtml'), false);
+  const desktopStorage = makeStorage();
+  assert.deepEqual(readBoardTaskFromPasteEvent(textPasteEvent(clipboardText), {
+    storage: desktopStorage, now: 5_999,
+  }), copied);
+  assert.equal(desktopStorage.length, 0);
+  assert.deepEqual(readBoardTaskFromPasteEvent(textPasteEvent(clipboardText), {
+    storage: null, now: 5_999,
+  }), copied);
 });
 
-test('returns null and rolls storage back when the clipboard write fails', async () => {
+test('returns null when clipboard access and the copy fallback are unavailable', async () => {
   const storage = makeStorage();
   const copied = await writeBoardTaskToClipboard(taskFixture, {
     storage,
     clipboard: { writeText: async () => { throw new Error('denied'); } },
     document: null,
     now: 1_000,
-    createToken: () => 'failed-token-123',
   });
 
   assert.equal(copied, null);
-  assert.equal(storage.getItem(`${BOARD_TASK_CLIPBOARD_STORAGE_PREFIX}failed-token-123`), null);
+  assert.equal(storage.length, 0);
+});
+
+test('copy works when storage is disabled and clamps task lifetime to fifteen minutes', async () => {
+  let text;
+  const storage = { setItem: () => { throw new Error('Storage disabled'); } };
+  assert.ok(await writeBoardTaskToClipboard(taskFixture, {
+    storage, clipboard: { writeText: async value => { text = value; } },
+    now: 10_000, ttlMs: 2 * BOARD_TASK_CLIPBOARD_TTL_MS,
+  }));
+  assert.ok(readBoardTaskFromPasteEvent(textPasteEvent(text), { storage: null, now: 10_001 }));
+  assert.equal(readBoardTaskFromPasteEvent(textPasteEvent(text), {
+    storage: null, now: 10_000 + BOARD_TASK_CLIPBOARD_TTL_MS,
+  }), null);
+});
+
+test('the document fallback copies the complete packet and removes its temporary field', async () => {
+  let copiedText;
+  let removed = false;
+  const textarea = { style: {}, select() {}, remove() { removed = true; } };
+  const document = {
+    createElement: () => textarea,
+    body: { appendChild() {} },
+    execCommand: (command) => { assert.equal(command, 'copy'); copiedText = textarea.value; return true; },
+  };
+  const copied = await writeBoardTaskToClipboard(taskFixture, {
+    clipboard: { writeText: async () => { throw new Error('Denied'); } },
+    storage: null, document, now: 10_000,
+  });
+  assert.equal(removed, true);
+  assert.deepEqual(readBoardTaskFromPasteEvent(textPasteEvent(copiedText), { storage: null, now: 10_001 }), copied);
 });
 
 test('reads a normalized payload directly from custom clipboard MIME data', () => {
@@ -156,16 +209,11 @@ test('reads a normalized payload directly from custom clipboard MIME data', () =
   );
 });
 
-test('resolves a text marker through storage while its payload is fresh', async () => {
+test('keeps old text markers readable in the original profile while fresh', () => {
   const storage = makeStorage();
-  let marker = '';
-  const copied = await writeBoardTaskToClipboard(taskFixture, {
-    storage,
-    clipboard: { writeText: async (value) => { marker = value; } },
-    now: 10_000,
-    ttlMs: 2_000,
-    createToken: () => 'fresh-token-123',
-  });
+  const copied = normalizeBoardTaskClipboardPayload(taskFixture);
+  storage.setItem(`${BOARD_TASK_CLIPBOARD_STORAGE_PREFIX}fresh-token-123`, JSON.stringify(envelopeFor()));
+  const marker = `${BOARD_TASK_CLIPBOARD_MARKER_PREFIX}fresh-token-123`;
   const event = {
     clipboardData: {
       getData: (mime) => (mime === 'text/plain' ? marker : ''),
@@ -175,17 +223,11 @@ test('resolves a text marker through storage while its payload is fresh', async 
   assert.deepEqual(readBoardTaskFromPasteEvent(event, { storage, now: 11_999 }), copied);
 });
 
-test('rejects and removes expired marker payloads', async () => {
+test('rejects and removes expired old marker payloads', () => {
   const storage = makeStorage();
-  let marker = '';
-  await writeBoardTaskToClipboard(taskFixture, {
-    storage,
-    clipboard: { writeText: async (value) => { marker = value; } },
-    now: 10_000,
-    ttlMs: 2_000,
-    createToken: () => 'stale-token-123',
-  });
   const storageKey = `${BOARD_TASK_CLIPBOARD_STORAGE_PREFIX}stale-token-123`;
+  storage.setItem(storageKey, JSON.stringify(envelopeFor()));
+  const marker = `${BOARD_TASK_CLIPBOARD_MARKER_PREFIX}stale-token-123`;
   const event = {
     clipboardData: {
       getData: (mime) => (mime === 'text/plain' ? marker : ''),
@@ -194,6 +236,31 @@ test('rejects and removes expired marker payloads', async () => {
 
   assert.equal(readBoardTaskFromPasteEvent(event, { storage, now: 12_000 }), null);
   assert.equal(storage.getItem(storageKey), null);
+});
+
+test('rejects expired, future, malformed and unsupported portable tasks', () => {
+  for (const envelope of [
+    { ...envelopeFor(), expiresAt: 11_000 },
+    { ...envelopeFor(), createdAt: 11_001 },
+    { ...envelopeFor(), createdAt: '10000' },
+    { ...envelopeFor(), expiresAt: 10_000 + BOARD_TASK_CLIPBOARD_TTL_MS + 1 },
+    { ...envelopeFor(), version: 999 },
+    { ...envelopeFor(), payload: { ...envelopeFor().payload, kind: 'other-kind' } },
+    { ...envelopeFor(), payload: { ...envelopeFor().payload, version: 999 } },
+    { ...envelopeFor(), payload: null },
+  ]) {
+    assert.equal(readBoardTaskFromPasteEvent(textPasteEvent(packetFor(envelope)), { storage: null, now: 11_000 }), null);
+  }
+  assert.equal(readBoardTaskFromPasteEvent(textPasteEvent(`${BOARD_TASK_CLIPBOARD_PACKET_PREFIX}{bad json`)), null);
+  assert.equal(readBoardTaskFromPasteEvent(textPasteEvent(`${BOARD_TASK_CLIPBOARD_PACKET_PREFIX}${' '.repeat(BOARD_TASK_CLIPBOARD_MAX_PACKET_LENGTH)}`)), null);
+});
+
+test('recognizes unreadable task data for a helpful board error without claiming ordinary images or text', () => {
+  assert.equal(hasBoardTaskClipboardData(textPasteEvent(packetFor(envelopeFor()))), true);
+  assert.equal(hasBoardTaskClipboardData(textPasteEvent(`${BOARD_TASK_CLIPBOARD_MARKER_PREFIX}missing-token-123`)), true);
+  assert.equal(hasBoardTaskClipboardData(textPasteEvent('Обычный текст')), false);
+  assert.equal(hasBoardTaskClipboardData({ clipboardData: { getData: () => '', items: [{ type: 'image/png' }] } }), false);
+  assert.equal(hasBoardTaskClipboardData(null), false);
 });
 
 test('ignores ordinary pasted text and malformed custom payloads', () => {
