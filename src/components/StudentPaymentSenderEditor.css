@@ -1,0 +1,18 @@
+.student-payment-sender { min-width:0; overflow-wrap:anywhere; }
+.student-payment-sender input { max-width:100%; }
+.student-payment-sender button { max-width:100%; white-space:normal; text-align:left; }
+.student-payment-sender input:focus-visible, .student-payment-sender button:focus-visible, .student-payment-sender summary:focus-visible { outline:2px solid #a78bfa; outline-offset:3px; }
+html[data-theme='dark'] .student-payment-sender { background:#1b162c !important; border-color:#473360 !important; color:#eee6fa !important; }
+html[data-theme='dark'] .student-payment-sender .student-payment-sender__link { background:#251d38 !important; border-color:#483459 !important; color:#eee6fa !important; }
+html[data-theme='dark'] .student-payment-sender .student-payment-sender__help { color:#bfb3d2 !important; }
+html[data-theme='dark'] .student-payment-sender .student-payment-sender__help p { color:#bfb3d2 !important; }
+html[data-theme='dark'] .student-payment-sender .student-payment-sender__conflict,
+html[data-theme='dark'] .student-payment-sender .student-payment-sender__resume { background:#332535 !important; border-color:#72502d !important; color:#f4d295 !important; }
+html[data-theme='dark'] .student-payment-sender .student-payment-sender__mode { background:#483328 !important; color:#f4d295 !important; }
+html[data-theme='dark'] .student-payment-sender input { background:#161125 !important; border-color:#644987 !important; color:#eee6fa !important; }
+html[data-theme='dark'] .student-payment-sender input[aria-invalid='true'] { border-color:#bb874b !important; }
+html[data-theme='dark'] .student-payment-sender button:not(.bg-purple-600) { background:#251d38 !important; border-color:#5e417f !important; color:#d5b5ff !important; }
+html[data-theme='dark'] .student-payment-sender button.bg-purple-600 { background:#8640dc !important; color:#fff !important; }
+html[data-theme='dark'] .student-payment-sender summary,
+html[data-theme='dark'] .student-payment-sender > div:first-child { color:#d5b5ff !important; }
+html[data-theme='dark'] .student-payment-sender button:hover:not(:disabled) { filter:brightness(1.15); }

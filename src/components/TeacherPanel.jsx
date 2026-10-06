@@ -1,6 +1,8 @@
 import { LESSON_PRICING_OPTIONS, lessonPricingLabel, isDurationPricing, calculateLessonPrice } from '../utils/lessonPricing.js';
 import MonthlyMockExamBadge from './MonthlyMockExamBadge';
 import TeacherStudentRoster from './TeacherStudentRoster';
+import StudentPaymentSenderEditor from './StudentPaymentSenderEditor';
+import { findPaymentSenderConflict } from '../utils/paymentSenderLinks.js';
 import MonthlyMockExamStatus from './MonthlyMockExamStatus';
 import { useMonthlyMockRoster } from '../hooks/useMonthlyMockRoster';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -316,6 +318,7 @@ const TeacherPanel = ({
   const [teacherFinanceError, setTeacherFinanceError] = useState('');
   const [paymentSenderLinks, setPaymentSenderLinks] = useState([]);
   const [paymentSenderLinksLoading, setPaymentSenderLinksLoading] = useState(false);
+  const [paymentSenderLinksReady, setPaymentSenderLinksReady] = useState(false);
   const [paymentSenderLinksError, setPaymentSenderLinksError] = useState('');
   const [paymentSenderDrafts, setPaymentSenderDrafts] = useState({});
   const [paymentSenderSavingKey, setPaymentSenderSavingKey] = useState('');
@@ -509,10 +512,12 @@ const TeacherPanel = ({
       const data = await api.getPaymentSenderLinks(teacherId);
       const links = Array.isArray(data?.links) ? data.links : [];
       setPaymentSenderLinks(links);
+      setPaymentSenderLinksReady(true);
       setPaymentSenderLinksError('');
       return links;
     } catch (err) {
       setPaymentSenderLinks([]);
+      setPaymentSenderLinksReady(false);
       setPaymentSenderLinksError(err?.message || String(err));
       return [];
     } finally {
@@ -525,20 +530,24 @@ const TeacherPanel = ({
     if (role !== 'teacher' && role !== 'admin') return undefined;
     if (role === 'admin' && !teacherId) {
       setPaymentSenderLinks([]);
+      setPaymentSenderLinksReady(false);
       setPaymentSenderLinksError('');
       return undefined;
     }
     let cancelled = false;
+    setPaymentSenderLinksReady(false);
     setPaymentSenderLinksLoading(true);
     api.getPaymentSenderLinks(teacherId)
       .then((data) => {
         if (cancelled) return;
         setPaymentSenderLinks(Array.isArray(data?.links) ? data.links : []);
+        setPaymentSenderLinksReady(true);
         setPaymentSenderLinksError('');
       })
       .catch((err) => {
         if (cancelled) return;
         setPaymentSenderLinks([]);
+        setPaymentSenderLinksReady(false);
         setPaymentSenderLinksError(err?.message || String(err));
       })
       .finally(() => {
@@ -2313,6 +2322,12 @@ const TeacherPanel = ({
     const studentId = String(student?.id || '').trim();
     if (!studentId) return;
     const senderName = String(paymentSenderDrafts[studentId] || '').trim();
+    if (!paymentSenderLinksReady || paymentSenderLinksLoading || paymentSenderSavingKey) return;
+    const conflict = findPaymentSenderConflict(paymentSenderLinks, senderName, studentId);
+    if (conflict) {
+      setPaymentSenderLinksError(`Плательщик «${conflict.senderName}» уже привязан к ${conflict.studentName || 'другому ученику'}.`);
+      return;
+    }
     if (!senderName) {
       setPaymentSenderLinksError('Введите имя отправителя из уведомления Т-Банка.');
       return;
@@ -2324,8 +2339,8 @@ const TeacherPanel = ({
       setPaymentSenderLinks(Array.isArray(data?.links) ? data.links : []);
       setPaymentSenderDrafts((prev) => ({ ...prev, [studentId]: '' }));
     } catch (err) {
-      setPaymentSenderLinksError(err?.message || String(err));
       await loadPaymentSenderLinks();
+      setPaymentSenderLinksError(err?.message || String(err));
     } finally {
       setPaymentSenderSavingKey('');
     }
@@ -2340,8 +2355,23 @@ const TeacherPanel = ({
       const data = await api.updatePaymentSenderLink({ senderName: normalizedSenderName, unset: true }, teacherId);
       setPaymentSenderLinks(Array.isArray(data?.links) ? data.links : []);
     } catch (err) {
-      setPaymentSenderLinksError(err?.message || String(err));
       await loadPaymentSenderLinks();
+      setPaymentSenderLinksError(err?.message || String(err));
+    } finally {
+      setPaymentSenderSavingKey('');
+    }
+  };
+
+  const handlePaymentSenderReviewMode = async (link, manualReview) => {
+    if (paymentSenderSavingKey || !paymentSenderLinksReady) return;
+    setPaymentSenderSavingKey(`mode:${link.senderKey}`);
+    setPaymentSenderLinksError('');
+    try {
+      const data = await api.updatePaymentSenderLink({ senderName: link.senderName, studentId: link.studentId, manualReview }, teacherId);
+      setPaymentSenderLinks(Array.isArray(data?.links) ? data.links : []);
+    } catch (err) {
+      await loadPaymentSenderLinks();
+      setPaymentSenderLinksError(err?.message || String(err));
     } finally {
       setPaymentSenderSavingKey('');
     }
@@ -2394,6 +2424,10 @@ const TeacherPanel = ({
   };
 
   const saveEditStudent = async (student) => {
+    if (findPaymentSenderConflict(paymentSenderLinks, paymentSenderDrafts[student.id], student.id)) {
+      setEditStudentError('Исправьте совпадающее имя плательщика или продолжите без автопривязки после включения ручной проверки.');
+      return;
+    }
     if (!student?.id) return;
     const nextName = editStudentName.trim();
     const nextAlias = String(editStudentLeaderboardAlias || '').trim();
@@ -3153,68 +3187,18 @@ const TeacherPanel = ({
                             </span>
                           </label>
                         </div>
-                        <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2">
-                          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                            <span className="text-[11px] font-semibold uppercase text-sky-700">
-                              Плательщики Т-Банка
-                            </span>
-                            {paymentSenderLinksLoading && (
-                              <span className="text-[11px] text-sky-600">загрузка...</span>
-                            )}
-                          </div>
-                          {studentPaymentSenderLinks.length > 0 && (
-                            <div className="mb-2 flex flex-wrap gap-1.5">
-                              {studentPaymentSenderLinks.map((link) => {
-                                const senderName = String(link?.senderName || '').trim();
-                                const removeKey = `remove:${senderName}`;
-                                return (
-                                  <span
-                                    key={link.senderKey || senderName}
-                                    className="inline-flex min-w-0 items-center gap-1 rounded-full border border-sky-200 bg-white px-2 py-1 text-[11px] font-semibold text-sky-700"
-                                  >
-                                    <span className="max-w-[180px] truncate">{senderName}</span>
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        handleRemovePaymentSenderLink(senderName);
-                                      }}
-                                      disabled={paymentSenderSavingKey === removeKey}
-                                      className="rounded-full p-0.5 text-sky-500 hover:bg-sky-100 hover:text-sky-700 disabled:opacity-50"
-                                      title="Удалить привязку"
-                                    >
-                                      <X size={12} />
-                                    </button>
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
-                          <div className="flex flex-col gap-2 sm:flex-row">
-                            <input
-                              type="text"
-                              value={paymentSenderDrafts[student.id] || ''}
-                              onChange={(e) => handlePaymentSenderDraftChange(student.id, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleAddPaymentSenderLink(student);
-                              }}
-                              placeholder="Имя отправителя из банка"
-                              className="min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500"
-                            />
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleAddPaymentSenderLink(student);
-                              }}
-                              disabled={paymentSenderSavingKey === `add:${student.id}` || !String(paymentSenderDrafts[student.id] || '').trim()}
-                              className="inline-flex items-center justify-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:opacity-50"
-                            >
-                              <Plus size={14} />
-                              Привязать
-                            </button>
-                          </div>
-                        </div>
+                        <StudentPaymentSenderEditor
+                          student={student}
+                          links={paymentSenderLinks}
+                          loading={paymentSenderLinksLoading}
+                          ready={paymentSenderLinksReady}
+                          busyKey={paymentSenderSavingKey}
+                          draft={paymentSenderDrafts[student.id] || ''}
+                          onDraftChange={value => handlePaymentSenderDraftChange(student.id, value)}
+                          onAdd={() => handleAddPaymentSenderLink(student)}
+                          onRemove={handleRemovePaymentSenderLink}
+                          onReviewMode={handlePaymentSenderReviewMode}
+                        />
                         <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
                           {STUDENT_GRADE_OPTIONS.map((option) => {
                             const isActive = normalizeStudentGradeValue(editStudentGrade) === option.value;
@@ -3467,7 +3451,7 @@ const TeacherPanel = ({
                         <button
                           onClick={(e) => { e.stopPropagation(); saveEditStudent(student); }}
                           className="px-3 py-1 rounded-lg bg-purple-600 text-white text-xs hover:bg-purple-700 disabled:opacity-60"
-                          disabled={editStudentSaving}
+                          disabled={editStudentSaving || Boolean(findPaymentSenderConflict(paymentSenderLinks, paymentSenderDrafts[student.id], student.id))}
                           type="button"
                         >
                           {editStudentSaving ? '...' : 'Сохранить'}

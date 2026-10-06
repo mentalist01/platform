@@ -10,6 +10,7 @@ import express from 'express';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
 import { matchTeacherPlatformPayment } from './teacherPlatformPayments.js';
 import { TeacherPaymentConnections } from './teacherPaymentConnections.js';
+import { normalizePaymentSenderKey as normalizePaymentNameKey } from '../src/utils/paymentSenderLinks.js';
 import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } from './groupLibrary.js';
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
@@ -3389,14 +3390,6 @@ const normalizePaymentNotificationText = (value) => (
   String(value || '').replace(/\s+/g, ' ').trim().slice(0, PAYMENT_NOTIFICATION_TEXT_MAX_LENGTH)
 );
 
-const normalizePaymentNameKey = (value) => String(value || '')
-  .normalize('NFKD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .replace(/ё/g, 'е')
-  .replace(/Ё/g, 'е')
-  .toLocaleLowerCase('ru-RU')
-  .replace(/[^a-z0-9а-я]+/gi, '');
-
 const normalizePaymentNotificationTimestamp = (value, fallback = '') => {
   const raw = String(value || '').trim();
   const parsed = raw ? Date.parse(raw) : NaN;
@@ -3490,6 +3483,7 @@ const normalizePaymentSenderLinkEntry = (value) => {
     senderName: senderName || senderKey,
     senderKey,
     studentId,
+    manualReview: source.manualReview === true,
     createdAt: normalizePaymentNotificationTimestamp(source.createdAt, ''),
     updatedAt: normalizePaymentNotificationTimestamp(source.updatedAt, ''),
   };
@@ -16360,6 +16354,11 @@ const findPaymentNotificationSenderLinkMatch = (teacher, parsed) => {
   const db = readPaymentSenderLinksDb();
   const link = db[teacherId]?.links?.[senderKey] || null;
   if (!link) return null;
+  // An explicitly ambiguous bank name must not fall back to a nickname/code
+  // or automatically mark lessons for the old linked student.
+  if (link.manualReview) {
+    return { error: `Для плательщика «${link.senderName}» включена ручная проверка: имя совпадает у разных плательщиков или оплата относится к нескольким ученикам. Проверьте перевод и отметьте оплату у нужного ученика.` };
+  }
   const student = findStudentById(link.studentId);
   if (!student || normalizeTeacherId(student.teacherId) !== teacherId) {
     return { error: `Отправитель "${link.senderName}" привязан к несуществующему ученику.` };
@@ -18033,6 +18032,7 @@ const serializePaymentSenderLink = (teacherId, link = {}) => {
       ? String(student.nickname || student.name || '').trim()
       : '',
     missingStudent: Boolean(studentId && !belongsToTeacher),
+    manualReview: link.manualReview === true,
     createdAt: normalizePaymentNotificationTimestamp(link.createdAt, ''),
     updatedAt: normalizePaymentNotificationTimestamp(link.updatedAt, ''),
   };
@@ -22797,6 +22797,7 @@ app.get('/api/payment-notifications', (req, res) => {
 });
 
 app.get('/api/payment-sender-links', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const { teacherId } = req.query || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
@@ -22810,7 +22811,7 @@ app.get('/api/payment-sender-links', (req, res) => {
 });
 
 app.patch('/api/payment-sender-links', (req, res) => {
-  const { teacherId, senderName, studentId, studentName, unset } = req.body || {};
+  const { teacherId, senderName, studentId, studentName, unset, manualReview } = req.body || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
@@ -22824,7 +22825,18 @@ app.patch('/api/payment-sender-links', (req, res) => {
 
   const db = readPaymentSenderLinksDb();
   const current = normalizePaymentSenderLinksForTeacher(db[teacher.id]);
-  if (unset === true) {
+  const changesReviewMode = Object.hasOwn(req.body || {}, 'manualReview');
+  if (changesReviewMode && (typeof manualReview !== 'boolean' || unset === true)) {
+    return res.status(400).json({ error: 'Укажите режим ручной проверки отдельно от удаления привязки.' });
+  }
+  if (changesReviewMode) {
+    const previous = current.links[senderKey];
+    if (!previous) return res.status(404).json({ error: 'Привязка плательщика не найдена. Обновите список.' });
+    if (String(studentId || '').trim() !== previous.studentId) {
+      return res.status(409).json({ error: 'Привязка плательщика изменилась. Обновите список перед сменой режима.' });
+    }
+    current.links[senderKey] = { ...previous, manualReview, updatedAt: new Date().toISOString() };
+  } else if (unset === true) {
     delete current.links[senderKey];
   } else {
     let student = null;
@@ -22858,12 +22870,21 @@ app.patch('/api/payment-sender-links', (req, res) => {
     if (normalizeTeacherId(student.teacherId) !== teacher.id) {
       return res.status(403).json({ error: 'Ученик закреплён за другим преподавателем' });
     }
-    const nowIso = new Date().toISOString();
     const previous = current.links[senderKey] || {};
+    if (previous.studentId && previous.studentId !== student.id) {
+      const conflict = serializePaymentSenderLink(teacher.id, previous);
+      return res.status(409).json({
+        code: 'PAYMENT_SENDER_NAME_CONFLICT',
+        error: `Плательщик «${previous.senderName}» уже привязан к ${conflict.studentName || 'другому ученику'}. Используйте другое фактическое имя из банка или включите ручную проверку этого имени.`,
+        conflict,
+      });
+    }
+    const nowIso = new Date().toISOString();
     current.links[senderKey] = {
       senderName: normalizedSenderName,
       senderKey,
       studentId: student.id,
+      manualReview: previous.manualReview === true,
       createdAt: previous.createdAt || nowIso,
       updatedAt: nowIso,
     };

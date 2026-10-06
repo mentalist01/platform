@@ -25,6 +25,7 @@ rollback_client_on_error() {
 trap rollback_client_on_error EXIT
 node --test server/teacherPaymentConnections.test.js server/teacherPaymentConnections.integration.test.js server/teacherPlatformPayments.test.js server/teacherPlatformPayments.integration.test.js server/lessonPricing.integration.test.js server/securityBoundaries.integration.test.js server/accountSecurity.integration.test.js server/teacherSubscription.integration.test.js server/learningSubscriptions.integration.test.js > "$backup/tests.log" 2>&1
 node --test src/utils/paymentHistory.test.js server/paymentNotificationHistory.integration.test.js > "$backup/payment-history-tests.log" 2>&1
+node --test src/utils/paymentSenderLinks.test.js server/paymentSenderLinks.integration.test.js > "$backup/payment-sender-links-tests.log" 2>&1
 stage="dist-payment-keys-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-payment-keys-release.mjs local "$stage"

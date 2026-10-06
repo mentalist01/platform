@@ -9,7 +9,10 @@ assert.ok(['local', 'verify'].includes(mode) && directory, 'Usage: local|verify 
 const html = fs.readFileSync(path.join(directory, 'index.html'), 'utf8');
 const initial = [...html.matchAll(/(?:src|href)="(\/assets\/[^" ]+\.(?:js|css))"/g)].map(match => match[1]);
 const features = fs.readdirSync(path.join(directory, 'assets')).filter(file => /^TeacherFinanceSection-.*\.(js|css)$/.test(file));
+const payerFeatures = fs.readdirSync(path.join(directory, 'assets')).filter(file => /^(?:TeacherPanel|paymentSenderLinks)-.*\.(?:js|css)$/.test(file));
 const source = features.map(file => fs.readFileSync(path.join(directory, 'assets', file), 'utf8')).join('\n');
+const payerSource = payerFeatures.map(file => fs.readFileSync(path.join(directory, 'assets', file), 'utf8')).join('\n');
+for (const marker of ['Имя уже используется', 'Что делать при совпадении имён?', 'Включить ручную проверку для', 'Сохранение заблокировано', 'Продолжить без автопривязки', 'manualReview', '.student-payment-sender']) assert.ok(payerSource.includes(marker), `Missing payer conflict protection: ${marker}`);
 for (const marker of ['Автооплата', 'Скопировать тело запроса', '/api/teacher-payment-connection', '/api/payment-notifications', '.payment-connection']) assert.ok(source.includes(marker), `Missing payment UI: ${marker}`);
 for (const marker of ['Поступления по уведомлениям', 'Оплачено занятий', 'Поиск по плательщику или ученику', 'По поиску за всю историю', 'Выгрузить CSV', '.payment-history__summary']) assert.ok(source.includes(marker), `Missing payment analytics: ${marker}`);
 assert.ok(!initial.some(asset => features.some(file => asset.endsWith(file))), 'Finance must remain lazy');
@@ -24,11 +27,12 @@ if (mode === 'verify') {
   const remoteHtml = await (await get('/')).text();
   assert.ok(initial.every(asset => remoteHtml.includes(asset)), 'Production serves another client');
   const digest = data => crypto.createHash('sha256').update(data).digest('hex');
-  for (const asset of [...initial, ...features.map(file => `/assets/${file}`)]) assert.equal(digest(Buffer.from(await (await get(asset)).arrayBuffer())), digest(fs.readFileSync(path.join(directory, asset.slice(1)))), `Bundle differs: ${asset}`);
+  for (const asset of [...new Set([...initial, ...features.map(file => `/assets/${file}`), ...payerFeatures.map(file => `/assets/${file}`)])]) assert.equal(digest(Buffer.from(await (await get(asset)).arrayBuffer())), digest(fs.readFileSync(path.join(directory, asset.slice(1)))), `Bundle differs: ${asset}`);
   assert.ok([401, 403].includes((await request('/api/teacher-payment-connection')).status));
+  assert.ok([401, 403].includes((await request('/api/payment-sender-links')).status));
   assert.equal((await request('/api/payment-notifications/tbank', { body: { secret: 'invalid-release-probe', test: true } })).status, 401);
   const read = (name, fallback) => fs.existsSync(path.join(dataDir, `${name}.json`)) ? JSON.parse(fs.readFileSync(path.join(dataDir, `${name}.json`), 'utf8')) : fallback;
-  const snapshot = () => JSON.stringify(['teacher-finances', 'teacher-calendar-marks', 'payment-notifications', 'teacher-subscriptions', 'teacher-payment-connections'].map(name => read(name, null)));
+  const snapshot = () => JSON.stringify(['teacher-finances', 'teacher-calendar-marks', 'payment-notifications', 'teacher-subscriptions', 'teacher-payment-connections', 'payment-sender-links'].map(name => read(name, null)));
   const before = snapshot();
   const sessions = read('auth-sessions', []).filter(entry => !entry.expiresAtMs || entry.expiresAtMs > Date.now());
   const teachers = new Map();
@@ -39,6 +43,17 @@ if (mode === 'verify') {
     assert.ok(response.headers.get('Cache-Control')?.includes('no-store'));
     const { connection } = await response.json();
     assert.equal(connection.teacherId, id);
+    const linksResponse = await get('/api/payment-sender-links', session.token);
+    assert.ok(linksResponse.headers.get('Cache-Control')?.includes('no-store'));
+    const { links } = await linksResponse.json();
+    const savedLinks = read('payment-sender-links', {})[id]?.links || {};
+    assert.equal(links.length, Object.values(savedLinks).length);
+    for (const link of links) {
+      const saved = Object.values(savedLinks).find(entry => entry.senderKey === link.senderKey);
+      assert.ok(saved, 'Only the existing owned payer names may be served');
+      assert.equal(link.studentId, saved.studentId);
+      assert.equal(link.manualReview, saved.manualReview === true);
+    }
     const historyResponse = await get('/api/payment-notifications', session.token);
     assert.ok(historyResponse.headers.get('Cache-Control')?.includes('no-store'));
     const history = await historyResponse.json();
