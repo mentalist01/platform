@@ -80,6 +80,8 @@ const useWorkbookHelper = () => {
                 ...current,
                 message: payload?.opensSourceText
                   ? 'Текст открыт в Блокноте, пустая таблица — в Excel или LibreOffice.'
+                  : questionContext?.studentId
+                    ? 'Сохраняйте таблицу в LibreOffice (Ctrl+S). Ваше решение появится под заданием и сразу будет доступно ученику.'
                   : 'Помощник открыт — сохранения будут появляться в конспектах автоматически.',
               })
             : current
@@ -96,7 +98,9 @@ const useWorkbookHelper = () => {
           current.sourceFileId === sourceFileId && current.status === 'opening'
             ? buildState('fallback', {
                 ...current,
-                message: 'Не открылось? Локальный помощник должен быть установлен заранее. Для таблицы выберите «Решать» в браузере.',
+                message: questionContext?.studentId
+                  ? 'Если таблица не открылась, установите помощник Excel и LibreOffice и попробуйте снова.'
+                  : 'Не открылось? Локальный помощник должен быть установлен заранее. Для таблицы выберите «Решать» в браузере.',
               })
             : current
         ));

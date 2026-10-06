@@ -20245,7 +20245,11 @@ const getWorkbookBindingState = (student, sourceFile, filesOverride = null, bind
     contentFile,
     revision,
     contentHash: getWorkbookFileContentHash(contentFile),
-    fileName: String(solutionFile?.name || '').trim() || buildWorkbookSolutionName(sourceFile?.name),
+    fileName: String(solutionFile?.name || '').trim() || (
+      sourceFile?.workbookQuestionTeacherId
+        ? `Преподаватель — ${buildWorkbookSolutionName(sourceFile?.name)}`
+        : buildWorkbookSolutionName(sourceFile?.name)
+    ),
     nameRequired: Boolean(binding.nameRequired && !solutionFile),
   };
 };
@@ -20316,6 +20320,15 @@ const normalizeWorkbookQuestionValue = (value, maxLength = 240) => (
 const isWorkbookQuestionVirtualSource = (entry) => (
   entry?.workbookQuestionVirtualSource === true
 );
+
+const canWriteTeacherQuestionWorkbook = (actor, entry, student) => {
+  const teacherId = String(entry?.workbookQuestionTeacherId || '').trim();
+  if (!teacherId) return true;
+  return isTeacherRole(actor)
+    && String(actor.id || '').trim() === teacherId
+    && Boolean(findTeacherById(teacherId))
+    && normalizeTeacherId(student?.teacherId) === teacherId;
+};
 
 const isWorkbookTextAttachment = (taskNumber, fileName) => (
   [26, 27].includes(Number(taskNumber))
@@ -20395,12 +20408,13 @@ const getWorkbookQuestionTarget = ({ student, taskNumber, levelId, questionId, a
   };
 };
 
-const ensureWorkbookQuestionSource = ({ student, target }) => {
+const ensureWorkbookQuestionSource = ({ student, target, teacherId = '' }) => {
   let files = readFilesDb();
   const context = target.context;
   const sourceIndex = files.findIndex((entry) => (
     isWorkbookQuestionVirtualSource(entry)
     && String(entry?.studentId || '').trim() === String(student.id || '').trim()
+    && String(entry?.workbookQuestionTeacherId || '').trim() === teacherId
     && workbookQuestionContextMatches(entry?.workbookQuestionContext, context)
   ));
   const existing = sourceIndex >= 0 ? files[sourceIndex] : null;
@@ -20437,6 +20451,7 @@ const ensureWorkbookQuestionSource = ({ student, target }) => {
     workbookQuestionVirtualSource: true,
     workbookQuestionStorageName: sourceStorageName,
     workbookQuestionContext: context,
+    ...(teacherId ? { workbookQuestionTeacherId: teacherId } : {}),
     memory: normalizeFileMemory({
       ...(existing?.memory && typeof existing.memory === 'object' ? existing.memory : {}),
       kind: 'workbook-question-source',
@@ -20620,6 +20635,10 @@ const serializeWorkbookQuestionSolution = (entry, slot = entry?.workbookQuestion
   revision: Math.max(0, Math.floor(Number(entry?.workbookRevision) || 0)),
   slot: Math.max(1, Math.floor(Number(slot) || 1)),
   updatedAt: String(entry?.updatedAt || entry?.createdAt || ''),
+  ...(entry?.workbookQuestionTeacherId ? {
+    teacherId: String(entry.workbookQuestionTeacherId),
+    authorName: String(entry?.savedBy?.name || ''),
+  } : {}),
 });
 
 const assertWorkbookSolutionCapacity = ({ files, existing, student, sourceFile, folder, sizeBytes }) => {
@@ -20706,6 +20725,9 @@ const upsertWorkbookSolutionContent = ({
         throw createWorkbookHttpError(410, 'Исходная таблица больше недоступна');
       }
       const sourceFile = resolved.sourceFile;
+      if (!canWriteTeacherQuestionWorkbook(actor, sourceFile, student)) {
+        throw createWorkbookHttpError(403, 'Решение преподавателя доступно ученику только для скачивания');
+      }
       if (!isWorkbookFileName(uploadedFile.originalname)) {
         throw createWorkbookHttpError(415, 'Можно загружать только таблицы Excel или LibreOffice');
       }
@@ -20799,6 +20821,9 @@ const upsertWorkbookSolutionContent = ({
         entryName ||= buildWorkbookSolutionName(sourceFile.name);
       } else if (questionSolutionSlot) {
         entryName = buildWorkbookQuestionSolutionName(sourceFile.name, questionSolutionSlot);
+        if (sourceFile.workbookQuestionTeacherId) {
+          entryName = `Преподаватель — ${entryName}`;
+        }
       } else if (requireSolutionName) {
         if (!namedSolution) {
           throw createWorkbookHttpError(400, 'Укажите короткое безопасное имя решения');
@@ -20879,6 +20904,9 @@ const upsertWorkbookSolutionContent = ({
           workbookQuestionContext: { ...sourceFile.workbookQuestionContext },
           workbookQuestionSolution: true,
           workbookQuestionSolutionSlot: questionSolutionSlot,
+          ...(sourceFile.workbookQuestionTeacherId ? {
+            workbookQuestionTeacherId: sourceFile.workbookQuestionTeacherId,
+          } : {}),
         } : {}),
         ...(String(sourceFile.category || '').trim() === 'class' ? {
           lessonStudentId: student.id,
@@ -21092,6 +21120,7 @@ const getWorkbookHelperSessionContext = (session) => {
   if (
     !resolved
     || resolved.sourceFile.id !== session.sourceFileId
+    || !canWriteTeacherQuestionWorkbook(session.actor, resolved.sourceFile, student)
   ) return null;
   const state = getWorkbookBindingState(student, resolved.sourceFile, resolved.files, {
     solutionKey: session.solutionKey,
@@ -21190,7 +21219,8 @@ app.post('/workbook-helper/v1/exchange', async (req, res) => {
   const resolved = student
     ? resolveWorkbookSourceForStudent(student, ticket.sourceFileId)
     : null;
-  if (!resolved || resolved.sourceFile.id !== ticket.sourceFileId) {
+  if (!resolved || resolved.sourceFile.id !== ticket.sourceFileId
+    || !canWriteTeacherQuestionWorkbook(ticket.actor, resolved.sourceFile, student)) {
     workbookHelperLaunchTickets.delete(ticketHash);
     return res.status(410).json({ error: 'Таблица больше недоступна' });
   }
@@ -21410,6 +21440,7 @@ app.put(
       updateWorkbookHelperSession(activeSession.id, {
         solutionFileId: String(result.entry?.id || ''),
         nameRequired: false,
+        startsFresh: false,
         revision: result.revision,
         contentHash: result.contentHash,
         lastUsedAtMs: Date.now(),
@@ -22473,6 +22504,7 @@ app.post('/api/workbook-helper/launch', (req, res) => {
     }
   }
   if (!resolved) return res.status(404).json({ error: 'Таблица не найдена' });
+  if (!canWriteTeacherQuestionWorkbook(req.auth, resolved.sourceFile, student)) return forbid(res);
   opensSourceText = opensSourceText || Boolean(resolveWorkbookHelperSourceText({
     student,
     sourceFile: resolved.sourceFile,
@@ -22551,22 +22583,34 @@ app.get('/api/workbook-helper/question-solutions', (req, res) => {
           context,
           { includeAttachment: false }
         ))
-        .map(({ entry, slot }) => serializeWorkbookQuestionSolution(entry, slot))
+        .map(({ entry, slot }) => ({
+          ...serializeWorkbookQuestionSolution(entry, slot),
+          ...(entry.workbookQuestionTeacherId ? {
+            canEdit: canWriteTeacherQuestionWorkbook(req.auth, entry, student),
+          } : {}),
+        }))
     ))
     .sort((left, right) => (
       String(left.attachmentId).localeCompare(String(right.attachmentId)) || left.slot - right.slot
     ));
-  return res.json({ solutions });
+  return res.json({
+    solutions: solutions.filter((entry) => !entry.teacherId),
+    teacherSolutions: solutions.filter((entry) => entry.teacherId),
+  });
 });
 
 app.post('/api/workbook-helper/question-launch', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  if (!isStudentRole(req.auth)) return forbid(res);
+  if (!isStudentRole(req.auth) && !isTeacherRole(req.auth)) return forbid(res);
   if (!req.is('application/json')) {
     return res.status(415).json({ error: 'Ожидался JSON-запрос' });
   }
-  const student = findStudentById(req.auth.id);
-  if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+  const requestedStudentId = isStudentRole(req.auth) ? req.auth.id : String(req.body?.studentId || '').trim();
+  const student = ensureStudentAccess(req, res, requestedStudentId, {
+    strictStudentId: !isStudentRole(req.auth),
+    missingError: 'studentId required',
+  });
+  if (!student) return undefined;
   try {
     const target = getWorkbookQuestionTarget({
       student,
@@ -22575,7 +22619,9 @@ app.post('/api/workbook-helper/question-launch', (req, res) => {
       questionId: req.body?.questionId,
       attachmentId: req.body?.attachmentId,
     });
-    const ensured = ensureWorkbookQuestionSource({ student, target });
+    const ensured = ensureWorkbookQuestionSource({
+      student, target, teacherId: isTeacherRole(req.auth) ? String(req.auth.id) : '',
+    });
     const sourceFile = ensured.source;
     const savedSolutions = getWorkbookQuestionSolutionEntries(
       ensured.files,
@@ -22662,6 +22708,9 @@ const requireStudentWorkbookSource = (req, res, next) => {
     ? resolveWorkbookSourceForStudent(student, req.params?.sourceFileId)
     : null;
   if (!resolved) return res.status(404).json({ error: 'Исходная таблица не найдена' });
+  if (req.method !== 'GET' && !canWriteTeacherQuestionWorkbook(req.auth, resolved.sourceFile, student)) {
+    return forbid(res);
+  }
   req.workbookSolution = {
     student,
     sourceFile: resolved.sourceFile,
@@ -41230,6 +41279,10 @@ app.put('/api/files/:id/content', upload.single('file'), (req, res) => {
     removeUploadedFile();
     return res.status(404).json({ error: 'Файл не найден' });
   }
+  if (!canWriteTeacherQuestionWorkbook(req.auth, target, findStudentById(target.studentId))) {
+    removeUploadedFile();
+    return forbid(res);
+  }
   if (isLessonSharedFile(target)) {
     removeUploadedFile();
     return res.status(403).json({ error: 'Общий исходный файл нельзя перезаписать' });
@@ -41340,6 +41393,7 @@ app.delete('/api/files/:id', (req, res) => {
   if (isWorkbookQuestionVirtualSource(target)) {
     return res.status(404).json({ error: 'Файл не найден' });
   }
+  if (!canWriteTeacherQuestionWorkbook(req.auth, target, findStudentById(target.studentId))) return forbid(res);
   if (isLearningGroupNotesFile(target)) {
     if (!canWriteLearningGroupNotesFile(req.auth, target)) return forbid(res);
   } else if (isLessonSharedFile(target)) {
@@ -41384,6 +41438,7 @@ app.patch('/api/files/:id', (req, res) => {
   if (isWorkbookQuestionVirtualSource(current)) {
     return res.status(404).json({ error: 'Файл не найден' });
   }
+  if (!canWriteTeacherQuestionWorkbook(req.auth, current, findStudentById(current.studentId))) return forbid(res);
   const isCurrentLessonShared = isLessonSharedFile(current);
   const isCurrentLearningGroupShared = isLearningGroupNotesFile(current);
   if (isCurrentLearningGroupShared) {
@@ -41785,6 +41840,10 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
   }
 
   const current = db[idx];
+  if (!canWriteTeacherQuestionWorkbook(req.auth, current, findStudentById(current.studentId))) {
+    cleanupUploadedSnapshot();
+    return forbid(res);
+  }
   if (isLearningGroupNotesFile(current)) {
     if (!canWriteLearningGroupNotesFile(req.auth, current)) {
       cleanupUploadedSnapshot();

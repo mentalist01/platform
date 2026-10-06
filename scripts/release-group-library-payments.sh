@@ -33,6 +33,7 @@ node --test server/teacherPaymentConnections.test.js server/teacherPaymentConnec
 node --test src/utils/paymentHistory.test.js server/paymentNotificationHistory.integration.test.js > "$backup/payment-history-tests.log" 2>&1
 node --test src/utils/paymentSenderLinks.test.js server/paymentSenderLinks.integration.test.js > "$backup/payment-sender-links-tests.log" 2>&1
 node --test scripts/verify-teacher-payment-access.test.mjs > "$backup/payment-access-check-tests.log" 2>&1
+node --test server/workbookHelper.test.js server/workbookHelper.integration.test.js server/workbookQuestionHelper.integration.test.js server/teacherNotesWorkbook.integration.test.js > "$backup/teacher-workbook-tests.log" 2>&1
 stage="dist-group-library-payments-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-group-library-payments-release.mjs local "$stage"
@@ -45,6 +46,7 @@ node scripts/check-recording-reliability-release.mjs local "$stage"
 node scripts/check-python-practice-release.mjs local "$stage"
 node scripts/check-board-task-clipboard-release.mjs local "$stage"
 node scripts/check-lesson-tools-release.mjs local "$stage"
+node scripts/check-teacher-workbook-release.mjs local "$stage"
 node scripts/check-payment-keys-release.mjs local "$stage"
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 # Preserve old chunks for users with an already open client.
@@ -69,6 +71,7 @@ node scripts/check-teacher-desktop-release.mjs verify "$stage"
 node scripts/check-board-pages-release.mjs verify "$stage"
 node scripts/check-monthly-mock-release.mjs verify "$stage" /root/platform-data
 node scripts/check-lesson-tools-release.mjs verify "$stage" /root/platform-data
+node scripts/check-teacher-workbook-release.mjs verify "$stage" /root/platform-data
 node scripts/check-recorder-ui-release.mjs verify "$stage"
 node scripts/check-recording-reliability-release.mjs verify "$stage"
 node scripts/check-python-practice-release.mjs verify "$stage"

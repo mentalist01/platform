@@ -82,6 +82,153 @@ const putWorkbook = async ({ baseUrl, authorization, bytes, revision, fileName }
   });
 };
 
+test('teacher question solutions are immediately readable and isolated from student solutions', { timeout: 60_000 }, async (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan-ege-teacher-question-'));
+  const dataDir = path.join(tempRoot, 'data');
+  const uploadsDir = path.join(tempRoot, 'uploads');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  const write = (name, value) => fs.writeFileSync(path.join(dataDir, `${name}.json`), JSON.stringify(value));
+  const now = new Date().toISOString();
+  write('teachers', ['a', 'b'].map((id, i) => ({ id: `teacher-${id}`, name: `Teacher ${id}`, code: `11223${i}`, createdAt: now })));
+  write('students', ['a', 'b', 'c'].map((id, i) => ({ id: `student-${id}`, name: `Student ${id}`, teacherId: i === 1 ? 'teacher-b' : 'teacher-a', code: `65432${i}`, createdAt: now, deletedAt: null })));
+  write('files', []); write('folders', []);
+  write('progress', { 'student-a': { solvedByTask: { 9: { basic: ['q-a'] } }, nextLesson: { homeWork: 'Fixture homework' }, questionAnswers: { 'q-a': '17' }, coinsTotal: 42 } });
+  const original = Buffer.from('original question workbook');
+  fs.writeFileSync(path.join(uploadsDir, 'question.ods'), original);
+  fs.writeFileSync(path.join(uploadsDir, 'task26.txt'), '1;2;3\n');
+  write('tests', {
+    9: { basic: ['a', 'b'].map((id) => ({ id: `q-${id}`, question: 'Fixture', files: [{ id: 'attachment', name: 'source.ods', storageName: 'question.ods' }] })) },
+    26: { basic: [{ id: 'text-q', question: 'Fixture', files: [{ id: 'text-file', name: 'source.txt', storageName: 'task26.txt' }] }] },
+  });
+  const port = await getFreePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, ['server/index.js'], { cwd: workspaceDir, env: {
+    ...process.env, PORT: String(port), NODE_ENV: 'test', PLATFORM_DATA_DIR: dataDir,
+    PLATFORM_UPLOADS_DIR: uploadsDir, PLATFORM_JSON_BACKUPS_DIR: path.join(tempRoot, 'backups'),
+    COLLAB_PERSISTENCE: '0', DISABLE_STARTUP_XP_REBALANCE: '1',
+  }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let logs = '';
+  child.stdout.on('data', (chunk) => { logs += chunk; });
+  child.stderr.on('data', (chunk) => { logs += chunk; });
+  try {
+    await waitForServer(baseUrl, child, () => logs);
+    const login = async (code) => {
+      const res = await fetch(`${baseUrl}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      await assertStatus(res, 200); return `Bearer ${(await res.json()).token}`;
+    };
+    const teacher = await login('112230'), otherTeacher = await login('112231'), student = await login('654320');
+    const context = { studentId: 'student-a', taskNumber: 9, levelId: 'basic', questionId: 'q-a', attachmentId: 'attachment' };
+    const request = (authorization, route, method = 'GET', body) => fetch(baseUrl + route, {
+      method, headers: { Authorization: authorization, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const launch = async (authorization, extra = {}, status = 201) => {
+      const res = await request(authorization, '/api/workbook-helper/question-launch', 'POST', { ...context, ...extra });
+      await assertStatus(res, status); return res.json();
+    };
+    const list = async (authorization = student, extra = {}) => {
+      const params = new URLSearchParams({ ...context, ...extra });
+      const res = await request(authorization, `/api/workbook-helper/question-solutions?${params}`);
+      await assertStatus(res, 200); return res.json();
+    };
+    let teacherSession, studentSaved, teacherLaunch;
+    await t.test('ownership and exact attachment checks', async () => {
+      await launch(otherTeacher, {}, 403);
+      await launch(teacher, { studentId: 'student-b' }, 403);
+      await launch(teacher, { studentId: '' }, 400);
+      await launch(teacher, { attachmentId: 'unrelated' }, 404);
+    });
+    await t.test('teacher and student receive distinct bindings for the same task', async () => {
+      const studentLaunch = await launch(student);
+      teacherLaunch = await launch(teacher);
+      assert.notEqual(teacherLaunch.sourceFileId, studentLaunch.sourceFileId);
+      assert.notEqual(teacherLaunch.workbookKey, studentLaunch.workbookKey);
+      const studentSession = await exchangeLaunch(baseUrl, studentLaunch);
+      teacherSession = await exchangeLaunch(baseUrl, teacherLaunch);
+      const content = await fetch(`${baseUrl}/workbook-helper/v1/content`, { headers: { Authorization: teacherSession.authorization } });
+      await assertStatus(content, 200);
+      assert.deepEqual(Buffer.from(await content.arrayBuffer()), original);
+      const res = await putWorkbook({ baseUrl, authorization: studentSession.authorization, bytes: Buffer.from('student solution'), revision: 0, fileName: 'source.ods' });
+      await assertStatus(res, 200); studentSaved = await res.json();
+    });
+    const progressSnapshot = () => fs.readdirSync(dataDir).filter((name) => /progress|homework|answer|student-data/.test(name)).map((name) => [name, sha256(fs.readFileSync(path.join(dataDir, name)))]);
+    const beforeProgress = progressSnapshot();
+    await t.test('teacher save is immediately downloadable by student and leaves student file intact', async () => {
+      const res = await putWorkbook({ baseUrl, authorization: teacherSession.authorization, bytes: Buffer.from('teacher solution'), revision: 0, fileName: 'source.ods' });
+      await assertStatus(res, 200);
+      const payload = await list();
+      assert.equal(payload.solutions.length, 1); assert.equal(payload.teacherSolutions.length, 1);
+      assert.match(payload.teacherSolutions[0].name, /^Преподаватель/);
+      assert.equal(payload.teacherSolutions[0].authorName, 'Teacher a');
+      assert.equal(payload.teacherSolutions[0].canEdit, false);
+      assert.equal((await list(teacher)).teacherSolutions[0].canEdit, true);
+      const download = await request(student, payload.teacherSolutions[0].url);
+      await assertStatus(download, 200); assert.equal(await download.text(), 'teacher solution');
+      const files = JSON.parse(fs.readFileSync(path.join(dataDir, 'files.json')));
+      const studentFile = files.find((entry) => entry.id === studentSaved.file.id);
+      assert.equal(studentFile.workbookRevision, 1);
+      assert.equal(studentFile.workbookContentHash, sha256(Buffer.from('student solution')));
+      assert.deepEqual(progressSnapshot(), beforeProgress);
+      const helperDownload = await fetch(`${baseUrl}/workbook-helper/v1/content`, { headers: { Authorization: teacherSession.authorization } });
+      await assertStatus(helperDownload, 200);
+      assert.equal(await helperDownload.text(), 'teacher solution');
+    });
+    await t.test('student cannot continue, overwrite, rename, delete, or use generic helper to alter teacher file', async () => {
+      const solution = (await list()).teacherSolutions[0];
+      await launch(student, { solutionFileId: solution.fileId }, 404);
+      await assertStatus(await request(student, '/api/workbook-helper/launch', 'POST', { fileId: solution.fileId }), 403);
+      await assertStatus(await request(student, `/api/files/${solution.fileId}`, 'PATCH', { name: 'changed.ods' }), 403);
+      await assertStatus(await request(student, `/api/files/${solution.fileId}`, 'DELETE'), 403);
+      for (const route of [`/api/files/${solution.fileId}/content`, `/api/workbook-solutions/${solution.sourceFileId}/content`]) {
+        const form = new FormData(); form.append('file', new Blob(['bad']), 'source.ods'); form.append('revision', '1');
+        await assertStatus(await fetch(baseUrl + route, { method: 'PUT', headers: { Authorization: student }, body: form }), 403);
+      }
+      await assertStatus(await request(otherTeacher, '/api/workbook-helper/launch', 'POST', { fileId: solution.fileId, studentId: 'student-a' }), 403);
+    });
+    await t.test('teacher continues own exact file; stale revision cannot overwrite it', async () => {
+      const solution = (await list()).teacherSolutions[0];
+      const next = await launch(teacher, { solutionFileId: solution.fileId });
+      await launch(teacher, { solutionFileId: studentSaved.file.id }, 404);
+      const session = await exchangeLaunch(baseUrl, next);
+      assert.equal(session.exchange.revision, 1);
+      const res = await putWorkbook({ baseUrl, authorization: session.authorization, bytes: Buffer.from('teacher revision 2'), revision: 1, fileName: 'source.ods' });
+      await assertStatus(res, 200);
+      await assertStatus(await putWorkbook({ baseUrl, authorization: teacherSession.authorization, bytes: Buffer.from('stale'), revision: 1, fileName: 'source.ods' }), 409);
+      assert.equal((await list()).teacherSolutions[0].revision, 2);
+    });
+    await t.test('fresh copies and three-slot limit are independent of student slots', async () => {
+      for (let i = 2; i <= 3; i++) {
+        const grant = await launch(teacher, { startFresh: true });
+        const session = await exchangeLaunch(baseUrl, grant);
+        await assertStatus(await putWorkbook({ baseUrl, authorization: session.authorization, bytes: Buffer.from(`teacher ${i}`), revision: 0, fileName: 'source.ods' }), 200);
+      }
+      await launch(teacher, { startFresh: true }, 409);
+      assert.equal((await list()).solutions.length, 1);
+      await launch(student, { startFresh: true });
+    });
+    await t.test('other questions and students cannot continue a teacher solution; deletion frees only its slot', async () => {
+      const solution = (await list()).teacherSolutions[0];
+      await launch(teacher, { questionId: 'q-b', solutionFileId: solution.fileId }, 404);
+      await launch(teacher, { studentId: 'student-c', solutionFileId: solution.fileId }, 404);
+      await assertStatus(await request(teacher, `/api/files/${solution.fileId}`, 'DELETE'), 200);
+      await launch(teacher, { startFresh: true });
+      assert.equal((await list()).solutions.length, 1);
+    });
+    await t.test('text-to-workbook tasks retain original text and separate teacher blank sheet', async () => {
+      const grant = await launch(teacher, { taskNumber: 26, questionId: 'text-q', attachmentId: 'text-file' });
+      const session = await exchangeLaunch(baseUrl, grant);
+      assert.equal(session.exchange.sourceText.fileName, 'source.txt');
+      const res = await fetch(`${baseUrl}/workbook-helper/v1/content`, { headers: { Authorization: session.authorization } });
+      await assertStatus(res, 200); assert.match(await res.text(), /office:spreadsheet/);
+      assert.deepEqual(progressSnapshot(), beforeProgress);
+    });
+  } finally {
+    await stopServer(child);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('question workbook helper binds exact attachments and creates blank task 26/27 sheets', {
   timeout: 40_000,
 }, async () => {

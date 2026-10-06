@@ -9,6 +9,7 @@ import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/question
 import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
 import { writeBoardTaskToClipboard } from '../utils/boardTaskClipboard';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
+import TeacherQuestionWorkbookPanel from './TeacherQuestionWorkbookPanel';
 import { formatDifficultyDuration } from '../utils/questionDifficulty';
 import { compareTeacherHomeworkReviewDifficulty } from '../utils/teacherHomeworkReview';
 import { Button } from './ui';
@@ -996,6 +997,17 @@ const ProgressReviewModal = ({
                         ))}
                       </div>
                     </div>
+                  )}
+
+                  {hasWorkbookAttachment && (
+                    <TeacherQuestionWorkbookPanel
+                      editable
+                      studentId={studentId}
+                      taskNumber={taskNumber}
+                      levelId={levelId}
+                      questionId={String(currentQuestion?.id ?? questions.indexOf(currentQuestion))}
+                      attachments={extraFiles}
+                    />
                   )}
 
                   {hasWorkbookAttachment && (

@@ -4,6 +4,7 @@ import Editor from './SelfHostedMonacoEditor';
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, MoreHorizontal, Music, PanelLeft, PanelTop, PictureInPicture2, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
 import useWorkbookHelper from '../hooks/useWorkbookHelper';
+import TeacherQuestionWorkbookPanel from './TeacherQuestionWorkbookPanel';
 import useQuestionSolveTimer from '../hooks/useQuestionSolveTimer';
 import { buildDownloadUrl } from '../utils/downloadUrl';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
@@ -4461,6 +4462,10 @@ const StudentTestModal = ({
                   })}
                 </div>
               )}
+              <TeacherQuestionWorkbookPanel
+                studentId={studentId} taskNumber={task?.number} levelId={level}
+                questionId={activeQuestionId} attachments={extraFiles}
+              />
             </section>
 
             <section
@@ -5168,6 +5173,10 @@ const StudentTestModal = ({
                   )}
               </div>
             )}
+            <TeacherQuestionWorkbookPanel
+              studentId={studentId} taskNumber={task?.number} levelId={level}
+              questionId={activeQuestionId} attachments={extraFiles}
+            />
 
             {currentQuestion.question && (
               <p className="student-test-question-text text-[15px] md:text-lg font-medium leading-relaxed text-gray-900 mb-5 md:mb-6 whitespace-pre-wrap">{currentQuestion.question}</p>

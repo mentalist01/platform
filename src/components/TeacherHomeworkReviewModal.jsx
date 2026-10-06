@@ -13,6 +13,7 @@ import {
 } from '../utils/teacherHomeworkReview';
 import { Button } from './ui';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
+import TeacherQuestionWorkbookPanel from './TeacherQuestionWorkbookPanel';
 import MockExamTaskDifficultyBadge from './MockExamTaskDifficultyBadge';
 
 const BOARD_COPY_FEEDBACK_MS = 1800;
@@ -804,6 +805,17 @@ const TeacherHomeworkReviewModal = ({
                           </a>
                         ))}
                       </div>
+                    )}
+
+                    {hasWorkbookAttachment && (
+                      <TeacherQuestionWorkbookPanel
+                        editable
+                        studentId={studentId}
+                        taskNumber={codeTaskNumber}
+                        levelId={codeLevelId}
+                        questionId={codeQuestionId}
+                        attachments={extraFiles}
+                      />
                     )}
 
                     {hasWorkbookAttachment && (

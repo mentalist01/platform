@@ -2985,6 +2985,7 @@ export const api = {
         attachmentId: payload.attachmentId,
         startFresh: payload.startFresh === true,
         solutionFileId: payload.solutionFileId,
+        ...(payload.studentId ? { studentId: String(payload.studentId) } : {}),
       }),
     });
     if (!res.ok) throw new Error(await parseApiError(res));
