@@ -11,6 +11,7 @@ const initial = [...html.matchAll(/(?:src|href)="(\/assets\/[^" ]+\.(?:js|css))"
 const features = fs.readdirSync(path.join(directory, 'assets')).filter(file => /^TeacherFinanceSection-.*\.(js|css)$/.test(file));
 const source = features.map(file => fs.readFileSync(path.join(directory, 'assets', file), 'utf8')).join('\n');
 for (const marker of ['Автооплата', 'Скопировать тело запроса', '/api/teacher-payment-connection', '/api/payment-notifications', '.payment-connection']) assert.ok(source.includes(marker), `Missing payment UI: ${marker}`);
+for (const marker of ['Поступления по уведомлениям', 'Оплачено занятий', 'Поиск по плательщику или ученику', 'По поиску за всю историю', 'Выгрузить CSV', '.payment-history__summary']) assert.ok(source.includes(marker), `Missing payment analytics: ${marker}`);
 assert.ok(!initial.some(asset => features.some(file => asset.endsWith(file))), 'Finance must remain lazy');
 console.log('Personal payment connection UI, history and lazy bundles verified.');
 if (mode === 'verify') {
@@ -38,6 +39,16 @@ if (mode === 'verify') {
     assert.ok(response.headers.get('Cache-Control')?.includes('no-store'));
     const { connection } = await response.json();
     assert.equal(connection.teacherId, id);
+    const historyResponse = await get('/api/payment-notifications', session.token);
+    assert.ok(historyResponse.headers.get('Cache-Control')?.includes('no-store'));
+    const history = await historyResponse.json();
+    assert.ok(Array.isArray(history.notifications));
+    assert.equal(history.history?.scope, 'saved-notifications');
+    assert.equal(history.history.total, history.notifications.length);
+    const rawHistory = read('payment-notifications', {items:[]});
+    const text = value => String(value || '').trim();
+    const expectedIds = new Set((Array.isArray(rawHistory) ? rawHistory : rawHistory.items || []).filter(entry => text(entry?.id) && entry.paymentTarget !== 'teacher-platform' && (text(entry.receiverTeacherId) ? text(entry.receiverTeacherId) === id : text(entry.teacherId) === id)).map(entry => text(entry.id)));
+    assert.deepEqual(new Set(history.notifications.map(entry => entry.id)), expectedIds, 'The complete owned journal must be served');
     const other = [...teachers.keys()].find(value => value !== id);
     if (other) assert.equal((await request(`/api/teacher-payment-connection?teacherId=${encodeURIComponent(other)}`, { token: session.token })).status, 403);
     if (connection.configured) {

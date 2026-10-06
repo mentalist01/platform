@@ -3368,7 +3368,6 @@ const appendLessonNoteActivity = ({ studentId, teacherId, taskNumber, fileId, so
   }
 };
 
-const PAYMENT_NOTIFICATION_STORAGE_LIMIT = 500;
 const PAYMENT_NOTIFICATION_TEXT_MAX_LENGTH = 500;
 const PAYMENT_NOTIFICATION_REASON_MAX_LENGTH = 300;
 const PAYMENT_LESSON_SEARCH_PAST_DAYS = 45;
@@ -3462,7 +3461,9 @@ const normalizePaymentNotificationsDb = (value) => {
     const rightMs = Date.parse(right.createdAt || right.receivedAt || '');
     return (Number.isFinite(rightMs) ? rightMs : 0) - (Number.isFinite(leftMs) ? leftMs : 0);
   });
-  return { items: normalizedItems.slice(0, PAYMENT_NOTIFICATION_STORAGE_LIMIT) };
+  // The journal is also the teacher's payment history. Never discard older
+  // receipts: reports and duplicate protection must cover every saved entry.
+  return { items: normalizedItems };
 };
 
 const readPaymentNotificationsDb = () => {
@@ -22792,7 +22793,7 @@ app.get('/api/payment-notifications', (req, res) => {
     .filter((entry) => paymentNotificationReceiverMatches(entry, teacher.id)
       || (isAdminRole(req.auth) && !entry.teacherId && !entry.receiverTeacherId))
     .map((entry) => serializePaymentNotificationEntry(entry, { includeText: true }));
-  return res.json({ notifications });
+  return res.json({ notifications, history: { scope: 'saved-notifications', total: notifications.length } });
 });
 
 app.get('/api/payment-sender-links', (req, res) => {

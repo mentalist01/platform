@@ -3,10 +3,10 @@ import { Check, Copy, Eye, EyeOff, KeyRound, LoaderCircle, RefreshCw } from 'luc
 import { createPaymentConnection, getPaymentConnection, getPaymentNotificationHistory, paymentConnectionBody } from '../services/teacherPaymentConnection';
 import './TeacherPaymentConnection.css';
 import { getExternalApiOrigin } from '../utils/runtimeUrls';
+import PaymentNotificationHistory from './PaymentNotificationHistory';
 
 const statuses = { applied: 'Учтено', pending: 'Требует проверки', ignored: 'Не учтено', duplicate: 'Повтор', connected: 'Подключено' };
 const date = (value) => value ? new Date(value).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'short', timeStyle: 'short' }) : '—';
-const money = (value) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 2 }).format(value || 0);
 
 export default function TeacherPaymentConnection({ teacherId }) {
   const [connection, setConnection] = useState(null);
@@ -58,6 +58,7 @@ export default function TeacherPaymentConnection({ teacherId }) {
     {connection?.legacyActive && <p className="payment-connection__notice">Старый ключ временно активен. Он отключится после первого запроса с личным ключом.</p>}
     {connection?.legacyDisabledAt && <p className="payment-connection__success">Старый ключ отключён {date(connection.legacyDisabledAt)}.</p>}
     {!connection?.configured ? <button type="button" disabled={busy || !connection} onClick={() => create()}><KeyRound size={17} />Создать личный ключ</button> : <>
+      <details className="payment-connection__setup"><summary>Настройка подключения с телефона</summary>
       <dl className="payment-connection__details">
         <div><dt>Метод</dt><dd>POST</dd></div>
         <div><dt>Тип сообщения</dt><dd>application/json</dd></div>
@@ -70,14 +71,10 @@ export default function TeacherPaymentConnection({ teacherId }) {
       </div>
       {revealed && <pre className="payment-connection__body" tabIndex={0}>{paymentConnectionBody(connection)}</pre>}
       {confirmRotation && <div className="payment-connection__notice" role="alert"><p>Текущий личный ключ перестанет работать. Новое тело запроса потребуется установить на телефоне.</p><div className="payment-connection__actions"><button type="button" disabled={busy} onClick={() => create(true)}>Заменить ключ</button><button type="button" className="payment-connection__secondary" onClick={() => setConfirmRotation(false)}>Отмена</button></div></div>}
+      </details>
       <dl className="payment-connection__details"><div><dt>Последний запрос с личным ключом</dt><dd>{date(connection.lastRequestAt)}</dd></div><div><dt>Результат</dt><dd>{statuses[connection.lastStatus] || 'Ожидает запрос'}</dd></div></dl>
       {connection.lastReason && <p className="payment-connection__reason">{connection.lastReason}</p>}
     </>}
-    <h3>Уведомления об оплате</h3>
-    {!notifications.length ? <p className="payment-connection__empty">Уведомлений нет.</p> : <div className="payment-connection__history" tabIndex={0} aria-label="История уведомлений"><table><thead><tr><th>Получено</th><th>Плательщик / ученик</th><th>Сумма</th><th>Результат</th><th>Подключение</th></tr></thead><tbody>{notifications.slice(0, 100).map(entry => <tr key={entry.id}>
-      <td>{date(entry.receivedAt)}</td><td><strong>{entry.senderName || '—'}</strong><div>{entry.studentName || '—'}</div></td><td>{money(entry.amount)}</td>
-      <td><span data-status={entry.status}>{statuses[entry.status] || entry.status}</span><div className="payment-connection__reason">{entry.reason}</div><details><summary>Уведомление и отметки</summary><p>{entry.title}</p><p>{entry.text}</p>{entry.markKeys?.map(key => <code key={key}>{key}</code>)}</details></td>
-      <td>{entry.authMode === 'personal-key' ? 'Личный ключ' : entry.authMode === 'legacy-key' ? 'Старый ключ' : 'Старая запись: ключ неизвестен'}</td>
-    </tr>)}</tbody></table></div>}
+    <PaymentNotificationHistory key={teacherId} notifications={notifications} loading={busy} />
   </section>;
 }
