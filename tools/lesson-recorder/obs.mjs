@@ -275,6 +275,19 @@ export class ObsClient {
     const scene = await this.call('GetCurrentProgramScene');
     return { ...recording, scene: scene.currentProgramSceneName, meters: (this.meters || []).filter((m) => [INPUTS.mic, INPUTS.telemost, PYTHON_INPUTS.mic].includes(m.inputName)) };
   }
+  async waitRecordingState(owner, { active, paused, timeoutMs = 10000 }) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const [status, profile] = await Promise.all([
+        this.call('GetRecordStatus'),
+        this.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' }),
+      ]);
+      if (profile.parameterValue !== owner) throw new Error('В OBS идёт другая запись; проверьте текущий файл');
+      if (status.outputActive === active && (paused === undefined || status.outputPaused === paused)) return status;
+      if (Date.now() >= deadline) throw new Error(active ? 'OBS ещё не подтвердил запуск записи. Проверьте состояние пульта.' : 'OBS ещё сохраняет запись. Дождитесь завершения.');
+      await delay(100);
+    }
+  }
   async start(id, captureProfile, captureMode) {
     await this.assertCollection();
     if ((await this.call('GetRecordStatus')).outputActive) throw new Error('В OBS уже идёт запись. Завершите её или восстановите текущую запись в пульте.');
@@ -282,8 +295,18 @@ export class ObsClient {
     else await this.select('platform');
     await this.call('SetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting', parameterValue: `lesson-${id}` });
     await this.call('StartRecord');
+    // The RPC accepts the command before the encoder becomes active. Keep the
+    // persisted starting job until OBS confirms it, so reconciliation cannot
+    // mistake a delayed Python start for a stopped, unbound lesson recording.
+    await this.waitRecordingState(`lesson-${id}`, { active: true });
   }
-  async stop() { await this.assertCollection(); return (await this.call('StopRecord')).outputPath; }
+  async stop() {
+    await this.assertCollection();
+    const { parameterValue: owner } = await this.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' });
+    const { outputPath } = await this.call('StopRecord');
+    await this.waitRecordingState(owner, { active: false });
+    return outputPath;
+  }
   async setRecordPaused(id, paused) {
     await this.assertCollection();
     const [status, profile] = await Promise.all([

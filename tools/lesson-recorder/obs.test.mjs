@@ -23,6 +23,44 @@ function fixture() {
   return { obs, configured: () => configured };
 }
 
+test('start waits for the encoder instead of treating the accepted RPC as an active output', async () => {
+  const obs = new ObsClient(); obs.assertCollection = async () => {};
+  obs.selectPython = async mode => assert.equal(mode, 'screen');
+  let owner = ''; let accepted = false; let reads = 0; let starts = 0;
+  obs.call = async (type, data) => {
+    if (type === 'GetProfileParameter') return { parameterValue: owner };
+    if (type === 'SetProfileParameter') owner = data.parameterValue;
+    if (type === 'StartRecord') { accepted = true; starts++; }
+    if (type === 'GetRecordStatus') return { outputActive: accepted && ++reads >= 3 };
+    return {};
+  };
+  await obs.start('python', 'python', 'screen');
+  assert.equal(starts, 1); assert.equal(reads, 3); assert.equal(owner, 'lesson-python');
+});
+
+test('stop waits until output is inactive before another lesson can take over the profile', async () => {
+  const obs = new ObsClient(); obs.assertCollection = async () => {};
+  let reads = 0; let stops = 0;
+  obs.call = async type => {
+    if (type === 'GetProfileParameter') return { parameterValue: 'lesson-python' };
+    if (type === 'StopRecord') { stops++; return { outputPath: 'lesson-python.mkv' }; }
+    if (type === 'GetRecordStatus') return { outputActive: ++reads < 3 };
+    return {};
+  };
+  assert.equal(await obs.stop(), 'lesson-python.mkv'); assert.equal(reads, 3); assert.equal(stops, 1);
+});
+
+test('unconfirmed transitions and a changed output owner never claim success or issue another start/stop', async () => {
+  const obs = new ObsClient(); let active = false; let owner = 'lesson-python'; const calls = [];
+  obs.call = async type => { calls.push(type); return type === 'GetProfileParameter' ? { parameterValue: owner } : { outputActive: active }; };
+  await assert.rejects(obs.waitRecordingState('lesson-python', { active: true, timeoutMs: 0 }), /не подтвердил/);
+  active = true;
+  await assert.rejects(obs.waitRecordingState('lesson-python', { active: false, timeoutMs: 0 }), /сохраняет/);
+  owner = 'lesson-other';
+  await assert.rejects(obs.waitRecordingState('lesson-python', { active: true }), /другая запись/);
+  assert.ok(calls.every(type => ['GetRecordStatus', 'GetProfileParameter'].includes(type)));
+});
+
 test('native pause and resume verify output ownership, confirm state and tolerate retries', async () => {
   const obs = new ObsClient(); obs.assertCollection = async () => {};
   let paused = false; let owner = 'lesson-python'; let active = true; const calls = [];

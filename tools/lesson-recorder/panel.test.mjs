@@ -64,6 +64,16 @@ test('headline shows the actual recording student and OBS elapsed time', () => {
   assert.equal(headline({ ...live, currentLesson: { lessonName: 'Другой ученик' } }).name, 'Олег');
 });
 
+test('Python recording has its own heading and topic instead of an ordinary lesson name', () => {
+  const python = { ...live, currentLesson: { lessonName: 'Ученик обычного урока' }, jobs: [{ ...job, title: 'Цикл for', lessonName: undefined, pythonTheory: { taskTitle: 'Цикл for', subsectionTitle: 'Вся тема' } }] };
+  const view = headline(python);
+  assert.equal(view.name, 'Python · Цикл for'); assert.equal(view.status, 'Идёт запись Python');
+  assert.match(view.detail, /Отдельная запись Python/); assert.match(view.detail, /Вся тема/);
+  assert.equal(pauseView(python).visible, true); assert.equal(pauseView(python).disabled, false);
+  assert.equal(headline({ ...python, jobs: [{ ...python.jobs[0], status: 'starting' }], obs: { outputActive: false } }).status, 'Запись запускается');
+  assert.equal(headline({ ...python, obs: { ...python.obs, outputPaused: true } }).name, 'Python · Цикл for');
+});
+
 test('crash recovery explains the preserved first part without claiming a running recording', () => {
   const recovering = { jobs: [{ ...job, status: 'saved', resumeAfterRestart: true }], obs: { outputActive: false } };
   const view = headline(recovering);

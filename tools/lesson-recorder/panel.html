@@ -130,8 +130,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function recordingHeadline(state,unavailable=false){
   const active=(state?.jobs||[]).find(j=>['starting','recording','stopping'].includes(j.status));
   const lesson=active||state?.currentLesson;
-  const name=lesson?.lessonName?.trim()||(lesson?.local&&!lesson.manual?'Пробная запись':lesson?.title)||'Ждём начала урока';
-  const detail=lesson?[lesson.lessonName?lesson.title:'',lesson.previousJobId?'Продолжение урока':''].filter(Boolean).join(' · '):state?.ready?'Подключитесь к занятию на платформе — запись начнётся автоматически.':'Перед уроком нажмите «Начать сегодняшний день» и проверьте готовность пульта.';
+  const name=active?.pythonTheory?'Python · '+(active.title||active.pythonTheory.taskTitle||'Учебное видео'):lesson?.lessonName?.trim()||(lesson?.local&&!lesson.manual?'Пробная запись':lesson?.title)||'Ждём начала урока';
+  const detail=active?.pythonTheory?'Отдельная запись Python · '+[active.pythonTheory.taskTitle,active.pythonTheory.subsectionTitle].filter(Boolean).join(' / '):lesson?[lesson.lessonName?lesson.title:'',lesson.previousJobId?'Продолжение урока':''].filter(Boolean).join(' · '):state?.ready?'Подключитесь к занятию на платформе — запись начнётся автоматически.':'Перед уроком нажмите «Начать сегодняшний день» и проверьте готовность пульта.';
   if(unavailable||!state?.obs)return{tone:'warning',status:'Статус записи неизвестен',name:lesson?name:'Нет связи с OBS',detail:'Не можем проверить запись. Проверьте подключение пульта и OBS.',time:''};
   const obs=state.obs;
   const recovering=(state.jobs||[]).find(job=>job.resumeAfterRestart);
@@ -140,7 +140,7 @@ function recordingHeadline(state,unavailable=false){
   if(obs.outputActive){
     if(!active)return{tone:'warning',status:obs.outputPaused?'Запись на паузе':'OBS записывает',name:'Урок не определён',detail:'Эта запись не привязана к уроку в пульте.',time};
     if(obs.outputPaused||obs.scene?.endsWith('Перерыв'))return{tone:'warning',status:obs.outputPaused?'Запись на паузе':'Перерыв в записи',name,detail:obs.outputPaused?'Изображение и звук не записываются. Продолжение сохранится в том же видео.': 'В файл записываются чёрный экран и тишина.',time};
-    return{tone:active.status==='stopping'?'pending':'live',status:active.status==='stopping'?'Завершаем запись':'Идёт запись',name,detail:detail||'Изображение и звук сохраняются на компьютере.',time};
+    return{tone:active.status==='stopping'?'pending':'live',status:active.status==='stopping'?'Завершаем запись':active.pythonTheory?'Идёт запись Python':'Идёт запись',name,detail:detail||'Изображение и звук сохраняются на компьютере.',time};
   }
   if(active?.status==='starting')return{tone:'pending',status:'Запись запускается',name,detail:'Ждём подтверждения от OBS.',time:''};
   if(active?.status==='stopping')return{tone:'pending',status:'Запись завершена',name,detail:'Сохраняем файл урока.',time:''};

@@ -51,10 +51,10 @@ export class ObsClient extends Base {
     if(type==='SetInputSettings')this.settings[p.inputName]={...this.settings[p.inputName],...p.inputSettings};
     if(type==='GetSceneItemId')return {sceneItemId:1};
     if(type==='GetVideoSettings')return {baseWidth:1920,baseHeight:1080};
-    if(type==='StartRecord'){this.output=true;this.paused=false;}
+    if(type==='StartRecord'){this.paused=false;setTimeout(()=>{this.output=true;},450);}
     if(type==='PauseRecord')this.paused=true;
     if(type==='ResumeRecord')this.paused=false;
-    if(type==='StopRecord'){this.output=false;const file=path.join(process.env.IVAN100_RECORDER_HOME,'fake-video',this.owner+'.mkv');fs.writeFileSync(file,'synthetic capture');return {outputPath:file};}
+    if(type==='StopRecord'){setTimeout(()=>{this.output=false;},450);const file=path.join(process.env.IVAN100_RECORDER_HOME,'fake-video',this.owner+'.mkv');fs.writeFileSync(file,'synthetic capture');return {outputPath:file};}
     if(type==='GetSourceScreenshot'){
       if(!this.scenes.has(p.sourceName))throw Error('Выберите источники Python');
       const title=p.sourceName.includes('Python')?'PYTHON / '+(this.settings[PYTHON_INPUTS.window]?.window||'preview'):'LESSON / original window';
@@ -112,6 +112,8 @@ if (process.argv.includes('--serve')) {
     assert.equal((await f.request('/python/start', { taskNumber: 101, subsectionId: '__default__', expectedUrl: '', title: 'Тест Python' })).status, 200);
     let current = (await f.request('/state')).value; const id = current.jobs[0].id;
     assert.equal(current.jobs[0].captureProfile, 'python'); assert.equal(current.obs.scene, 'IVAN100 Python — Редактор');
+    assert.equal(current.jobs[0].status, 'recording'); assert.equal(current.obs.outputActive, true);
+    assert.equal((await f.request('/python/preview', {active:true})).status,200,'Delayed OBS start must retain the Python preview and binding');
     for (const route of ['/scene', '/program', '/auto-follow', '/auto-office', '/fallback']) assert.equal((await f.request(route, { mode: 'platform', window: 'lesson-editor', enabled: true })).status, 400);
     assert.equal((await f.request('/material/pause', { id, paused: true })).value.recording.outputPaused, true);
     assert.equal((await f.request('/python/configure', { window: 'second-editor' })).status, 200);
@@ -120,6 +122,7 @@ if (process.argv.includes('--serve')) {
     assert.equal((await f.request('/material/stop', { id: 'stale-id' })).status, 400);
     assert.equal((await f.request('/material/pause', { id, paused: false })).value.recording.outputPaused, false);
     assert.equal((await f.request('/material/stop', { id })).status, 200);
+    assert.equal((await f.request('/state')).value.obs.outputActive, false, 'Stop must confirm inactivity before the ordinary lesson starts');
     assert.equal((await f.request('/qa/lesson', {})).status, 200);
     current = (await f.request('/state')).value; assert.equal(current.obs.scene, 'IVAN100 — Платформа'); assert.equal(current.config.platform, 'lesson-platform');
     assert.equal((await f.request('/python/configure', { window: 'python-editor' })).status, 400);

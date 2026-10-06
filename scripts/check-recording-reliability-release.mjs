@@ -11,7 +11,7 @@ const entryText = fs.readFileSync(path.join(directory, entry.slice(1)), 'utf8');
 const warning = entryText.match(/RecordingHealthWarning-[A-Za-z0-9_-]+\.js/)?.[0];
 assert.ok(warning, 'Missing recording connection warning');
 const source = fs.readFileSync(path.join(directory, 'assets', warning), 'utf8');
-for (const text of ['Пульт записи потерял связь', 'Запись урока не подтверждена', 'Не можем проверить запись', 'Открыть пульт']) assert.ok(source.includes(text), `Missing warning: ${text}`);
+for (const text of ['Пульт записи потерял связь', 'Запись урока не подтверждена', 'Не можем проверить запись', 'Открыть пульт', 'Понятно']) assert.ok(source.includes(text), `Missing warning: ${text}`);
 if (mode === 'verify') {
   const get = async route => {
     const response = await fetch('https://ivan100.ru' + route, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(25000) });
