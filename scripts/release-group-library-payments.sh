@@ -32,6 +32,7 @@ node --test src/utils/teacherUpdates.test.js > "$backup/teacher-updates-tests.lo
 node --test server/teacherPaymentConnections.test.js server/teacherPaymentConnections.integration.test.js > "$backup/payment-connections-tests.log" 2>&1
 node --test src/utils/paymentHistory.test.js server/paymentNotificationHistory.integration.test.js > "$backup/payment-history-tests.log" 2>&1
 node --test src/utils/paymentSenderLinks.test.js server/paymentSenderLinks.integration.test.js > "$backup/payment-sender-links-tests.log" 2>&1
+node --test scripts/verify-teacher-payment-access.test.mjs > "$backup/payment-access-check-tests.log" 2>&1
 stage="dist-group-library-payments-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-group-library-payments-release.mjs local "$stage"

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { verifyTeacherPaymentAccess } from './verify-teacher-payment-access.mjs';
 
 const [mode, directory, dataDir] = process.argv.slice(2);
 assert.ok(['local', 'verify'].includes(mode) && directory, 'Usage: local|verify BUILD_DIR [DATA_DIR]');
@@ -38,7 +39,10 @@ if (mode === 'verify') {
   const teachers = new Map();
   for (const session of sessions.filter(entry => entry.user?.role === 'teacher').sort((a, b) => (b.lastSeenAtMs || 0) - (a.lastSeenAtMs || 0))) if (!teachers.has(session.user.id)) teachers.set(session.user.id, session);
   assert.ok(teachers.size, 'Existing teacher session required for read-only verification');
+  let activeTeachers = 0, suspendedTeachers = 0;
   for (const [id, session] of teachers) {
+    if (!await verifyTeacherPaymentAccess(request, session.token)) { suspendedTeachers += 1; continue; }
+    activeTeachers += 1;
     const response = await get('/api/teacher-payment-connection', session.token);
     assert.ok(response.headers.get('Cache-Control')?.includes('no-store'));
     const { connection } = await response.json();
@@ -71,6 +75,8 @@ if (mode === 'verify') {
       assert.equal(probe.status, 200); assert.equal((await probe.json()).teacherId, id);
     }
   }
+  assert.ok(activeTeachers, 'At least one existing active teacher session required for complete API verification');
+  console.log(`Teacher access verified: ${activeTeachers} active, ${suspendedTeachers} suspended; suspension blocks all financial APIs.`);
   const student = sessions.find(entry => entry.user?.role === 'student');
   if (student) assert.equal((await request('/api/teacher-payment-connection', { token: student.token })).status, 403);
   // Read PM2's effective environment privately; credentials never appear in output.
