@@ -817,7 +817,7 @@ const exitDocumentFullscreen = async () => {
   }
 };
 
-const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
+const CallGameVoiceOverlay = ({ participants = [], className = '', onReturn }) => {
   const largeGroup = participants.length > 3;
   const [expansion, setExpansion] = useState({ largeGroup, expanded: false });
   if (expansion.largeGroup !== largeGroup) setExpansion({ largeGroup, expanded: false });
@@ -833,8 +833,9 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
         onClick={() => setExpansion({ largeGroup, expanded: !expanded })} onDoubleClick={event => event.stopPropagation()}>
         <Users size={15} /> Участники: {participants.length} · {expanded ? 'Свернуть' : 'Показать'}
       </button>}
-      <div className={`call-game-overlay__list ${largeGroup && expanded ? 'is-expanded' : ''}`}>
-      {shownParticipants.map((participant) => {
+      <div className={`call-game-overlay__list ${largeGroup && expanded ? 'is-expanded' : ''}`}
+        data-no-panel-drag={largeGroup && expanded ? true : undefined}>
+      {shownParticipants.map((participant, index) => {
         const participantStateText = participant.isMuted
           ? 'микрофон выключен'
           : participant.isSpeaking
@@ -854,7 +855,7 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
             data-muted={participant.isMuted ? 'true' : 'false'}
             title={`${participant.title}: ${participantStateText}`}
           >
-            <span className="call-game-overlay__avatar" aria-hidden="true">
+            <span className="call-game-overlay__avatar" aria-hidden="true" data-panel-drag-handle>
               {participant.initial}
             </span>
             <span className="call-game-overlay__plate">
@@ -870,6 +871,12 @@ const CallGameVoiceOverlay = ({ participants = [], className = '' }) => {
                 <span className="call-game-overlay__icon" aria-label="Показывает экран">
                   <MonitorUp size={13} />
                 </span>
+              )}
+              {index === 0 && onReturn && (
+                <button type="button" className="call-mini-panel__return" onClick={onReturn}
+                  onDoubleClick={event => event.stopPropagation()} aria-label="Вернуться в звонок" title="Вернуться в звонок">
+                  <Maximize2 size={13} />
+                </button>
               )}
             </span>
           </div>
@@ -6151,13 +6158,8 @@ const CallSection = ({
         onDoubleClick={() => { if (Date.now() >= panelDragClickSuppressedUntil.current) collapsedOpenHandler?.(); }}
         title="Перетащите панель. Двойной клик по имени или аватару откроет звонок."
       >
-        <div className="call-mini-panel__header">
-          <span data-panel-drag-handle className="call-mini-panel__handle"><Move size={14} /><span>Звонок продолжается</span></span>
-          <button type="button" className="call-mini-panel__return" onClick={() => collapsedOpenHandler?.()} onDoubleClick={event => event.stopPropagation()} aria-label="Вернуться в звонок">
-            <Maximize2 size={14} /><span>В звонок</span>
-          </button>
-        </div>
-        <CallGameVoiceOverlay participants={overlayVoiceParticipants} className={collapsedCardClass} />
+        <CallGameVoiceOverlay participants={overlayVoiceParticipants} className={collapsedCardClass}
+          onReturn={() => collapsedOpenHandler?.()} />
       </div>
     );
     const collapsedPanelPortal = typeof document !== 'undefined'

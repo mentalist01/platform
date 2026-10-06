@@ -23,6 +23,7 @@ for (const marker of ['callAmbientDrift', 'callAvatarFloat', 'callVoiceWave', 'p
 for (const marker of ['.call-prejoin-kicker', '.call-mini-panel__return', '.call-game-overlay--cabinet', 'width:min(960px,100%)', '#151127']) assert.ok(callStyles.includes(marker), `Preparation/mini-panel style missing: ${marker}`);
 for (const marker of ['call-lobby-scene', 'call-lobby-title-accent', 'call-entry-transition__portrait', 'prefers-reduced-motion: reduce']) assert.ok(fs.readFileSync(path.join(directory, 'assets', callJs), 'utf8').includes(marker), `Call entry missing: ${marker}`);
 for (const marker of ['callLobbyLight', 'callLobbyPortrait', 'callEntryReveal', '.call-entry-transition', 'pointer-events:none']) assert.ok(callStyles.includes(marker), `Luminous call entry style missing: ${marker}`);
+for (const marker of ['callMiniSpeaking', '--voice-glass', 'max-width:min(240px', 'width:38px', 'backdrop-filter:blur(10px)']) assert.ok(callStyles.includes(marker), `Compact translucent call capsule style missing: ${marker}`);
 console.log('Interactive minimap, empty code sections and teacher homework reminders verified in this build.');
 if (mode === 'verify') {
   const get = async (route, token) => {
