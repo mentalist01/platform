@@ -23,7 +23,7 @@ async function fixture() {
   await new Promise(resolve => platform.listen(0, '127.0.0.1', resolve));
   const ordinary = { token: 'fictional-token', platformUrl: `http://127.0.0.1:${platform.address().port}`, platform: 'lesson-platform', telemost: 'lesson-call', mic: 'lesson-mic', program: 'lesson-editor', screen: 'lesson-monitor', configured: true, recordDirectory: path.join(root, 'fake-video'), autoUpload: false };
   fs.mkdirSync(ordinary.recordDirectory); fs.writeFileSync(path.join(root, 'state.json'), JSON.stringify({ config: ordinary, jobs: {} }));
-  fs.writeFileSync(path.join(app, 'release.json'), JSON.stringify({ version: '1.4.12', id: 'a'.repeat(64) }));
+  fs.writeFileSync(path.join(app, 'release.json'), JSON.stringify({ version: JSON.parse(fs.readFileSync(path.join(app, 'package.json'))).version, id: 'a'.repeat(64) }));
   fs.writeFileSync(path.join(app, 'obs-fixture.mjs'), `
 import fs from 'node:fs';import path from 'node:path';
 import {ObsClient as Base,SCENES,INPUTS,PYTHON_SCENES,PYTHON_INPUTS} from './obs.mjs';
