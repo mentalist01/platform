@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { startDay } from './start-day.mjs';
 import { ShareBridge } from './share-bridge.mjs';
 import { ForegroundWindowReader, OfficeFollower } from './office-follow.mjs';
-import { ObsClient, SCENES, INPUTS } from './obs.mjs';
+import { ObsClient, SCENES, INPUTS, PYTHON_SCENES } from './obs.mjs';
+import { pythonCaptureConfig, pythonCaptureReason, configurePythonCapture } from './python-capture.mjs';
 import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
@@ -44,6 +45,7 @@ const localKey = crypto.randomBytes(32).toString('base64url');
 let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBusy = false; let uploadingId = '';
 let recordingControlRevision = 0;
 let sourceWarnings = []; let lastSourceCheck = 0;
+let pythonSourceChoices;
 const serialize = (fn) => { const next = chain.then(fn); chain = next.catch(() => {}); return next; };
 const ready = () => Boolean(state.config.recordDirectory && state.config.configured && state.config.platform && state.config.telemost && state.config.mic);
 const setupIdle = async () => {
@@ -198,6 +200,8 @@ const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   updater: updater.info(),
   obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
+  pythonReady: Boolean(state.config.recordDirectory && obsStatus && !pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices)),
+  pythonSourceReason: !obsStatus ? 'Подключите OBS в настройках пульта.' : !state.config.recordDirectory ? 'Выберите папку для видео в настройках пульта.' : pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices),
   preparingUpload: queueBusy, archiveBusy: Boolean(archive.work || archive.setup || archive.submitting),
   currentLesson: engine.currentLesson || null,
   shareMessage: shareBridge.message || '',
@@ -253,7 +257,15 @@ const server = http.createServer(async (req, res) => {
     if (req.headers['x-recorder-key'] !== localKey) return json(res, 403, { error: 'Откройте пульт заново' });
     if (req.method === 'GET' && req.url === '/state') return json(res, 200, publicState());
     if (req.method === 'GET' && req.url === '/preview') return json(res, 200, { image: await obs.preview() });
-    if (req.method === 'GET' && req.url === '/choices') return json(res, 200, await obs.choices());
+    if (req.method === 'GET' && req.url === '/python/preview') {
+      const selected = pythonCaptureConfig(state.config.pythonCapture);
+      if (!selected[selected.mode]) throw new Error('Выберите источник изображения для Python');
+      return json(res, 200, { image: await obs.preview(PYTHON_SCENES[selected.mode]) });
+    }
+    if (req.method === 'GET' && req.url === '/choices') {
+      pythonSourceChoices = await obs.choices();
+      return json(res, 200, pythonSourceChoices);
+    }
     if (req.method === 'GET' && req.url === '/storage') return json(res, 200, { drives: await recordingDrives(), recordDirectory: state.config.recordDirectory || '' });
     if (req.method === 'GET' && req.url === '/mock-review/catalog') return json(res, 200, await api('/mock-review/catalog', {}));
     if (req.method === 'GET' && req.url === '/python/catalog') return json(res, 200, await api('/python/catalog', {}));
@@ -299,6 +311,7 @@ const server = http.createServer(async (req, res) => {
     }
     await serialize(async () => {
       if (updater.busy) throw new Error('Пульт обновляется. Подождите завершения.');
+      if (engine.active()?.pythonTheory && ['/scene', '/program', '/auto-follow', '/auto-office', '/fallback'].includes(req.url)) throw new Error('Для записи Python используйте источники в отдельном пульте Python');
       if (req.url === '/recover-file') {
         // Import a deliberately prepared replacement, never the unfinished
         // current output or an arbitrary path from the request.
@@ -328,6 +341,11 @@ const server = http.createServer(async (req, res) => {
         await setupIdle();
         if (!state.config.recordDirectory) throw new Error('Сначала выберите папку для видео в первом шаге');
         enableWebsocket(); await obs.setup(recordDirectory);
+      } else if (req.url === '/python/configure') {
+        await configurePythonCapture({ obs, state, engine, save, payload,
+          busy: Boolean(uploadingId || queueBusy || archive.work || archive.setup || archive.submitting) });
+        pythonSourceChoices = await obs.choices();
+        obsStatus = await obs.status();
       } else if (req.url === '/configure') {
         await setupIdle();
         const choices = await obs.choices();
@@ -376,10 +394,10 @@ const server = http.createServer(async (req, res) => {
         await startMockReview({ api, engine, payload });
         obsStatus = await obs.status();
       } else if (req.url === '/python/start') {
-        if (!ready()) throw new Error('Сначала настройте запись и выберите микрофон в пульте');
+        if (!state.config.recordDirectory) throw new Error('Сначала выберите папку для видео в настройках пульта');
         if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');
         if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
-        await startPythonTheory({ api, engine, payload });
+        await startPythonTheory({ api, engine, payload, captureConfig: state.config.pythonCapture });
         obsStatus = await obs.status();
       } else if (req.url === '/manual-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
@@ -392,6 +410,12 @@ const server = http.createServer(async (req, res) => {
         const job = engine.active();
         if (!job?.local || job.manual || !job.testFingerprint) throw new Error('Сейчас пробная запись не идёт');
         await engine.stop(job);
+      } else if (req.url === '/material/stop') {
+        const job = engine.active();
+        if (!job || job.id !== payload.id || !(job.pythonTheory || job.mockReview) || job.status !== 'recording') throw new Error('Обновите пульт и проверьте текущую запись материала');
+        try { await engine.stop(job); }
+        catch (failure) { if (job.status !== 'saved') throw failure; }
+        obsStatus = await obs.status();
       } else if (req.url === '/stop') {
         const job = engine.active(); if (!job) throw new Error('Сейчас запись не идёт');
         try { await engine.stop(job); }
@@ -441,8 +465,9 @@ setInterval(() => {
         const observed = await obs.status();
         if (revision === recordingControlRevision) obsStatus = observed;
       }
-      if (ready() && Date.now() - lastSourceCheck > 10000) {
+      if (obs.connected && Date.now() - lastSourceCheck > 10000) {
         const choices = await obs.choices();
+        pythonSourceChoices = choices;
         sourceWarnings = [];
         for (const [key, label] of [['platform', 'Окно платформы'], ['telemost', 'Звук разговора'], ['mic', 'Микрофон']]) {
           const selected = key === 'telemost' ? (obs.audioWindow || state.config[key]) : state.config[key];

@@ -26,13 +26,13 @@ export class RecorderEngine {
     if (this.active()) throw new Error('Сначала завершите текущую запись');
     if (this.state.jobs[job.id]?.file || fs.existsSync(ownedRecording(this.recordDirectory, job.id))) throw new Error('Файл этой записи уже существует. Продолжите урок новой частью, чтобы сохранить обе записи.');
     await this.obs.launch();
-    if (this.obs.prepare) await this.obs.prepare({ ...this.state.config, ...job.captureConfig }, this.recordDirectory, job.audioMode);
+    if (this.obs.prepare) await this.obs.prepare({ ...this.state.config, ...job.captureConfig }, this.recordDirectory, job.audioMode, job.captureProfile);
     else if ((await this.obs.status()).outputActive) throw new Error('В OBS уже идёт запись. Сначала завершите её.');
     // Persist the intent first: a crash after StartRecord must not create a second recording.
     const local = { ...job, status: 'starting', error: '', createdAt: this.now() };
     this.state.jobs[job.id] = local; this.save();
     try {
-      await this.obs.start(job.id);
+      await this.obs.start(job.id, job.captureProfile, job.captureConfig?.mode);
       local.status = 'recording'; this.save();
       await this.report(local, 'recording');
     } catch (error) {

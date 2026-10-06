@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
+import { pythonCaptureConfig, pythonCaptureReason } from './python-capture.mjs';
 
-export async function startPythonTheory({ api, engine, payload, now = Date.now }) {
+export async function startPythonTheory({ api, engine, payload, captureConfig, now = Date.now }) {
   if (engine.active()) throw new Error('Сначала завершите текущую запись');
   const catalog = await api('/python/catalog', {});
   const task = catalog.tasks.find(t => t.number === Number(payload.taskNumber));
@@ -10,8 +11,12 @@ export async function startPythonTheory({ api, engine, payload, now = Date.now }
   if (section.existingUrl && payload.replaceExisting !== true) throw new Error('Подтвердите замену существующего видео');
   const title = String(payload.title || '').trim();
   if (!title || title.length > 100) throw new Error('Укажите название длиной до 100 символов');
+  const selected = pythonCaptureConfig(captureConfig);
+  const reason = pythonCaptureReason(selected);
+  if (reason) throw new Error(reason);
   const id = crypto.randomUUID();
   await engine.start({ id, title, local: true, manual: true, autoPublish: true, audioMode: 'teacher',
+    captureProfile: 'python', captureConfig: selected,
     cutoffAt: now() + 3 * 60 * 60_000,
     pythonTheory: { teacherId: catalog.teacherId, taskNumber: task.number, subsectionId: section.id,
       taskTitle: task.title, subsectionTitle: section.title, expectedUrl: section.existingUrl,

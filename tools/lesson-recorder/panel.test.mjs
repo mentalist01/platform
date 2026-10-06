@@ -39,6 +39,14 @@ test('Python record button explains temporary blockers and re-enables once idle'
   assert.match(startReason({ ...idle, ready: false }, {}), /OBS/);
   assert.equal(startReason(idle, {}), '');
 });
+test('independent Python readiness does not depend on the normal lesson window, but still respects an active output and update', () => {
+  const python = { jobs: [], paired: true, ready: false, pythonReady: true, obs: { outputActive: false }, sourceWarnings: ['lesson window closed'] };
+  assert.equal(startReason(python, {}, false, true), '');
+  assert.equal(startReason(python, {}).includes('lesson window closed'), true);
+  assert.match(startReason({ ...python, pythonReady: false, pythonSourceReason: 'Выберите микрофон для Python.' }, {}, false, true), /микрофон для Python/);
+  assert.match(startReason({ ...python, obs: { outputActive: true } }, {}, false, true), /текущую запись/);
+  assert.match(startReason({ ...python, updater: { busy: true } }, {}, false, true), /обновляется/);
+});
 
 test('review transport has the same confirmed pause and continue states as Python', () => {
   const state = { ...live, jobs: [{ ...job, mockReview: { examId: 'exam' } }] };

@@ -13,6 +13,10 @@ if(!feature)throw Error('Recorder instructions bundle not found');
 const featurePath=`/assets/${feature}`,featureSource=fs.readFileSync(path.join(directory,featurePath.slice(1)),'utf8');
 for(const text of ['Скачать пульт для Windows','Установка и инструкция','Найти объяснение и задать запись в домашку','Архив и теория'])if(!featureSource.includes(text))throw Error(`Missing recorder help: ${text}`);
 const installer=`/assets/IVAN100-Recorder-Windows-${recorderRelease().manifest.version}.zip`;
+const recorderSources=JSON.parse(recorderRelease().bundle).files;
+for(const marker of ['python-studio','python-recorder" open','Предпросмотр Python','Окно редактора для Python','Микрофон для Python','/python/configure','/material/stop'])if(!recorderSources['panel.html'].includes(marker))throw Error(`Missing independent Python recorder: ${marker}`);
+for(const marker of ['PYTHON_SCENES','PYTHON_INPUTS','ensurePythonSources','selectPython'])if(!recorderSources['obs.mjs'].includes(marker))throw Error(`Missing Python capture isolation: ${marker}`);
+if(!recorderSources['python-capture.mjs'])throw Error('Python capture module missing from Windows update');
 if(!fs.readFileSync(path.join(directory,installer.slice(1))).equals(recorderPackage()))throw Error('Installer differs from the current recorder source');
 console.log('Recorder onboarding and current Windows installer verified.');
 if(mode==='verify'){

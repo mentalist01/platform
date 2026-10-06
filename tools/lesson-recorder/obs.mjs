@@ -3,9 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pythonCaptureConfig, pythonCaptureReason, pythonModes } from './python-capture.mjs';
 
 export const SCENES = { office: 'IVAN100 — LibreOffice', share: 'IVAN100 — Демонстрация', platform: 'IVAN100 — Платформа', window: 'IVAN100 — Программа', screen: 'IVAN100 — Экран', pause: 'IVAN100 — Перерыв' };
 export const INPUTS = { office: 'IVAN100: LibreOffice', share: 'IVAN100: демонстрация', platform: 'IVAN100: платформа', window: 'IVAN100: программа', screen: 'IVAN100: монитор', mic: 'IVAN100: микрофон', telemost: 'IVAN100: Телемост' };
+export const PYTHON_SCENES = { platform: 'IVAN100 Python — Платформа', window: 'IVAN100 Python — Редактор', screen: 'IVAN100 Python — Экран' };
+export const PYTHON_INPUTS = { platform: 'IVAN100 Python: платформа', window: 'IVAN100 Python: редактор', screen: 'IVAN100 Python: монитор', mic: 'IVAN100 Python: микрофон' };
 const COLLECTION = 'IVAN100 Lessons';
 const sha = (text) => crypto.createHash('sha256').update(text).digest('base64');
 
@@ -79,7 +82,7 @@ export class ObsClient {
     const profile = await this.call('GetProfileList');
     if (profile.currentProfileName !== COLLECTION) throw new Error('В OBS выбран другой профиль. Нажмите «Настроить OBS».');
   }
-  async prepare(config, recordDirectory, audioMode) {
+  async prepare(config, recordDirectory, audioMode, captureProfile) {
     await this.launch();
     const recording = await this.call('GetRecordStatus');
     const stream = await this.call('GetStreamStatus');
@@ -92,6 +95,14 @@ export class ObsClient {
     await delay(400);
     await this.setRecordDirectory(recordDirectory);
     const choices = await this.choices();
+    if (captureProfile === 'python') {
+      const selected = pythonCaptureConfig(config);
+      const reason = pythonCaptureReason(selected, choices);
+      if (reason) throw new Error(reason);
+      await this.ensurePythonSources();
+      await this.configurePython(selected);
+      return;
+    }
     config = { ...config };
     if (audioMode === 'platform') config.telemost = config.platform;
     if (audioMode === 'telemost') {
@@ -213,20 +224,62 @@ export class ObsClient {
     if (INPUTS[mode]) await this.fit(mode);
     await this.call('SetCurrentProgramScene', { sceneName: SCENES[mode] });
   }
-  async preview() {
-    const { currentProgramSceneName } = await this.call('GetCurrentProgramScene');
-    return (await this.call('GetSourceScreenshot', { sourceName: currentProgramSceneName, imageFormat: 'jpeg', imageWidth: 640, imageCompressionQuality: 60 })).imageData;
+  async ensurePythonSources() {
+    await this.assertCollection();
+    const scenes = (await this.call('GetSceneList')).scenes.map(item => item.sceneName);
+    for (const sceneName of Object.values(PYTHON_SCENES)) if (!scenes.includes(sceneName)) await this.call('CreateScene', { sceneName });
+    const inputs = (await this.call('GetInputList')).inputs.map(item => item.inputName);
+    for (const mode of pythonModes) {
+      if (!inputs.includes(PYTHON_INPUTS[mode])) await this.call('CreateInput', { sceneName: PYTHON_SCENES[mode], inputName: PYTHON_INPUTS[mode],
+        inputKind: mode === 'screen' ? 'monitor_capture' : 'window_capture',
+        inputSettings: mode === 'screen' ? { monitor: 0, capture_cursor: true } : { priority: 0, method: 2, client_area: true, cursor: true, capture_audio: false }, sceneItemEnabled: true });
+    }
+    if (!inputs.includes(PYTHON_INPUTS.mic)) await this.call('CreateInput', { sceneName: PYTHON_SCENES.window, inputName: PYTHON_INPUTS.mic,
+      inputKind: 'wasapi_input_capture', inputSettings: { device_id: 'default' }, sceneItemEnabled: true });
+    for (const sceneName of Object.values(PYTHON_SCENES)) {
+      const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+      if (!sceneItems.some(item => item.sourceName === PYTHON_INPUTS.mic)) await this.call('CreateSceneItem', { sceneName, sourceName: PYTHON_INPUTS.mic, sceneItemEnabled: true });
+    }
+    await this.call('SetInputAudioMonitorType', { inputName: PYTHON_INPUTS.mic, monitorType: 'OBS_MONITORING_TYPE_NONE' });
+    await this.call('SetInputAudioTracks', { inputName: PYTHON_INPUTS.mic, inputAudioTracks: { '1': true, '2': false, '3': false, '4': false, '5': false, '6': false } });
+  }
+  async configurePython(config) {
+    await this.assertCollection();
+    for (const mode of pythonModes) if (config[mode]) {
+      await this.call('SetInputSettings', { inputName: PYTHON_INPUTS[mode], inputSettings: { [mode === 'screen' ? 'monitor_id' : 'window']: config[mode] }, overlay: true });
+      await this.fitPython(mode);
+    }
+    if (config.mic) await this.call('SetInputSettings', { inputName: PYTHON_INPUTS.mic, inputSettings: { device_id: config.mic }, overlay: true });
+    await this.call('SetInputMute', { inputName: PYTHON_INPUTS.mic, inputMuted: false });
+  }
+  async fitPython(mode) {
+    const sceneName = PYTHON_SCENES[mode];
+    const { sceneItemId } = await this.call('GetSceneItemId', { sceneName, sourceName: PYTHON_INPUTS[mode] });
+    const { baseWidth, baseHeight } = await this.call('GetVideoSettings');
+    await this.call('SetSceneItemTransform', { sceneName, sceneItemId, sceneItemTransform: { positionX: 0, positionY: 0, rotation: 0,
+      boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsWidth: baseWidth, boundsHeight: baseHeight, boundsAlignment: 0 } });
+  }
+  async selectPython(mode) {
+    if (!PYTHON_SCENES[mode]) throw new Error('Неизвестный режим записи Python');
+    await this.assertCollection();
+    await this.fitPython(mode);
+    await this.call('SetCurrentProgramScene', { sceneName: PYTHON_SCENES[mode] });
+  }
+  async preview(sourceName) {
+    const sceneName = sourceName || (await this.call('GetCurrentProgramScene')).currentProgramSceneName;
+    return (await this.call('GetSourceScreenshot', { sourceName: sceneName, imageFormat: 'jpeg', imageWidth: 640, imageCompressionQuality: 60 })).imageData;
   }
   async status() {
     await this.assertCollection();
     const recording = await this.call('GetRecordStatus');
     const scene = await this.call('GetCurrentProgramScene');
-    return { ...recording, scene: scene.currentProgramSceneName, meters: (this.meters || []).filter((m) => [INPUTS.mic, INPUTS.telemost].includes(m.inputName)) };
+    return { ...recording, scene: scene.currentProgramSceneName, meters: (this.meters || []).filter((m) => [INPUTS.mic, INPUTS.telemost, PYTHON_INPUTS.mic].includes(m.inputName)) };
   }
-  async start(id) {
+  async start(id, captureProfile, captureMode) {
     await this.assertCollection();
     if ((await this.call('GetRecordStatus')).outputActive) throw new Error('В OBS уже идёт запись. Завершите её или восстановите текущую запись в пульте.');
-    await this.select('platform');
+    if (captureProfile === 'python') await this.selectPython(captureMode);
+    else await this.select('platform');
     await this.call('SetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting', parameterValue: `lesson-${id}` });
     await this.call('StartRecord');
   }
