@@ -169,7 +169,7 @@ function updateWizard(active){
   $('test-approval').classList.toggle('hidden',!playedTestId||playedTestId!==test?.id);$('confirm-test').disabled=!$('test-heard').checked||busy;
 }
 function fill(id,items,selected){const select=$(id);const value=selected||select.value;const available=(items||[]).filter(x=>x.itemEnabled);select.innerHTML='<option value="">Выберите…</option>'+available.map(x=>`<option value="${esc(x.itemValue)}">${esc(x.itemName)}</option>`).join('');if(value&&!available.some(x=>x.itemValue===value)){const missing=document.createElement('option');missing.value=value;missing.textContent='Сохранённое окно / устройство недоступно';missing.disabled=true;select.append(missing);}select.value=value;}
-let pythonChoices;let pythonPreviewRevision=0;
+let pythonChoices;let pythonPreviewRevision=0;let pythonPanelVisible=false;
 async function choices(){const v=await request('/choices');pythonChoices=v;['platform','telemost','mic','screen'].forEach(k=>fill(k,v[k],current?.config[k]));fill('platform-source',v.platform,current?.config.platform);fill('program',v.platform,current?.config.program);for(const k of ['platform','window','screen','mic'])fill('python-'+k,v[k==='window'?'platform':k],current?.config.pythonCapture?.[k]);if(current){renderPlatformSource();renderPythonSources();}void pythonPreview();}
 
 function renderPythonSources(active=current?.jobs.find(j=>['starting','recording','stopping'].includes(j.status)),view=pythonPauseView(current,pythonPausePending,recordingUnavailable)){
@@ -188,9 +188,9 @@ function renderPythonSources(active=current?.jobs.find(j=>['starting','recording
   document.querySelectorAll('[data-scene]').forEach(b=>b.disabled=busy||own);for(const id of ['program','auto-follow','auto-office'])$(id).disabled=busy||own;
 }
 async function pythonPreview(){
-  if(document.hidden||!$('python-recorder').open)return;const config=current?.config.pythonCapture;const revision=pythonPreviewRevision;
+  if(document.hidden||!pythonPanelVisible||!$('python-recorder').open)return;const config=current?.config.pythonCapture;const revision=pythonPreviewRevision;
   if(!config?.[config.mode]){$('python-preview').removeAttribute('src');$('python-preview-empty').classList.remove('hidden');return;}
-  try{const result=await request('/python/preview');if(revision!==pythonPreviewRevision)return;$('python-preview').src=result.image;$('python-preview-empty').classList.add('hidden');}
+  try{const result=await request('/python/preview',{active:true});if(revision!==pythonPreviewRevision)return;$('python-preview').src=result.image;$('python-preview-empty').classList.add('hidden');}
   catch(e){if(revision!==pythonPreviewRevision)return;$('python-preview').removeAttribute('src');$('python-preview-empty').textContent='Предпросмотр недоступен';$('python-preview-empty').classList.remove('hidden');$('python-preview-note').textContent=e.message;}
 }
 async function savePythonSource(payload){
@@ -229,7 +229,9 @@ $('finish-setup').onclick=()=>act(async()=>{await request('/complete-setup',{});
 $('fallback-refresh').onclick=()=>act(async()=>{const v=await request('/choices');fill('fallback-audio',v.telemost,'');fill('fallback-window',v.platform,'');});
 $('fallback-start').onclick=()=>act(()=>request('/fallback',{window:$('fallback-window').value,audio:$('fallback-audio').value,title:$('fallback-title').value}));
 try{$('python-recorder').open=localStorage.getItem('ivan100.pythonPanel.open')!=='false';}catch{}
-$('python-recorder').addEventListener('toggle',()=>{try{localStorage.setItem('ivan100.pythonPanel.open',String($('python-recorder').open));}catch{}if($('python-recorder').open)void pythonPreview();});
+$('python-recorder').addEventListener('toggle',()=>{try{localStorage.setItem('ivan100.pythonPanel.open',String($('python-recorder').open));}catch{}if($('python-recorder').open)void pythonPreview();else void request('/python/preview',{active:false}).catch(()=>{});});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)void request('/python/preview',{active:false}).catch(()=>{});else void pythonPreview();});
+new IntersectionObserver(entries=>{pythonPanelVisible=entries[0].isIntersecting;if(pythonPanelVisible)void pythonPreview();else void request('/python/preview',{active:false}).catch(()=>{});}).observe($('python-recorder'));
 for(const k of ['platform','window','screen','mic'])$('python-'+k).onchange=()=>{const value=$('python-'+k).value;return act(()=>savePythonSource({[k]:value}));};
 document.querySelectorAll('[data-python-mode]').forEach(b=>b.onclick=()=>act(()=>savePythonSource({mode:b.dataset.pythonMode})));
 $('python-refresh-windows').onclick=()=>act(choices);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pythonCaptureConfig, pythonCaptureReason, configurePythonCapture } from './python-capture.mjs';
+import { pythonCaptureConfig, pythonCaptureReason, configurePythonCapture, PythonPreviewSession } from './python-capture.mjs';
 import { ObsClient, INPUTS, SCENES, PYTHON_INPUTS, PYTHON_SCENES } from './obs.mjs';
 
 const item = value => ({ itemEnabled: true, itemValue: value });
@@ -77,4 +77,25 @@ test('dedicated OBS sources include only their own microphone and preview does n
   await obs.selectPython('window'); assert.equal(calls.at(-1)[1].sceneName, PYTHON_SCENES.window);
   assert.ok(calls.some(([type, p]) => type === 'SetSceneItemTransform' && p.sceneItemTransform.boundsWidth === 2560));
   assert.equal(calls.some(([, p]) => p.inputName === INPUTS.telemost || p.sceneName === SCENES.platform), false);
+});
+
+function previewFixture() {
+  let now=0,scene=SCENES.platform,output=false,stream=false;const switches=[];
+  const obs={status:async()=>({outputActive:output,scene}),call:async(type,data)=>{if(type==='GetStreamStatus')return {outputActive:stream};if(type==='SetCurrentProgramScene'){scene=data.sceneName;switches.push(scene);}},selectPython:async mode=>{scene=PYTHON_SCENES[mode];switches.push(scene);},preview:async name=>name===scene?'live frame':'black frame'};
+  return {session:new PythonPreviewSession({obs,now:()=>now}),switches,scene:()=>scene,time:value=>now=value,output:value=>output=value,stream:value=>stream=value,manual:value=>scene=value};
+}
+test('visible idle Python preview activates its sources, switches modes, then restores the preceding scene on release or timeout',async()=>{
+  const f=previewFixture();assert.equal(await f.session.image('screen',{idle:true}),'live frame');assert.equal(f.scene(),PYTHON_SCENES.screen);
+  f.time(5000);await f.session.image('window',{idle:true});f.time(16000);await f.session.expire();assert.equal(f.scene(),PYTHON_SCENES.window);
+  f.time(17000);await f.session.expire();assert.equal(f.scene(),SCENES.platform);
+  await f.session.image('screen',{idle:true});await f.session.release();assert.equal(f.scene(),SCENES.platform);
+});
+test('preview does not redirect an active lesson, foreign output, stream or busy operation, and release preserves a newer scene',async()=>{
+  for(const change of ['output','stream']){const f=previewFixture();f[change](true);await assert.rejects(f.session.image('screen',{idle:true}),/урока|трансляции/);assert.deepEqual(f.switches,[]);}
+  const busy=previewFixture();await assert.rejects(busy.session.image('screen',{idle:false}),/операции/);assert.deepEqual(busy.switches,[]);
+  const active=previewFixture();await active.session.image('screen',{idle:true});active.output(true);await active.session.release();assert.equal(active.scene(),PYTHON_SCENES.screen);
+  const manual=previewFixture();await manual.session.image('screen',{idle:true});manual.manual(SCENES.window);await manual.session.release();assert.equal(manual.scene(),SCENES.window);
+});
+test('preview of the current Python recording reads its active scene without a scene switch or a restoration lease',async()=>{
+  const f=previewFixture();f.manual(PYTHON_SCENES.window);f.output(true);assert.equal(await f.session.image('window',{ownRecording:true}),'live frame');await f.session.release();assert.deepEqual(f.switches,[]);
 });

@@ -105,6 +105,10 @@ if (process.argv.includes('--serve')) {
     assert.deepEqual({ ...configured.config, pythonCapture: undefined, token: f.ordinary.token }, { ...f.ordinary, pythonCapture: undefined });
     assert.equal((await f.request('/qa/events')).value.scene, 'IVAN100 — Платформа', 'Preview setup does not switch the lesson');
     assert.equal((await f.request('/python/preview')).status, 200);
+    assert.equal((await f.request('/python/preview', {active:true})).status,200);
+    assert.equal((await f.request('/qa/events')).value.scene, 'IVAN100 Python — Редактор');
+    assert.equal((await f.request('/python/preview', {active:false})).status,200);
+    assert.equal((await f.request('/qa/events')).value.scene, 'IVAN100 — Платформа');
     assert.equal((await f.request('/python/start', { taskNumber: 101, subsectionId: '__default__', expectedUrl: '', title: 'Тест Python' })).status, 200);
     let current = (await f.request('/state')).value; const id = current.jobs[0].id;
     assert.equal(current.jobs[0].captureProfile, 'python'); assert.equal(current.obs.scene, 'IVAN100 Python — Редактор');
@@ -119,6 +123,7 @@ if (process.argv.includes('--serve')) {
     assert.equal((await f.request('/qa/lesson', {})).status, 200);
     current = (await f.request('/state')).value; assert.equal(current.obs.scene, 'IVAN100 — Платформа'); assert.equal(current.config.platform, 'lesson-platform');
     assert.equal((await f.request('/python/configure', { window: 'python-editor' })).status, 400);
+    assert.equal((await f.request('/python/preview', {active:true})).status,400,'A normal lesson must not be redirected by the Python preview');
     assert.equal((await f.request('/material/stop', { id })).status, 400, 'Stale Python finish must not stop the ordinary lesson');
     const rpc = (await f.request('/qa/events')).value;
     assert.equal(rpc.settings['IVAN100: платформа'].window, 'lesson-platform'); assert.equal(rpc.settings['IVAN100: микрофон'].device_id, 'lesson-mic');

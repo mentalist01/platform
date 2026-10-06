@@ -11,7 +11,7 @@ import { startDay } from './start-day.mjs';
 import { ShareBridge } from './share-bridge.mjs';
 import { ForegroundWindowReader, OfficeFollower } from './office-follow.mjs';
 import { ObsClient, SCENES, INPUTS, PYTHON_SCENES } from './obs.mjs';
-import { pythonCaptureConfig, pythonCaptureReason, configurePythonCapture } from './python-capture.mjs';
+import { pythonCaptureConfig, pythonCaptureReason, configurePythonCapture, PythonPreviewSession } from './python-capture.mjs';
 import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
@@ -40,6 +40,7 @@ for (const job of Object.values(state.jobs)) {
 }
 const runtime = readJson(path.join(here, 'runtime.json'), {});
 const obs = new ObsClient(runtime.obs ? { executable: runtime.obs } : {});
+const pythonPreviewSession = new PythonPreviewSession({ obs });
 const uploader = new RutubeUploader(directory);
 const localKey = crypto.randomBytes(32).toString('base64url');
 let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBusy = false; let uploadingId = '';
@@ -69,6 +70,7 @@ const engine = new RecorderEngine({ obs, state, save, api, recordDirectory, read
 updater = new RecorderUpdater({ directory, here, config: () => state.config, assertIdle: setupIdle,
   report: () => api('/poll', {}),
   shutdown: async () => {
+    await pythonPreviewSession.release();
     runtimeWatchdog?.suspend('update');
     await uploader.context?.close().catch(() => {}); foregroundReader.stop(); save();
     server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 1000);
@@ -290,6 +292,7 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/shutdown') {
       if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу и дождитесь завершения текущей операции');
       if (engine.active() || uploadingId || queueBusy || (obs.connected && (await obs.status()).outputActive)) throw new Error('Сначала дождитесь окончания записи и загрузки');
+      await pythonPreviewSession.release();
       runtimeWatchdog?.suspend('idle shutdown');
       await uploader.context?.close(); save();
       json(res, 200, { ok: true });
@@ -311,6 +314,18 @@ const server = http.createServer(async (req, res) => {
     }
     await serialize(async () => {
       if (updater.busy) throw new Error('Пульт обновляется. Подождите завершения.');
+      if (req.url === '/python/preview') {
+        if (payload.active === false) { await pythonPreviewSession.release(); return; }
+        const selected = pythonCaptureConfig(state.config.pythonCapture);
+        if (!selected[selected.mode]) throw new Error('Выберите источник изображения для Python');
+        const active = engine.active();
+        const image = await pythonPreviewSession.image(selected.mode, {
+          idle: !active && !uploadingId && !queueBusy && !archive.work && !archive.setup && !archive.submitting,
+          ownRecording: Boolean(active?.pythonTheory && active.status === 'recording'),
+        });
+        json(res, 200, { image }); return;
+      }
+      if (!req.url.startsWith('/python/') && !req.url.startsWith('/material/')) await pythonPreviewSession.release();
       if (engine.active()?.pythonTheory && ['/scene', '/program', '/auto-follow', '/auto-office', '/fallback'].includes(req.url)) throw new Error('Для записи Python используйте источники в отдельном пульте Python');
       if (req.url === '/recover-file') {
         // Import a deliberately prepared replacement, never the unfinished
@@ -436,7 +451,7 @@ const server = http.createServer(async (req, res) => {
         const child = spawn('explorer.exe', ['/select,', target], { detached: true, stdio: 'ignore', windowsHide: true }); child.unref();
       } else throw new Error('Неизвестная команда');
     });
-    error = ''; json(res, 200, { ok: true });
+    error = ''; if (!res.writableEnded) json(res, 200, { ok: true });
   } catch (failure) { json(res, 400, { error: failure.message }); }
 });
 server.on('error', (failure) => { console.error(failure.code === 'EADDRINUSE' ? 'Пульт уже запущен' : failure.message); process.exit(1); });
@@ -458,6 +473,7 @@ setInterval(() => {
   if (ticking || updater.busy) return; ticking = true;
   void serialize(async () => {
     try {
+      await pythonPreviewSession.expire();
       let platformError = '';
       try { await engine.tick(); } catch (failure) { platformError = failure.message; }
       if (ready() || obs.connected) {
