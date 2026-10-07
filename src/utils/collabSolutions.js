@@ -3,6 +3,11 @@ export const COLLAB_SOLUTIONS_MAP_KEY = 'codeSolutions';
 export const COLLAB_SOLUTIONS_DELETED_KEY = 'codeSolutionsDeleted';
 export const COLLAB_SOLUTIONS_ORDER_KEY = 'codeSolutionsOrder';
 export const MAX_COLLAB_SOLUTIONS = 20;
+export const DEFAULT_COLLAB_CODE_PAGE_ID = 'page-main';
+export const COLLAB_CODE_PAGES_KEY = 'codePages';
+export const COLLAB_CODE_PAGES_DELETED_KEY = 'codePagesDeleted';
+export const COLLAB_SOLUTION_PAGES_KEY = 'codeSolutionPages';
+export const MAX_COLLAB_CODE_PAGES = 20;
 
 export const DEFAULT_SOLUTION_NAME = 'Основной код';
 const MAX_SOLUTION_NAME_LENGTH = 80;
@@ -67,6 +72,81 @@ export const getCollabSolutionChannels = (doc, id = DEFAULT_COLLAB_SOLUTION_ID) 
   };
 };
 
+// Legacy channels and tab IDs stay intact on the virtual first page. A page
+// only groups these channels; switching never copies or replaces their text.
+export const getCollabSolutionPageId = (doc, id) => (
+  doc.getMap(COLLAB_SOLUTION_PAGES_KEY).get(id) || DEFAULT_COLLAB_CODE_PAGE_ID
+);
+
+export const listCollabCodePages = (doc) => {
+  const catalog = doc.getMap(COLLAB_CODE_PAGES_KEY);
+  const deleted = doc.getMap(COLLAB_CODE_PAGES_DELETED_KEY);
+  const main = { id: DEFAULT_COLLAB_CODE_PAGE_ID,
+    name: typeof catalog.get(DEFAULT_COLLAB_CODE_PAGE_ID)?.name === 'string' && catalog.get(DEFAULT_COLLAB_CODE_PAGE_ID).name.trim()
+      ? catalog.get(DEFAULT_COLLAB_CODE_PAGE_ID).name.trim() : 'Страница 1',
+    mainSolutionId: DEFAULT_COLLAB_SOLUTION_ID, createdAt: 0 };
+  const others = [];
+  for (const [id, row] of catalog.entries()) {
+    if (id === main.id || deleted.get(id) === true || !/^[a-zA-Z0-9_-]{1,80}$/.test(id)
+      || typeof row?.name !== 'string' || !row.name.trim() || !/^[a-zA-Z0-9_-]{1,100}$/.test(row.mainSolutionId || '')) continue;
+    others.push({ id, name: row.name.trim(), mainSolutionId: row.mainSolutionId, createdAt: normalizeCreatedAt(row.createdAt) });
+  }
+  return [main, ...others.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id, 'en'))];
+};
+
+export const listCollabPageSolutions = (doc, pageId = DEFAULT_COLLAB_CODE_PAGE_ID) => (
+  listCollabSolutions(doc).filter(solution => getCollabSolutionPageId(doc, solution.id) === pageId)
+);
+
+const requirePage = (doc, id) => {
+  const page = listCollabCodePages(doc).find(item => item.id === id);
+  if (!page) throw new Error('Страница кода не найдена.');
+  return page;
+};
+
+export const createCollabCodePage = (doc, { name, id = globalThis.crypto.randomUUID(), createdAt = Date.now() } = {}) => {
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw new Error('Некорректный идентификатор страницы.');
+  const title = normalizeName(name);
+  const catalog = doc.getMap(COLLAB_CODE_PAGES_KEY);
+  if (id === DEFAULT_COLLAB_CODE_PAGE_ID || catalog.has(id)) throw new Error('Такая страница уже существует.');
+  if (listCollabCodePages(doc).length >= MAX_COLLAB_CODE_PAGES) throw new Error(`Можно создать не больше ${MAX_COLLAB_CODE_PAGES} страниц кода.`);
+  const mainSolutionId = `page-${id}`;
+  const channels = getCollabSolutionChannels(doc, mainSolutionId);
+  if (doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).has(mainSolutionId) || channels.codeText.length || channels.testFileText.length || channels.runMap.size) {
+    throw new Error('Данные этой страницы уже существуют.');
+  }
+  const page = { id, name: title, mainSolutionId, createdAt: normalizeCreatedAt(createdAt) };
+  doc.transact(() => {
+    catalog.set(id, page);
+    createEmptyCollabSolution(doc, { id: mainSolutionId, name: DEFAULT_SOLUTION_NAME, pageId: id, createdAt });
+  }, 'collab-pages:create');
+  return page;
+};
+
+export const renameCollabCodePage = (doc, id, name) => {
+  const page = requirePage(doc, id);
+  doc.getMap(COLLAB_CODE_PAGES_KEY).set(id, { ...page, name: normalizeName(name) });
+};
+
+export const deleteCollabCodePage = (doc, id) => {
+  requirePage(doc, id);
+  if (id === DEFAULT_COLLAB_CODE_PAGE_ID) throw new Error('Первую страницу с прежними кодами удалить нельзя.');
+  doc.getMap(COLLAB_CODE_PAGES_DELETED_KEY).set(id, true);
+};
+
+export const restoreCollabCodePage = (doc, id) => {
+  if (!doc.getMap(COLLAB_CODE_PAGES_KEY).has(id)) throw new Error('Страница кода не найдена.');
+  if (listCollabCodePages(doc).length >= MAX_COLLAB_CODE_PAGES) throw new Error(`Можно создать не больше ${MAX_COLLAB_CODE_PAGES} страниц кода.`);
+  doc.getMap(COLLAB_CODE_PAGES_DELETED_KEY).set(id, false);
+};
+
+export const resolveCollabPageSelection = (doc, saved = {}) => {
+  const page = listCollabCodePages(doc).find(item => item.id === saved?.pageId) || listCollabCodePages(doc)[0];
+  const solutions = listCollabPageSolutions(doc, page.id);
+  const preferred = saved?.byPage?.[page.id] || saved?.solutionId;
+  return { pageId: page.id, solutionId: solutions.some(item => item.id === preferred) ? preferred : page.mainSolutionId };
+};
+
 export const listCollabSolutions = (doc) => {
   const solutions = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY);
   const mainName = solutions.get(DEFAULT_COLLAB_SOLUTION_ID)?.name;
@@ -102,8 +182,10 @@ export const listCollabSolutions = (doc) => {
   return ordered;
 };
 
-export const reorderCollabSolutions = (doc, orderedIds) => {
-  const current = listCollabSolutions(doc);
+export const reorderCollabSolutions = (doc, orderedIds, pageId) => {
+  if (pageId) requirePage(doc, pageId);
+  const all = listCollabSolutions(doc);
+  const current = pageId ? listCollabPageSolutions(doc, pageId) : all;
   const currentIds = current.map((solution) => solution.id);
   const requested = Array.isArray(orderedIds)
     ? orderedIds.map((id) => normalizeId(id))
@@ -116,9 +198,11 @@ export const reorderCollabSolutions = (doc, orderedIds) => {
     throw new Error('Некорректный порядок вкладок.');
   }
   const order = doc.getArray(COLLAB_SOLUTIONS_ORDER_KEY);
+  let index = 0;
+  const next = pageId ? all.map(item => currentIds.includes(item.id) ? requested[index++] : item.id) : requested;
   doc.transact(() => {
     if (order.length) order.delete(0, order.length);
-    if (requested.length) order.insert(0, requested);
+    if (next.length) order.insert(0, next);
   }, 'collab-solutions:reorder');
   return listCollabSolutions(doc);
 };
@@ -136,16 +220,19 @@ export const createCollabSolution = (doc, {
   name,
   id = globalThis.crypto.randomUUID(),
   createdAt = Date.now(),
+  pageId,
 } = {}) => {
   const solutionId = normalizeId(id);
   const solutionName = normalizeName(name);
   const sourceSolutionId = sourceId === null ? null : requireSolution(doc, sourceId);
+  const targetPageId = pageId || (sourceSolutionId ? getCollabSolutionPageId(doc, sourceSolutionId) : DEFAULT_COLLAB_CODE_PAGE_ID);
+  requirePage(doc, targetPageId);
   const solutions = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY);
   if (solutionId === DEFAULT_COLLAB_SOLUTION_ID || solutions.has(solutionId)) {
     throw new Error('Решение с таким идентификатором уже существует.');
   }
-  if (listCollabSolutions(doc).length >= MAX_COLLAB_SOLUTIONS) {
-    throw new Error(`Можно сохранить не больше ${MAX_COLLAB_SOLUTIONS} решений.`);
+  if (listCollabPageSolutions(doc, targetPageId).length >= MAX_COLLAB_SOLUTIONS) {
+    throw new Error(`Можно сохранить не больше ${MAX_COLLAB_SOLUTIONS} решений на одной странице.`);
   }
 
   const source = sourceSolutionId === null ? null : getCollabSolutionChannels(doc, sourceSolutionId);
@@ -194,6 +281,7 @@ export const createCollabSolution = (doc, {
     for (const [key, value] of Object.entries(runState)) destination.runMap.set(key, value);
     // Publish the tab only after all of its content has been initialized.
     solutions.set(solutionId, metadata);
+    if (targetPageId !== DEFAULT_COLLAB_CODE_PAGE_ID) doc.getMap(COLLAB_SOLUTION_PAGES_KEY).set(solutionId, targetPageId);
   }, 'collab-solutions:create');
   return metadata;
 };
@@ -217,14 +305,17 @@ export const renameCollabSolution = (doc, id, name) => {
 // Keep the channels intact so late edits merge safely and deletion can be undone.
 export const deleteCollabSolution = (doc, id) => {
   const solutionId = requireSolution(doc, id);
-  if (solutionId === DEFAULT_COLLAB_SOLUTION_ID) throw new Error('Основную вкладку удалить нельзя.');
+  const page = doc.getMap(COLLAB_CODE_PAGES_KEY).get(getCollabSolutionPageId(doc, solutionId));
+  if (solutionId === DEFAULT_COLLAB_SOLUTION_ID || solutionId === page?.mainSolutionId) throw new Error('Основную вкладку удалить нельзя.');
   doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY).set(solutionId, true);
 };
 
 export const restoreCollabSolution = (doc, id) => {
   const solutionId = normalizeId(id);
   if (!doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).has(solutionId)) throw new Error('Вариант не найден.');
-  if (listCollabSolutions(doc).length >= MAX_COLLAB_SOLUTIONS) {
+  const pageId = getCollabSolutionPageId(doc, solutionId);
+  requirePage(doc, pageId);
+  if (listCollabPageSolutions(doc, pageId).length >= MAX_COLLAB_SOLUTIONS) {
     throw new Error(`Можно сохранить не больше ${MAX_COLLAB_SOLUTIONS} решений.`);
   }
   doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY).set(solutionId, false);

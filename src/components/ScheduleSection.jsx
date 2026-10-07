@@ -11,6 +11,9 @@ import { prepareMonthlyMockHomeworkGoals } from '../utils/monthlyMockExam';
 import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
+const LearningGroupsSection = React.lazy(() => import('./LearningGroupsSection'));
+import { buildLearningGroupTargetValue, parseLessonTargetValue } from '../utils/lessonTargets';
+import { partitionConcurrentHomeworks, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
 import { StudentPaceHistory } from './StudentLessonPace';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
@@ -656,6 +659,8 @@ const ScheduleSection = ({
   showHeader = true,
   studentId,
   students,
+  groups = [],
+  teacherId = '',
   activeStudentId,
   onSelectStudent,
   studentsLoading,
@@ -722,6 +727,7 @@ const ScheduleSection = ({
     type: type === GOAL_TYPE_MOCK ? GOAL_TYPE_MOCK : GOAL_TYPE_TASK,
   });
   const [homeworks, setHomeworks] = useState([]);
+  const [scheduleGroupId, setScheduleGroupId] = useState('');
   const [homeworkMaterials, setHomeworkMaterials] = useState([]);
   const [nextLesson, setNextLesson] = useState({ homeWork: '', lessonLink: '', boardLink: '', dueAt: '', dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL, daysToComplete: 7, issuedAt: '', checklistItems: [], taskNumber: null, levelId: null, targetQuestions: [], targetQuestionIds: [], goals: [], dayPlan: null });
   const [form, setForm] = useState({
@@ -1629,12 +1635,19 @@ const ScheduleSection = ({
     if (role !== 'teacher') return null;
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-500">Ученик:</span>
+        <span className="text-sm text-gray-500">Ученик или группа:</span>
         <StudentSearchSelect
           students={studentsList}
-          value={activeStudentId || ''}
-          onChange={(value) => onSelectStudent?.(value || null)}
-          disabled={studentsLoading || studentsList.length === 0}
+          groups={groups}
+          placeholder="Выберите ученика или группу"
+          ariaLabel="Выберите ученика или группу"
+          value={scheduleGroupId ? buildLearningGroupTargetValue(scheduleGroupId) : (activeStudentId || '')}
+          onChange={(value) => {
+            const target = parseLessonTargetValue(value);
+            setScheduleGroupId(target.type === 'group' ? target.id : '');
+            if (target.type !== 'group') onSelectStudent?.(value || null);
+          }}
+          disabled={studentsLoading || (studentsList.length === 0 && groups.length === 0)}
           className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
         />
       </div>
@@ -2830,8 +2843,16 @@ const ScheduleSection = ({
     testsDbError,
   ]);
 
-  const nextHomeworkEntry = sortedHomeworks[0] || null;
-  const previousHomeworkEntries = sortedHomeworks.slice(1);
+  const { active: activeHomeworkEntries, history: previousHomeworkEntries } = partitionConcurrentHomeworks(
+    sortedHomeworks, homeworkClock, entry => {
+      const summary = summarizeGoalViews(normalizeEntryGoals(entry).map((goal, index) => buildGoalView(goal, index)).filter(Boolean));
+      const checklist = getHomeworkChecklistItems(entry);
+      return (summary.goalCount > 0 || checklist.length > 0)
+        && (summary.goalCount === 0 || (summary.requiredCompleted && (summary.optionalGoals.length === 0 || summary.optionalCompleted)))
+        && checklist.every(item => item.completedAt);
+    }
+  );
+  const nextHomeworkEntry = activeHomeworkEntries[0] || null;
   const totalHomeworkCount = sortedHomeworks.length;
   const roadmapFocusTaskNumbers = useMemo(() => {
     const next = new Set();
@@ -2844,7 +2865,7 @@ const ScheduleSection = ({
     return next;
   }, [nextHomeworkEntry]);
 
-  const buildGoalView = (goal, goalIndex = 0) => {
+  function buildGoalView(goal, goalIndex = 0) {
     const goalType = normalizeGoalType(goal);
     if (goalType === GOAL_TYPE_MOCK) {
       const mockExamId = normalizeMockExamId(goal?.mockExamId);
@@ -2930,7 +2951,7 @@ const ScheduleSection = ({
     };
   };
 
-  const summarizeGoalViews = (goalViews) => {
+  function summarizeGoalViews(goalViews) {
     const list = Array.isArray(goalViews) ? goalViews : [];
     const requiredGoals = list.filter((item) => !isOptionalHomeworkGoal(item));
     const optionalGoals = list.filter((item) => isOptionalHomeworkGoal(item));
@@ -2991,11 +3012,13 @@ const ScheduleSection = ({
   const nextHomeworkPendingShortLabel = nextHomeworkPendingGoal?.heading
     ? String(nextHomeworkPendingGoal.heading).split('·')[0].trim()
     : '';
-  const nextHomeworkRewardEntryKey = String(nextHomeworkEntry?.id || '') || 'current-homework';
-  const nextHomeworkRewardEligible = nextHomeworkSummary.requiredGoals.length > 0
-    && nextHomeworkSummary.requiredGoals.every((goal) => Number(goal?.totalCount) > 0);
-  const nextHomeworkRewardGranted = Boolean(nextHomeworkEntry?.homeworkChestGrantedAt);
-  const nextHomeworkRewardDueAt = resolveHomeworkDueAt(nextHomeworkEntry);
+  const rewardDialogEntry = activeHomeworkEntries.find(entry => String(entry.id || 'current-homework') === homeworkRewardDialogEntryId);
+  const rewardDialogSummary = summarizeGoalViews(normalizeEntryGoals(rewardDialogEntry).map(buildGoalView).filter(Boolean));
+  const nextHomeworkRewardEntryKey = String(rewardDialogEntry?.id || '') || 'current-homework';
+  const nextHomeworkRewardEligible = rewardDialogSummary.requiredGoals.length > 0
+    && rewardDialogSummary.requiredGoals.every((goal) => Number(goal?.totalCount) > 0);
+  const nextHomeworkRewardGranted = Boolean(rewardDialogEntry?.homeworkChestGrantedAt);
+  const nextHomeworkRewardDueAt = resolveHomeworkDueAt(rewardDialogEntry);
   const nextHomeworkRewardExpired = Boolean(
     nextHomeworkRewardDueAt
     && nextHomeworkRewardDueAt.getTime() < Number(homeworkClock)
@@ -3003,7 +3026,7 @@ const ScheduleSection = ({
   );
   const nextHomeworkRewardVisible = nextHomeworkRewardEligible && (
     nextHomeworkRewardGranted
-    || (!nextHomeworkSummary.requiredCompleted && !nextHomeworkRewardExpired)
+    || (!rewardDialogSummary.requiredCompleted && !nextHomeworkRewardExpired)
   );
   useEffect(() => {
     if (!homeworkRewardDialogEntryId) return;
@@ -3218,7 +3241,7 @@ const ScheduleSection = ({
 
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
-    const isNextSection = section === 'next';
+    const isNextSection = section === 'next' || section === 'active';
     const dateText = formatDate(entry?.issuedAt);
     const isLearningGroupHomework = String(entry?.source || '').trim() === 'learning-group'
       && Boolean(String(entry?.learningGroupId || '').trim());
@@ -3248,7 +3271,7 @@ const ScheduleSection = ({
     const tracksNextLesson = normalizeHomeworkDueAtMode(entry?.dueAtMode)
       === HOMEWORK_DUE_AT_MODE_NEXT_LESSON;
     const sectionLabel = isNextSection
-      ? (tracksNextLesson ? 'К следующему уроку' : 'Срок задан вручную')
+      ? (homeworkStudyTrackLabel(entry.studyTrack) || (tracksNextLesson ? 'К следующему уроку' : 'Текущая домашка'))
       : 'Предыдущая домашка';
     const summaryStatus = goalsSummary.goalCount === 0
       ? (isLearningGroupHomework
@@ -5149,6 +5172,25 @@ const ScheduleSection = ({
     }
   };
 
+  if (role === 'teacher' && scheduleGroupId) {
+    return <div className="space-y-4" data-tour="schedule">
+      <Card className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-2xl font-bold">Моё расписание</h2><p className="text-sm text-gray-500">Расписание и домашние задания всей группы</p></div>
+        {renderStudentPicker()}
+      </Card>
+      <React.Suspense fallback={<p role="status">Загружаем домашку группы…</p>}>
+        <LearningGroupsSection key={scheduleGroupId} role={role} userId={teacherId} teacherId={teacherId}
+          students={studentsList} scheduleGroupId={scheduleGroupId} tasks={tasks}
+          GOAL_TYPE_TASK={GOAL_TYPE_TASK} GOAL_TYPE_MOCK={GOAL_TYPE_MOCK}
+          normalizeGoalType={normalizeGoalType} normalizeTaskNumber={normalizeTaskNumber}
+          isPythonTaskNumber={isPythonTaskNumber} getPythonTaskInfo={getPythonTaskInfo}
+          getTaskDisplayNumber={getTaskDisplayNumber} formatTaskNumber={formatTaskNumber}
+          normalizeMockExamId={normalizeMockExamId} PYTHON_TASKS={PYTHON_TASKS} PYTHON_LEVEL_ID={PYTHON_LEVEL_ID} LEVELS={LEVELS}
+          onOpenStudentHomework={id => { setScheduleGroupId(''); onSelectStudent?.(id); }} />
+      </React.Suspense>
+    </div>;
+  }
+
   if (role === 'teacher' && studentsList.length === 0) {
     return (
       <div className="animate-fadeIn space-y-4">
@@ -5897,6 +5939,9 @@ const ScheduleSection = ({
             <div ref={nextHomeworkFlyRef}>
               {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
             </div>
+            {activeHomeworkEntries.slice(1).map(entry => <div key={entry.id}>
+              {renderHomeworkEntryCard(entry, 'active', entry.id)}
+            </div>)}
 
             {role === 'student' ? (
               previousHomeworkEntries.length > 0 ? (

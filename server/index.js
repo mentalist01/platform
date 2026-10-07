@@ -296,6 +296,7 @@ import {
 } from './googleCalendarLearningGroups.js';
 import { installReadOnlyYWebsocketMessageFilter } from './collabReadOnly.js';
 import { normalizeCollabCodeDocument } from '../src/utils/collabSolutions.js';
+import { groupCodePresence } from './groupCodePresence.js';
 import {
   createLearningLessonAnswerMessage,
   filterLearningLessonAnswerMessages,
@@ -24028,6 +24029,7 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       learningGroupName: group.name,
       learningAssignmentId: assignment.id,
       learningAssignmentTitle: assignment.title || '',
+      studyTrack: homeworkTemplate.studyTrack || '',
       learningAssignmentStatus: assignment.status,
       learningAssignmentUpdatedAt: assignment.updatedAt || '',
       teacherId: assignment.teacherId,
@@ -24937,6 +24939,15 @@ app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute
     closeLearningLessonCollabConnections(updated);
   }
   return res.json({ lesson: serializeLearningLessonForAuth(updated, req.auth, group) });
+}));
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId/code-presence', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId, { manage: true });
+  if (!lesson) return;
+  res.set('Cache-Control', 'no-store');
+  return res.json(groupCodePresence({ docs: yWsUtils.docs, lesson, students: readStudentsDb() }));
 }));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handleLearningRoute((req, res) => {
@@ -43528,6 +43539,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 collabWss.on('connection', (ws, request) => {
+  ws.learningCollabAuth = request?.learningCollabAuth;
   const previousMessageListeners = new Set(ws.listeners('message'));
   setupWSConnection(ws, request);
   const access = request?.learningCollabAccess;

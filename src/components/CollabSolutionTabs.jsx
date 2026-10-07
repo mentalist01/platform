@@ -16,6 +16,7 @@ function nextSolutionName(solutions) {
 
 export default function CollabSolutionTabs({
   solutions = [],
+  mainSolutionId = DEFAULT_COLLAB_SOLUTION_ID,
   activeId,
   onSelect,
   onCreate,
@@ -37,6 +38,7 @@ export default function CollabSolutionTabs({
   readOnly = false,
   dark = false,
   peers = [],
+  participantPresence = null,
 }) {
   const inputId = useId();
   const formId = useId();
@@ -53,7 +55,7 @@ export default function CollabSolutionTabs({
   const [dragging, setDragging] = useState(null);
   const hasParticipantTabs = participants.length > 0;
   const visibleSolutionTabs = hasParticipantTabs
-    ? solutions.filter((solution) => solution.id !== DEFAULT_COLLAB_SOLUTION_ID)
+    ? solutions.filter((solution) => solution.id !== mainSolutionId)
     : solutions;
   const tabEntries = [
     ...participants.map((participant) => ({ ...participant, key: `participant:${participant.id}`, kind: 'participant' })),
@@ -187,7 +189,7 @@ export default function CollabSolutionTabs({
     if (overIndex < 0) return;
     next.splice(overIndex + (currentDrag.side === 'after' ? 1 : 0), 0, draggedId);
     if (currentDrag.kind === 'participant') onReorderParticipants?.(next);
-    else if (hasParticipantTabs) onReorder?.([DEFAULT_COLLAB_SOLUTION_ID, ...next]);
+    else if (hasParticipantTabs) onReorder?.([mainSolutionId, ...next]);
     else onReorder?.(next);
   };
 
@@ -248,12 +250,15 @@ export default function CollabSolutionTabs({
   const renderTab = (entry, index) => {
     const isParticipant = entry.kind === 'participant';
     const selected = isParticipant
-      ? entry.id === activeParticipantId && activeId === DEFAULT_COLLAB_SOLUTION_ID
+      ? entry.id === activeParticipantId && activeId === mainSolutionId
       : entry.id === activeId;
     const viewers = (!isParticipant || entry.id === activeParticipantId)
-      ? peers.filter((peer) => peer.solutionId === (isParticipant ? DEFAULT_COLLAB_SOLUTION_ID : entry.id))
+      ? peers.filter((peer) => peer.solutionId === (isParticipant ? mainSolutionId : entry.id))
       : [];
     const viewerNames = viewers.map((peer) => peer.name || 'Участник').join(', ');
+    const presence = isParticipant && participantPresence?.participants?.find(row => row.studentId === entry.id);
+    const location = presence?.locations?.map(row => `${row.shared ? 'Общий код' : 'Свой код'} · ${row.pageName} · ${row.solutionName}`).join('; ');
+    const presenceLabel = presence ? participantPresence.unavailable ? 'Связь проверяется' : presence.online ? location || 'В коде' : 'Не в коде' : '';
     const isDragged = dragging?.key === entry.key;
     const isDropTarget = dragging?.overKey === entry.key && dragging?.key !== entry.key;
     return (
@@ -281,8 +286,8 @@ export default function CollabSolutionTabs({
           event.preventDefault();
           if (!canEdit || isParticipant) return;
           selectTabEntry(entry);
-          const menuWidth = entry.id === DEFAULT_COLLAB_SOLUTION_ID ? 190 : 210;
-          const menuHeight = entry.id === DEFAULT_COLLAB_SOLUTION_ID ? 48 : 86;
+          const menuWidth = entry.id === mainSolutionId ? 190 : 210;
+          const menuHeight = entry.id === mainSolutionId ? 48 : 86;
           const ownerDocument = event.currentTarget.ownerDocument || document;
           setContextMenu({
             solution: entry,
@@ -291,9 +296,14 @@ export default function CollabSolutionTabs({
             portalRoot: ownerDocument.fullscreenElement || ownerDocument.body,
           });
         }}
-        title={`${viewerNames ? `${entry.name} · Смотрят: ${viewerNames}` : entry.name}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}${canEdit && !isParticipant ? ' · Правая кнопка — действия' : ''}`}
+        title={`${entry.name}${presenceLabel ? ` · ${presenceLabel}` : ''}${viewerNames ? ` · Смотрят: ${viewerNames}` : ''}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}${canEdit && !isParticipant ? ' · Правая кнопка — действия' : ''}`}
       >
         <span className="collab-solutions__name">{entry.name}</span>
+        {presence && <span className={`collab-solutions__presence${presence.online && !participantPresence.unavailable ? ' is-online' : ''}`}
+          aria-label={presenceLabel}>
+          <i aria-hidden="true" />
+          <span>{participantPresence.unavailable ? '?' : presence.online ? presence.locations?.[0]?.solutionName || 'В коде' : 'Нет'}</span>
+        </span>}
         {viewers.length > 0 && (
           <span className="collab-solutions__peers" aria-label={`Смотрят: ${viewerNames}`}>
             {viewers.slice(0, 2).map((peer) => (
@@ -366,7 +376,7 @@ export default function CollabSolutionTabs({
           <button type="button" role="menuitem" className="collab-solutions__button" onClick={() => openForm('rename', contextMenu.solution)}>
             <Pencil size={14} aria-hidden="true" />Переименовать
           </button>
-          {contextMenu.solution.id !== DEFAULT_COLLAB_SOLUTION_ID && (
+          {contextMenu.solution.id !== mainSolutionId && (
             <button type="button" role="menuitem" className="collab-solutions__button collab-solutions__delete" onClick={() => openForm('delete', contextMenu.solution)}>
               <Trash2 size={14} aria-hidden="true" />Удалить
             </button>

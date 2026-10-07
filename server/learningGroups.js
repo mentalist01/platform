@@ -166,6 +166,7 @@ const normalizeLearningHomeworkTemplate = (value) => {
   const days = Math.round(Number(value.daysToComplete));
   return {
     homeWork: cleanText(value.homeWork ?? value.content, 50000),
+    studyTrack: ['ege', 'python'].includes(value.studyTrack) ? value.studyTrack : '',
     lessonLink: cleanText(value.lessonLink, 2000),
     boardLink: cleanText(value.boardLink, 2000),
     dueAt: normalizeIsoTimestamp(value.dueAt),

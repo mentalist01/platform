@@ -193,6 +193,7 @@ const TeacherHomeworkComposer = ({
   studentId = '',
   teacherId = '',
   studentLabel = '',
+  assignmentSettings = null,
   targetType = 'student',
   groupRecipients = [],
   recipientsReadOnly = false,
@@ -1473,6 +1474,7 @@ const TeacherHomeworkComposer = ({
 
                 <section>
                   <div className="max-w-sm">
+                    {assignmentSettings}
                     <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">
                       <Clock3 size={12} /> Сдать до
                     </span>

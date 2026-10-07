@@ -60,6 +60,7 @@ import {
   normalizeLearningGroupMaterial,
 } from '../utils/learningGroups';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
+import { weeklyHomeworkDeadline, weeklyHomeworkLessonChoices, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
 import { normalizeHomeworkAssignmentTier } from '../utils/homeworkAssignmentTier';
 import {
   HOMEWORK_DUE_AT_MODE_MANUAL,
@@ -456,6 +457,7 @@ const LearningGroupsSection = ({
   activeLearningLesson = null,
   openAvailabilityRequest = null,
   openHomeworkRequest = null,
+  scheduleGroupId = '',
   onHomeworkRequestHandled = null,
   onAvailabilityRequestHandled = null,
   onOpenLessonRoom,
@@ -478,14 +480,14 @@ const LearningGroupsSection = ({
   const isTeacher = role === 'teacher';
   const [groups, setGroups] = useState([]);
   const groupsRef = useRef([]);
-  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [selectedGroupId, setSelectedGroupId] = useState(scheduleGroupId);
   const homeworkRequestHandledRef = useRef('');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busyKey, setBusyKey] = useState('');
-  const [tab, setTab] = useState(isTeacher ? 'overview' : 'availability');
+  const [tab, setTab] = useState(scheduleGroupId ? 'assignments' : isTeacher ? 'overview' : 'availability');
   const [replayLesson, setReplayLesson] = useState(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -617,6 +619,12 @@ const LearningGroupsSection = ({
       });
       const normalized = normalizeLearningGroupList(payload).map((group) => decorateGroup(group, students));
       setGroups(normalized);
+      if (scheduleGroupId) {
+        const available = normalized.some(group => group.id === scheduleGroupId);
+        setSelectedGroupId(available ? scheduleGroupId : '');
+        if (!available) setError('Выбранная мини-группа больше недоступна. Выберите другую группу в расписании.');
+        return;
+      }
       const preferredId = cleanString(preferredGroupId);
       setSelectedGroupId((currentId) => {
         if (preferredId && normalized.some((group) => group.id === preferredId)) return preferredId;
@@ -630,11 +638,11 @@ const LearningGroupsSection = ({
     } finally {
       setLoading(false);
     }
-  }, [isTeacher, students, teacherId, userId]);
+  }, [isTeacher, scheduleGroupId, students, teacherId, userId]);
 
   useEffect(() => {
-    void refreshGroups();
-  }, [refreshGroups]);
+    void refreshGroups(scheduleGroupId);
+  }, [refreshGroups, scheduleGroupId]);
 
   useEffect(() => {
     if (!isTeacher || !openAvailabilityRequest?.groupId || loading) return;
@@ -761,7 +769,7 @@ const LearningGroupsSection = ({
     }
   }, [busyKey, loadGroupDetails, refreshGroups, selectedGroupId]);
 
-  const getDefaultGroupHomeworkDueAt = useCallback(() => {
+  const getNextLessonHomeworkDueAt = useCallback(() => {
     const now = Date.now();
     const upcomingLesson = lessons.find((lesson) => {
       const startMs = Date.parse(getLessonStart(lesson));
@@ -771,6 +779,8 @@ const LearningGroupsSection = ({
       upcomingLesson ? getLessonStart(upcomingLesson) : now + (7 * 24 * 60 * 60 * 1000)
     );
   }, [lessons]);
+
+  const getDefaultGroupHomeworkDueAt = () => toDateTimeLocal(weeklyHomeworkDeadline());
 
   const createDefaultGroupHomeworkGoal = useCallback((type = GOAL_TYPE_TASK) => ({
     type: type === GOAL_TYPE_MOCK ? GOAL_TYPE_MOCK : GOAL_TYPE_TASK,
@@ -825,12 +835,14 @@ const LearningGroupsSection = ({
     const dueAt = template.dueAt || assignment?.dueAt || '';
     return {
       homeWork: template.homeWork ?? assignment?.content ?? assignment?.instructions ?? '',
+      studyTrack: template.studyTrack || 'ege',
+      title: assignment?.title || 'Домашняя работа · ЕГЭ',
       lessonLink: template.lessonLink || '',
       boardLink: template.boardLink || '',
       dueAt: dueAt ? toDateTimeLocal(dueAt) : getDefaultGroupHomeworkDueAt(),
       dueAtMode: template.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
         ? HOMEWORK_DUE_AT_MODE_NEXT_LESSON
-        : (assignment ? HOMEWORK_DUE_AT_MODE_MANUAL : HOMEWORK_DUE_AT_MODE_NEXT_LESSON),
+        : HOMEWORK_DUE_AT_MODE_MANUAL,
       daysToComplete: Number(template.daysToComplete) || 7,
       goals: goals.length > 0 ? goals : [createDefaultGroupHomeworkGoal()],
       dayPlanEnabled: true,
@@ -847,7 +859,6 @@ const LearningGroupsSection = ({
     GOAL_TYPE_TASK,
     PYTHON_LEVEL_ID,
     createDefaultGroupHomeworkGoal,
-    getDefaultGroupHomeworkDueAt,
     isPythonTaskNumber,
     normalizeGoalType,
     normalizeMockExamId,
@@ -1019,7 +1030,7 @@ const LearningGroupsSection = ({
     }
     const matchingLesson = lessons.find((lesson) => Date.parse(getLessonStart(lesson)) === Date.parse(dueAt));
     const payload = {
-      title: cleanString(assignmentComposerEditing?.title) || 'Домашняя работа',
+      title: cleanString(assignmentComposerForm.title) || `Домашняя работа · ${homeworkStudyTrackLabel(assignmentComposerForm.studyTrack)}`,
       content: homeWork,
       dueAt,
       lessonId: getLessonId(matchingLesson) || cleanString(assignmentComposerEditing?.lessonId),
@@ -1029,6 +1040,7 @@ const LearningGroupsSection = ({
       ...(recipientMode === 'selected' ? { recipientIds } : {}),
       homework: {
         homeWork,
+        studyTrack: assignmentComposerForm.studyTrack,
         lessonLink: cleanString(assignmentComposerForm.lessonLink),
         boardLink: cleanString(assignmentComposerForm.boardLink),
         dueAt,
@@ -1483,7 +1495,7 @@ const LearningGroupsSection = ({
       {replayLesson && <React.Suspense fallback={<p role="status">Загружаем запись занятия…</p>}>
         <LearningGroupLessonReplay key={`${replayLesson.groupId}:${replayLesson.lessonId}`} groupId={replayLesson.groupId} lessonId={replayLesson.lessonId} onClose={() => setReplayLesson(null)} />
       </React.Suspense>}
-      <header className={`overflow-hidden rounded-3xl border border-violet-200/80 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-200/50 ${tab === 'availability' ? 'px-5 py-3' : 'p-5 sm:p-7'}`}>
+      <header hidden={Boolean(scheduleGroupId)} className={`overflow-hidden rounded-3xl border border-violet-200/80 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-200/50 ${tab === 'availability' ? 'px-5 py-3' : 'p-5 sm:p-7'}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className={`${tab === 'availability' ? 'hidden' : 'flex'} items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-100`}>
@@ -1598,8 +1610,8 @@ const LearningGroupsSection = ({
           ) : null}
         />
       ) : (
-        <div className={`grid min-h-[580px] gap-4 ${tab === 'availability' ? '' : 'lg:grid-cols-[285px_minmax(0,1fr)]'}`}>
-          <aside className={`min-w-0 self-start rounded-3xl border border-slate-200 bg-white p-3 shadow-sm ${tab === 'availability' ? '' : 'lg:sticky lg:top-4'}`}>
+        <div className={`grid min-h-[580px] gap-4 ${tab === 'availability' || scheduleGroupId ? '' : 'lg:grid-cols-[285px_minmax(0,1fr)]'}`}>
+          <aside hidden={Boolean(scheduleGroupId)} className={`min-w-0 self-start rounded-3xl border border-slate-200 bg-white p-3 shadow-sm ${tab === 'availability' ? '' : 'lg:sticky lg:top-4'}`}>
             <div className="mb-2 flex items-center justify-between gap-2 px-2 py-1">
               <span className="text-xs font-black uppercase tracking-[0.15em] text-slate-400">Ваши группы</span>
               {groups.some((group) => group.status === LEARNING_GROUP_STATUS_COMPLETED) && (
@@ -1722,7 +1734,7 @@ const LearningGroupsSection = ({
 
                 <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
                   <div className="flex min-w-max gap-1">
-                    {TAB_ITEMS.map((item) => {
+                    {TAB_ITEMS.filter(item => !scheduleGroupId || ['schedule', 'assignments'].includes(item.id)).map((item) => {
                       const Icon = item.icon;
                       const isActive = tab === item.id;
                       return (
@@ -2950,6 +2962,35 @@ const LearningGroupsSection = ({
           groupRecipients={selectedGroup?.members || []}
           recipientsReadOnly={selectedGroup?.status === LEARNING_GROUP_STATUS_COMPLETED}
           form={assignmentComposerForm}
+          assignmentSettings={(
+            <div className="mb-4 space-y-3" aria-label="Направление домашки">
+              <div className="flex gap-2">
+                {['ege', 'python'].map(track => <button type="button" key={track}
+                  aria-pressed={assignmentComposerForm.studyTrack === track}
+                  className={`rounded-xl border px-4 py-2 text-sm font-bold ${assignmentComposerForm.studyTrack === track ? 'border-violet-500 bg-violet-600 text-white' : 'border-violet-200 text-violet-700'}`}
+                  onClick={() => setAssignmentComposerForm(current => ({ ...current, studyTrack: track,
+                    title: `Домашняя работа · ${homeworkStudyTrackLabel(track)}` }))}>
+                  {homeworkStudyTrackLabel(track)}
+                </button>)}
+              </div>
+              <Field label="Название домашки">
+                <input aria-label="Название домашки" className={inputClassName} maxLength={160} value={assignmentComposerForm.title || ''}
+                  onChange={event => setAssignmentComposerForm(current => ({ ...current, title: event.target.value }))} />
+              </Field>
+              <p className="text-xs text-[rgb(var(--ink-soft))]">ЕГЭ и Python выдаются отдельно. Новая домашка сохраняет предыдущую и её срок.</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700"
+                  onClick={() => setAssignmentComposerForm(current => ({ ...current,
+                    dueAt: getDefaultGroupHomeworkDueAt(), dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL }))}>Дать неделю</button>
+                {weeklyHomeworkLessonChoices(selectedGroup?.schedule).map(choice => <button type="button" key={choice.dueAt}
+                  className="rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700"
+                  onClick={() => setAssignmentComposerForm(current => ({ ...current,
+                    dueAt: toDateTimeLocal(choice.dueAt), dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL }))}>
+                  До {new Date(choice.dueAt).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', weekday: 'short', day: 'numeric', month: 'short' })}, {new Date(choice.dueAt).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })}
+                </button>)}
+              </div>
+            </div>
+          )}
           groupMaterials={materials}
           onMaterialCreated={(material) => setGroups((current) => current.map((group) => (
             group.id === selectedGroupId ? { ...group, materials: [material, ...(group.materials || [])] } : group
@@ -2979,7 +3020,7 @@ const LearningGroupsSection = ({
               nextPatch.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
               && !Object.prototype.hasOwnProperty.call(nextPatch, 'dueAt')
             ) {
-              nextPatch.dueAt = getDefaultGroupHomeworkDueAt();
+              nextPatch.dueAt = getNextLessonHomeworkDueAt();
             }
             return { ...current, ...nextPatch };
           })}

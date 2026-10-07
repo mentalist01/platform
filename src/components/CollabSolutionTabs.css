@@ -52,6 +52,11 @@
 }
 .collab-solutions__tab { flex: 0 0 auto; max-width: 235px; border-color: var(--solution-border); touch-action: pan-x; user-select: none; }
 .collab-solutions__tab.is-participant { font-weight: 700; }
+.collab-solutions__presence { display: inline-flex; align-items: center; gap: 4px; max-width: 74px; color: var(--solution-text); font-size: 10px; opacity: .75; }
+.collab-solutions__presence span { overflow: hidden; text-overflow: ellipsis; }
+.collab-solutions__presence i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #94a3b8; }
+.collab-solutions__presence.is-online { opacity: 1; }
+.collab-solutions__presence.is-online i { background: #10b981; box-shadow: 0 0 0 2px #10b98118; }
 .collab-solutions__tab.is-dragging {
   opacity: .68;
   cursor: grabbing;

@@ -5,12 +5,13 @@ git diff --quiet -- src server scripts package.json package-lock.json
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 revision=$(git rev-parse --short HEAD)
 backup=$(mktemp -d /root/group-library-payments-backup-XXXXXX)
-cp -a dist "$backup/dist"
+node scripts/releaseClientSnapshot.mjs dist "$backup/dist" /root/ivan100-release-objects
 cp -a ecosystem.config.cjs "$backup/"
 for name in teacher-finances teacher-calendar-marks learning-groups learning-lesson-sessions learning-subscriptions mock-exams desktop-recordings teacher-subscriptions payment-notifications payment-sender-links teacher-payment-connections lesson-pace individual-lesson-pace; do
   if [[ -f "/root/platform-data/$name.json" ]]; then cp -a "/root/platform-data/$name.json" "$backup/"; fi
 done
 published=0
+stage=''
 rollback_client_on_error() {
   status=$?
   if [[ "$status" != 0 && "$published" == 1 ]]; then
@@ -19,6 +20,9 @@ rollback_client_on_error() {
     printf '\nGROUP_LIBRARY_PAYMENTS_CLIENT_ROLLED_BACK backup=%s\n' "$backup" >&2
   fi
   if [[ "$status" != 0 ]]; then printf '\nGROUP_LIBRARY_PAYMENTS_RELEASE_FAILED backup=%s\n' "$backup" >&2; fi
+  if [[ "$status" == 0 && "$stage" == /root/app/.release-stage-* && -d "$stage" && -f "$stage/.ivan100-release-owned" ]]; then
+    rm -rf -- "$stage"
+  fi
   exit "$status"
 }
 trap rollback_client_on_error EXIT
@@ -35,8 +39,11 @@ node --test src/utils/paymentSenderLinks.test.js server/paymentSenderLinks.integ
 node --test scripts/verify-teacher-payment-access.test.mjs > "$backup/payment-access-check-tests.log" 2>&1
 node --test server/workbookHelper.test.js server/workbookHelper.integration.test.js server/workbookQuestionHelper.integration.test.js server/teacherNotesWorkbook.integration.test.js > "$backup/teacher-workbook-tests.log" 2>&1
 node --test server/lessonPace.test.js server/individualLessonPace.test.js server/lessonPace.integration.test.js server/homeworkReminders.test.js server/homeworkReminders.integration.test.js > "$backup/lesson-pace-tests.log" 2>&1
-stage="dist-group-library-payments-$revision"
+node --test src/utils/collabCodePages.test.js server/collabCodePages.integration.test.js server/collabReadOnly.test.js server/learningPrivateCollab.integration.test.js server/groupCodePresence.integration.test.js > "$backup/code-pages-tests.log" 2>&1
+node --test src/utils/concurrentHomework.test.js server/concurrentHomework.integration.test.js src/utils/rtcVideoBudget.test.js scripts/releaseClientSnapshot.test.mjs > "$backup/homework-performance-tests.log" 2>&1
+stage=$(mktemp -d /root/app/.release-stage-XXXXXX)
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
+touch "$stage/.ivan100-release-owned"
 node scripts/check-group-library-payments-release.mjs local "$stage"
 node scripts/check-learning-subscriptions-release.mjs local "$stage"
 node scripts/check-teacher-desktop-release.mjs local "$stage"
@@ -50,6 +57,8 @@ node scripts/check-board-task-clipboard-release.mjs local "$stage"
 node scripts/check-lesson-tools-release.mjs local "$stage"
 node scripts/check-teacher-workbook-release.mjs local "$stage"
 node scripts/check-lesson-pace-release.mjs local "$stage"
+node scripts/check-collab-code-pages-release.mjs local "$stage"
+node scripts/check-post-151-release.mjs local "$stage"
 node scripts/check-payment-keys-release.mjs local "$stage"
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 # Preserve old chunks for users with an already open client.
@@ -76,6 +85,8 @@ node scripts/check-monthly-mock-release.mjs verify "$stage" /root/platform-data
 node scripts/check-lesson-tools-release.mjs verify "$stage" /root/platform-data
 node scripts/check-teacher-workbook-release.mjs verify "$stage" /root/platform-data
 node scripts/check-lesson-pace-release.mjs verify "$stage" /root/platform-data
+node scripts/check-collab-code-pages-release.mjs verify "$stage"
+node scripts/check-post-151-release.mjs verify "$stage" /root/platform-data
 node scripts/check-recorder-ui-release.mjs verify "$stage"
 node scripts/check-python-editor-release.mjs verify "$stage"
 node scripts/check-recording-reliability-release.mjs verify "$stage"

@@ -4,6 +4,8 @@ import BoardMinimap from './components/BoardMinimap.jsx';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
 import { GROUP_SHARED_CODE_ID, groupCodeTabs, groupCodeRoom } from './utils/groupCodeRooms.js';
+import useGroupCodePresence from './hooks/useGroupCodePresence.js';
+import { partitionConcurrentHomeworks } from './utils/concurrentHomework.js';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
 import { createPortal } from 'react-dom';
@@ -180,8 +182,20 @@ import {
   getCollabSolutionSnapshot,
   normalizeCollabCodeText,
   reorderCollabSolutions,
+  DEFAULT_COLLAB_CODE_PAGE_ID,
+  COLLAB_CODE_PAGES_KEY,
+  COLLAB_CODE_PAGES_DELETED_KEY,
+  COLLAB_SOLUTION_PAGES_KEY,
+  getCollabSolutionPageId,
+  listCollabCodePages,
+  createCollabCodePage,
+  renameCollabCodePage,
+  deleteCollabCodePage,
+  restoreCollabCodePage,
+  resolveCollabPageSelection,
 } from './utils/collabSolutions';
-import CollabSolutionTabs from './components/CollabSolutionTabs';
+const CollabSolutionTabs = React.lazy(() => import('./components/CollabSolutionTabs'));
+const CollabCodePages = React.lazy(() => import('./components/CollabCodePages'));
 import CollabRunError from './components/CollabRunError';
 import GroupAnswerChat from './components/GroupAnswerChat';
 import './components/CollabWorkspaceLayout.css';
@@ -3989,6 +4003,8 @@ const CollabSection = ({
   const effectiveGroupParticipantId = isGroupLesson
     ? (activeGroupParticipantId || GROUP_SHARED_CODE_ID)
     : '';
+  const groupCodePresence = useGroupCodePresence({ enabled: isGroupLesson && isTeacher && !readOnly,
+    groupId: learningGroupId, lessonId: learningLessonId });
   const activeGroupParticipantName = isGroupLesson
     ? (effectiveGroupParticipantId === GROUP_SHARED_CODE_ID ? 'Общий код'
       : groupParticipantRoster.find((participant) => participant.id === effectiveGroupParticipantId)?.name || 'Ученик')
@@ -4013,6 +4029,13 @@ const CollabSection = ({
   const [documentSynced, setDocumentSynced] = useState(false);
   const [codeSolutions, setCodeSolutions] = useState([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: DEFAULT_SOLUTION_NAME }]);
   const [activeSolutionId, setActiveSolutionId] = useState(DEFAULT_COLLAB_SOLUTION_ID);
+  const [codePages, setCodePages] = useState([{ id: DEFAULT_COLLAB_CODE_PAGE_ID, name: 'Страница 1', mainSolutionId: DEFAULT_COLLAB_SOLUTION_ID, count: 1 }]);
+  const [activeCodePageId, setActiveCodePageId] = useState(DEFAULT_COLLAB_CODE_PAGE_ID);
+  const [deletedCodePage, setDeletedCodePage] = useState(null);
+  const pageSelectionsRef = useRef(new Map());
+  const activeCodePage = codePages.find(page => page.id === activeCodePageId) || codePages[0];
+  const pageMainSolutionId = activeCodePage?.mainSolutionId || DEFAULT_COLLAB_SOLUTION_ID;
+  const pageCodeSolutions = codeSolutions.filter(solution => (solution.pageId || DEFAULT_COLLAB_CODE_PAGE_ID) === activeCodePageId);
   const [compareSolutionId, setCompareSolutionId] = useState(null);
   const compareSolutionIdRef = useRef(null);
   compareSolutionIdRef.current = compareSolutionId;
@@ -4142,6 +4165,10 @@ const CollabSection = ({
   useEffect(() => {
     activeSolutionIdRef.current = DEFAULT_COLLAB_SOLUTION_ID;
     setActiveSolutionId(DEFAULT_COLLAB_SOLUTION_ID);
+    setActiveCodePageId(DEFAULT_COLLAB_CODE_PAGE_ID);
+    setCodePages([{ id: DEFAULT_COLLAB_CODE_PAGE_ID, name: 'Страница 1', mainSolutionId: DEFAULT_COLLAB_SOLUTION_ID, count: 1 }]);
+    pageSelectionsRef.current.clear();
+    setDeletedCodePage(null);
     setCodeSolutions([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: activeGroupParticipantName || DEFAULT_SOLUTION_NAME }]);
     setCompareSolutionId(null);
     setSolutionError('');
@@ -8279,10 +8306,21 @@ const CollabSection = ({
     };
     testFileYText.observe(syncTestFileFromDoc);
     syncTestFileFromDoc();
+    let restoredPageSelection = false;
+    const pageStorageKey = `collab-code-pages:${roomId}:${role}:${userId}`;
     const handleProviderSync = (isSynced) => {
       const nextSynced = isSynced === true;
       if (!nextSynced) return;
       repairEditorModelFromSharedText();
+      syncSolutionCatalog();
+      if (!restoredPageSelection) {
+        restoredPageSelection = true;
+        try {
+          const saved = JSON.parse(window.localStorage.getItem(pageStorageKey) || '{}');
+          pageSelectionsRef.current = new Map(Object.entries(saved?.byPage || {}));
+          selectSolutionRef.current?.(resolveCollabPageSelection(doc, saved).solutionId);
+        } catch { /* Room data remains usable when local preferences are unavailable. */ }
+      }
       setDocumentSynced(true);
       editorRef.current?.updateOptions?.({ readOnly: collabReadOnly || Boolean(compareSolutionIdRef.current) || activeSolutionDeletedRef.current });
       if (lessonReplayPreviousCodeActiveRef.current) {
@@ -8426,12 +8464,19 @@ const CollabSection = ({
     const solutionCatalog = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY);
     const deletedSolutions = doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY);
     const solutionOrder = doc.getArray(COLLAB_SOLUTIONS_ORDER_KEY);
+    const pageCatalog = doc.getMap(COLLAB_CODE_PAGES_KEY);
+    const deletedPages = doc.getMap(COLLAB_CODE_PAGES_DELETED_KEY);
+    const solutionPages = doc.getMap(COLLAB_SOLUTION_PAGES_KEY);
     const syncSolutionCatalog = () => {
-      const solutions = listCollabSolutions(doc).map((solution) => (
-        isGroupLesson && solution.id === DEFAULT_COLLAB_SOLUTION_ID
-          ? { ...solution, name: activeGroupParticipantName || 'Ученик' }
-          : solution
-      ));
+      const pages = listCollabCodePages(doc);
+      const pageIds = new Set(pages.map(page => page.id));
+      const solutions = listCollabSolutions(doc).map(solution => {
+        const pageId = getCollabSolutionPageId(doc, solution.id);
+        const page = pages.find(item => item.id === pageId);
+        return { ...solution, pageId, ...(isGroupLesson && solution.id === page?.mainSolutionId
+          ? { name: activeGroupParticipantName || 'Ученик' } : {}) };
+      }).filter(solution => pageIds.has(solution.pageId));
+      setCodePages(pages.map(page => ({ ...page, count: solutions.filter(solution => solution.pageId === page.id).length })));
       activeSolutionDeletedRef.current = !solutions.some((item) => item.id === activeSolutionIdRef.current);
       if (activeSolutionDeletedRef.current) editorRef.current?.updateOptions?.({ readOnly: true });
       setCodeSolutions(solutions);
@@ -8439,9 +8484,14 @@ const CollabSection = ({
     solutionCatalog.observe(syncSolutionCatalog);
     deletedSolutions.observe(syncSolutionCatalog);
     solutionOrder.observe(syncSolutionCatalog);
+    pageCatalog.observe(syncSolutionCatalog);
+    deletedPages.observe(syncSolutionCatalog);
+    solutionPages.observe(syncSolutionCatalog);
     syncSolutionCatalog();
     const switchSolution = (nextId) => {
-      if (disposed || localRunBusyRef.current || !listCollabSolutions(doc).some((item) => item.id === nextId)) return false;
+      const pageId = getCollabSolutionPageId(doc, nextId);
+      if (disposed || localRunBusyRef.current || !listCollabCodePages(doc).some(page => page.id === pageId)
+        || !listCollabSolutions(doc).some((item) => item.id === nextId)) return false;
       if (nextId === activeSolutionIdRef.current) return true;
       const editor = editorRef.current;
       solutionViews.set(activeSolutionIdRef.current, editor?.saveViewState?.());
@@ -8494,6 +8544,10 @@ const CollabSection = ({
       syncTestFileFromDoc();
       taskFilesSyncReadyRef.current = true;
       setActiveSolutionId(nextId);
+      setActiveCodePageId(pageId);
+      pageSelectionsRef.current.set(pageId, nextId);
+      try { window.localStorage.setItem(pageStorageKey, JSON.stringify({ pageId, solutionId: nextId, byPage: Object.fromEntries(pageSelectionsRef.current) })); }
+      catch { /* Selection persistence is optional. Shared code is stored by Yjs. */ }
       setSolutionError('');
       setSolutionNotice('');
       setCompareSolutionId(null);
@@ -8520,6 +8574,9 @@ const CollabSection = ({
       solutionCatalog.unobserve(syncSolutionCatalog);
       deletedSolutions.unobserve(syncSolutionCatalog);
       solutionOrder.unobserve(syncSolutionCatalog);
+      pageCatalog.unobserve(syncSolutionCatalog);
+      deletedPages.unobserve(syncSolutionCatalog);
+      solutionPages.unobserve(syncSolutionCatalog);
       runSessionRef.current += 1;
       localRunBusyRef.current = false;
       disposeRunWorkerRef.current?.('Комната кода закрыта.');
@@ -8617,6 +8674,7 @@ const CollabSection = ({
     emitSandboxState,
     stopDebugPlayback,
     role,
+    userId,
     isGroupLesson,
     activeGroupParticipantName,
   ]);
@@ -9586,9 +9644,9 @@ const CollabSection = ({
     if (!collabDocumentReady || isSandbox) return;
     if (compareSolutionId && !codeSolutions.some((item) => item.id === compareSolutionId)) setCompareSolutionId(null);
     if (activeSolutionDeleted && !solutionActionsBusy && !localRunBusyRef.current) {
-      if (selectSolutionRef.current?.(DEFAULT_COLLAB_SOLUTION_ID)) setSolutionNotice('Вариант удалён. Открыт основной код.');
+      if (selectSolutionRef.current?.(pageMainSolutionId)) setSolutionNotice('Вариант или страница удалены. Открыт основной код.');
     }
-  }, [activeSolutionDeleted, codeSolutions, collabDocumentReady, compareSolutionId, isSandbox, solutionActionsBusy]);
+  }, [activeSolutionDeleted, codeSolutions, collabDocumentReady, compareSolutionId, isSandbox, solutionActionsBusy, pageMainSolutionId]);
   const selectCodeSolution = (id) => {
     if (!collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) return;
     presentation.leave(false);
@@ -9601,8 +9659,36 @@ const CollabSection = ({
     }
     const doc = collabDocRef.current;
     if (!doc) throw new Error('Совместный код ещё не подключён.');
-    const solution = createEmptyCollabSolution(doc, { name });
+    const solution = createEmptyCollabSolution(doc, { name, pageId: activeCodePageId });
     selectCodeSolution(solution.id);
+  };
+  const requireCodePageEditing = () => {
+    if (collabReadOnly || !collabDocumentReady || !collabDocRef.current || solutionActionsBusy || localRunBusyRef.current) {
+      throw new Error('Дождитесь подключения и завершения текущей операции.');
+    }
+    return collabDocRef.current;
+  };
+  const selectCodePage = pageId => {
+    if (!collabDocumentReady || solutionActionsBusy || localRunBusyRef.current || !collabDocRef.current) return;
+    const selection = resolveCollabPageSelection(collabDocRef.current, { pageId, byPage: Object.fromEntries(pageSelectionsRef.current) });
+    selectCodeSolution(selection.solutionId);
+  };
+  const createCodePage = name => {
+    const page = createCollabCodePage(requireCodePageEditing(), { name });
+    selectCodeSolution(page.mainSolutionId);
+  };
+  const renameCodePage = (id, name) => renameCollabCodePage(requireCodePageEditing(), id, name);
+  const deleteCodePage = id => {
+    const page = codePages.find(item => item.id === id);
+    deleteCollabCodePage(requireCodePageEditing(), id);
+    setDeletedCodePage(page);
+  };
+  const undoCodePageDeletion = () => {
+    try {
+      restoreCollabCodePage(requireCodePageEditing(), deletedCodePage.id);
+      selectCodePage(deletedCodePage.id);
+      setDeletedCodePage(null);
+    } catch (cause) { setSolutionError(cause.message); }
   };
   const renameCodeSolution = (id, name) => {
     if (collabReadOnly || !collabDocumentReady || !collabDocRef.current) throw new Error('Совместный код ещё не подключён.');
@@ -9612,7 +9698,7 @@ const CollabSection = ({
     if (!isTeacher || collabReadOnly || !collabDocumentReady || !collabDocRef.current) {
       throw new Error('Изменять порядок вкладок может учитель после подключения к занятию.');
     }
-    reorderCollabSolutions(collabDocRef.current, orderedIds);
+    reorderCollabSolutions(collabDocRef.current, orderedIds, activeCodePageId);
   };
   const reorderGroupParticipantTabs = (orderedIds) => {
     if (!isTeacher || !isGroupLesson) return;
@@ -11427,9 +11513,19 @@ const CollabSection = ({
         {boardCodeAuxPopover}
 
         {!isSandbox && roomId && (
+          <React.Suspense fallback={<div role="status" className="collab-solutions__notice">Загружаем страницы кода…</div>}>
+          <CollabCodePages key={`pages:${roomId}`} pages={codePages} activeId={activeCodePageId}
+            onSelect={selectCodePage} onCreate={createCodePage} onRename={renameCodePage} onDelete={deleteCodePage}
+            disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted} readOnly={collabReadOnly} dark={isCollabDarkUi}
+            peers={remoteParticipants.map(peer => ({ ...peer, pageId: codeSolutions.find(solution => solution.id === peer.solutionId)?.pageId }))}/>
+          </React.Suspense>
+        )}
+        {!isSandbox && roomId && (
+          <React.Suspense fallback={<div role="status" className="collab-solutions__notice">Загружаем вкладки кода…</div>}>
           <CollabSolutionTabs
-            key={roomId}
-            solutions={codeSolutions}
+            key={`${roomId}:${activeCodePageId}`}
+            solutions={pageCodeSolutions}
+            mainSolutionId={pageMainSolutionId}
             activeId={activeSolutionId}
             onSelect={selectCodeSolution}
             onCreate={createCodeSection}
@@ -11439,9 +11535,10 @@ const CollabSection = ({
             canReorder={isTeacher && !collabReadOnly}
             participants={isGroupLesson ? groupCodeTabs(orderedGroupParticipants, role, userId) : []}
             activeParticipantId={effectiveGroupParticipantId}
+            participantPresence={groupCodePresence}
             onSelectParticipant={(participantId) => {
               if (participantId === effectiveGroupParticipantId) {
-                selectCodeSolution(DEFAULT_COLLAB_SOLUTION_ID);
+                selectCodeSolution(pageMainSolutionId);
                 return;
               }
               setCompareSolutionId(null);
@@ -11459,7 +11556,12 @@ const CollabSection = ({
             dark={isCollabDarkUi}
             peers={remoteParticipants}
           />
+          </React.Suspense>
         )}
+        {deletedCodePage && <div className="collab-solutions__notice" role="status">
+          Страница «{deletedCodePage.name}» и её вкладки удалены.
+          <button type="button" onClick={undoCodePageDeletion} disabled={!collabDocumentReady || solutionActionsBusy || collabReadOnly}>Восстановить страницу</button>
+        </div>}
         {deletedSolution && (
           <div className="collab-solutions__notice" role="status">
             Вариант «{deletedSolution.name}» удалён.
@@ -24063,20 +24165,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         return [];
       };
 
-      const entry = sorted[0] || null;
-      if (!entry) {
+      const currentEntries = partitionConcurrentHomeworks(sorted).active;
+      const entries = currentEntries.length ? currentEntries : sorted.slice(0, 1);
+      if (!entries.length) {
         setGoalState(null);
         return;
       }
-      const goals = normalizeEntryGoals(entry);
-      if (goals.length === 0) {
-        setGoalState({
-          entry,
-          goals: [],
-          completed: false,
-        });
-        return;
-      }
+      const goals = entries.flatMap(normalizeEntryGoals);
       const taskGoals = goals.filter((goal) => goal.type === GOAL_TYPE_TASK);
       const unique = [];
       const seen = new Set();
@@ -24123,7 +24218,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         }, {});
       }
 
-      const goalsWithStatus = goals.map((goal) => {
+      const goalsForEntry = (entry) => normalizeEntryGoals(entry).map((goal) => {
         if (goal.type === GOAL_TYPE_MOCK) {
           const mockExamId = normalizeMockExamId(goal.mockExamId);
           const mockExam = mockExamById[mockExamId] || null;
@@ -24195,24 +24290,24 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         };
       });
 
-      const filteredGoals = goalsWithStatus.filter(
+      const entryStates = entries.map(entry => {
+      const filteredGoals = goalsForEntry(entry).filter(
         (goal) => (
           goal.type === GOAL_TYPE_MOCK
             ? Boolean(goal.mockExamId)
             : (goal.includeAll || (Array.isArray(goal.targetNumbers) && goal.targetNumbers.length > 0))
         )
       );
-      if (filteredGoals.length === 0) {
-        setGoalState(null);
-        return;
-      }
       const requiredGoals = filteredGoals.filter((goal) => !isOptionalHomeworkGoal(goal));
-      const completed = requiredGoals.length === 0 || requiredGoals.every((goal) => goal.completed);
-      setGoalState({
+      const completed = filteredGoals.length > 0 && (requiredGoals.length === 0 || requiredGoals.every((goal) => goal.completed));
+      return {
         entry,
         goals: filteredGoals,
         completed,
+      };
       });
+      setGoalState(entryStates.find(state => state.goals.length && !state.completed)
+        || entryStates.find(state => state.goals.length) || entryStates[0]);
     } catch {
       setGoalState(null);
     } finally {
@@ -26559,6 +26654,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               onOpenTask={user.role === 'student' ? handleOpenTask : null}
+              groups={lessonTargetGroups}
+              teacherId={user.role === 'teacher' ? user.id : ''}
               onOpenMockGoal={user.role === 'student' ? handleOpenMockGoal : null}
               solvedRefreshKey={goalRefreshTick}
               openLessonKey={pendingLessonCapsuleKey}

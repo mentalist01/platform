@@ -5,6 +5,7 @@ import { api, withStoredAuthToken } from '../services/api';
 import LinkifiedText from './LinkifiedText';
 import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
+import { rtcVideoBudget } from '../utils/rtcVideoBudget';
 import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRooms';
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
@@ -2024,9 +2025,14 @@ const CallSection = ({
     const quality = normalizeConnectionQuality(options?.quality || connectionQualityRef.current);
     const profile = getConnectionAdaptiveProfile(quality, highVideoLoadRef.current);
     const isCamera = kind === 'camera';
-    const maxBitrate = isCamera ? profile.cameraBitrate : profile.screenBitrate;
-    const maxFramerate = isCamera ? profile.cameraFramerate : (isGroupLesson ? Math.min(15, profile.screenFramerate) : profile.screenFramerate);
-    const scaleResolutionDownBy = Math.max(1, isCamera ? profile.cameraScale : profile.screenScale);
+    const settings = sender.track?.getSettings?.() || {};
+    const { maxBitrate, maxFramerate, scaleResolutionDownBy } = rtcVideoBudget({
+      group: isGroupLesson, peers: peersRef.current.size, camera: isCamera,
+      bitrate: isCamera ? profile.cameraBitrate : profile.screenBitrate,
+      framerate: isCamera ? profile.cameraFramerate : profile.screenFramerate,
+      scale: Math.max(1, isCamera ? profile.cameraScale : profile.screenScale),
+      width: settings.width || 1920, height: settings.height || 1080,
+    });
     try {
       const params = sender.getParameters() || {};
       const encodings = Array.isArray(params.encodings) ? params.encodings : [{}];
@@ -2070,7 +2076,6 @@ const CallSection = ({
       return total + getLiveVideoTracks(stream).length;
     }, 0);
     const shouldUseHighVideoLoadProfile = (localVideoCount + remoteVideoCount) >= 2;
-    if (highVideoLoadRef.current === shouldUseHighVideoLoadProfile) return;
     highVideoLoadRef.current = shouldUseHighVideoLoadProfile;
     retuneAllPeerSenders();
   }, [cameraEnabled, remotePeers, retuneAllPeerSenders, screenSharing]);
