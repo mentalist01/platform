@@ -41,6 +41,7 @@ node --test server/workbookHelper.test.js server/workbookHelper.integration.test
 node --test server/lessonPace.test.js server/individualLessonPace.test.js server/lessonPace.integration.test.js server/homeworkReminders.test.js server/homeworkReminders.integration.test.js > "$backup/lesson-pace-tests.log" 2>&1
 node --test src/utils/collabCodePages.test.js server/collabCodePages.integration.test.js server/collabReadOnly.test.js server/learningPrivateCollab.integration.test.js server/groupCodePresence.integration.test.js > "$backup/code-pages-tests.log" 2>&1
 node --test src/utils/concurrentHomework.test.js server/concurrentHomework.integration.test.js src/utils/rtcVideoBudget.test.js scripts/releaseClientSnapshot.test.mjs > "$backup/homework-performance-tests.log" 2>&1
+node --test server/studentPaymentBalances.test.js server/studentPaymentBalances.integration.test.js server/googleCalendarParseWorker.test.js server/lessonReschedule.integration.test.js > "$backup/student-balances-tests.log" 2>&1
 stage=$(mktemp -d /root/app/.release-stage-XXXXXX)
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 touch "$stage/.ivan100-release-owned"
