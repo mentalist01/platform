@@ -7,7 +7,7 @@ revision=$(git rev-parse --short HEAD)
 backup=$(mktemp -d /root/group-library-payments-backup-XXXXXX)
 cp -a dist "$backup/dist"
 cp -a ecosystem.config.cjs "$backup/"
-for name in teacher-finances teacher-calendar-marks learning-groups learning-lesson-sessions learning-subscriptions mock-exams desktop-recordings teacher-subscriptions payment-notifications payment-sender-links teacher-payment-connections; do
+for name in teacher-finances teacher-calendar-marks learning-groups learning-lesson-sessions learning-subscriptions mock-exams desktop-recordings teacher-subscriptions payment-notifications payment-sender-links teacher-payment-connections lesson-pace individual-lesson-pace; do
   if [[ -f "/root/platform-data/$name.json" ]]; then cp -a "/root/platform-data/$name.json" "$backup/"; fi
 done
 published=0
@@ -34,6 +34,7 @@ node --test src/utils/paymentHistory.test.js server/paymentNotificationHistory.i
 node --test src/utils/paymentSenderLinks.test.js server/paymentSenderLinks.integration.test.js > "$backup/payment-sender-links-tests.log" 2>&1
 node --test scripts/verify-teacher-payment-access.test.mjs > "$backup/payment-access-check-tests.log" 2>&1
 node --test server/workbookHelper.test.js server/workbookHelper.integration.test.js server/workbookQuestionHelper.integration.test.js server/teacherNotesWorkbook.integration.test.js > "$backup/teacher-workbook-tests.log" 2>&1
+node --test server/lessonPace.test.js server/individualLessonPace.test.js server/lessonPace.integration.test.js server/homeworkReminders.test.js server/homeworkReminders.integration.test.js > "$backup/lesson-pace-tests.log" 2>&1
 stage="dist-group-library-payments-$revision"
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-group-library-payments-release.mjs local "$stage"
@@ -48,6 +49,7 @@ node scripts/check-python-practice-release.mjs local "$stage"
 node scripts/check-board-task-clipboard-release.mjs local "$stage"
 node scripts/check-lesson-tools-release.mjs local "$stage"
 node scripts/check-teacher-workbook-release.mjs local "$stage"
+node scripts/check-lesson-pace-release.mjs local "$stage"
 node scripts/check-payment-keys-release.mjs local "$stage"
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 # Preserve old chunks for users with an already open client.
@@ -73,6 +75,7 @@ node scripts/check-board-pages-release.mjs verify "$stage"
 node scripts/check-monthly-mock-release.mjs verify "$stage" /root/platform-data
 node scripts/check-lesson-tools-release.mjs verify "$stage" /root/platform-data
 node scripts/check-teacher-workbook-release.mjs verify "$stage" /root/platform-data
+node scripts/check-lesson-pace-release.mjs verify "$stage" /root/platform-data
 node scripts/check-recorder-ui-release.mjs verify "$stage"
 node scripts/check-python-editor-release.mjs verify "$stage"
 node scripts/check-recording-reliability-release.mjs verify "$stage"

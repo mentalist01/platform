@@ -18,19 +18,66 @@ export function createLessonPaceStore(file) {
   };
 }
 
-export function registerLessonPace(app, { store, lessons, groupById, canRead, canManage, studentName, requiresFeedback = () => true }) {
+export function registerLessonPace(app, { store, lessons, groupById, canRead, canManage, studentName, requiresFeedback = () => true,
+  individualLessons = () => [], canReadIndividual = () => false, teacherStudents = () => [] }) {
   const ended = lesson => lesson?.status === 'completed';
+  const eligible = (lesson, id) => lesson.participantIds.includes(id)
+    && (lesson.kind === 'individual' || requiresFeedback(lesson, id));
+  const readable = (auth, lesson) => lesson.kind === 'individual' ? canReadIndividual(auth, lesson)
+    : canRead(auth, lesson, groupById(lesson.groupId));
+  const allLessons = auth => [...lessons(), ...individualLessons(auth)];
+  const context = lesson => ({ id: lesson.id, kind: lesson.kind || 'group', groupId: lesson.groupId,
+    topic: typeof lesson.topic === 'object' ? lesson.topic?.text : lesson.topic,
+    groupName: lesson.kind === 'individual' ? 'Индивидуальный урок' : groupById(lesson.groupId)?.name || 'Мини-группа',
+    startAt: lesson.startAt });
   app.get('/api/learning-lesson-feedback/pending', (req, res) => {
     res.set('Cache-Control', 'no-store');
     if (req.auth?.role !== 'student') return res.status(403).json({ error: 'Опрос доступен ученику' });
-    const lesson = lessons().filter(lesson => ended(lesson)
-      && lesson.participantIds.includes(req.auth.id)
-      && requiresFeedback(lesson,req.auth.id)
-      && canRead(req.auth, lesson, groupById(lesson.groupId))
+    const lesson = allLessons(req.auth).filter(lesson => ended(lesson)
+      && eligible(lesson, req.auth.id)
+      && readable(req.auth, lesson)
       && !store.get(lesson.id, req.auth.id))
       .sort((a, b) => Date.parse(b.completedAt || b.startAt) - Date.parse(a.completedAt || a.startAt))[0];
-    res.json({ lesson: lesson ? { id: lesson.id, groupId: lesson.groupId, topic: lesson.topic,
-      groupName: groupById(lesson.groupId)?.name || 'Мини-группа', startAt: lesson.startAt } : null });
+    res.json({ lesson: lesson ? context(lesson) : null });
+  });
+  app.put('/api/individual-lessons/:lessonId/pace', (req, res) => {
+    if (req.auth?.role !== 'student') return res.status(403).json({ error: 'Опрос доступен ученику' });
+    const lesson = individualLessons(req.auth).find(item => item.id === req.params.lessonId);
+    if (!lesson || !eligible(lesson, req.auth.id) || !readable(req.auth, lesson)) {
+      return res.status(403).json({ error: 'Нет доступа к оценке этого занятия' });
+    }
+    if (!ended(lesson)) return res.status(409).json({ error: 'Оценить темп можно после окончания занятия' });
+    const value = req.body?.value;
+    if (!Number.isInteger(value) || value < 0 || value > 100) return res.status(400).json({ error: 'Выберите темп на шкале от 0 до 100' });
+    res.json({ feedback: store.put({ lessonId: lesson.id, kind: 'individual', teacherId: lesson.teacherId,
+      studentId: req.auth.id, value, updatedAt: new Date().toISOString() }) });
+  });
+  const teacherRows = req => allLessons(req.auth).filter(lesson => ended(lesson)
+    && (lesson.kind === 'individual' ? lesson.teacherId === req.auth.id
+      : canManage(req.auth, groupById(lesson.groupId))));
+  const studentLesson = (lesson, studentId) => ({ ...context(lesson),
+    feedback: store.get(lesson.id, studentId) || null });
+  app.get('/api/lesson-pace/students', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (req.auth?.role !== 'teacher') return res.status(403).json({ error: 'Ответы доступны преподавателю' });
+    const rows = teacherRows(req).sort((a, b) => Date.parse(b.startAt) - Date.parse(a.startAt));
+    res.json({ students: teacherStudents(req.auth).map(student => {
+      const conducted = rows.filter(lesson => eligible(lesson, student.id));
+      return { studentId: student.id, latest: conducted[0] ? studentLesson(conducted[0], student.id) : null,
+        pendingCount: conducted.filter(lesson => !store.get(lesson.id, student.id)).length };
+    }) });
+  });
+  app.get('/api/lesson-pace/students/:studentId', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (req.auth?.role !== 'teacher') return res.status(403).json({ error: 'Ответы доступны преподавателю' });
+    const student = teacherStudents(req.auth).find(item => item.id === req.params.studentId);
+    if (!student) return res.status(404).json({ error: 'Ученик не найден' });
+    const rows = teacherRows(req).filter(lesson => eligible(lesson, student.id))
+      .sort((a, b) => Date.parse(b.startAt) - Date.parse(a.startAt));
+    const offset = Math.max(0, Math.floor(Number(req.query.offset) || 0));
+    const page = rows.slice(offset, offset + 30);
+    res.json({ lessons: page.map(lesson => studentLesson(lesson, student.id)), total: rows.length,
+      nextOffset: offset + page.length < rows.length ? offset + page.length : null });
   });
   const target = (req, res) => {
     const group = groupById(req.params.groupId);

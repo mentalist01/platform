@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { lessonPaceApi } from '../services/lessonPaceApi';
+import { paceLabel } from '../utils/lessonPace';
 import './LessonPaceFeedback.css';
-
-const paceLabel = value => value < 35 ? 'Отстаю, ничего не успеваю'
-  : value > 65 ? 'Слишком легко для меня, нужен темп быстрее' : 'Всё круто, я в темпе занятия';
 
 export default function LessonPaceFeedback({ user, transport = lessonPaceApi }) {
   const [lesson, setLesson] = useState(null);

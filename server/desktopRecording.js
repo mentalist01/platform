@@ -64,6 +64,8 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     enabled, settings, stop, share,
     lessonJob: (teacherId,id) => db.jobs[id]?.teacherId===teacherId ? {...db.jobs[id]} : null,
     libraryJobs: teacherId => jobs(teacherId).map(publicJob),
+    activeLessonKeys: teacherId => new Set(jobs(teacherId)
+      .filter(job => job.desired === 'record' && job.cutoffAt > now()).map(job => job.occurrence.key)),
     recentLessonJobs: (teacherId, since) => jobs(teacherId)
       .filter(job => job.startedAt >= since)
       .map(({ occurrence, status, startedAt, stoppedAt }) => ({ occurrence, status, startedAt, stoppedAt })),

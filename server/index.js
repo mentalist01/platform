@@ -16,6 +16,7 @@ import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './goog
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
 import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
+import { IndividualLessonPaceStore } from './individualLessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
@@ -1837,6 +1838,7 @@ const getLoadedCollabDocs = () => (
     : null
 );
 const homeworkReminders = new HomeworkReminderStore(path.join(dataDir, 'homework-reminders.json'));
+const individualLessonPace = new IndividualLessonPaceStore(path.join(dataDir, 'individual-lesson-pace.json'));
 // A canvas can be opened only after its page was created in the teacher's
 // manifest. This prevents arbitrary page IDs from creating orphan snapshots.
 const isKnownBoardPage = (access) => {
@@ -24419,6 +24421,39 @@ const readResolvedGroupLessonSessions = () => deduplicateGroupLessonSessions(rea
   const recording = getLessonReplaySummary(buildLearningGroupLessonReplayKey(lesson.id));
   return recording.available || recording.provider === 'rutube' || recording.eventCount > 0 || lessonPaceStore.list(lesson.id).length > 0;
 });
+const observeIndividualPace = teacherId => {
+  const history = readLessonHistoryStore().occurrences;
+  // The reminder tracker observes real RTC/Telemost sessions, even with OBS
+  // disabled. Reading its observations does not dismiss or satisfy reminders.
+  for (const lesson of Object.values(homeworkReminders.data.lessons)) {
+    if (lesson.teacherId !== teacherId || lesson.groupId) continue;
+    individualLessonPace.observeLesson(teacherId, history[lesson.occurrenceKey] || {
+      key: lesson.occurrenceKey, studentId: lesson.studentId, dayKey: lesson.dayKey, time: lesson.lessonTime,
+    }, lesson.startAt, lesson.endAt);
+  }
+  for (const job of desktopRecordings.recentLessonJobs(teacherId, individualLessonPace.data.since)) {
+    if (!['waiting', 'error'].includes(job.status) && job.startedAt) {
+      individualLessonPace.observeLesson(teacherId, job.occurrence, job.startedAt, job.stoppedAt);
+    }
+  }
+};
+const readIndividualPaceLessons = auth => {
+  const student = auth.role === 'student' ? findStudentById(auth.id) : null;
+  const teacherId = student?.teacherId || (auth.role === 'teacher' ? auth.id : '');
+  if (!teacherId) return [];
+  observeIndividualPace(teacherId);
+  const students = new Map(readStudentsDb().map(target => [target.id, target]));
+  const activeRecordings = desktopRecordings.activeLessonKeys(teacherId);
+  const history = readLessonHistoryStore().occurrences;
+  return individualLessonPace.list({ teacherId, studentId: student?.id,
+    studentById: id => students.get(id),
+    isActive: (lesson, target) => Boolean((hasActivePlatformLessonCall(target)
+        && activeLessonReplayOccurrenceByStudentId.get(target.id)?.occurrence.key === lesson.occurrenceKey)
+      || getTelemostLessonReplayEntry(target.id)?.occurrence.key === lesson.occurrenceKey
+      || activeRecordings.has(lesson.occurrenceKey)),
+    topicFor: lesson => history[lesson.occurrenceKey]?.topic?.text,
+  });
+};
 registerLessonPace(app, {
   store: lessonPaceStore,
   lessons: () => { reconcileLearningGroupLifecycle(); return readResolvedGroupLessonSessions(); },
@@ -24428,6 +24463,10 @@ registerLessonPace(app, {
     && canStudentReadLearningGroupLesson(group, auth.id, lesson)),
   studentName: id => findStudentById(id, { allowDeleted: true })?.name || 'Ученик',
   requiresFeedback: (lesson, studentId) => isGroupLessonAssigned(getLearningGroupById(lesson.groupId),studentId,lesson),
+  individualLessons: readIndividualPaceLessons,
+  canReadIndividual: (auth, lesson) => auth.role === 'student' && lesson.participantIds.includes(auth.id)
+    && findStudentById(auth.id)?.teacherId === lesson.teacherId,
+  teacherStudents: auth => readStudentsDb().filter(student => !student.deletedAt && student.teacherId === auth.id),
 });
 const availabilityStore = createAvailabilityStore(path.join(dataDir, 'group-availability.json'));
 let lastAvailabilityMaterialized = 0;
@@ -34062,6 +34101,7 @@ const activateTelemostLessonReplay = async ({
     requestId: String(requestId || '').trim(),
   };
   activeTelemostLessonReplayByStudentId.set(studentId, entry);
+  individualLessonPace.observeLesson(entry.teacherId, occurrence, Number(nowMs));
   try { homeworkReminders.observeLesson(entry.teacherId, occurrence, Number(nowMs)); } catch (error) {
     console.error('[homework-reminders] failed to track Telemost:', error?.message || error);
   }
@@ -35086,6 +35126,8 @@ const finishTelemostLessonReplay = async (studentId, options = {}) => {
     try { homeworkReminders.finishLesson(entry.teacherId, entry.occurrence, Number(options.nowMs) || Date.now()); } catch (error) {
       console.error('[homework-reminders] failed to finish Telemost:', error?.message || error);
     }
+    observeIndividualPace(entry.teacherId);
+    individualLessonPace.finishLesson(entry.teacherId, entry.occurrence.key, Number(options.nowMs) || Date.now());
   }
   const sessions = Array.from(activeLessonReplaySessions.values()).filter((session) => (
     session.studentId === normalizedStudentId && session.occurrenceKey === occurrenceKey
@@ -42920,6 +42962,14 @@ const leaveRtcRoom = (client) => {
   }
   const removed = room.delete(client.clientId);
   if (!removed) return;
+  const departed = parseRtcRoomId(roomId);
+  if (departed?.targetType === 'student') {
+    const student = findStudentById(departed.studentId);
+    const occurrence = activeLessonReplayOccurrenceByStudentId.get(departed.studentId)?.occurrence;
+    if (student && occurrence && !hasActivePlatformLessonCall(student)) {
+      individualLessonPace.disconnectLesson(departed.teacherId, occurrence.key);
+    }
+  }
   if (room.size === 0) {
     rtcRooms.delete(roomId);
     broadcastRtcPresenceUpdate(roomId);
@@ -42960,7 +43010,10 @@ const observeHomeworkRtcLesson = async (roomMeta) => {
   if (!teacherClient) return;
   const startedAt = Date.now();
   const occurrence = await resolveCurrentLessonReplayOccurrence(student, teacherClient.auth, startedAt, { preferActive: true, allowFallback: true });
-  if (occurrence && hasActivePlatformLessonCall(student)) homeworkReminders.observeLesson(student.teacherId, occurrence, startedAt);
+  if (occurrence && hasActivePlatformLessonCall(student)) {
+    homeworkReminders.observeLesson(student.teacherId, occurrence, startedAt);
+    individualLessonPace.observeLesson(student.teacherId, occurrence, startedAt);
+  }
 };
 
 const joinRtcRoom = (client, roomMeta) => {
@@ -43219,6 +43272,11 @@ const handleRtcMessage = (client, rawData, isBinary) => {
         peer.auth?.role === 'teacher' && peer.auth.id === departingRoom.teacherId);
       if (!remaining?.size || (client.auth.role === 'teacher' && !teacherStillPresent)) {
         desktopRecordings.stopPlatformCall(departingRoom.teacherId, departingRoom.studentId);
+        const active = activeLessonReplayOccurrenceByStudentId.get(departingRoom.studentId);
+        if (active?.occurrence?.key) {
+          observeIndividualPace(departingRoom.teacherId);
+          individualLessonPace.finishLesson(departingRoom.teacherId, active.occurrence.key);
+        }
       }
     }
     sendRtcPayload(client.ws, { type: 'left' });

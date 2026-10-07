@@ -12,6 +12,7 @@ import chestClosedImage from '../assets/mock-chest/chest-closed.png';
 import ScheduleProgressTree from './ScheduleProgressTree';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
+import { StudentPaceHistory } from './StudentLessonPace';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import RecordingHomeworkHandoff from './RecordingHomeworkHandoff';
@@ -771,6 +772,7 @@ const ScheduleSection = ({
   const [deletingId, setDeletingId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showLessonHistory, setShowLessonHistory] = useState(false);
+  const [showPaceHistory, setShowPaceHistory] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [weeklyScheduleOpen, setWeeklyScheduleOpen] = useState(false);
   const [lessonHistory, setLessonHistory] = useState([]);
@@ -858,6 +860,7 @@ const ScheduleSection = ({
   const homeworkRewardDialogTriggerRef = React.useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  useEffect(() => { setShowPaceHistory(false); }, [effectiveStudentId]);
   const canRequestIndividualSchedule = role === 'student'
     && individualScheduleAccess?.studentId === effectiveStudentId
     && individualScheduleAccess.allowed;
@@ -1981,6 +1984,9 @@ const ScheduleSection = ({
 
   const renderStudentLessonHistory = () => showLessonHistory ? (
     <section className="student-lesson-history student-lesson-history--open">
+      {role === 'teacher' && <button type="button" className="student-pace-badge" onClick={() => setShowPaceHistory(true)}>
+        <span>Обратная связь</span><strong>Темп уроков — оценки ученика</strong>
+      </button>}
       <div
         id="student-lesson-history-panel"
         className="student-lesson-history__panel"
@@ -6126,6 +6132,8 @@ const ScheduleSection = ({
         onClose={closeStudentLessonDetail}
         onRetry={retryStudentLessonDetail}
       />
+      {role === 'teacher' && showPaceHistory && <StudentPaceHistory key={effectiveStudentId} studentId={effectiveStudentId}
+        studentName={selectedStudent?.name || 'Ученик'} onClose={() => setShowPaceHistory(false)} />}
     </div>
   );
 };

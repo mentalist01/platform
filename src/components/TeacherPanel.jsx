@@ -1,5 +1,7 @@
 import { LESSON_PRICING_OPTIONS, lessonPricingLabel, isDurationPricing, calculateLessonPrice } from '../utils/lessonPricing.js';
 import MonthlyMockExamBadge from './MonthlyMockExamBadge';
+import { StudentPaceBadge, StudentPaceHistory } from './StudentLessonPace';
+import { useLessonPaceRoster } from '../hooks/useLessonPaceRoster';
 import TeacherStudentRoster from './TeacherStudentRoster';
 import StudentPaymentSenderEditor from './StudentPaymentSenderEditor';
 import { findPaymentSenderConflict } from '../utils/paymentSenderLinks.js';
@@ -254,6 +256,10 @@ const TeacherPanel = ({
   const isSettingsMode = mode === 'settings';
   const [isStudentsExpanded, setIsStudentsExpanded] = useState(isStudentsMode);
   const [monthlyMockStudentId, setMonthlyMockStudentId] = useState(null);
+  const [paceStudent, setPaceStudent] = useState(null);
+  const paceRoster = useLessonPaceRoster({ teacherId, enabled: role === 'teacher' && isStudentsExpanded && isStudentsMode });
+  const paceRows = new Map(paceRoster.rows.map(row => [row.studentId, row]));
+  useEffect(() => { setPaceStudent(null); }, [teacherId]);
   const monthlyMocks = useMonthlyMockRoster({ teacherId, enabled: role === 'teacher' && isStudentsExpanded && isStudentsMode, refreshKey: monthlyMockRefreshKey });
   const monthlyMockRows = new Map((monthlyMocks.data?.rows || []).map(row => [String(row.studentId), row]));
   const refreshMonthlyMocks = monthlyMocks.refresh;
@@ -3319,6 +3325,8 @@ const TeacherPanel = ({
                         {role === 'teacher' && studentIsCurrent && <MonthlyMockExamBadge
                           row={monthlyMockRows.get(String(student.id))} period={monthlyMocks.data?.period} error={monthlyMocks.error}
                           onClick={() => setMonthlyMockStudentId(String(student.id))} />}
+                        {role === 'teacher' && <StudentPaceBadge row={paceRows.get(student.id)} loaded={paceRoster.loaded}
+                          error={paceRoster.error} onClick={() => setPaceStudent({ id: student.id, name: student.name })} />}
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <span
                             className="teacher-student-card__pill inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700"
@@ -4583,6 +4591,8 @@ const TeacherPanel = ({
           </div>
         </div>
       ), document.body)}
+      {role === 'teacher' && paceStudent && <StudentPaceHistory key={paceStudent.id} studentId={paceStudent.id}
+        studentName={paceStudent.name} onClose={() => setPaceStudent(null)} />}
     </div>
   );
 };
