@@ -3,17 +3,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 // Run the actual service and panel against a synthetic OBS RPC transport and
 // a fictional platform. No real OBS, devices, payments, uploads or lessons.
-async function fixture() {
+async function fixture({ queueEnabled = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-python-studio-'));
   const app = path.join(root, 'fixture-app'); fs.mkdirSync(app);
   const here = path.dirname(fileURLToPath(import.meta.url));
   for (const name of fs.readdirSync(here)) if (/\.(mjs|html|ps1|json)$/.test(name) && !name.includes('.test.')) fs.copyFileSync(path.join(here, name), path.join(app, name));
+  if (process.argv.includes('--serve')) {
+    const ffmpeg=process.platform==='win32'?'C:/ProgramData/chocolatey/bin/ffmpeg.exe':'ffmpeg';
+    execFileSync(ffmpeg,['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','testsrc2=s=640x360:r=30:d=24','-f','lavfi','-i','sine=frequency=440:duration=24','-c:v','libx264','-preset','ultrafast','-c:a','aac',path.join(root,'fixture.mkv')],{windowsHide:true});
+    fs.writeFileSync(path.join(app,'runtime.json'),JSON.stringify({ffmpeg}));
+  }
   const listener = http.createServer(); await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
   const port = listener.address().port; await new Promise(resolve => listener.close(resolve));
   const platform = http.createServer((req, res) => {
@@ -23,6 +28,8 @@ async function fixture() {
   await new Promise(resolve => platform.listen(0, '127.0.0.1', resolve));
   const ordinary = { token: 'fictional-token', platformUrl: `http://127.0.0.1:${platform.address().port}`, platform: 'lesson-platform', telemost: 'lesson-call', mic: 'lesson-mic', program: 'lesson-editor', screen: 'lesson-monitor', configured: true, recordDirectory: path.join(root, 'fake-video'), autoUpload: false };
   fs.mkdirSync(ordinary.recordDirectory); fs.writeFileSync(path.join(root, 'state.json'), JSON.stringify({ config: ordinary, jobs: {} }));
+  const seed=process.argv.find(arg=>arg.startsWith('--seed='))?.slice(7);
+  if(seed){const previous=JSON.parse(fs.readFileSync(seed));const jobs=Object.fromEntries(Object.entries(previous.jobs).map(([id,job])=>{const file=path.join(ordinary.recordDirectory,`lesson-${id}.mkv`);fs.copyFileSync(path.join(root,'fixture.mkv'),file);return[id,{...job,file}];}));fs.writeFileSync(path.join(root,'state.json'),JSON.stringify({config:{...previous.config,recordDirectory:ordinary.recordDirectory,platformUrl:ordinary.platformUrl},jobs}));}
   fs.writeFileSync(path.join(app, 'release.json'), JSON.stringify({ version: JSON.parse(fs.readFileSync(path.join(app, 'package.json'))).version, id: 'a'.repeat(64) }));
   fs.writeFileSync(path.join(app, 'obs-fixture.mjs'), `
 import fs from 'node:fs';import path from 'node:path';
@@ -36,7 +43,7 @@ export class ObsClient extends Base {
     this.events.push([type,p]);if(this.events.length>2000)this.events.shift();
     if(type==='GetSceneCollectionList')return {currentSceneCollectionName:'IVAN100 Lessons',sceneCollections:['IVAN100 Lessons']};
     if(type==='GetProfileList')return {currentProfileName:'IVAN100 Lessons',profiles:['IVAN100 Lessons']};
-    if(type==='GetRecordStatus')return {outputActive:this.output,outputPaused:this.paused,outputTimecode:'00:00:12.000'};
+    if(type==='GetRecordStatus')return {outputActive:this.output,outputPaused:this.paused,outputTimecode:'00:00:'+String(this.seconds??12).padStart(2,'0')+'.000'};
     if(type==='GetStreamStatus')return {outputActive:false};
     if(type==='GetCurrentProgramScene')return {currentProgramSceneName:this.scene};
     if(type==='SetCurrentProgramScene')this.scene=p.sceneName;
@@ -51,10 +58,10 @@ export class ObsClient extends Base {
     if(type==='SetInputSettings')this.settings[p.inputName]={...this.settings[p.inputName],...p.inputSettings};
     if(type==='GetSceneItemId')return {sceneItemId:1};
     if(type==='GetVideoSettings')return {baseWidth:1920,baseHeight:1080};
-    if(type==='StartRecord'){this.paused=false;setTimeout(()=>{this.output=true;},450);}
+    if(type==='StartRecord'){this.paused=false;const template=path.join(process.env.IVAN100_RECORDER_HOME,'fixture.mkv');if(fs.existsSync(template))fs.copyFileSync(template,path.join(process.env.IVAN100_RECORDER_HOME,'fake-video',this.owner+'.mkv'));setTimeout(()=>{this.output=true;},450);}
     if(type==='PauseRecord')this.paused=true;
     if(type==='ResumeRecord')this.paused=false;
-    if(type==='StopRecord'){setTimeout(()=>{this.output=false;},450);const file=path.join(process.env.IVAN100_RECORDER_HOME,'fake-video',this.owner+'.mkv');fs.writeFileSync(file,'synthetic capture');return {outputPath:file};}
+    if(type==='StopRecord'){setTimeout(()=>{this.output=false;},450);const file=path.join(process.env.IVAN100_RECORDER_HOME,'fake-video',this.owner+'.mkv');if(!fs.existsSync(file))fs.writeFileSync(file,'synthetic capture');return {outputPath:file};}
     if(type==='GetSourceScreenshot'){
       if(!this.scenes.has(p.sourceName))throw Error('Выберите источники Python');
       const title=p.sourceName.includes('Python')?'PYTHON / '+(this.settings[PYTHON_INPUTS.window]?.window||'preview'):'LESSON / original window';
@@ -66,12 +73,17 @@ export class ObsClient extends Base {
 }
 `);
   let source = fs.readFileSync(path.join(app, 'app.mjs'), 'utf8').replaceAll('18765', String(port)).replace("from './obs.mjs'", "from './obs-fixture.mjs'");
-  source = source.replace('void archive.detectPython().catch(() => {});', '/* QA: no dependency probes. */').replace('void queue();', '/* QA: no upload or conversion. */');
+  if(process.argv.includes('--serve'))source=source.replaceAll("frame-ancestors 'none'","frame-ancestors 'self'");
+  source = source.replace('void archive.detectPython().catch(() => {});', '/* QA: no dependency probes. */');
+  if (!queueEnabled) source = source.replace('void queue();', '/* QA: no upload or conversion. */');
+  source = source.replace('const finalizePython = async job => {', 'editMedia.duration=async()=>24; const finalizePython = async job => {');
   const qaRoutes = `
+    if(req.url==='/qa/narrow'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end('<iframe title="Монтаж в узком окне" src="/" style="width:390px;height:760px;border:0"></iframe>');}
     if(req.url==='/qa/events')return json(res,200,{events:obs.events,settings:obs.settings,scene:obs.scene,owner:obs.owner});
     if(req.url==='/qa/closed'){obs.closed=true;pythonSourceChoices=await obs.choices();return json(res,200,{});}
     if(req.url==='/qa/lesson'){await serialize(()=>engine.start({id:crypto.randomUUID(),title:'Тест обычного урока',local:true,manual:true,cutoffAt:Date.now()+3600000}));obsStatus=await obs.status();return json(res,200,{});}
     if(req.url==='/qa/lost'){obs.output=false;obsStatus=await obs.status();return json(res,200,{});}
+    if(req.url==='/qa/time'){const payload=await body(req);obs.seconds=payload.seconds;obsStatus=await obs.status();return json(res,200,{});}
   `;
   source = source.replace("if (req.method === 'GET' && req.url === '/health')", qaRoutes + "if (req.method === 'GET' && req.url === '/health')");
   const toolbar = "<main><div class=\"row\"><button onclick=\"fetch('/qa/lesson',{method:'POST'}).then(()=>refresh())\">QA: обычный урок</button><button onclick=\"fetch('/qa/closed',{method:'POST'}).then(()=>choices()).then(()=>refresh())\">QA: закрыть редактор</button></div>";
@@ -94,6 +106,39 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('live Python montage API persists edits and prevents every publication path before approval', async t => {
+    const f = await fixture({ queueEnabled: true }); t.after(f.close);
+    const capture={mode:'screen',screen:'python-monitor',mic:'python-mic'};
+    await f.request('/python/configure',capture);
+    await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Монтаж Python'});
+    let current=(await f.request('/state')).value; const id=current.jobs[0].id;
+    await f.request('/qa/time',{seconds:12}); await f.request('/material/pause',{id,paused:true});
+    current=(await f.request('/state')).value;
+    assert.equal(current.jobs[0].pythonTimeline.clips.length,1);
+    const clip=current.jobs[0].pythonTimeline.clips[0];
+    const edit=async(action,extra={})=>{const state=(await f.request('/state')).value.jobs.find(j=>j.id===id);return f.request('/python/editor/edit',{id,revision:state.pythonTimeline.revision,clipId:clip.id,action,...extra});};
+    assert.equal((await edit('split',{at:6})).status,200);
+    assert.equal((await edit('trim',{start:1,end:5})).status,200);
+    assert.equal((await f.request('/python/editor/edit',{id,revision:-1,clipId:clip.id,action:'delete'})).status,400);
+    assert.equal((await edit('undo')).status,200);
+    assert.equal((await f.request('/python/editor/publish',{id,revision:3})).status,400,'Live capture cannot publish');
+    await f.request('/material/pause',{id,paused:false}); await f.request('/qa/time',{seconds:24}); await f.request('/material/pause',{id,paused:true});
+    await f.request('/material/stop',{id});
+    await new Promise(resolve=>setTimeout(resolve,1100));
+    current=(await f.request('/state')).value.jobs.find(j=>j.id===id);
+    assert.equal(current.pythonTimeline.clips.length,3);
+    assert.equal(current.pythonTimeline.finalized,true); assert.equal(current.pythonTimeline.approved,false);
+    assert.equal(current.status,'saved'); assert.equal(current.mp4,undefined); assert.equal(current.url,undefined);
+    assert.equal((await f.request('/upload',{id})).status,400);
+    assert.equal((await f.request('/attach',{id,url:'https://rutube.ru/video/private/'+'a'.repeat(32)+'/?p=fixture'})).status,400);
+    assert.equal((await fetch(f.base+'/python/editor/edit',{method:'POST',body:JSON.stringify({id,action:'delete'})})).status,403);
+    assert.equal((await f.request('/python/editor/edit',{id:'other-id',revision:current.pythonTimeline.revision,action:'delete',clipId:clip.id})).status,400);
+    const disk=JSON.parse(fs.readFileSync(path.join(f.root,'state.json')));
+    assert.equal(disk.jobs[id].pythonTimeline.clips.length,3); assert.ok(disk.jobs[id].pythonTimeline.history.length);
+    assert.equal((await f.request('/python/editor/publish',{id,revision:current.pythonTimeline.revision})).status,200);
+    assert.equal((await f.request('/state')).value.jobs.find(j=>j.id===id).pythonTimeline.approved,true);
+    assert.equal((await edit('delete')).status,400,'Approved montage frozen');
+  });
   test('actual API uses Python settings for capture, keeps one output through pause/switch/stop, then restores ordinary lesson sources', async t => {
     const f = await fixture(); t.after(f.close);
     await f.request('/choices');

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { pythonCaptureConfig, pythonCaptureReason } from './python-capture.mjs';
+import { createTimeline } from './python-timeline.mjs';
 
 export async function startPythonTheory({ api, engine, payload, captureConfig, now = Date.now }) {
   if (engine.active()) throw new Error('Сначала завершите текущую запись');
@@ -17,6 +18,7 @@ export async function startPythonTheory({ api, engine, payload, captureConfig, n
   const id = crypto.randomUUID();
   await engine.start({ id, title, local: true, manual: true, autoPublish: true, audioMode: 'teacher',
     captureProfile: 'python', captureConfig: selected,
+    pythonTimeline: createTimeline(),
     cutoffAt: now() + 3 * 60 * 60_000,
     pythonTheory: { teacherId: catalog.teacherId, taskNumber: task.number, subsectionId: section.id,
       taskTitle: task.title, subsectionTitle: section.title, expectedUrl: section.existingUrl,

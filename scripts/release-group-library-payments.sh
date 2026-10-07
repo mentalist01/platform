@@ -42,6 +42,7 @@ node scripts/check-teacher-desktop-release.mjs local "$stage"
 node scripts/check-board-pages-release.mjs local "$stage"
 node scripts/check-monthly-mock-release.mjs local "$stage"
 node scripts/check-recorder-ui-release.mjs local "$stage"
+node scripts/check-python-editor-release.mjs local "$stage"
 node scripts/check-recording-reliability-release.mjs local "$stage"
 node scripts/check-python-practice-release.mjs local "$stage"
 node scripts/check-board-task-clipboard-release.mjs local "$stage"
@@ -73,6 +74,7 @@ node scripts/check-monthly-mock-release.mjs verify "$stage" /root/platform-data
 node scripts/check-lesson-tools-release.mjs verify "$stage" /root/platform-data
 node scripts/check-teacher-workbook-release.mjs verify "$stage" /root/platform-data
 node scripts/check-recorder-ui-release.mjs verify "$stage"
+node scripts/check-python-editor-release.mjs verify "$stage"
 node scripts/check-recording-reliability-release.mjs verify "$stage"
 node scripts/check-python-practice-release.mjs verify "$stage"
 node scripts/check-board-task-clipboard-release.mjs verify "$stage"

@@ -1,0 +1,31 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import assert from 'node:assert/strict';
+import { recorderRelease } from '../server/recorderPackage.js';
+const [mode, directory] = process.argv.slice(2);
+assert.ok(['local','verify'].includes(mode) && directory, 'Usage: local|verify BUILD_DIR');
+const release = recorderRelease(), expected = JSON.parse(release.bundle).files;
+for (const file of ['python-editor.mjs','python-timeline.mjs','python-edit-media.mjs']) assert.ok(expected[file], `Missing editor module ${file}`);
+assert.ok(expected['panel.html'].includes('/python-editor.mjs'));
+assert.ok(expected['python-editor.mjs'].includes('Выложить в изучение Python'));
+assert.ok(expected['app.mjs'].includes('!job.pythonTimeline.approved'));
+const asset = `/assets/IVAN100-Recorder-Windows-${release.manifest.version}.zip`;
+const bytes = fs.readFileSync(path.join(directory, asset.slice(1)));
+const files = {}; let offset=0;
+while(bytes.readUInt32LE(offset)===0x04034b50){
+  assert.equal(bytes.readUInt16LE(offset+8),0);
+  const size=bytes.readUInt32LE(offset+18),nameLength=bytes.readUInt16LE(offset+26),extra=bytes.readUInt16LE(offset+28);
+  const name=bytes.subarray(offset+30,offset+30+nameLength).toString('utf8').replace(/^IVAN100-Recorder\//,'');
+  const start=offset+30+nameLength+extra;
+  files[name]=bytes.subarray(start,start+size).toString('utf8').replace(/^\uFEFF/,'').replace(/\r\n/g,'\n');offset=start+size;
+}
+assert.deepEqual(JSON.parse(files['release.json']),release.manifest);
+for(const [name,content]of Object.entries(expected))assert.equal(files[name],content,`Wrong package module ${name}`);
+if(mode==='verify'){
+  const response=await fetch('https://ivan100.ru'+asset,{headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(25000)});
+  assert.ok(response.ok,`HTTP ${response.status}`);
+  const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
+  assert.equal(hash(Buffer.from(await response.arrayBuffer())),hash(bytes),'Published recorder package differs');
+}
+console.log('Python montage editor, publication gate and exact recorder package verified.');

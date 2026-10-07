@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ownedRecording } from './storage.mjs';
+import { recordingSeconds, observeTimeline, closeTimelineClip, resumeTimeline, finishTimeline } from './python-timeline.mjs';
 
 export class RecorderEngine {
   constructor({ obs, state, save, api, recordDirectory, ready, now = Date.now }) {
@@ -46,11 +47,13 @@ export class RecorderEngine {
     const ourOutput = parameterValue === `lesson-${job.id}`;
     if (status.outputActive) {
       if (!ourOutput) throw new Error('OBS пишет другую запись; пульт не будет её останавливать');
+      observeTimeline(job.pythonTimeline, recordingSeconds(status));
       delete job.resumeAfterRestart;
       job.status = job.status === 'stopping' ? 'stopping' : 'recording'; this.save(); return;
     }
     const file = ownedRecording(this.recordDirectory, job.id);
     if (fs.existsSync(file) && fs.statSync(file).size > 0) {
+      finishTimeline(job.pythonTimeline, recordingSeconds(status));
       if (job.status !== 'stopping' && !job.local && !job.manual && !job.fallbackMode
         && job.desired === 'record' && job.cutoffAt > this.now()) job.resumeAfterRestart = true;
       job.file = file; job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
@@ -73,6 +76,7 @@ export class RecorderEngine {
     const status = await this.obs.status();
     const { parameterValue } = await this.obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' });
     if (status.outputActive && parameterValue !== `lesson-${job.id}`) throw new Error('В OBS идёт другая запись');
+    finishTimeline(job.pythonTimeline, recordingSeconds(status));
     const file = status.outputActive ? await this.obs.stop() : ownedRecording(this.recordDirectory, job.id);
     job.file = ownedRecording(this.recordDirectory, job.id, file);
     if (!fs.existsSync(job.file) || fs.statSync(job.file).size === 0) throw new Error('OBS не сохранил файл записи');
@@ -88,7 +92,12 @@ export class RecorderEngine {
     if (this.pauseOperation) throw new Error('Дождитесь подтверждения предыдущего нажатия');
     const operation = this.obs.setRecordPaused(id, paused);
     this.pauseOperation = operation;
-    try { return await operation; }
+    try {
+      const status = await operation;
+      if (paused) closeTimelineClip(job.pythonTimeline, recordingSeconds(status));
+      else resumeTimeline(job.pythonTimeline, recordingSeconds(status));
+      this.save(); return status;
+    }
     finally { if (this.pauseOperation === operation) this.pauseOperation = null; }
   }
   async startForCurrentLesson() {
