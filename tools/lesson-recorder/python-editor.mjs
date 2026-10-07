@@ -7,7 +7,7 @@ document.head.append(style);
 style.textContent += '.python-editor .pe-header{margin:0}.python-editor .pe-player{margin:0}.python-editor .pe-track strong{font-size:11px;white-space:nowrap}body:has(.python-editor--focus) main>:not(.python-editor){visibility:hidden}';
 style.textContent += `
 .pe-focus-button{margin-left:auto}.python-editor--focus{position:fixed;inset:12px;z-index:50;display:flex;flex-direction:column;max-height:calc(100dvh - 24px);margin:0}.python-editor--focus .pe-header{padding:12px 18px;flex:none}.python-editor--focus .pe-header h2{font-size:18px}.python-editor--focus .pe-workspace{flex:1;min-height:0}.python-editor--focus .pe-view{display:flex;flex-direction:column;min-height:0;padding:14px}.python-editor--focus .pe-player,.python-editor--focus .pe-empty{flex:1;min-height:0;aspect-ratio:auto;object-fit:contain}.python-editor--focus .pe-inspector{overflow-y:auto;padding:14px}.python-editor--focus .pe-inspector h3{margin-bottom:8px}.python-editor--focus .pe-inspector label{margin-top:7px}.python-editor--focus .pe-inspector input{padding:6px}.python-editor--focus .pe-inspector .pe-tools{margin-top:6px}.python-editor--focus .pe-timeline{padding:12px 18px;flex:none}.python-editor--focus .pe-track-tools{margin-bottom:8px}.python-editor--focus .pe-track>button{height:62px}.python-editor--focus .pe-footer{padding:10px 18px;flex:none}.python-editor--focus .pe-save-note{padding-bottom:8px}body:has(.python-editor--focus){overflow:hidden}body:has(.python-editor--focus) #python-transport{display:none!important}@media(max-width:720px){.python-editor--focus{inset:0;max-height:100dvh;border-radius:0;overflow-y:auto}.python-editor--focus .pe-workspace{flex:none;min-height:420px}.python-editor--focus .pe-view{min-height:320px}.python-editor--focus .pe-inspector{max-height:280px}.python-editor--focus .pe-header p{display:none}.python-editor--focus .pe-footer{position:sticky;bottom:0}.python-editor--focus .pe-project{width:auto;flex:1}}`;
-const editor = document.createElement('section'); editor.className = 'python-editor'; editor.hidden = true; editor.tabIndex = 0; editor.setAttribute('aria-label', 'Монтажная студия Python');
+const editor = document.createElement('section'); editor.className = 'python-editor'; editor.id = 'python-editor'; editor.tabIndex = 0; editor.setAttribute('aria-label', 'Монтажная студия Python');
 style.textContent += '@media(max-width:720px){.python-editor--focus .pe-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}.python-editor--focus .pe-header>div{grid-column:1/-1}.python-editor--focus .pe-header .brand{font-size:10px;letter-spacing:1px}.python-editor--focus .pe-header h2{margin:4px 0;font-size:17px}.python-editor--focus .pe-project{width:100%;max-width:100%}.python-editor--focus .pe-focus-button{margin:0}}';
 style.textContent += `
 .pe-track-content{position:relative;width:max-content;min-width:100%;touch-action:pan-y}.pe-ruler{cursor:col-resize;touch-action:none}.pe-track>button{touch-action:pan-y;cursor:grab;min-width:40px;padding:10px 12px}.pe-track>button:after{display:none}.pe-track>button.pe-dragging{opacity:.45;cursor:grabbing}.pe-track>button strong,.pe-track>button small{pointer-events:none}.pe-trim-handle{position:absolute;top:0;bottom:0;width:10px;background:#cfb0ff40;cursor:ew-resize;touch-action:none;opacity:0}.pe-trim-handle[data-edge=in]{left:0;border-right:1px solid #dcbeff66}.pe-trim-handle[data-edge=out]{right:0;border-left:1px solid #dcbeff66}.pe-track>button[aria-selected=true] .pe-trim-handle,.pe-track>button:hover .pe-trim-handle{opacity:1}.pe-cursor{top:0;bottom:0;z-index:4}.pe-cursor:before{content:'';position:absolute;top:0;left:-4px;width:10px;height:10px;background:#e9c7ff;clip-path:polygon(0 0,100% 0,100% 60%,50% 100%,0 60%)}.pe-drop-marker{position:absolute;top:20px;bottom:0;width:3px;background:#9cffe1;z-index:5;pointer-events:none}.pe-gesture-note{font-size:11px;color:#cebcf0;min-height:16px;margin-top:8px}.pe-seek{display:flex;gap:12px;align-items:center;margin-top:12px}.pe-seek input{flex:1;min-width:60px;accent-color:#bc91ff}.pe-seek output{font:12px Consolas,monospace;white-space:nowrap}.pe-track-tools button[aria-pressed=true]{background:#67508f;border-color:#bc96ec}.pe-trim-ghost{position:absolute;top:20px;height:76px;background:#b89be733;border:1px solid #d2b6ff;border-radius:9px;pointer-events:none;z-index:3}.python-editor--focus .pe-trim-ghost{height:62px}.pe-track-scroll{scroll-behavior:auto}.pe-track-tools .pe-duration{font:12px Consolas,monospace}@media(max-width:720px){.pe-track-tools{gap:6px}.pe-track-tools strong{flex-basis:100%}.pe-seek{flex-wrap:wrap}.pe-seek output{font-size:11px}}`;
@@ -17,13 +17,32 @@ editor.innerHTML = `<header class="pe-header"><div><span class="brand">PYTHON / 
 <aside class="pe-inspector"><h3>Выбранный фрагмент</h3><div class="pe-selection">Выберите фрагмент в ленте</div><label>Место разделения · секунды от начала фрагмента</label><input data-field="point" type="number" min="0" step="0.01" aria-label="Место разделения"><div class="pe-tools"><button data-op="split">✂ Разделить</button></div><label>Оставить от · секунды</label><input data-field="in" type="number" min="0" step="0.01" aria-label="Начало обрезки"><label>До · секунды</label><input data-field="out" type="number" min="0" step="0.01" aria-label="Конец обрезки"><div class="pe-tools"><button data-op="trim">Обрезать</button><button data-op="delete">Удалить</button></div><div class="pe-tools"><button data-op="move-left">← Раньше</button><button data-op="move-right">Позже →</button></div><div class="pe-tools"><button data-op="duplicate">Копия</button><button data-op="join">Объединить справа</button></div></aside></div>
 <div class="pe-timeline"><div class="pe-track-tools"><strong>Видео + микрофон</strong><button data-op="undo">↶ Отменить</button><button data-op="redo">↷ Вернуть</button><button data-op="snap" aria-pressed="true">Привязка</button><label>Масштаб <input type="range" min="2" max="60" value="8" aria-label="Масштаб ленты"></label><span class="pe-duration"></span></div><div class="pe-track-scroll"><div class="pe-track-content"><div class="pe-ruler"></div><div class="pe-track" role="listbox" aria-label="Фрагменты видео"></div><div class="pe-cursor"></div><div class="pe-drop-marker" hidden></div><div class="pe-trim-ghost" hidden></div></div></div><div class="pe-gesture-note">Перетащите клип, чтобы изменить порядок. Потяните за его край, чтобы обрезать.</div></div><div class="pe-save-note">Монтаж сохраняется автоматически. Delete — убрать, Ctrl+Z — отменить, Ctrl+Shift+Z — вернуть. ← / → — курсор, S — разрез. Правая кнопка — действия.</div><footer class="pe-footer"><p>После завершения записи проверьте изображение и звук. Отправится только собранное видео.</p><button data-op="publish">Выложить в изучение Python</button></footer>`;
 document.querySelector('#mock-review').before(editor);
+const emptyHelp = document.createElement('div');
+emptyHelp.className = 'pe-get-started';
+emptyHelp.innerHTML = '<strong>Начните с записи урока Python</strong><p>Выберите тему, монитор и микрофон в студии записи. Новая запись появится здесь автоматически. Каждая пауза завершает дубль — его можно обрезать, разделить или удалить.</p><button type="button">Настроить запись Python</button>';
+editor.querySelector('.pe-empty').append(emptyHelp);
+style.textContent += '.pe-get-started p{max-width:470px;margin:10px auto 18px;line-height:1.7}.pe-get-started button{padding:12px 18px;border-color:#a986e6;background:#7045b0;color:#fff}.pe-track-placeholder{padding:20px;color:#aab4ca;font-size:13px;min-height:76px;border:1px dashed #725095;border-radius:9px;width:100%;box-sizing:border-box}.python-editor--empty .pe-inspector{opacity:.55}.python-editor--empty .pe-footer p{color:#aab4ca}';
 const focusButton = document.createElement('button'); focusButton.type = 'button'; focusButton.className = 'pe-focus-button'; focusButton.textContent = 'Развернуть редактор';
 const inertBefore=new Map();
-focusButton.onclick = () => {
-  const expanded = editor.classList.toggle('python-editor--focus');
+let returnFocus;
+function setExpanded(expanded) {
+  editor.classList.toggle('python-editor--focus', expanded);
   focusButton.textContent = expanded ? 'Свернуть редактор' : 'Развернуть редактор';
   if(expanded){editor.setAttribute('role','dialog');editor.setAttribute('aria-modal','true');for(const child of editor.parentElement.children){if(child!==editor){inertBefore.set(child,child.inert);child.inert=true;}}}
   else{editor.removeAttribute('role');editor.removeAttribute('aria-modal');for(const[child,inert]of inertBefore)child.inert=inert;inertBefore.clear();}
+}
+focusButton.onclick = () => {
+  const expanded = !editor.classList.contains('python-editor--focus');
+  setExpanded(expanded);
+  if (!expanded) { returnFocus?.focus({preventScroll:true}); returnFocus = null; }
+};
+document.querySelector('#python-open-editor').onclick = event => {
+  returnFocus = event.currentTarget; setExpanded(true); editor.focus({preventScroll:true});
+};
+context.openEditor = () => document.querySelector('#python-open-editor').click();
+emptyHelp.querySelector('button').onclick = () => {
+  setExpanded(false); const studio = document.querySelector('#python-recorder'); studio.open = true;
+  studio.scrollIntoView({block:'start'}); document.querySelector('#python-refresh').focus({preventScroll:true});
 };
 findHeader().append(focusButton);
 function findHeader() { return editor.querySelector('.pe-header'); }
@@ -119,7 +138,26 @@ function render() {
   const state = context.state(); if (!state) return;
   if (gesture) return;
   const projects = state.jobs.filter(item => item.pythonTimeline);
-  editor.hidden = !projects.length; if (!projects.length) return;
+  editor.classList.toggle('python-editor--empty', !projects.length);
+  emptyHelp.hidden = Boolean(projects.length);
+  find('.pe-empty').firstElementChild.hidden = !projects.length;
+  find('.pe-seek input').disabled = !projects.length;
+  find('[aria-label="Масштаб ленты"]').disabled = !projects.length;
+  find('select').disabled = !projects.length;
+  if (!projects.length) {
+    if (projectId || videoUrl) discardPreview();
+    projectId = ''; selectedId = ''; signature = ''; inspectorSignature = ''; layout = []; playhead = 0;
+    find('select').dataset.options = '';
+    find('select').replaceChildren(new Option('Пока нет монтажных проектов', ''));
+    editor.querySelectorAll('[data-op], [data-field]').forEach(control => { control.disabled = true; });
+    find('.pe-selection').textContent = 'Фрагменты появятся после первой паузы';
+    find('.pe-ruler').replaceChildren();
+    find('.pe-track').innerHTML = '<div class="pe-track-placeholder">Здесь будут фрагменты вашего урока</div>';
+    find('.pe-duration').textContent = 'Итого 0:00.0';
+    find('.pe-cursor').hidden = true;
+    find('.pe-seek input').value = '0'; find('.pe-seek output').textContent = '0:00.0 / 0:00.0';
+    return;
+  }
   const active = projects.find(item => ['starting', 'recording', 'stopping'].includes(item.status));
   if (active && active.id !== projectId || !projects.some(item => item.id === projectId)) { projectId = active?.id || projects[0].id; selectedId = ''; signature = ''; playhead = 0; discardPreview(); }
   const selectProject = find('select');
@@ -183,6 +221,7 @@ function render() {
   setPlayhead(playhead, false, false, false);
 }
 async function operation(op) {
+  if (!job()) return;
   const current = job(), selected = selection();
   if (op === 'fit') { scale=clamp((find('.pe-track-scroll').clientWidth-4*layout.length)/totalTime(),2,200); find('[aria-label="Масштаб ленты"]').value=String(scale); signature='';render();return; }
   if (op === 'snap') { snapping = !snapping; find('[data-op=snap]').setAttribute('aria-pressed',String(snapping)); return; }
@@ -206,12 +245,15 @@ find('select').onchange = event => { projectId = event.target.value; playhead = 
 find('[aria-label="Масштаб ленты"]').oninput = event => { scale = Number(event.target.value); signature = ''; render(); };
 find('video').ontimeupdate = () => { if (videoUrl && previewRevision === job()?.pythonTimeline.revision) setPlayhead(find('video').currentTime + (previewClip ? layout.find(item=>item.id===previewClip)?.time || 0 : 0), false, false); };
 editor.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && editor.classList.contains('python-editor--focus')) {
+    event.preventDefault(); focusButton.click(); return;
+  }
   if(event.key==='Tab'&&editor.classList.contains('python-editor--focus')){
     const controls=[...editor.querySelectorAll('button,input,select,video')].filter(el=>!el.disabled&&!el.hidden&&el.getClientRects().length);
     if(event.shiftKey&&document.activeElement===controls[0]){event.preventDefault();controls.at(-1)?.focus();}
     else if(!event.shiftKey&&document.activeElement===controls.at(-1)){event.preventDefault();controls[0]?.focus();}
   }
-  if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
+  if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName) || !job()) return;
   if (event.ctrlKey && event.key.toLowerCase() === 'z') { event.preventDefault(); void act(() => operation(event.shiftKey ? 'redo' : 'undo')); }
   else if (event.ctrlKey && event.key.toLowerCase() === 'y') { event.preventDefault(); void act(() => operation('redo')); }
   else if (event.key === 'Delete' && selectedId) { event.preventDefault(); void act(() => operation('delete')); }

@@ -20,7 +20,7 @@ rollback_client_on_error() {
     printf '\nGROUP_LIBRARY_PAYMENTS_CLIENT_ROLLED_BACK backup=%s\n' "$backup" >&2
   fi
   if [[ "$status" != 0 ]]; then printf '\nGROUP_LIBRARY_PAYMENTS_RELEASE_FAILED backup=%s\n' "$backup" >&2; fi
-  if [[ "$status" == 0 && "$stage" == /root/app/.release-stage-* && -d "$stage" && -f "$stage/.ivan100-release-owned" ]]; then
+  if [[ "$status" == 0 && "${KEEP_RELEASE_STAGE:-0}" != 1 && "$stage" == /root/app/.release-stage-* && -d "$stage" && -f "$stage/.ivan100-release-owned" ]]; then
     rm -rf -- "$stage"
   fi
   exit "$status"
@@ -41,6 +41,7 @@ node --test server/workbookHelper.test.js server/workbookHelper.integration.test
 node --test server/lessonPace.test.js server/individualLessonPace.test.js server/lessonPace.integration.test.js server/homeworkReminders.test.js server/homeworkReminders.integration.test.js > "$backup/lesson-pace-tests.log" 2>&1
 node --test src/utils/collabCodePages.test.js server/collabCodePages.integration.test.js server/collabReadOnly.test.js server/learningPrivateCollab.integration.test.js server/groupCodePresence.integration.test.js > "$backup/code-pages-tests.log" 2>&1
 node --test src/utils/concurrentHomework.test.js server/concurrentHomework.integration.test.js src/utils/rtcVideoBudget.test.js scripts/releaseClientSnapshot.test.mjs > "$backup/homework-performance-tests.log" 2>&1
+node --test src/utils/rtcVideoCodec.test.js > "$backup/rtc-hardware-tests.log" 2>&1
 node --test server/studentPaymentBalances.test.js server/studentPaymentBalances.integration.test.js server/googleCalendarParseWorker.test.js server/lessonReschedule.integration.test.js > "$backup/student-balances-tests.log" 2>&1
 stage=$(mktemp -d /root/app/.release-stage-XXXXXX)
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
@@ -52,6 +53,7 @@ node scripts/check-board-pages-release.mjs local "$stage"
 node scripts/check-monthly-mock-release.mjs local "$stage"
 node scripts/check-recorder-ui-release.mjs local "$stage"
 node scripts/check-python-editor-release.mjs local "$stage"
+node scripts/check-rtc-hardware-release.mjs local "$stage"
 node scripts/check-recording-reliability-release.mjs local "$stage"
 node scripts/check-python-practice-release.mjs local "$stage"
 node scripts/check-board-task-clipboard-release.mjs local "$stage"
@@ -90,6 +92,7 @@ node scripts/check-collab-code-pages-release.mjs verify "$stage"
 node scripts/check-post-151-release.mjs verify "$stage" /root/platform-data
 node scripts/check-recorder-ui-release.mjs verify "$stage"
 node scripts/check-python-editor-release.mjs verify "$stage"
+node scripts/check-rtc-hardware-release.mjs verify "$stage"
 node scripts/check-recording-reliability-release.mjs verify "$stage"
 node scripts/check-python-practice-release.mjs verify "$stage"
 node scripts/check-board-task-clipboard-release.mjs verify "$stage"

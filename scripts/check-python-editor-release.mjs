@@ -8,6 +8,9 @@ assert.ok(['local','verify'].includes(mode) && directory, 'Usage: local|verify B
 const release = recorderRelease(), expected = JSON.parse(release.bundle).files;
 for (const file of ['python-editor.mjs','python-editor-time.mjs','python-timeline.mjs','python-edit-media.mjs']) assert.ok(expected[file], `Missing editor module ${file}`);
 assert.ok(expected['panel.html'].includes('/python-editor.mjs'));
+assert.ok(expected['panel.html'].includes('id="python-open-editor"'));
+assert.ok(expected['python-editor.mjs'].includes('Начните с записи урока Python'));
+assert.ok(!expected['python-editor.mjs'].includes('editor.hidden = !projects.length'));
 assert.ok(expected['python-editor.mjs'].includes('Выложить в изучение Python'));
 assert.ok(expected['app.mjs'].includes('!job.pythonTimeline.approved'));
 assert.ok(expected['python-editor.mjs'].includes('pointercancel'));
