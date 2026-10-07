@@ -6,6 +6,7 @@ import LinkifiedText from './LinkifiedText';
 import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
 import { rtcVideoBudget } from '../utils/rtcVideoBudget';
+import { preferH264ForVideoSender } from '../utils/rtcVideoCodec';
 import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRooms';
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
@@ -2710,11 +2711,13 @@ const CallSection = ({
             try { pc.removeTrack(currentSender); } catch {}
             senderToTune = pc.addTrack(track, localStreamRef.current);
             peerState[senderKey] = senderToTune;
+            if (videoKind === 'screen' && window.teacherDesktop) preferH264ForVideoSender(pc, senderToTune);
           }
           tuneVideoSender(senderToTune, { kind: videoKind });
           return;
         }
         peerState[senderKey] = pc.addTrack(track, localStreamRef.current);
+        if (videoKind === 'screen' && window.teacherDesktop) preferH264ForVideoSender(pc, peerState[senderKey]);
         tuneVideoSender(peerState[senderKey], { kind: videoKind });
         return;
       }

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { api } from '../services/api';
+import { preferH264ForVideoSender } from '../utils/rtcVideoCodec';
 
 // This is a second, local peer. Never stop or replace the call's original track.
 export default function useRecorderShare({ enabled, jobId, track }) {
@@ -19,7 +20,8 @@ export default function useRecorderShare({ enabled, jobId, track }) {
           id = crypto.randomUUID(); createdAt = Date.now();
           // No STUN/TURN: this feed is only intended for OBS on this computer.
           pc = new RTCPeerConnection({ iceServers: [] });
-          pc.addTrack(track, new MediaStream([track]));
+          const sender = pc.addTrack(track, new MediaStream([track]));
+          if (window.teacherDesktop) preferH264ForVideoSender(pc, sender);
           await pc.setLocalDescription(await pc.createOffer());
           await new Promise((resolve) => {
             const timeout = setTimeout(done, 3000);
