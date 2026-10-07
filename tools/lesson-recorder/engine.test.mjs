@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { RecorderEngine } from './engine.mjs';
 import { ownedRecording } from './storage.mjs';
+import { createTimeline } from './python-timeline.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recorder-engine-'));
@@ -94,6 +95,48 @@ test('failed OBS pause releases the control for a safe retry', async t => {
   f.obs.setRecordPaused = normal;
   assert.equal((await f.engine.setPythonPaused('one', true)).outputPaused, true);
   assert.equal(f.state.jobs.one.status, 'recording');
+});
+
+test('late OBS pause is reconciled into one take and continuation opens a separate next take', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {}, pythonTimeline: createTimeline() });
+  let paused = false, seconds = 5;
+  f.obs.status = async () => ({ outputActive: true, outputPaused: paused, outputTimecode: `00:00:${seconds.toFixed(3).padStart(6, '0')}` });
+  f.obs.setRecordPaused = async () => { throw Error('Late confirmation'); };
+  await assert.rejects(f.engine.setPythonPaused('one', true), /Late/);
+  paused = true; seconds = 8; await f.engine.reconcileActive(); await f.engine.reconcileActive();
+  const timeline = f.state.jobs.one.pythonTimeline;
+  assert.deepEqual(timeline.clips.map(c => [c.start,c.end,c.takeNumber]), [[0,8,1]]);
+  assert.equal(timeline.openStart, null);
+  paused = false; seconds = 10; await f.engine.reconcileActive();
+  assert.equal(timeline.openStart, 8, 'Late resume never loses the start of the next take');
+  paused = true; seconds = 15; await f.engine.reconcileActive();
+  assert.deepEqual(timeline.clips.map(c => [c.start,c.end,c.takeNumber]), [[0,8,1],[8,15,2]]);
+  assert.equal(timeline.takeCount, 2);
+  assert.deepEqual(f.counts(), [1,0]); assert.deepEqual(f.reports, []);
+});
+
+test('stale reconcile snapshots cannot reopen or close a take during a pending command', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {}, pythonTimeline: createTimeline() });
+  let release; f.obs.setRecordPaused = () => new Promise(resolve => { release = resolve; });
+  f.obs.status = async () => ({ outputActive: true, outputPaused: true, outputTimecode: '00:00:05.000' });
+  const pending = f.engine.setPythonPaused('one', true);
+  await f.engine.reconcileActive();
+  assert.equal(f.state.jobs.one.pythonTimeline.clips.length, 0);
+  release({ outputActive: true, outputPaused: true, outputTimecode: '00:00:08.000' }); await pending;
+  assert.deepEqual(f.state.jobs.one.pythonTimeline.clips.map(c=>[c.start,c.end]), [[0,8]]);
+});
+
+test('a poll which finishes after a confirmed local pause cannot reopen that take', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {}, pythonTimeline: createTimeline() });
+  let releaseProfile;
+  f.obs.status = async () => ({ outputActive:true,outputPaused:false,outputTimecode:'00:00:04.000' });
+  f.obs.call = () => new Promise(resolve => { releaseProfile=resolve; });
+  const recovering = f.engine.recover(f.state.jobs.one); await Promise.resolve();
+  f.obs.setRecordPaused = async () => ({ outputActive:true,outputPaused:true,outputTimecode:'00:00:06.000' });
+  await f.engine.setPythonPaused('one',true);
+  releaseProfile({parameterValue:'lesson-one'});await recovering;
+  assert.equal(f.state.jobs.one.pythonTimeline.openStart,null);
+  assert.deepEqual(f.state.jobs.one.pythonTimeline.clips.map(c=>[c.start,c.end]),[[0,6]]);
 });
 test('repeated server polls start exactly once and explicit finish stops once', async (t) => {
   const f = fixture(t); f.remote({ enabled: true, jobs: [f.job] });

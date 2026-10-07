@@ -86,7 +86,36 @@ test('native pause and resume verify output ownership, confirm state and tolerat
 test('OBS must confirm pause before the control can claim success', async () => {
   const obs = new ObsClient(); obs.assertCollection = async () => {};
   obs.call = async type => type === 'GetProfileParameter' ? { parameterValue: 'lesson-python' } : { outputActive: true, outputPaused: false };
-  await assert.rejects(obs.setRecordPaused('python', true), /подтвердить/);
+  await assert.rejects(obs.setRecordPaused('python', true, { timeoutMs: 0 }), /не подтвердил завершение дубля/);
+});
+
+test('pause and resume wait through delayed OBS confirmation without sending duplicate commands', async () => {
+  const obs = new ObsClient(); obs.assertCollection = async () => {};
+  let paused = false, wanted = false, changedAt = 0;
+  const commands = [];
+  obs.call = async type => {
+    if (type === 'GetProfileParameter') return { parameterValue: 'lesson-python' };
+    if (['PauseRecord', 'ResumeRecord'].includes(type)) { commands.push(type); wanted = type === 'PauseRecord'; changedAt = Date.now() + 350; }
+    if (changedAt && Date.now() >= changedAt) paused = wanted;
+    return { outputActive: true, outputPaused: paused };
+  };
+  assert.equal((await obs.setRecordPaused('python', true)).outputPaused, true);
+  assert.equal((await obs.setRecordPaused('python', false)).outputPaused, false);
+  assert.deepEqual(commands, ['PauseRecord', 'ResumeRecord']);
+});
+
+test('pause confirmation rejects a changed owner or a stopped output immediately', async () => {
+  for (const changed of ['owner', 'stopped']) {
+    const obs = new ObsClient(); obs.assertCollection = async () => {};
+    let sent = false, commands = 0;
+    obs.call = async type => {
+      if (type === 'GetProfileParameter') return { parameterValue: sent && changed === 'owner' ? 'lesson-other' : 'lesson-python' };
+      if (type === 'PauseRecord') { sent = true; commands++; }
+      return { outputActive: !(sent && changed === 'stopped'), outputPaused: false };
+    };
+    await assert.rejects(obs.setRecordPaused('python', true), changed === 'owner' ? /другая запись/ : /завершил/);
+    assert.equal(commands, 1);
+  }
 });
 
 test('a platform call uses platform audio even when the saved Telemost window is closed', async () => {

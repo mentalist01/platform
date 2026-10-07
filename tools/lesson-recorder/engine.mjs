@@ -7,6 +7,7 @@ export class RecorderEngine {
   constructor({ obs, state, save, api, recordDirectory, ready, now = Date.now }) {
     Object.assign(this, { obs, state, save, api, recordDirectory, ready, now });
     this.restartJobs = new Set(Object.values(state.jobs).filter(job => ['starting', 'recording', 'stopping'].includes(job.status)).map(job => job.id));
+    this.materialControlRevision = 0;
   }
   active() { return Object.values(this.state.jobs).find((j) => ['starting', 'recording', 'stopping'].includes(j.status)); }
   async report(job, status, extra = {}) {
@@ -42,12 +43,22 @@ export class RecorderEngine {
     }
   }
   async recover(job) {
+    const controlRevision = this.materialControlRevision;
     const status = await this.obs.status();
     const { parameterValue } = await this.obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' });
     const ourOutput = parameterValue === `lesson-${job.id}`;
     if (status.outputActive) {
       if (!ourOutput) throw new Error('OBS пишет другую запись; пульт не будет её останавливать');
-      observeTimeline(job.pythonTimeline, recordingSeconds(status));
+      // Reconcile a late confirmation or an OBS-side pause after a connection
+      // failure. An in-flight local control owns its boundary; stale polls must
+      // not close it or reopen it while that command is being confirmed.
+      if (!this.pauseOperation && controlRevision === this.materialControlRevision) {
+        if (status.outputPaused) closeTimelineClip(job.pythonTimeline, recordingSeconds(status));
+        else {
+          resumeTimeline(job.pythonTimeline, job.pythonTimeline?.sourceEnd || 0);
+          observeTimeline(job.pythonTimeline, recordingSeconds(status));
+        }
+      }
       delete job.resumeAfterRestart;
       job.status = job.status === 'stopping' ? 'stopping' : 'recording'; this.save(); return;
     }
@@ -90,6 +101,7 @@ export class RecorderEngine {
     if (typeof paused !== 'boolean') throw new Error('Укажите состояние паузы');
     if (job.cutoffAt <= this.now()) throw new Error('Время записи истекло. Дождитесь сохранения файла.');
     if (this.pauseOperation) throw new Error('Дождитесь подтверждения предыдущего нажатия');
+    this.materialControlRevision++;
     const operation = this.obs.setRecordPaused(id, paused);
     this.pauseOperation = operation;
     try {
@@ -98,7 +110,7 @@ export class RecorderEngine {
       else resumeTimeline(job.pythonTimeline, recordingSeconds(status));
       this.save(); return status;
     }
-    finally { if (this.pauseOperation === operation) this.pauseOperation = null; }
+    finally { this.materialControlRevision++; if (this.pauseOperation === operation) this.pauseOperation = null; }
   }
   async startForCurrentLesson() {
     if (this.active() && this.restartJobs.has(this.active().id)) await this.reconcileActive();

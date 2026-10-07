@@ -9,7 +9,7 @@ import test from 'node:test';
 
 // Run the actual service and panel against a synthetic OBS RPC transport and
 // a fictional platform. No real OBS, devices, payments, uploads or lessons.
-async function fixture({ queueEnabled = false } = {}) {
+async function fixture({ queueEnabled = false, pauseDelayMs = 0 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-python-studio-'));
   const app = path.join(root, 'fixture-app'); fs.mkdirSync(app);
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -59,8 +59,8 @@ export class ObsClient extends Base {
     if(type==='GetSceneItemId')return {sceneItemId:1};
     if(type==='GetVideoSettings')return {baseWidth:1920,baseHeight:1080};
     if(type==='StartRecord'){this.paused=false;const template=path.join(process.env.IVAN100_RECORDER_HOME,'fixture.mkv');if(fs.existsSync(template))fs.copyFileSync(template,path.join(process.env.IVAN100_RECORDER_HOME,'fake-video',this.owner+'.mkv'));setTimeout(()=>{this.output=true;},450);}
-    if(type==='PauseRecord')this.paused=true;
-    if(type==='ResumeRecord')this.paused=false;
+    if(type==='PauseRecord')setTimeout(()=>{this.paused=true;},${pauseDelayMs});
+    if(type==='ResumeRecord')setTimeout(()=>{this.paused=false;},${pauseDelayMs});
     if(type==='StopRecord'){setTimeout(()=>{this.output=false;},450);const file=path.join(process.env.IVAN100_RECORDER_HOME,'fake-video',this.owner+'.mkv');if(!fs.existsSync(file))fs.writeFileSync(file,'synthetic capture');return {outputPath:file};}
     if(type==='GetSourceScreenshot'){
       if(!this.scenes.has(p.sourceName))throw Error('Выберите источники Python');
@@ -106,6 +106,33 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('real service confirms delayed pause/resume, returns take boundaries and offers only the owned read-only recording preview', async t => {
+    const f = await fixture({pauseDelayMs:700}); t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Дубли Python'});
+    const id=(await f.request('/state')).value.jobs[0].id;
+    const before=(await f.request('/qa/events')).value;
+    const preview=await f.request(`/python/editor/live?id=${id}`);assert.equal(preview.status,200);assert.match(preview.value.image,/^data:image/);
+    assert.equal((await f.request('/python/editor/live?id=other')).status,400);
+    assert.equal((await fetch(f.base+`/python/editor/live?id=${id}`)).status,403);
+    const after=(await f.request('/qa/events')).value;
+    assert.equal(after.scene,before.scene);assert.equal(after.owner,before.owner);
+    assert.equal(after.events.filter(([type])=>type==='SetCurrentProgramScene').length,before.events.filter(([type])=>type==='SetCurrentProgramScene').length);
+    assert.ok(after.events.some(([type,p])=>type==='GetSourceScreenshot'&&p.sourceName==='IVAN100 Python — Экран'&&p.imageWidth===960));
+    await f.request('/qa/time',{seconds:20});
+    const pausing=f.request('/material/pause',{id,paused:true});await new Promise(r=>setTimeout(r,150));
+    assert.equal((await f.request('/state')).value.materialControlBusy,true);
+    const paused=await pausing;assert.equal(paused.status,200);assert.equal(paused.value.recording.outputPaused,true);
+    assert.deepEqual(paused.value.pythonTimeline.clips.map(c=>[c.start,c.end,c.takeNumber]),[[0,20,1]]);
+    assert.equal(paused.value.pythonTimeline.history,undefined);
+    const resumed=await f.request('/material/pause',{id,paused:false});assert.equal(resumed.status,200);assert.equal(resumed.value.recording.outputPaused,false);
+    await f.request('/qa/time',{seconds:28});
+    const second=await f.request('/material/pause',{id,paused:true});
+    assert.deepEqual(second.value.pythonTimeline.clips.map(c=>[c.start,c.end,c.takeNumber]),[[0,20,1],[20,28,2]]);
+    const events=(await f.request('/qa/events')).value.events;
+    assert.equal(events.filter(([type])=>type==='PauseRecord').length,2);assert.equal(events.filter(([type])=>type==='ResumeRecord').length,1);
+    await f.request('/material/stop',{id});assert.equal((await f.request(`/python/editor/live?id=${id}`)).status,400);
+  });
   test('live Python montage API persists edits and prevents every publication path before approval', async t => {
     const f = await fixture({ queueEnabled: true }); t.after(f.close);
     const capture={mode:'screen',screen:'python-monitor',mic:'python-mic'};

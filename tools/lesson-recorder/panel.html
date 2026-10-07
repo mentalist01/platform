@@ -73,7 +73,7 @@
 const key='__LOCAL_KEY__';const $=id=>document.getElementById(id);let current;let jobSignature='';let localError='';let step=0;let busy=false;let initialized=false;let testUrl='';let playedTestId='';
 let recoverySignature='';let refreshing=false;
 let pythonCatalog=null;let mockReviewCatalog=null;
-let pythonPausePending=null;let pythonControlRevision=0;let recordingUnavailable=false;let pythonPauseError='';
+let pythonPausePending=null;let pythonControlRevision=0;let recordingUnavailable=false;let pythonPauseError='';let pythonPauseRecovery=null;
 function pythonTask(){return pythonCatalog?.tasks.find(t=>String(t.number)===$('python-task').value);}
 function pythonSubsection(){return pythonTask()?.subsections.find(s=>s.id===$('python-subsection').value);}
 function pythonSelection(){const task=pythonTask();const section=pythonSubsection();$('python-replace').checked=false;$('python-replace-label').classList.toggle('hidden',!section?.existingUrl);$('python-title').value=task&&section?(task.title+(section.id==='__default__'?'':' — '+section.title)).slice(0,100):'';pythonButtons();}
@@ -93,19 +93,30 @@ function pythonStartReason(state,section,working=false,independent=false){
 function pythonPauseView(state,pending=null,unavailable=false){
   const active=state?.jobs?.find(j=>['starting','recording','stopping'].includes(j.status));
   const visible=!!(active?.pythonTheory||active?.mockReview);const paused=!!state?.obs?.outputPaused;
-  const disabled=!visible||active.status!=='recording'||!state?.obs?.outputActive||!!pending||unavailable;
-  const label=pending?(pending.paused?'Ставим на паузу…':'Продолжаем…'):paused?'Продолжить':'Пауза';
+  const disabled=!visible||active.status!=='recording'||!state?.obs?.outputActive||!!pending||!!state?.materialControlBusy||unavailable;
+  const label=active?.pythonTimeline?(pending?(pending.paused?'Завершаем дубль…':'Начинаем следующий дубль…'):paused?'Записать следующий дубль':'Завершить дубль · пауза'):pending?(pending.paused?'Ставим на паузу…':'Продолжаем…'):paused?'Продолжить':'Пауза';
   const detail=pending?'Отправляем команду в OBS…':unavailable||!state?.obs?'Проверьте связь с пультом и OBS.':active?.status==='stopping'?'Сохраняем файл урока…':!state.obs.outputActive?'Ждём подтверждения записи от OBS.':paused?'Пауза · изображение и звук сейчас не записываются.':'Идёт запись · можно остановиться и собраться с мыслями.';
   return{visible,paused,disabled,label,detail,title:active?.title||'Урок Python'};
 }
-function pythonButtons(){mockReviewButtons();const active=current?.jobs.find(j=>['starting','recording','stopping'].includes(j.status));const locked=busy||!!active||!!current?.obs?.outputActive;for(const id of ['python-task','python-subsection','python-title','python-replace'])$(id).disabled=locked;$('python-refresh').disabled=locked||!current?.paired;const reason=pythonStartReason(current,pythonSubsection(),busy,true);$('python-start').disabled=!!reason;$('python-start-reason').textContent=reason;$('python-stop').disabled=busy||!!pythonPausePending||!(active?.pythonTheory||active?.mockReview)||active.status!=='recording';const view=pythonPauseView(current,pythonPausePending,recordingUnavailable);$('python-transport').classList.toggle('hidden',!view.visible);document.querySelector('main').classList.toggle('python-recording',view.visible);$('python-transport').dataset.paused=String(view.paused);$('python-transport-title').textContent=view.title;$('python-transport-status').textContent=pythonPauseError||view.detail;$('python-pause').textContent=view.label;$('python-pause').disabled=view.disabled;$('python-pause').dataset.paused=String(view.paused);renderPythonSources(active,view);}
+function reconcilePythonPauseMessage(){
+  if(!pythonPauseRecovery||!current?.obs?.outputActive||current.obs.outputPaused!==pythonPauseRecovery.paused)return;
+  const job=current.jobs.find(j=>j.id===pythonPauseRecovery.id&&j.status==='recording');
+  if(!job||job.pythonTimeline&&(job.pythonTimeline.openStart===null)!==pythonPauseRecovery.paused)return;
+  if(localError===pythonPauseRecovery.message){localError='';$('error').textContent=current.error||'';}
+  pythonPauseError='';pythonPauseRecovery=null;recordingUnavailable=false;
+}
+function pythonButtons(){reconcilePythonPauseMessage();mockReviewButtons();const active=current?.jobs.find(j=>['starting','recording','stopping'].includes(j.status));const locked=busy||!!active||!!current?.obs?.outputActive;for(const id of ['python-task','python-subsection','python-title','python-replace'])$(id).disabled=locked;$('python-refresh').disabled=locked||!current?.paired;const reason=pythonStartReason(current,pythonSubsection(),busy,true);$('python-start').disabled=!!reason;$('python-start-reason').textContent=reason;$('python-stop').disabled=busy||!!pythonPausePending||!!current?.materialControlBusy||!(active?.pythonTheory||active?.mockReview)||active.status!=='recording';const view=pythonPauseView(current,pythonPausePending,recordingUnavailable);$('python-transport').classList.toggle('hidden',!view.visible);document.querySelector('main').classList.toggle('python-recording',view.visible);$('python-transport').dataset.paused=String(view.paused);$('python-transport-title').textContent=view.title;$('python-transport-status').textContent=pythonPauseError||view.detail;$('python-pause').textContent=view.label;$('python-pause').disabled=view.disabled;$('python-pause').dataset.paused=String(view.paused);renderPythonSources(active,view);}
+async function setMaterialPause(id,paused){
+  if(pythonPausePending)throw Error('Дождитесь подтверждения предыдущего нажатия');
+  pythonPausePending={id,paused};pythonPauseRecovery=null;pythonControlRevision++;localError='';pythonPauseError='';$('error').textContent='';pythonButtons();
+  try{const result=await request('/material/pause',pythonPausePending);pythonControlRevision++;const job=current?.jobs.find(j=>j.id===result.id&&j.status==='recording');if(job){current.obs={...current.obs,...result.recording};if(result.pythonTimeline)job.pythonTimeline=result.pythonTimeline;recordingUnavailable=false;renderRecordingHeadline(current);}return result;}
+  catch(e){pythonControlRevision++;recordingUnavailable=true;localError=e.message;pythonPauseError=localError;pythonPauseRecovery={id,paused,message:e.message};$('error').textContent=localError;throw e;}
+  finally{pythonPausePending=null;pythonButtons();}
+}
 async function togglePythonPause(){
   const active=current?.jobs.find(j=>(j.pythonTheory||j.mockReview)&&j.status==='recording');
   if(!active||pythonPauseView(current,pythonPausePending,recordingUnavailable).disabled)return;
-  pythonPausePending={id:active.id,paused:!current.obs.outputPaused};pythonControlRevision++;localError='';pythonPauseError='';$('error').textContent='';pythonButtons();
-  try{const result=await request('/material/pause',pythonPausePending);pythonControlRevision++;if(current?.jobs.some(j=>j.id===result.id&&j.status==='recording')){current.obs={...current.obs,...result.recording};recordingUnavailable=false;renderRecordingHeadline(current);}}
-  catch(e){pythonControlRevision++;recordingUnavailable=true;localError=e.message;pythonPauseError=localError;$('error').textContent=localError;}
-  finally{pythonPausePending=null;pythonButtons();void refresh();}
+  try{await setMaterialPause(active.id,!current.obs.outputPaused);}catch{}finally{void refresh();}
 }
 function mockReviewSelection(){return mockReviewCatalog?.exams.find(exam=>exam.id===$('mock-review-exam').value);}
 function mockReviewButtons(){
@@ -153,7 +164,7 @@ function renderRecordingHeadline(state,unavailable=false){
   $('recording-clock').classList.toggle('hidden',!view.time);$('recording-time').textContent=view.time;
   $('status').textContent=view.status;$('status').className='badge'+(view.tone==='live'?' live':'');
 }
-async function request(route,data){const r=await fetch(route,{...(route==='/state'?{signal:AbortSignal.timeout(8000)}:{}),method:data===undefined?'GET':'POST',headers:{'X-Recorder-Key':key,'Content-Type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})});if(r.status===403&&route==='/state'){location.reload();throw Error('Переподключаемся к пульту…');}const v=await r.json();if(!r.ok)throw Error(v.error);return v;}
+async function request(route,data){const r=await fetch(route,{...(route==='/state'?{signal:AbortSignal.timeout(8000)}:route.startsWith('/python/editor/live')?{signal:AbortSignal.timeout(4000)}:{}),method:data===undefined?'GET':'POST',headers:{'X-Recorder-Key':key,'Content-Type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})});if(r.status===403&&route==='/state'){location.reload();throw Error('Переподключаемся к пульту…');}const v=await r.json();if(!r.ok)throw Error(v.error);return v;}
 async function act(fn){if(busy)return;busy=true;localError='';pythonButtons();try{await fn()}catch(e){localError=e.message;$('error').textContent=localError;$('error').scrollIntoView({block:'nearest'});}finally{busy=false;pythonButtons();await refresh();}}
 function showStep(value){step=Math.max(0,Math.min(4,value));document.querySelectorAll('[data-page]').forEach(p=>p.classList.toggle('hidden',Number(p.dataset.page)!==step));document.querySelectorAll('[data-step]').forEach(b=>{if(Number(b.dataset.step)===step)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});$('previous-step').disabled=step===0;$('next-step').classList.toggle('hidden',step===4);$('step-label').textContent='Шаг '+(step+1)+' из 5';}
 function completedSteps(){return [!!current?.config.recordDirectory,!!current?.config.configured,!!current?.paired,!!current?.testVerified,!!current?.config.rutubeVerifiedAt&&!!current?.config.autoUpload];}
@@ -239,6 +250,6 @@ $('python-inline-pause').onclick=togglePythonPause;$('python-inline-stop').oncli
 $('python-refresh').onclick=()=>act(loadPythonTopics);$('python-task').onchange=pythonSections;$('python-subsection').onchange=pythonSelection;$('python-start').onclick=()=>act(async()=>{const section=pythonSubsection();if(!section)throw Error('Выберите тему и подраздел');if(section.existingUrl&&!$('python-replace').checked)throw Error('Подтвердите замену видео');await request('/python/start',{taskNumber:Number($('python-task').value),subsectionId:section.id,expectedUrl:section.existingUrl,title:$('python-title').value,replaceExisting:$('python-replace').checked});$('python-status').textContent='Запись началась. Окна и предпросмотр — в этом пульте Python.';window.recorderEditorContext.openEditor?.();});$('python-pause').onclick=togglePythonPause;$('python-stop').onclick=()=>act(async()=>{const active=current?.jobs.find(j=>['starting','recording','stopping'].includes(j.status));if(!active?.pythonTheory&&!active?.mockReview)throw Error('Проверьте текущую запись материала');await request('/material/stop',{id:active.id});$('python-status').textContent=active.pythonTimeline?'Исходник сохранён. Проверьте монтажную ленту ниже перед отправкой.':'Файл сохранён. Загрузку и прикрепление можно проверить в списке записей ниже.';pythonCatalog=null;mockReviewCatalog=null;});
 $('mock-review-refresh').onclick=()=>act(loadMockReviews);$('mock-review-exam').onchange=chooseMockReview;$('mock-review-replace').onchange=mockReviewButtons;
 $('mock-review-start').onclick=()=>act(async()=>{const exam=mockReviewSelection();if(!exam)throw Error('Выберите пробник месяца');await request('/mock-review/start',{examId:exam.id,month:mockReviewCatalog.month,expectedUrl:exam.existingUrl,replaceExisting:$('mock-review-replace').checked});});
-void refresh().then(()=>{if(new URLSearchParams(location.search).has('mockReview')){void act(loadMockReviews);$('mock-review').scrollIntoView({block:'start'});}void choices().catch(()=>{});void drives().catch(e=>{localError=e.message;});});setInterval(refresh,2500);setInterval(async()=>{if(document.hidden)return;try{$('preview').src=(await request('/preview')).image}catch{}void pythonPreview();},2000);
-window.recorderEditorContext={key,request,refresh,state:()=>current};
+void refresh().then(()=>{if(new URLSearchParams(location.search).has('mockReview')){void act(loadMockReviews);$('mock-review').scrollIntoView({block:'start'});}void choices().catch(()=>{});void drives().catch(e=>{localError=e.message;});});setInterval(refresh,2500);setInterval(async()=>{if(document.hidden||document.querySelector('.python-editor--focus'))return;try{$('preview').src=(await request('/preview')).image}catch{}void pythonPreview();},2000);
+window.recorderEditorContext={key,request,refresh,state:()=>current,pause:setMaterialPause,pausePending:()=>pythonPausePending};
 </script><script type="module" src="/python-editor.mjs"></script></body></html>

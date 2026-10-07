@@ -10,7 +10,7 @@ const job = { id: 'one', status: 'recording', lessonName: 'Олег', title: 'У
 const live = { jobs: [job], obs: { outputActive: true, outputTimecode: '00:12:34.500' } };
 
 const startReason = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonStartReason('), panel.indexOf('function pythonPauseView('))})`);
-const pauseView = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonPauseView('), panel.indexOf('function pythonButtons('))})`);
+const pauseView = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonPauseView('), panel.indexOf('function reconcilePythonPauseMessage('))})`);
 
 test('Python controls distinguish recording, pause, pending command and lost confirmation', () => {
   const state = { ...live, jobs: [{ ...job, pythonTheory: {} }] };
@@ -53,6 +53,15 @@ test('review transport has the same confirmed pause and continue states as Pytho
   assert.equal(pauseView(state).visible, true);
   assert.equal(pauseView(state).disabled, false);
   assert.equal(pauseView({ ...state, obs: { ...state.obs, outputPaused: true } }).label, 'Продолжить');
+});
+
+test('timeline recording clearly distinguishes finishing a take, starting the next one and shared pending control', () => {
+  const state={jobs:[{id:'one',status:'recording',pythonTheory:{},pythonTimeline:{}}],obs:{outputActive:true,outputPaused:false}};
+  assert.match(pauseView(state).label,/Завершить дубль/);
+  assert.match(pauseView({...state,obs:{...state.obs,outputPaused:true}}).label,/следующий дубль/);
+  assert.equal(pauseView(state,{paused:true}).label,'Завершаем дубль…');
+  assert.equal(pauseView(state,{paused:false}).label,'Начинаем следующий дубль…');
+  assert.equal(pauseView({...state,materialControlBusy:true}).disabled,true);
 });
 
 test('headline shows the actual recording student and OBS elapsed time', () => {

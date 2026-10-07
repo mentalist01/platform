@@ -265,9 +265,9 @@ export class ObsClient {
     await this.fitPython(mode);
     await this.call('SetCurrentProgramScene', { sceneName: PYTHON_SCENES[mode] });
   }
-  async preview(sourceName) {
+  async preview(sourceName, imageWidth = 640) {
     const sceneName = sourceName || (await this.call('GetCurrentProgramScene')).currentProgramSceneName;
-    return (await this.call('GetSourceScreenshot', { sourceName: sceneName, imageFormat: 'jpeg', imageWidth: 640, imageCompressionQuality: 60 })).imageData;
+    return (await this.call('GetSourceScreenshot', { sourceName: sceneName, imageFormat: 'jpeg', imageWidth, imageCompressionQuality: 60 })).imageData;
   }
   async status() {
     await this.assertCollection();
@@ -283,7 +283,9 @@ export class ObsClient {
         this.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' }),
       ]);
       if (profile.parameterValue !== owner) throw new Error('В OBS идёт другая запись; проверьте текущий файл');
+      if (paused !== undefined && !status.outputActive) throw new Error('OBS уже завершил запись');
       if (status.outputActive === active && (paused === undefined || status.outputPaused === paused)) return status;
+      if (Date.now() >= deadline && paused !== undefined) throw new Error(paused ? 'OBS ещё не подтвердил завершение дубля. Проверка продолжится автоматически.' : 'OBS ещё не подтвердил начало следующего дубля. Проверка продолжится автоматически.');
       if (Date.now() >= deadline) throw new Error(active ? 'OBS ещё не подтвердил запуск записи. Проверьте состояние пульта.' : 'OBS ещё сохраняет запись. Дождитесь завершения.');
       await delay(100);
     }
@@ -307,7 +309,7 @@ export class ObsClient {
     await this.waitRecordingState(owner, { active: false });
     return outputPath;
   }
-  async setRecordPaused(id, paused) {
+  async setRecordPaused(id, paused, { timeoutMs = 15000 } = {}) {
     await this.assertCollection();
     const [status, profile] = await Promise.all([
       this.call('GetRecordStatus'),
@@ -316,8 +318,6 @@ export class ObsClient {
     if (!status.outputActive) throw new Error('OBS уже завершил запись');
     if (profile.parameterValue !== `lesson-${id}`) throw new Error('В OBS идёт другая запись');
     if (Boolean(status.outputPaused) !== paused) await this.call(paused ? 'PauseRecord' : 'ResumeRecord');
-    const confirmed = await this.call('GetRecordStatus');
-    if (!confirmed.outputActive || Boolean(confirmed.outputPaused) !== paused) throw new Error('Не удалось подтвердить паузу. Проверьте состояние OBS.');
-    return confirmed;
+    return this.waitRecordingState(`lesson-${id}`, { active: true, paused, timeoutMs });
   }
 }

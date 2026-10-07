@@ -7,7 +7,7 @@ export function recordingSeconds(status) {
   if (parts.length !== 3 || parts.some(n => !Number.isFinite(n) || n < 0)) return 0;
   return time(parts[0] * 3600 + parts[1] * 60 + parts[2]);
 }
-export const createTimeline = () => ({ version: 1, revision: 0, clips: [], history: [], future: [], openStart: 0, sourceEnd: 0, approved: false });
+export const createTimeline = () => ({ version: 1, revision: 0, clips: [], history: [], future: [], openStart: 0, sourceEnd: 0, takeCount: 0, approved: false });
 const snapshot = (clips, related) => ({ clips: structuredClone(clips), knownIds: [...new Set([...clips, ...related].map(clip => clip.id))] });
 const remember = (timeline, next) => {
   timeline.history.push(snapshot(timeline.clips, next));
@@ -23,7 +23,8 @@ export function closeTimelineClip(timeline, seconds) {
   observeTimeline(timeline, seconds);
   if (timeline.openStart === null) return;
   if (timeline.sourceEnd - timeline.openStart >= MIN_CLIP) {
-    timeline.clips.push({ id: crypto.randomUUID(), start: timeline.openStart, end: timeline.sourceEnd });
+    timeline.takeCount = (timeline.takeCount ?? timeline.clips.length) + 1;
+    timeline.clips.push({ id: crypto.randomUUID(), start: timeline.openStart, end: timeline.sourceEnd, takeNumber: timeline.takeCount });
     timeline.revision++;
   }
   timeline.openStart = null;
@@ -43,7 +44,10 @@ export function finalizeTimeline(timeline, duration) {
   const last = timeline.clips.at(-1);
   if (timeline.pendingTailStart !== null && timeline.pendingTailStart !== undefined) {
     if (last && last.start === timeline.pendingTailStart && last.end === timeline.sourceEnd) last.end = time(duration);
-    else if (duration - timeline.pendingTailStart >= MIN_CLIP) timeline.clips.push({ id: crypto.randomUUID(), start: timeline.pendingTailStart, end: time(duration) });
+    else if (duration - timeline.pendingTailStart >= MIN_CLIP) {
+      timeline.takeCount = (timeline.takeCount ?? timeline.clips.length) + 1;
+      timeline.clips.push({ id: crypto.randomUUID(), start: timeline.pendingTailStart, end: time(duration), takeNumber: timeline.takeCount });
+    }
   }
   timeline.sourceEnd = time(duration); timeline.finalized = true; delete timeline.pendingTailStart; timeline.revision++;
 }
@@ -66,12 +70,15 @@ export function editTimeline(timeline, { revision, action, clipId, at, start, en
   const clip = timeline.clips[index];
   if (!clip) throw Error('Выберите завершённый фрагмент. Текущий дубль сначала поставьте на паузу.');
   let next;
-  if (action === 'delete') next = timeline.clips.filter(item => item.id !== clipId);
+  if (action === 'retake') {
+    const latest = timeline.clips.reduce((a, b) => b.start >= a.start ? b : a);
+    next = timeline.clips.filter(item => latest.takeNumber ? item.takeNumber !== latest.takeNumber : item.id !== latest.id);
+  } else if (action === 'delete') next = timeline.clips.filter(item => item.id !== clipId);
   else if (action === 'split') {
     const point = time(at);
     if (!Number.isFinite(point) || point - clip.start < MIN_CLIP || clip.end - point < MIN_CLIP) throw Error('Место разделения должно быть внутри фрагмента');
     if (timeline.clips.length >= 300) throw Error('В ленте уже 300 фрагментов');
-    next = timeline.clips.flatMap(item => item.id === clipId ? [{ ...clip, end: point }, { id: crypto.randomUUID(), start: point, end: clip.end }] : [item]);
+    next = timeline.clips.flatMap(item => item.id === clipId ? [{ ...clip, end: point }, { ...clip, id: crypto.randomUUID(), start: point, end: clip.end }] : [item]);
   } else if (action === 'trim') {
     const from = time(start), to = time(end);
     if (![from, to].every(Number.isFinite) || from < clip.start || to > clip.end || to - from < MIN_CLIP) throw Error('Укажите начало и конец внутри выбранного фрагмента');

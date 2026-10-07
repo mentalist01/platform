@@ -221,10 +221,11 @@ const recoveryDrafts = () => {
     .map(({ id, previousId, url, durationMs, note }) => ({ id, previousId, url, durationMs,
       title: state.jobs[previousId].title, note: String(note || '') }));
 };
+const publicTimeline = timeline => timeline ? { ...timeline, history: undefined, future: undefined, canUndo: Boolean(timeline.history.length), canRedo: Boolean(timeline.future?.length) } : undefined;
 const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   updater: updater.info(),
-  obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId,
+  obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId, materialControlBusy: Boolean(engine.pauseOperation),
   pythonReady: Boolean(state.config.recordDirectory && obsStatus && !pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices)),
   pythonSourceReason: !obsStatus ? 'Подключите OBS в настройках пульта.' : !state.config.recordDirectory ? 'Выберите папку для видео в настройках пульта.' : pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices),
   preparingUpload: queueBusy || Boolean(editMedia.work), editorBusy: editMedia.work || '', archiveBusy: Boolean(archive.work || archive.setup || archive.submitting),
@@ -234,7 +235,7 @@ const publicState = () => ({
   recoveryDrafts: recoveryDrafts(),
   testVerified: state.config.testFingerprint === setupFingerprint(state.config),
   jobs: Object.values(state.jobs).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50).map(job => ({ ...job,
-    ...(job.pythonTimeline ? { pythonTimeline: { ...job.pythonTimeline, history: undefined, future: undefined, canUndo: Boolean(job.pythonTimeline.history.length), canRedo: Boolean(job.pythonTimeline.future?.length) } } : {}),
+    ...(job.pythonTimeline ? { pythonTimeline: publicTimeline(job.pythonTimeline) } : {}),
   })),
 });
 async function body(req) {
@@ -293,6 +294,19 @@ const server = http.createServer(async (req, res) => {
       fs.createReadStream(preview.file).on('error', () => res.destroy()).pipe(res); return;
     }
     if (req.method === 'GET' && req.url === '/state') return json(res, 200, publicState());
+    if (req.method === 'GET' && pathname === '/python/editor/live') {
+      const job = engine.active();
+      const id = new URL(req.url, 'http://127.0.0.1:18765').searchParams.get('id');
+      if (!job?.pythonTheory || job.status !== 'recording' || job.id !== id) throw new Error('Эта запись уже завершена. Выберите фрагмент для просмотра.');
+      const [recording, profile] = await Promise.all([
+        obs.call('GetRecordStatus'),
+        obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' }),
+      ]);
+      if (!recording.outputActive || profile.parameterValue !== `lesson-${id}`) throw new Error('Нет подтверждённой записи Python в OBS');
+      const mode = job.captureConfig?.mode || pythonCaptureConfig(state.config.pythonCapture).mode;
+      // Read only: never switch scenes or start a preview output during capture.
+      return json(res, 200, { image: await obs.preview(PYTHON_SCENES[mode], 960) });
+    }
     if (req.method === 'GET' && req.url === '/preview') return json(res, 200, { image: await obs.preview() });
     if (req.method === 'GET' && req.url === '/python/preview') {
       const selected = pythonCaptureConfig(state.config.pythonCapture);
@@ -335,10 +349,11 @@ const server = http.createServer(async (req, res) => {
       // Keep this local control out of the platform synchronization queue.
       // The engine coordinates it with StopRecord and checks the exact job.
       recordingControlRevision++;
-      const recording = await engine.setMaterialPaused(payload.id, payload.paused);
-      recordingControlRevision++;
-      obsStatus = { ...obsStatus, ...recording };
-      return json(res, 200, { recording, id: payload.id });
+      try {
+        const recording = await engine.setMaterialPaused(payload.id, payload.paused);
+        obsStatus = { ...obsStatus, ...recording };
+        return json(res, 200, { recording, id: payload.id, pythonTimeline: publicTimeline(state.jobs[payload.id]?.pythonTimeline) });
+      } finally { recordingControlRevision++; }
     }
     if (req.url === '/shutdown') {
       if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу и дождитесь завершения текущей операции');

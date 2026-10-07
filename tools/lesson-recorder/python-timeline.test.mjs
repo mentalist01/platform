@@ -10,6 +10,19 @@ test('OBS timecode, pause boundaries and resume exclude pause time', () => {
   assert.equal(t.clips.length, 1); resumeTimeline(t, 10); resumeTimeline(t, 10); closeTimelineClip(t, 18);
   assert.deepEqual(t.clips.map(({start,end}) => [start,end]), [[0,10],[10,18]]);
 });
+
+test('take numbers survive editing and retake removes all parts of the latest recorded take with one undo', () => {
+  const t = draft(); const first = structuredClone(t.clips[0]);
+  apply(t,'split',{clipId:t.clips[1].id,at:15});
+  assert.deepEqual(t.clips.map(c=>c.takeNumber),[1,2,2]);
+  apply(t,'move',{clipId:t.clips[2].id,direction:-1});
+  const before = structuredClone(t.clips); apply(t,'retake');
+  assert.deepEqual(t.clips,[first]); assert.equal(t.takeCount,2);
+  resumeTimeline(t,20);closeTimelineClip(t,25);
+  assert.equal(t.clips.at(-1).takeNumber,3);
+  apply(t,'undo'); assert.deepEqual(t.clips.slice(0,3),before);
+  assert.equal(t.clips.at(-1).takeNumber,3);
+});
 test('stop/crash finalization retains encoder tail exactly once; paused ending adds nothing', () => {
   const t = createTimeline(); observeTimeline(t, 4); finishTimeline(t, 0); finalizeTimeline(t, 4.4); finalizeTimeline(t, 5);
   assert.equal(timelineDuration(t), 4.4); assert.equal(t.clips.length, 1); assert.equal(t.openStart, null);
