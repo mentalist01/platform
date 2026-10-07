@@ -1,9 +1,9 @@
 import { useId, useState } from 'react';
-import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import { ChevronRight, Search, X } from 'lucide-react';
 import { getTeacherNavigationGroup, searchTeacherNavigation } from '../utils/teacherNavigation';
 import './TeacherNavigation.css';
 
-export default function TeacherNavigation({ groups, view, expandedGroup, onExpand, onNavigate, onPrefetch, renderBadge }) {
+export default function TeacherNavigation({ groups, view, onNavigate, onPrefetch, renderBadge }) {
   const prefix = useId();
   const [query, setQuery] = useState('');
   const activeGroupId = getTeacherNavigationGroup(view);
@@ -39,7 +39,7 @@ export default function TeacherNavigation({ groups, view, expandedGroup, onExpan
           type="button"
           className="teacher-navigation__location"
           title="Показать текущий раздел в меню"
-          onClick={() => { setQuery(''); onExpand(activeGroup.id === 'lesson' ? null : activeGroup.id); }}
+          onClick={() => setQuery('')}
         >
           <span className="teacher-navigation__location-dot" aria-hidden="true" />
           <span>
@@ -73,29 +73,27 @@ export default function TeacherNavigation({ groups, view, expandedGroup, onExpan
         </div>
       ) : groups.map(group => {
         const Icon = group.icon;
-        const expanded = expandedGroup === group.id;
         const isLesson = group.id === 'lesson';
+        const Heading = isLesson ? 'button' : 'div';
         const selected = activeGroupId === group.id;
-        const panelId = `${prefix}-${group.id}`;
+        const headingId = `${prefix}-${group.id}-heading`;
         return (
-          <div className={`teacher-navigation__group ${selected ? 'is-current' : ''}`} key={group.id}>
-            <button
-              type="button"
+          <div className={`teacher-navigation__group ${selected ? 'is-current' : ''}`} key={group.id} role="group" aria-labelledby={headingId}>
+            <Heading
+              id={headingId}
+              type={isLesson ? 'button' : undefined}
               className={`teacher-navigation__heading ${isLesson ? 'teacher-navigation__heading--lesson' : ''}`}
-              aria-expanded={isLesson ? undefined : expanded}
-              aria-controls={isLesson ? undefined : panelId}
               aria-current={isLesson && selected ? 'page' : undefined}
-              onClick={() => isLesson ? navigate('lesson') : onExpand(expanded ? null : group.id)}
-              onPointerEnter={() => isLesson && onPrefetch('lesson')}
-              onFocus={() => isLesson && onPrefetch('lesson')}
+              onClick={isLesson ? () => navigate('lesson') : undefined}
+              onPointerEnter={isLesson ? () => onPrefetch('lesson') : undefined}
+              onFocus={isLesson ? () => onPrefetch('lesson') : undefined}
             >
               <span className="teacher-navigation__icon"><Icon size={20} /></span>
-              <span className="teacher-navigation__heading-text"><span className="teacher-navigation__label">{group.label}</span><span className="teacher-navigation__description">{selected && !expanded && activeRoute ? activeRoute.label : group.description}</span></span>
+              <span className="teacher-navigation__heading-text"><span className="teacher-navigation__label">{group.label}</span><span className="teacher-navigation__description">{group.description}</span></span>
               {renderBadge(group.id, 'teacher-group')}
-              {!isLesson && <ChevronDown size={16} className={expanded ? 'is-expanded' : ''} />}
-            </button>
+            </Heading>
             {!isLesson && (
-              <div id={panelId} className="teacher-navigation__children" hidden={!expanded}>
+              <div className="teacher-navigation__children">
                 {group.children.map(item => {
                   const ItemIcon = item.icon;
                   return <button

@@ -15,17 +15,14 @@
 .teacher-navigation__location-path { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; font-size: 11px; line-height: 1.4; }
 .teacher-navigation__location-path strong { color: #7c3aed; font-weight: 600; }
 .teacher-navigation__heading { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 6px 9px; border: 1px solid transparent; border-radius: 14px; color: var(--app-text, #334155); text-align: left; transition: background .16s, border-color .16s; }
-.teacher-navigation__heading:hover { background: rgba(139, 92, 246, .06); }
+button.teacher-navigation__heading:hover { background: rgba(139, 92, 246, .06); }
 .teacher-navigation__icon { display: grid; place-items: center; flex: 0 0 34px; height: 34px; border-radius: 11px; background: rgba(139, 92, 246, .08); color: #8b5cf6; }
 .teacher-navigation__heading-text { display: grid; flex: 1; min-width: 0; gap: 3px; }
 .teacher-navigation__label { font-size: 14px; line-height: 1.2; font-weight: 650; }
 .teacher-navigation__description { color: var(--app-muted, #64748b); font-size: 10px; line-height: 1.4; }
-.teacher-navigation__heading > svg { flex-shrink: 0; color: #94a3b8; transition: transform .16s; }
-.teacher-navigation__heading > svg.is-expanded { transform: rotate(180deg); }
 .teacher-navigation__group.is-current .teacher-navigation__heading { border-color: rgba(139, 92, 246, .18); background: rgba(139, 92, 246, .06); }
 .teacher-navigation__group.is-current .teacher-navigation__icon { color: white; background: linear-gradient(135deg, #8b5cf6, #a855f7); }
 .teacher-navigation__children { margin: 2px 0 4px 27px; padding: 1px 0 1px 12px; border-left: 1px solid rgba(139, 92, 246, .2); }
-.teacher-navigation__children[hidden] { display: none; }
 .teacher-navigation__link { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 33px; margin: 1px 0; padding: 7px 9px; border-radius: 9px; color: var(--app-muted, #64748b); font-size: 12px; text-align: left; }
 .teacher-navigation__link > svg { flex-shrink: 0; opacity: .75; }
 .teacher-navigation__link-label { flex: 1; }

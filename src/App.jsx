@@ -18894,9 +18894,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [view, setRenderedView] = useState(initialView);
   const recordingPrivacy = useRecordingPrivacy(view, user.role);
   const setView = useCallback(next => recordingPrivacy.navigate(next, setRenderedView), [recordingPrivacy.navigate]);
-  const [teacherNavExpansion, setTeacherNavExpansion] = useState(null);
-  const expandedTeacherNavGroup = teacherNavExpansion?.view === view ? teacherNavExpansion.id : getTeacherNavigationGroup(view);
-  const setExpandedTeacherNavGroup = id => setTeacherNavExpansion({ view, id });
   const [requestedNotesLocation, setRequestedNotesLocation] = useState(initialNotesLocation);
   const [notesLocationRequestKey, setNotesLocationRequestKey] = useState(0);
 
@@ -25707,8 +25704,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 {user.role === 'teacher' ? <TeacherNavigation
                   groups={teacherNavGroups}
                   view={view}
-                  expandedGroup={expandedTeacherNavGroup}
-                  onExpand={setExpandedTeacherNavGroup}
                   onNavigate={id => { navigateToView(id); setMenuOpen(false); }}
                   onPrefetch={prefetchNavigationView}
                   renderBadge={renderNavBadge}
@@ -25865,7 +25860,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onFocus={() => prefetchNavigationView(n.id)}
                 onClick={() => {
                   if (user.role === 'teacher' && n.id !== 'lesson') {
-                    setExpandedTeacherNavGroup(n.id); setDesktopNavCollapsed(false);
+                    setDesktopNavCollapsed(false);
                   } else navigateToView(n.id);
                   setMenuOpen(false);
                 }}
@@ -27478,8 +27473,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               {user.role === 'teacher' && menuOpen && <div className="mt-4"><TeacherNavigation
                   groups={teacherNavGroups}
                   view={view}
-                  expandedGroup={expandedTeacherNavGroup}
-                  onExpand={setExpandedTeacherNavGroup}
                   onNavigate={id => { navigateToView(id); setMenuOpen(false); }}
                   onPrefetch={prefetchNavigationView}
                   renderBadge={renderNavBadge}
@@ -27545,7 +27538,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     onFocus={() => prefetchNavigationView(n.id)}
                     onClick={() => {
                       if (user.role === 'teacher' && n.id !== 'lesson') {
-                        setExpandedTeacherNavGroup(n.id); setMenuOpen(true); return;
+                        setMenuOpen(true); return;
                       }
                       if (isMoreButton) {
                         setMenuOpen(true);
