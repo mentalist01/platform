@@ -234,7 +234,7 @@ const publicState = () => ({
   recoveryDrafts: recoveryDrafts(),
   testVerified: state.config.testFingerprint === setupFingerprint(state.config),
   jobs: Object.values(state.jobs).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50).map(job => ({ ...job,
-    ...(job.pythonTimeline ? { pythonTimeline: { ...job.pythonTimeline, history: undefined, canUndo: Boolean(job.pythonTimeline.history.length) } } : {}),
+    ...(job.pythonTimeline ? { pythonTimeline: { ...job.pythonTimeline, history: undefined, future: undefined, canUndo: Boolean(job.pythonTimeline.history.length), canRedo: Boolean(job.pythonTimeline.future?.length) } } : {}),
   })),
 });
 async function body(req) {
@@ -281,9 +281,9 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== 'POST') return json(res, 405, {});
       await shareBridge.receive(await body(req)); return json(res, 200, {});
     }
-    if (req.method === 'GET' && pathname === '/python-editor.mjs') {
+    if (req.method === 'GET' && ['/python-editor.mjs','/python-editor-time.mjs'].includes(pathname)) {
       res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
-      return res.end(fs.readFileSync(path.join(here, 'python-editor.mjs'), 'utf8'));
+      return res.end(fs.readFileSync(path.join(here, pathname.slice(1)), 'utf8'));
     }
     if (req.headers['x-recorder-key'] !== localKey) return json(res, 403, { error: 'Откройте пульт заново' });
     if (req.method === 'GET' && pathname.startsWith('/python/editor/video/')) {

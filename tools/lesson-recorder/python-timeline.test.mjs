@@ -50,3 +50,29 @@ test('edits remain durable through serialization and undo stays bounded', () => 
   const t=draft(); for(let i=0;i<40;i++)apply(t,'move',{clipId:t.clips[0].id,direction:1});
   assert.equal(t.history.length,30); const restored=JSON.parse(JSON.stringify(t)); apply(restored,'undo'); assert.equal(restored.clips.length,2);
 });
+test('undo and redo preserve newer recorded takes through several history entries and reload', () => {
+  let t=draft(); const original=structuredClone(t.clips);
+  apply(t,'split',{at:4}); const split=structuredClone(t.clips); apply(t,'trim',{start:1,end:3});
+  apply(t,'undo'); apply(t,'undo'); assert.deepEqual(t.clips,original);
+  resumeTimeline(t,20); closeTimelineClip(t,27); const recorded=structuredClone(t.clips.at(-1));
+  t=JSON.parse(JSON.stringify(t)); apply(t,'redo'); assert.deepEqual(t.clips,[...split,recorded]);
+  apply(t,'redo'); assert.equal(t.clips[0].start,1); assert.equal(t.clips[0].end,3); assert.deepEqual(t.clips.at(-1),recorded);
+  apply(t,'undo'); assert.equal(t.future.length,1); apply(t,'delete'); assert.equal(t.future.length,0);
+  assert.throws(()=>apply(t,'redo'),/Нет действий/);
+});
+test('direct reordering is atomic, handles both ends, survives undo/redo, and rejects stale targets', () => {
+  const t=draft(); apply(t,'duplicate'); const [a,b,c]=t.clips.map(clip=>clip.id);
+  apply(t,'reorder',{clipId:a,beforeId:null}); assert.deepEqual(t.clips.map(clip=>clip.id),[b,c,a]);
+  apply(t,'reorder',{clipId:a,beforeId:b}); assert.deepEqual(t.clips.map(clip=>clip.id),[a,b,c]);
+  apply(t,'undo'); apply(t,'redo'); assert.deepEqual(t.clips.map(clip=>clip.id),[a,b,c]);
+  const before=structuredClone(t); apply(t,'reorder',{clipId:a,beforeId:b}); assert.deepEqual(t,before,'Dropping in place has no history side effect');
+  assert.throws(()=>apply(t,'reorder',{clipId:a,beforeId:'missing'}),/изменилось/); assert.deepEqual(t,before);
+  assert.throws(()=>editTimeline(t,{action:'reorder',revision:-1,clipId:a,beforeId:null}),/изменился/);
+});
+test('old projects without redo stack remain compatible and failed history restoration is atomic', () => {
+  const t=draft(); delete t.future; assert.throws(()=>apply(t,'redo'),/Нет действий/);
+  apply(t,'delete'); apply(t,'undo'); apply(t,'redo'); assert.equal(t.clips.length,1);
+  const capped=draft(); apply(capped,'delete');
+  while(capped.clips.length<300)capped.clips.push({...capped.clips[0],id:'new-'+capped.clips.length});
+  const before=structuredClone(capped); assert.throws(()=>apply(capped,'undo'),/300/); assert.deepEqual(capped,before);
+});

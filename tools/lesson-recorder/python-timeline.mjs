@@ -7,10 +7,12 @@ export function recordingSeconds(status) {
   if (parts.length !== 3 || parts.some(n => !Number.isFinite(n) || n < 0)) return 0;
   return time(parts[0] * 3600 + parts[1] * 60 + parts[2]);
 }
-export const createTimeline = () => ({ version: 1, revision: 0, clips: [], history: [], openStart: 0, sourceEnd: 0, approved: false });
+export const createTimeline = () => ({ version: 1, revision: 0, clips: [], history: [], future: [], openStart: 0, sourceEnd: 0, approved: false });
+const snapshot = (clips, related) => ({ clips: structuredClone(clips), knownIds: [...new Set([...clips, ...related].map(clip => clip.id))] });
 const remember = (timeline, next) => {
-  timeline.history.push({ clips: structuredClone(timeline.clips), knownIds: [...new Set([...timeline.clips, ...next].map(clip => clip.id))] });
+  timeline.history.push(snapshot(timeline.clips, next));
   timeline.history = timeline.history.slice(-30);
+  timeline.future = [];
 };
 export function observeTimeline(timeline, seconds) {
   if (!timeline || !Number.isFinite(seconds)) return;
@@ -45,14 +47,20 @@ export function finalizeTimeline(timeline, duration) {
   }
   timeline.sourceEnd = time(duration); timeline.finalized = true; delete timeline.pendingTailStart; timeline.revision++;
 }
-export function editTimeline(timeline, { revision, action, clipId, at, start, end, direction }) {
+export function editTimeline(timeline, { revision, action, clipId, at, start, end, direction, beforeId }) {
   if (!timeline || timeline.version !== 1 || timeline.approved) throw Error('Этот монтаж уже отправлен или недоступен');
   if (revision !== timeline.revision) throw Error('Монтаж изменился. Обновите ленту и повторите действие.');
-  if (action === 'undo') {
-    const previous = timeline.history.pop();
-    if (!previous) throw Error('Нет действий для отмены');
+  if (action === 'undo' || action === 'redo') {
+    const from = action === 'undo' ? timeline.history : timeline.future;
+    const previous = from?.at(-1);
+    if (!previous) throw Error(action === 'undo' ? 'Нет действий для отмены' : 'Нет действий для возврата');
     const newlyRecorded = timeline.clips.filter(clip => !previous.knownIds.includes(clip.id));
-    timeline.clips = [...previous.clips, ...newlyRecorded]; timeline.revision++; return;
+    const next = [...structuredClone(previous.clips), ...newlyRecorded];
+    if (next.length > 300) throw Error('В ленте уже 300 фрагментов');
+    const opposite = action === 'undo' ? (timeline.future ||= []) : timeline.history;
+    opposite.push(snapshot(timeline.clips, next));
+    if (opposite.length > 30) opposite.shift();
+    from.pop(); timeline.clips = next; timeline.revision++; return;
   }
   const index = timeline.clips.findIndex(clip => clip.id === clipId);
   const clip = timeline.clips[index];
@@ -71,6 +79,12 @@ export function editTimeline(timeline, { revision, action, clipId, at, start, en
   } else if (action === 'move') {
     if (![-1, 1].includes(direction) || !timeline.clips[index + direction]) throw Error('Фрагмент уже на краю ленты');
     next = [...timeline.clips]; [next[index], next[index + direction]] = [next[index + direction], next[index]];
+  } else if (action === 'reorder') {
+    if (beforeId !== null && !timeline.clips.some(item => item.id === beforeId)) throw Error('Место перемещения изменилось. Обновите ленту.');
+    if (beforeId === clipId) return;
+    next = timeline.clips.filter(item => item.id !== clipId);
+    next.splice(beforeId === null ? next.length : next.findIndex(item => item.id === beforeId), 0, clip);
+    if (next.every((item, position) => item.id === timeline.clips[position].id)) return;
   } else if (action === 'duplicate') {
     if (timeline.clips.length >= 300) throw Error('В ленте уже 300 фрагментов');
     next = [...timeline.clips]; next.splice(index + 1, 0, { ...clip, id: crypto.randomUUID() });

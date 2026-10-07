@@ -1,3 +1,4 @@
+import { clamp, timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange } from './python-editor-time.mjs';
 const context = window.recorderEditorContext;
 const style = document.createElement('style');
 style.textContent = `
@@ -8,10 +9,13 @@ style.textContent += `
 .pe-focus-button{margin-left:auto}.python-editor--focus{position:fixed;inset:12px;z-index:50;display:flex;flex-direction:column;max-height:calc(100dvh - 24px);margin:0}.python-editor--focus .pe-header{padding:12px 18px;flex:none}.python-editor--focus .pe-header h2{font-size:18px}.python-editor--focus .pe-workspace{flex:1;min-height:0}.python-editor--focus .pe-view{display:flex;flex-direction:column;min-height:0;padding:14px}.python-editor--focus .pe-player,.python-editor--focus .pe-empty{flex:1;min-height:0;aspect-ratio:auto;object-fit:contain}.python-editor--focus .pe-inspector{overflow-y:auto;padding:14px}.python-editor--focus .pe-inspector h3{margin-bottom:8px}.python-editor--focus .pe-inspector label{margin-top:7px}.python-editor--focus .pe-inspector input{padding:6px}.python-editor--focus .pe-inspector .pe-tools{margin-top:6px}.python-editor--focus .pe-timeline{padding:12px 18px;flex:none}.python-editor--focus .pe-track-tools{margin-bottom:8px}.python-editor--focus .pe-track>button{height:62px}.python-editor--focus .pe-footer{padding:10px 18px;flex:none}.python-editor--focus .pe-save-note{padding-bottom:8px}body:has(.python-editor--focus){overflow:hidden}body:has(.python-editor--focus) #python-transport{display:none!important}@media(max-width:720px){.python-editor--focus{inset:0;max-height:100dvh;border-radius:0;overflow-y:auto}.python-editor--focus .pe-workspace{flex:none;min-height:420px}.python-editor--focus .pe-view{min-height:320px}.python-editor--focus .pe-inspector{max-height:280px}.python-editor--focus .pe-header p{display:none}.python-editor--focus .pe-footer{position:sticky;bottom:0}.python-editor--focus .pe-project{width:auto;flex:1}}`;
 const editor = document.createElement('section'); editor.className = 'python-editor'; editor.hidden = true; editor.tabIndex = 0; editor.setAttribute('aria-label', 'Монтажная студия Python');
 style.textContent += '@media(max-width:720px){.python-editor--focus .pe-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}.python-editor--focus .pe-header>div{grid-column:1/-1}.python-editor--focus .pe-header .brand{font-size:10px;letter-spacing:1px}.python-editor--focus .pe-header h2{margin:4px 0;font-size:17px}.python-editor--focus .pe-project{width:100%;max-width:100%}.python-editor--focus .pe-focus-button{margin:0}}';
+style.textContent += `
+.pe-track-content{position:relative;width:max-content;min-width:100%;touch-action:pan-y}.pe-ruler{cursor:col-resize;touch-action:none}.pe-track>button{touch-action:pan-y;cursor:grab;min-width:40px;padding:10px 12px}.pe-track>button:after{display:none}.pe-track>button.pe-dragging{opacity:.45;cursor:grabbing}.pe-track>button strong,.pe-track>button small{pointer-events:none}.pe-trim-handle{position:absolute;top:0;bottom:0;width:10px;background:#cfb0ff40;cursor:ew-resize;touch-action:none;opacity:0}.pe-trim-handle[data-edge=in]{left:0;border-right:1px solid #dcbeff66}.pe-trim-handle[data-edge=out]{right:0;border-left:1px solid #dcbeff66}.pe-track>button[aria-selected=true] .pe-trim-handle,.pe-track>button:hover .pe-trim-handle{opacity:1}.pe-cursor{top:0;bottom:0;z-index:4}.pe-cursor:before{content:'';position:absolute;top:0;left:-4px;width:10px;height:10px;background:#e9c7ff;clip-path:polygon(0 0,100% 0,100% 60%,50% 100%,0 60%)}.pe-drop-marker{position:absolute;top:20px;bottom:0;width:3px;background:#9cffe1;z-index:5;pointer-events:none}.pe-gesture-note{font-size:11px;color:#cebcf0;min-height:16px;margin-top:8px}.pe-seek{display:flex;gap:12px;align-items:center;margin-top:12px}.pe-seek input{flex:1;min-width:60px;accent-color:#bc91ff}.pe-seek output{font:12px Consolas,monospace;white-space:nowrap}.pe-track-tools button[aria-pressed=true]{background:#67508f;border-color:#bc96ec}.pe-trim-ghost{position:absolute;top:20px;height:76px;background:#b89be733;border:1px solid #d2b6ff;border-radius:9px;pointer-events:none;z-index:3}.python-editor--focus .pe-trim-ghost{height:62px}.pe-track-scroll{scroll-behavior:auto}.pe-track-tools .pe-duration{font:12px Consolas,monospace}@media(max-width:720px){.pe-track-tools{gap:6px}.pe-track-tools strong{flex-basis:100%}.pe-seek{flex-wrap:wrap}.pe-seek output{font-size:11px}}`;
+style.textContent += `.python-editor input[type=range]{height:18px;padding:0;margin:0;background:transparent;border:0}.pe-track-tools label{display:flex;align-items:center;gap:8px;margin:0}.python-editor .pe-footer{margin:0}.python-editor--focus .pe-header p{display:none}.python-editor--focus .pe-header h2{margin:3px 0;line-height:1.3}.python-editor--focus .pe-header .brand{font-size:11px;letter-spacing:1.5px}.python-editor--focus .pe-seek{margin-top:8px}.python-editor--focus .pe-view>.pe-tools{margin-top:8px}.python-editor--focus .pe-status{margin-top:8px;font-size:11px}@media(max-height:650px) and (min-width:721px){.python-editor--focus .pe-header{padding:8px 18px}.python-editor--focus .pe-track>button,.python-editor--focus .pe-trim-ghost{height:45px}.python-editor--focus .pe-gesture-note,.python-editor--focus .pe-save-note{display:none}.python-editor--focus .pe-footer{padding:6px 18px}}`;
 editor.innerHTML = `<header class="pe-header"><div><span class="brand">PYTHON / МОНТАЖНАЯ СТУДИЯ</span><h2>От дубля к готовому уроку</h2><p>Записывайте, убирайте лишнее и собирайте видео. Исходник остаётся на компьютере.</p></div><select class="pe-project" aria-label="Проект монтажа Python"></select></header>
 <div class="pe-workspace"><div class="pe-view"><video class="pe-player" controls playsinline hidden aria-label="Предпросмотр монтажа"></video><div class="pe-empty"><div><strong>Ваш урок складывается из дублей</strong>Пауза завершает фрагмент. Выберите его в ленте, чтобы просмотреть или изменить.</div></div><div class="pe-tools"><button data-op="preview">▶ Посмотреть фрагмент</button><button data-op="preview-all">Посмотреть весь монтаж</button><button data-op="pause">Ⅱ Пауза</button><button data-op="retake">↻ Переснять последний дубль</button></div><div class="pe-status" role="status"></div></div>
 <aside class="pe-inspector"><h3>Выбранный фрагмент</h3><div class="pe-selection">Выберите фрагмент в ленте</div><label>Место разделения · секунды от начала фрагмента</label><input data-field="point" type="number" min="0" step="0.01" aria-label="Место разделения"><div class="pe-tools"><button data-op="split">✂ Разделить</button></div><label>Оставить от · секунды</label><input data-field="in" type="number" min="0" step="0.01" aria-label="Начало обрезки"><label>До · секунды</label><input data-field="out" type="number" min="0" step="0.01" aria-label="Конец обрезки"><div class="pe-tools"><button data-op="trim">Обрезать</button><button data-op="delete">Удалить</button></div><div class="pe-tools"><button data-op="move-left">← Раньше</button><button data-op="move-right">Позже →</button></div><div class="pe-tools"><button data-op="duplicate">Копия</button><button data-op="join">Объединить справа</button></div></aside></div>
-<div class="pe-timeline"><div class="pe-track-tools"><strong>Видео + микрофон</strong><button data-op="undo">↶ Отменить</button><label>Масштаб <input type="range" min="2" max="60" value="8" aria-label="Масштаб ленты"></label><span class="pe-duration"></span></div><div class="pe-track-scroll"><div class="pe-ruler"></div><div class="pe-track" role="listbox" aria-label="Фрагменты видео"></div></div></div><div class="pe-save-note">Монтаж сохраняется автоматически. Delete — убрать фрагмент, Ctrl+Z — отменить. Правая кнопка — действия.</div><footer class="pe-footer"><p>После завершения записи проверьте изображение и звук. Отправится только собранное видео.</p><button data-op="publish">Выложить в изучение Python</button></footer>`;
+<div class="pe-timeline"><div class="pe-track-tools"><strong>Видео + микрофон</strong><button data-op="undo">↶ Отменить</button><button data-op="redo">↷ Вернуть</button><button data-op="snap" aria-pressed="true">Привязка</button><label>Масштаб <input type="range" min="2" max="60" value="8" aria-label="Масштаб ленты"></label><span class="pe-duration"></span></div><div class="pe-track-scroll"><div class="pe-track-content"><div class="pe-ruler"></div><div class="pe-track" role="listbox" aria-label="Фрагменты видео"></div><div class="pe-cursor"></div><div class="pe-drop-marker" hidden></div><div class="pe-trim-ghost" hidden></div></div></div><div class="pe-gesture-note">Перетащите клип, чтобы изменить порядок. Потяните за его край, чтобы обрезать.</div></div><div class="pe-save-note">Монтаж сохраняется автоматически. Delete — убрать, Ctrl+Z — отменить, Ctrl+Shift+Z — вернуть. ← / → — курсор, S — разрез. Правая кнопка — действия.</div><footer class="pe-footer"><p>После завершения записи проверьте изображение и звук. Отправится только собранное видео.</p><button data-op="publish">Выложить в изучение Python</button></footer>`;
 document.querySelector('#mock-review').before(editor);
 const focusButton = document.createElement('button'); focusButton.type = 'button'; focusButton.className = 'pe-focus-button'; focusButton.textContent = 'Развернуть редактор';
 const inertBefore=new Map();
@@ -24,14 +28,52 @@ focusButton.onclick = () => {
 findHeader().append(focusButton);
 function findHeader() { return editor.querySelector('.pe-header'); }
 const stopButton = document.createElement('button'); stopButton.type = 'button'; stopButton.dataset.op = 'stop'; stopButton.textContent = 'Завершить запись'; editor.querySelector('.pe-tools').append(stopButton);
+const fitButton = document.createElement('button'); fitButton.type = 'button'; fitButton.dataset.op = 'fit'; fitButton.textContent = 'Вся лента'; findTrackTools().querySelector('label').before(fitButton);
+function findTrackTools(){return editor.querySelector('.pe-track-tools');}
+editor.querySelector('[aria-label="Масштаб ленты"]').max='200';
 let projectId = '', selectedId = '', busy = false, videoUrl = '', previewClip = '', previewRevision = -1, signature = '', scale = 8, menu;
+let playhead = 0, layout = [], snapping = true, gesture = null, inspectorSignature = '';
+let previewGeneration = 0;
+const thumbnails = new Map();
 const find = selector => editor.querySelector(selector);
 const field = name => find(`[data-field="${name}"]`);
 const clock = seconds => { const n = Math.max(0, seconds || 0); return `${Math.floor(n / 60)}:${(n % 60).toFixed(1).padStart(4, '0')}`; };
 const job = () => context.state()?.jobs.find(item => item.id === projectId);
 const selection = () => job()?.pythonTimeline.clips.find(clip => clip.id === selectedId);
+const totalTime = () => layout.at(-1) ? layout.at(-1).time + layout.at(-1).duration : 0;
 const notify = (text, failure = false) => { find('.pe-status').textContent = text; find('.pe-status').classList.toggle('pe-error', failure); };
-const discardPreview = () => { find('video').pause(); if (videoUrl) URL.revokeObjectURL(videoUrl); videoUrl = ''; previewClip = ''; find('video').removeAttribute('src'); find('video').hidden = true; find('.pe-empty').hidden = false; };
+const discardPreview = () => { previewGeneration++; find('video').pause(); if (videoUrl) URL.revokeObjectURL(videoUrl); videoUrl = ''; previewClip = ''; find('video').removeAttribute('src'); find('video').hidden = true; find('.pe-empty').hidden = false; };
+const thumbnailKey = clip => `${projectId}:${clip.id}:${clip.start}:${clip.end}`;
+function paintThumbnail(button, clip) {
+  const url = thumbnails.get(thumbnailKey(clip));
+  if(url){button.style.backgroundImage=`linear-gradient(0deg,#1d112cdd,#1d112c55),url("${url}")`;button.style.backgroundSize='cover';button.style.backgroundPosition='center';}
+}
+function videoEvent(video, event, change) {
+  return new Promise((resolve,reject)=>{
+    const finish=error=>{clearTimeout(timer);video.removeEventListener(event,ok);video.removeEventListener('error',fail);error?reject(error):resolve();};
+    const ok=()=>finish(),fail=()=>finish(Error('Thumbnail decoder unavailable'));
+    const timer=setTimeout(fail,5000);video.addEventListener(event,ok);video.addEventListener('error',fail);change();
+  });
+}
+async function makeThumbnails(url, clips, all, generation) {
+  const decoder=document.createElement('video'); decoder.muted=true; decoder.preload='auto';
+  const canvas=document.createElement('canvas');canvas.width=160;canvas.height=90;const paint=canvas.getContext('2d');
+  try{
+    await videoEvent(decoder,'loadeddata',()=>{decoder.src=url;decoder.load();});
+    let offset=0;
+    // Decode a bounded number of small frames, never a whole video into memory.
+    for(const clip of clips.slice(0,32)){
+      if(generation!==previewGeneration)return;
+      const duration=clip.end-clip.start,at=Math.min(decoder.duration-.04,(all?offset:0)+Math.min(.1,duration/2));offset+=duration;
+      if(Math.abs(decoder.currentTime-at)>.001)await videoEvent(decoder,'seeked',()=>{decoder.currentTime=Math.max(0,at);});
+      if(generation!==previewGeneration)return;
+      paint.drawImage(decoder,0,0,160,90); thumbnails.set(thumbnailKey(clip),canvas.toDataURL('image/jpeg',.65));
+      while(thumbnails.size>128)thumbnails.delete(thumbnails.keys().next().value);
+      const button=find(`[data-clip-id="${clip.id}"]`);if(button)paintThumbnail(button,clip);
+    }
+  }catch{/* A missing thumbnail must never prevent playback, editing or recording. */}
+  finally{decoder.removeAttribute('src');decoder.load();}
+}
 const act = async operation => {
   if (busy) return; busy = true; render();
   try { await operation(); } catch (error) { notify(error.message, true); }
@@ -41,23 +83,45 @@ async function edit(action, extra = {}) {
   const current = job(); await context.request('/python/editor/edit', { id: current.id, revision: current.pythonTimeline.revision, action, clipId: selectedId, ...extra });
   discardPreview(); signature = ''; await context.refresh(); render(); notify('Монтаж сохранён. Исходник не изменён.');
 }
-function select(id) { selectedId = id; discardPreview(); signature = ''; render(); find('.pe-track button[aria-selected="true"]')?.focus({preventScroll:true}); }
+function select(id) { selectedId = id; if (previewClip && previewClip !== id) discardPreview(); signature = ''; render(); find('.pe-track button[aria-selected="true"]')?.focus({preventScroll:true}); }
+const seek = document.createElement('div'); seek.className = 'pe-seek';
+seek.innerHTML = '<input type="range" min="0" max="0" value="0" step="0.01" aria-label="Курсор монтажа"><output aria-live="off">0:00.0 / 0:00.0</output>';
+find('.pe-tools').before(seek);
+function setPlayhead(seconds, seekVideo = true, choose = true, updatePoint = true) {
+  playhead = clamp(seconds, 0, totalTime());
+  const item = clipAtTime(layout, playhead);
+  if (choose && item && selectedId !== item.id) select(item.id);
+  if (seekVideo && videoUrl && previewRevision === job()?.pythonTimeline.revision) {
+    const secondsInPreview = previewClip ? playhead - layout.find(part => part.id === previewClip)?.time : playhead;
+    if (Number.isFinite(secondsInPreview) && secondsInPreview >= 0 && (!previewClip || secondsInPreview <= selection()?.end - selection()?.start)) find('video').currentTime = secondsInPreview;
+  }
+  find('.pe-cursor').style.left = `${timeToPixel(layout, playhead)}px`;
+  find('.pe-cursor').hidden = !layout.length;
+  find('.pe-seek input').max = String(totalTime()); find('.pe-seek input').value = String(playhead);
+  find('.pe-seek output').textContent = `${clock(playhead)} / ${clock(totalTime())}`;
+  if (updatePoint && item && item.id === selectedId && document.activeElement !== field('point')) field('point').value = (playhead - item.time).toFixed(2);
+}
+find('.pe-seek input').oninput = event => setPlayhead(Number(event.target.value));
 async function preview(all = false) {
-  const current = job(); notify('Готовим предпросмотр…');
-  const response = await context.request('/python/editor/preview', { id: current.id, revision: current.pythonTimeline.revision, ...(all ? {} : { clipId: selectedId }) });
+  const current = job(), requested = structuredClone(selection()), requestedClips = structuredClone(current.pythonTimeline.clips); notify('Готовим предпросмотр…');
+  const response = await context.request('/python/editor/preview', { id: current.id, revision: current.pythonTimeline.revision, ...(all ? {} : { clipId: requested.id }) });
   const res = await fetch(`/python/editor/video/${response.previewId}`, { headers: { 'X-Recorder-Key': context.key } });
   if (!res.ok) throw Error('Предпросмотр недоступен. Попробуйте снова.');
   const bytes = await res.blob(); discardPreview(); videoUrl = URL.createObjectURL(bytes);
-  previewClip = all ? '' : selectedId; previewRevision = response.revision;
+  previewClip = all ? '' : requested.id; previewRevision = response.revision;
   find('.pe-player').src = videoUrl; find('.pe-player').hidden = false; find('.pe-empty').hidden = true;
+  const offset = all ? playhead : clamp(playhead - (layout.find(part => part.id === requested.id)?.time || 0), 0, requested.end - requested.start);
+  find('video').onloadedmetadata = () => { find('video').currentTime = Math.min(offset, find('video').duration); };
   notify(all ? 'Предпросмотр всего монтажа. Проверьте звук и стыки.' : 'Фрагмент готов к просмотру. Остановите воспроизведение в месте разреза.');
+  void makeThumbnails(videoUrl,all?requestedClips:[requested],all,previewGeneration);
 }
 function render() {
   const state = context.state(); if (!state) return;
+  if (gesture) return;
   const projects = state.jobs.filter(item => item.pythonTimeline);
   editor.hidden = !projects.length; if (!projects.length) return;
   const active = projects.find(item => ['starting', 'recording', 'stopping'].includes(item.status));
-  if (active && active.id !== projectId || !projects.some(item => item.id === projectId)) { projectId = active?.id || projects[0].id; selectedId = ''; signature = ''; discardPreview(); }
+  if (active && active.id !== projectId || !projects.some(item => item.id === projectId)) { projectId = active?.id || projects[0].id; selectedId = ''; signature = ''; playhead = 0; discardPreview(); }
   const selectProject = find('select');
   const options = projects.map(item => `${item.id}:${item.title}:${item.status}`).join('|');
   if (selectProject.dataset.options !== options) {
@@ -70,23 +134,28 @@ function render() {
   const isActive = current.status === 'recording' && active?.id === current.id;
   const waiting = busy || Boolean(state.editorBusy) || Boolean(state.updater?.busy) || Boolean(state.uploadingId);
   const locked = waiting || timeline.approved;
-  if (!timeline.clips.some(clip => clip.id === selectedId)) selectedId = timeline.clips.at(-1)?.id || '';
+  layout = timelineLayout(timeline.clips, scale);
+  if (!timeline.clips.some(clip => clip.id === selectedId)) selectedId = clipAtTime(layout,playhead)?.id || '';
   const selected = selection();
   const nextSignature = JSON.stringify([projectId, timeline.revision, selectedId, scale, timeline.clips]);
   if (nextSignature !== signature) {
     signature = nextSignature;
     const track = find('.pe-track'), ruler = find('.pe-ruler'); track.replaceChildren(); ruler.replaceChildren();
-    let position = 0;
     timeline.clips.forEach((clip, index) => {
-      const width = Math.max(72, (clip.end - clip.start) * scale);
-      const mark = document.createElement('span'); mark.style.width = `${width}px`; mark.textContent = clock(position); ruler.append(mark);
+      const { width, time } = layout[index];
+      const mark = document.createElement('span'); mark.style.width = `${width}px`; mark.textContent = clock(time); ruler.append(mark);
       const button = document.createElement('button'); button.type = 'button'; button.style.width = `${width}px`; button.setAttribute('role', 'option'); button.setAttribute('aria-selected', String(clip.id === selectedId)); button.setAttribute('aria-label', `Фрагмент ${index + 1}, ${clock(clip.end - clip.start)}`);
+      button.dataset.clipId = clip.id;
       const title = document.createElement('strong'); title.textContent = `Клип ${index + 1}`; const duration = document.createElement('small'); duration.textContent = clock(clip.end - clip.start); button.append(title, duration);
-      button.onclick = () => select(clip.id); button.oncontextmenu = event => { event.preventDefault(); select(clip.id); showMenu(event.clientX, event.clientY); }; track.append(button); position += clip.end - clip.start;
+      paintThumbnail(button,clip);
+      for (const edge of ['in','out']) { const handle = document.createElement('span'); handle.className = 'pe-trim-handle'; handle.dataset.edge = edge; handle.setAttribute('aria-hidden','true'); button.append(handle); }
+      button.onclick = event => { const rect=button.getBoundingClientRect(); select(clip.id); setPlayhead(time + clamp((event.clientX-rect.left)/width,0,1)*(clip.end-clip.start)); };
+      button.oncontextmenu = event => { event.preventDefault(); const rect=button.getBoundingClientRect(); select(clip.id); setPlayhead(time + clamp((event.clientX-rect.left)/width,0,1)*(clip.end-clip.start)); showMenu(event.clientX, event.clientY); }; track.append(button);
     });
     if (selected) {
       find('.pe-selection').textContent = `Фрагмент ${timeline.clips.findIndex(clip => clip.id === selectedId) + 1} · ${clock(selected.end - selected.start)}`;
-      field('point').value = ((selected.end - selected.start) / 2).toFixed(2); field('in').value = '0'; field('out').value = (selected.end - selected.start).toFixed(2);
+      const nextInspector=JSON.stringify([projectId,selectedId,selected.start,selected.end]);
+      if(inspectorSignature!==nextInspector){inspectorSignature=nextInspector;field('point').value = ((selected.end - selected.start) / 2).toFixed(2); field('in').value = '0'; field('out').value = (selected.end - selected.start).toFixed(2);}
     } else find('.pe-selection').textContent = 'Поставьте запись на паузу, чтобы закончить первый дубль';
   }
   find('.pe-track .pe-recording')?.remove();
@@ -94,8 +163,11 @@ function render() {
     const recording = document.createElement('button'); recording.type = 'button'; recording.className = 'pe-recording'; recording.style.width = `${Math.max(120, (timeline.sourceEnd - (timeline.openStart || 0)) * scale)}px`; recording.textContent = '● Новый дубль'; recording.onclick = () => notify('Текущий дубль сначала поставьте на паузу.'); find('.pe-track').append(recording);
   }
   find('.pe-duration').textContent = `Итого ${clock(timeline.clips.reduce((sum, clip) => sum + clip.end - clip.start, 0))}`;
-  editor.querySelectorAll('[data-op]').forEach(button => { const op = button.dataset.op; button.disabled = locked || (!selected && !['undo', 'pause', 'retake', 'publish', 'preview-all'].includes(op)); });
+  editor.querySelectorAll('[data-op]').forEach(button => { const op = button.dataset.op; button.disabled = locked || (!selected && !['undo', 'redo', 'snap', 'fit', 'pause', 'retake', 'publish', 'preview-all'].includes(op)); });
   find('[data-op=undo]').disabled = locked || !timeline.canUndo;
+  find('[data-op=redo]').disabled = locked || !timeline.canRedo;
+  find('[data-op=snap]').disabled = waiting;
+  find('[data-op=fit]').disabled = waiting || !layout.length;
   find('[data-op=pause]').disabled = locked || !isActive; find('[data-op=pause]').textContent = state.obs?.outputPaused ? '▶ Продолжить запись' : 'Ⅱ Пауза';
   find('[data-op=retake]').disabled = locked || !isActive;
   find('[data-op=stop]').disabled = locked || !isActive;
@@ -108,9 +180,12 @@ function render() {
   find('[data-op=join]').disabled=locked||!selected||!after||Math.abs(selected.end-after.start)>.001;
   editor.querySelectorAll('[data-field]').forEach(input=>{input.disabled=locked||!selected;});
   if (previewRevision !== -1 && previewRevision !== timeline.revision && videoUrl) notify('Лента изменилась. Подготовьте новый предпросмотр перед проверкой.');
+  setPlayhead(playhead, false, false, false);
 }
 async function operation(op) {
   const current = job(), selected = selection();
+  if (op === 'fit') { scale=clamp((find('.pe-track-scroll').clientWidth-4*layout.length)/totalTime(),2,200); find('[aria-label="Масштаб ленты"]').value=String(scale); signature='';render();return; }
+  if (op === 'snap') { snapping = !snapping; find('[data-op=snap]').setAttribute('aria-pressed',String(snapping)); return; }
   if (op === 'preview' || op === 'preview-all') return preview(op === 'preview-all');
   if (op === 'pause') return context.request('/material/pause', { id: current.id, paused: !context.state().obs?.outputPaused });
   if (op === 'stop') { await context.request('/material/stop', { id: current.id }); notify('Запись завершена. Просмотрите монтаж и нажмите «Выложить в изучение Python».'); return; }
@@ -127,9 +202,9 @@ async function operation(op) {
   return edit(op);
 }
 editor.querySelectorAll('[data-op]').forEach(button => button.onclick = () => void act(() => operation(button.dataset.op)));
-find('select').onchange = event => { projectId = event.target.value; select(''); };
-find('[type=range]').oninput = event => { scale = Number(event.target.value); signature = ''; render(); };
-find('video').ontimeupdate = () => { if (previewClip === selectedId && selection()) field('point').value = Math.min(selection().end - selection().start, find('video').currentTime).toFixed(2); };
+find('select').onchange = event => { projectId = event.target.value; playhead = 0; discardPreview(); select(''); };
+find('[aria-label="Масштаб ленты"]').oninput = event => { scale = Number(event.target.value); signature = ''; render(); };
+find('video').ontimeupdate = () => { if (videoUrl && previewRevision === job()?.pythonTimeline.revision) setPlayhead(find('video').currentTime + (previewClip ? layout.find(item=>item.id===previewClip)?.time || 0 : 0), false, false); };
 editor.addEventListener('keydown', event => {
   if(event.key==='Tab'&&editor.classList.contains('python-editor--focus')){
     const controls=[...editor.querySelectorAll('button,input,select,video')].filter(el=>!el.disabled&&!el.hidden&&el.getClientRects().length);
@@ -137,13 +212,79 @@ editor.addEventListener('keydown', event => {
     else if(!event.shiftKey&&document.activeElement===controls.at(-1)){event.preventDefault();controls[0]?.focus();}
   }
   if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
-  if (event.ctrlKey && event.key.toLowerCase() === 'z') { event.preventDefault(); void act(() => operation('undo')); }
+  if (event.ctrlKey && event.key.toLowerCase() === 'z') { event.preventDefault(); void act(() => operation(event.shiftKey ? 'redo' : 'undo')); }
+  else if (event.ctrlKey && event.key.toLowerCase() === 'y') { event.preventDefault(); void act(() => operation('redo')); }
   else if (event.key === 'Delete' && selectedId) { event.preventDefault(); void act(() => operation('delete')); }
+  else if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key) && event.target.tagName !== 'VIDEO') { event.preventDefault(); setPlayhead(event.key==='Home'?0:event.key==='End'?totalTime():playhead+(event.key==='ArrowRight'?1:-1)*(event.shiftKey?1:1/30)); }
+  else if (!event.ctrlKey && event.key.toLowerCase() === 's' && !find('[data-op=split]').disabled) { event.preventDefault(); setPlayhead(playhead,false,true); void act(()=>operation('split')); }
+  else if (event.code === 'Space' && videoUrl && event.target.tagName !== 'BUTTON') { event.preventDefault(); if(find('video').paused)void find('video').play().catch(()=>{});else find('video').pause(); }
 });
+const trackContent = find('.pe-track-content');
+const trackPixel = event => event.clientX - trackContent.getBoundingClientRect().left;
+const snappedPlayhead = (pixel, enabled) => {
+  const seconds = pixelToTime(layout, pixel), item = clipAtTime(layout, seconds);
+  return snapTime(seconds, [0,...layout.map(part=>part.time),totalTime()], item ? 8*item.duration/item.width : 0, enabled);
+};
+trackContent.addEventListener('pointerdown', event => {
+  if(event.button!==0 || gesture || busy) return;
+  if(event.target.closest('.pe-ruler')) {
+    event.preventDefault(); gesture={kind:'seek',pointer:event.pointerId}; trackContent.setPointerCapture(event.pointerId);
+    setPlayhead(snappedPlayhead(trackPixel(event),snapping&&!event.altKey)); return;
+  }
+  const button=event.target.closest('[data-clip-id]'); if(!button) return;
+  const item=layout.find(part=>part.id===button.dataset.clipId);
+  const locked=job().pythonTimeline.approved || context.state().editorBusy || context.state().updater?.busy || context.state().uploadingId;
+  if(locked) return;
+  event.preventDefault();
+  gesture={kind:event.target.dataset.edge?'trim':'move',edge:event.target.dataset.edge,item,revision:job().pythonTimeline.revision,project:projectId,pointer:event.pointerId,origin:trackPixel(event),moved:false,button};
+  trackContent.setPointerCapture(event.pointerId);
+});
+trackContent.addEventListener('pointermove', event => {
+  if(!gesture || event.pointerId!==gesture.pointer) return;
+  if(gesture.kind==='seek'){setPlayhead(snappedPlayhead(trackPixel(event),snapping&&!event.altKey));return;}
+  const scroll=find('.pe-track-scroll'), rect=scroll.getBoundingClientRect();
+  if(event.clientX<rect.left+25)scroll.scrollLeft-=12;
+  else if(event.clientX>rect.right-25)scroll.scrollLeft+=12;
+  const pixel=trackPixel(event), delta=pixel-gesture.origin;
+  if(Math.abs(delta)<4&&!gesture.moved) return;
+  gesture.moved=true; gesture.button.classList.add('pe-dragging');
+  if(gesture.kind==='move') {
+    const others=layout.filter(item=>item.id!==gesture.item.id), before=others.find(item=>pixel<item.x+item.width/2);
+    gesture.beforeId=before?.id||null;
+    const marker=find('.pe-drop-marker'); marker.hidden=false; marker.style.left=`${before?.x ?? (layout.at(-1).x+layout.at(-1).width)}px`;
+    find('.pe-gesture-note').textContent=before?'Отпустите, чтобы вставить перед этим клипом':'Отпустите, чтобы поставить в конец ленты';
+  } else {
+    const item=gesture.item, units=item.duration/item.width, edge=gesture.edge;
+    const raw=item[edge==='in'?'start':'end']+delta*units;
+    const snapped=snapTime(raw,[item.start,item.end,item.start+playhead-item.time],8*units,snapping&&!event.altKey);
+    gesture.range=trimmedRange(item,edge,snapped-item[edge==='in'?'start':'end']);
+    const ghost=find('.pe-trim-ghost'); ghost.hidden=false;
+    ghost.style.left=`${item.x+(gesture.range.start-item.start)/units}px`; ghost.style.width=`${(gesture.range.end-gesture.range.start)/units}px`;
+    find('.pe-gesture-note').textContent=`Оставить ${clock(gesture.range.start-item.start)} — ${clock(gesture.range.end-item.start)} · ${clock(gesture.range.end-gesture.range.start)}. Alt — без привязки.`;
+  }
+});
+function endGesture(event, cancelled=false) {
+  if(!gesture||event.pointerId!==gesture.pointer)return;
+  const done=gesture; gesture=null;
+  if(trackContent.hasPointerCapture(done.pointer))trackContent.releasePointerCapture(done.pointer);
+  done.button?.classList.remove('pe-dragging'); find('.pe-drop-marker').hidden=true; find('.pe-trim-ghost').hidden=true;
+  find('.pe-gesture-note').textContent='Перетащите клип, чтобы изменить порядок. Потяните за его край, чтобы обрезать.';
+  if(cancelled){render();return;}
+  if(done.kind==='seek'){render();return;}
+  if(done.project!==projectId){render();return;}
+  selectedId=done.item.id;
+  if(!done.moved){select(done.item.id);setPlayhead(pixelToTime(layout,trackPixel(event)));return;}
+  if(done.kind==='trim'&&done.range&&(done.range.start!==done.item.start||done.range.end!==done.item.end))void act(()=>edit('trim',{clipId:done.item.id,revision:done.revision,...done.range}));
+  else if(done.kind==='move')void act(()=>edit('reorder',{clipId:done.item.id,revision:done.revision,beforeId:done.beforeId}));
+  else render();
+}
+trackContent.addEventListener('pointerup',event=>endGesture(event));
+trackContent.addEventListener('pointercancel',event=>endGesture(event,true));
+trackContent.addEventListener('lostpointercapture',event=>endGesture(event,true));
 function showMenu(x, y) {
   menu?.remove(); menu = document.createElement('div'); menu.className = 'pe-menu'; menu.setAttribute('role', 'menu');
-  for (const [op, label] of [['preview', 'Посмотреть'], ['split', 'Разделить в выбранной точке'], ['duplicate', 'Создать копию'], ['join', 'Объединить с правой частью'], ['move-left', 'Переместить раньше'], ['move-right', 'Переместить позже'], ['delete', 'Удалить из монтажа'], ['undo', 'Отменить действие']]) {
-    const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role', 'menuitem'); button.textContent = label; button.onclick = () => { menu.remove(); void act(() => operation(op)); }; menu.append(button);
+  for (const [op, label] of [['preview', 'Посмотреть'], ['split', 'Разделить в выбранной точке'], ['duplicate', 'Создать копию'], ['join', 'Объединить с правой частью'], ['move-left', 'Переместить раньше'], ['move-right', 'Переместить позже'], ['delete', 'Удалить из монтажа'], ['undo', 'Отменить действие'], ['redo','Вернуть действие']]) {
+    const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role', 'menuitem'); button.textContent = label; button.disabled=find(`[data-op="${op}"]`)?.disabled; button.onclick = () => { menu.remove(); void act(() => operation(op)); }; menu.append(button);
   }
   document.body.append(menu); menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - 240))}px`; menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
 }

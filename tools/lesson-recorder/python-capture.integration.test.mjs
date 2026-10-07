@@ -99,7 +99,7 @@ export class ObsClient extends Base {
     const response = await fetch(base + route, { headers: { 'X-Recorder-Key': key, 'Content-Type': 'application/json' }, ...(payload === undefined ? {} : { method: 'POST', body: JSON.stringify(payload) }) });
     return { status: response.status, value: await response.json() };
   };
-  const close = async () => { child.kill(); await new Promise(resolve => child.once('exit', resolve)); await new Promise(resolve => platform.close(resolve)); fs.rmSync(root, { recursive: true, force: true }); };
+  const close = async () => { child.kill(); await new Promise(resolve => child.once('exit', resolve)); await new Promise(resolve => platform.close(resolve)); if(!process.argv.includes('--keep'))fs.rmSync(root, { recursive: true, force: true }); };
   return { base, root, request, ordinary, close };
 }
 if (process.argv.includes('--serve')) {
@@ -120,6 +120,13 @@ if (process.argv.includes('--serve')) {
     assert.equal((await edit('split',{at:6})).status,200);
     assert.equal((await edit('trim',{start:1,end:5})).status,200);
     assert.equal((await f.request('/python/editor/edit',{id,revision:-1,clipId:clip.id,action:'delete'})).status,400);
+    assert.equal((await edit('undo')).status,200);
+    current=(await f.request('/state')).value.jobs.find(j=>j.id===id);
+    assert.equal(current.pythonTimeline.canRedo,true); assert.equal(current.pythonTimeline.future,undefined);
+    assert.equal((await edit('redo')).status,200); assert.equal((await edit('undo')).status,200);
+    const second=current.pythonTimeline.clips[1].id;
+    assert.equal((await edit('reorder',{clipId:second,beforeId:clip.id})).status,200);
+    assert.equal((await f.request('/state')).value.jobs.find(j=>j.id===id).pythonTimeline.clips[0].id,second);
     assert.equal((await edit('undo')).status,200);
     assert.equal((await f.request('/python/editor/publish',{id,revision:3})).status,400,'Live capture cannot publish');
     await f.request('/material/pause',{id,paused:false}); await f.request('/qa/time',{seconds:24}); await f.request('/material/pause',{id,paused:true});
