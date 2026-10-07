@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { encryptGoogleCalendarTokens } from './googleCalendarWriteback.js';
 import { moscowDay, addCalendarDays, weekdayIndex, AVAILABILITY_WEEKDAYS } from '../src/utils/groupAvailability.js';
 
-for (const kind of ['future','previous-local','previous-google']) test(`full server: ${kind}, payment follows, retry survives restart`, {timeout:60000},async t=>{
+for (const balances of [false, true]) for (const kind of ['future','previous-local','previous-google']) test(`full server: ${kind}${balances ? ', student balance' : ''}, payment follows, retry survives restart`, {timeout:60000},async t=>{
   const correctPrevious=kind!=='future',previousGoogle=kind==='previous-google';
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'ivan-reschedule-integration-'));const data=path.join(root,'data');fs.mkdirSync(data);
   const seed=(file,value)=>fs.writeFileSync(path.join(data,file),JSON.stringify(value));
@@ -44,6 +44,10 @@ for (const kind of ['future','previous-local','previous-google']) test(`full ser
     for(let i=0;i<180;i++){if(child.exitCode!==null)throw Error(logs);try{if((await fetch(`http://127.0.0.1:${port}/api/client-build-version`)).ok)return;}catch{/* Wait for the isolated server to listen. */}await new Promise(r=>setTimeout(r,100));}throw Error(logs);};
   const req=async(url,token='',body,status=200)=>{const r=await fetch(`http://127.0.0.1:${port}/api${url}`,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});const v=await r.json();assert.equal(r.status,status,JSON.stringify(v)+'\n'+logs.slice(-1000));return v;};
   await boot();const teacher=(await req('/login','',{code:'741001'})).token;const student=(await req('/login','',{code:'741002'})).token;
+  if (balances) {
+    const preview = await req('/student-payment-balances', teacher);
+    await req('/student-payment-balances/enable', teacher, { previewToken: preview.previewToken });
+  }
   await req('/lesson-reschedules','',undefined,401);
   const availability=await req('/lesson-reschedules/availability',student);const lesson=availability.lessons.find(l=>l.date===requestedDate);assert.ok(lesson);
   assert.ok(availability.lessons.some(l=>l.date===date));
@@ -60,7 +64,12 @@ for (const kind of ['future','previous-local','previous-google']) test(`full ser
   const marks=JSON.parse(fs.readFileSync(path.join(data,'teacher-calendar-marks.json'),'utf8')).t;
   assert.ok(!marks[key]);assert.equal(Object.keys(marks).filter(k=>k.includes(target)&&k.endsWith(':paid')).length,1);
   const finance=JSON.parse(fs.readFileSync(path.join(data,'teacher-finances.json'),'utf8')).t;
-  assert.equal(finance.paymentAllocations[key].currentDayKey,target);
+  if (balances) {
+    const account = finance.studentPaymentBalances.accounts.a;
+    assert.equal(Object.values(account.allocations).length, 1);
+    assert.equal(Object.values(account.allocations)[0].dayKey, target);
+    assert.equal(account.entries.reduce((sum, entry) => sum + entry.creditCents, 0), 100000);
+  } else assert.equal(finance.paymentAllocations[key].currentDayKey,target);
   if(date.slice(0,7)!==target.slice(0,7)){assert.equal(finance.months[date.slice(0,7)].students.a.paidAmount,0);assert.equal(finance.months[target.slice(0,7)].students.a.paidAmount,1000);}
   await stop();await boot();assert.equal((await req(`/lesson-reschedules/${row.id}/approve`,teacher,{})).status,'approved');
   assert.equal(JSON.parse(fs.readFileSync(path.join(root,'google-state.json'),'utf8')).length,1);

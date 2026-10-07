@@ -21,6 +21,8 @@ export function googleApiEventToCalendarEvent(event) {
     status: String(event.status || '').toUpperCase(),
     start: event.start?.dateTime || event.start?.date,
     end: event.end?.dateTime || event.end?.date,
+    originalStart: event.originalStartTime?.dateTime || '',
+    isRecurring: Boolean(event.recurringEventId),
     isFullDay: Boolean(event.start?.date),
     summary: event.summary,
     description: event.description,

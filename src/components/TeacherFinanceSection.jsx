@@ -29,6 +29,7 @@ import { isCurrentStudent } from '../utils/studentStudyStatus';
 import { Button, Card } from './ui';
 import TeacherSubscriptions from './LearningSubscriptions';
 import TeacherPaymentConnection from './TeacherPaymentConnection';
+const StudentPaymentBalances = React.lazy(() => import('./StudentPaymentBalances'));
 
 const formatMoney = (value) => {
   const amount = Number(value);
@@ -627,9 +628,11 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
         <button data-active={financeTab === 'subscriptions'} onClick={() => setFinanceTab('subscriptions')}>Абонементы</button>
         <button data-active={financeTab === 'lessons'} onClick={() => setFinanceTab('lessons')}>Доход и поурочный учёт</button>
         <button data-active={financeTab === 'automatic'} onClick={() => setFinanceTab('automatic')}>Автооплата</button>
+        <button data-active={financeTab === 'balances'} onClick={() => setFinanceTab('balances')}>Балансы</button>
       </div>
       {financeTab === 'subscriptions' && <TeacherSubscriptions teacherId={teacherId} onChanged={() => setSubscriptionRefresh(value => value + 1)} />}
       {financeTab === 'automatic' && <TeacherPaymentConnection teacherId={teacherId} />}
+      {financeTab === 'balances' && <React.Suspense fallback={<p>Загрузка балансов...</p>}><StudentPaymentBalances teacherId={teacherId} onChanged={() => setSubscriptionRefresh(value => value + 1)} /></React.Suspense>}
       <div hidden={financeTab !== 'lessons'} className="space-y-4">
       <Card className="teacher-finance-simple__hero overflow-hidden border border-violet-200 bg-gradient-to-br from-white via-violet-50/75 to-sky-50/70 shadow-[0_18px_45px_rgba(109,40,217,0.12)]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
