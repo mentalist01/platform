@@ -2689,7 +2689,7 @@ const TeacherCalendarSection = ({
         const nextMarks = normalizeLessonPanelMarks(result.marks);
         setLessonPanelMarks(nextMarks);
         writeLessonPanelMarks(teacherId, nextMarks);
-        setLessonPanelSuccess(`${undo ? 'Оплата вычтена' : 'Оплата добавлена'}: ${result.amount.toLocaleString('ru-RU')} ₽.`);
+        setLessonPanelSuccess(`${result.fromBalance ? (undo ? 'Возвращено на баланс' : 'Оплачено из баланса') : (undo ? 'Оплата вычтена' : 'Оплата добавлена')}: ${result.amount.toLocaleString('ru-RU')} ₽.`);
         return;
       }
       const snapshot = await api.getTeacherFinance(month, teacherId);

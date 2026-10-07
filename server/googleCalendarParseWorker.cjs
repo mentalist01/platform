@@ -17,6 +17,8 @@ const serializeEvent = (event, calendarName) => {
     status: toText(event?.status),
     start: start.toISOString(),
     end: end.toISOString(),
+    originalStart: event?.originalStart instanceof Date ? event.originalStart.toISOString() : '',
+    isRecurring: Boolean(event?.isRecurring || event?.recurrenceid || event?.rrule),
     isFullDay: Boolean(event?.isFullDay || event?.start?.dateOnly),
     summary: toText(event?.summary),
     description: toText(event?.description),
@@ -47,7 +49,10 @@ try {
       if (events.length >= maxEvents) {
         throw new Error(`Calendar contains more than ${maxEvents} expanded events.`);
       }
-      const serialized = serializeEvent({ ...event, ...instance }, calendarName);
+      const serialized = serializeEvent({
+        ...event, ...instance.event, ...instance,
+        originalStart: instance.isOverride ? instance.event?.recurrenceid : instance.recurrenceid,
+      }, calendarName);
       if (serialized) events.push(serialized);
     });
   });

@@ -4,6 +4,7 @@ import { StudentPaceBadge, StudentPaceHistory } from './StudentLessonPace';
 import { useLessonPaceRoster } from '../hooks/useLessonPaceRoster';
 import TeacherStudentRoster from './TeacherStudentRoster';
 import StudentPaymentSenderEditor from './StudentPaymentSenderEditor';
+const StudentPaymentBalances = React.lazy(() => import('./StudentPaymentBalances'));
 import { findPaymentSenderConflict } from '../utils/paymentSenderLinks.js';
 import MonthlyMockExamStatus from './MonthlyMockExamStatus';
 import { useMonthlyMockRoster } from '../hooks/useMonthlyMockRoster';
@@ -3193,6 +3194,7 @@ const TeacherPanel = ({
                             </span>
                           </label>
                         </div>
+                        <React.Suspense fallback={<p>Загрузка баланса...</p>}><StudentPaymentBalances teacherId={teacherId} studentId={student.id} /></React.Suspense>
                         <StudentPaymentSenderEditor
                           student={student}
                           links={paymentSenderLinks}

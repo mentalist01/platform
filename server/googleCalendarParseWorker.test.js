@@ -42,3 +42,19 @@ test('calendar worker expands recurring events without blocking the server proce
     ]
   );
 });
+
+test('moved recurring lesson retains original occurrence identity', async () => {
+  const icalText = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0',
+    'BEGIN:VEVENT', 'UID:moved@example.test', 'DTSTART:20260928T140000Z', 'DTEND:20260928T150000Z',
+    'RRULE:FREQ=WEEKLY;COUNT=2', 'SUMMARY:Roman', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:moved@example.test', 'RECURRENCE-ID:20260928T140000Z',
+    'DTSTART:20261003T140000Z', 'DTEND:20261003T150000Z', 'SUMMARY:Roman', 'END:VEVENT',
+    'END:VCALENDAR', '',
+  ].join('\r\n');
+  const result = await parseInWorker(icalText, Date.parse('2026-10-10T00:00:00Z'));
+  const moved = result.events.find(event => event.start === '2026-10-03T14:00:00.000Z');
+  assert.ok(moved);
+  assert.equal(moved.originalStart, '2026-09-28T14:00:00.000Z');
+  assert.equal(moved.isRecurring, true);
+});

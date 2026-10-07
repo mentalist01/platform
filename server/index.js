@@ -7,6 +7,13 @@ import { PYTHON_RUNNER_SCRIPT } from './pythonRunnerSource.js';
 import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import {
+  normalizeStudentBalances, createBalanceAccount, balanceCents, balanceSummary,
+  addBalanceReceipt, possibleManualReceipts, reconcileBalanceAccount,
+  reserveBalanceAllocation, releaseBalanceAllocation, balancePaidByMonth, balanceError,
+  confirmBalancePending,
+} from './studentPaymentBalances.js';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
 import { matchTeacherPlatformPayment } from './teacherPlatformPayments.js';
 import { TeacherPaymentConnections } from './teacherPaymentConnections.js';
@@ -4078,6 +4085,7 @@ const normalizeTeacherFinanceTeacherEntry = (value) => {
       0,
       Math.floor(Number(source.paymentAllocationMigrationVersion) || 0)
     ),
+    studentPaymentBalances: normalizeStudentBalances(source.studentPaymentBalances),
   };
 };
 
@@ -4096,9 +4104,11 @@ const readTeacherFinanceDb = () => {
   try {
     const raw = fs.readFileSync(teacherFinanceFile, 'utf8');
     const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid finance database');
     return normalizeTeacherFinanceDb(data);
-  } catch {
-    return {};
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw balanceError('Не удалось прочитать финансовый журнал. Изменения остановлены.', 'balance_corrupt', 503);
   }
 };
 
@@ -4115,7 +4125,9 @@ const getTeacherFinanceTeacherEntry = (db, teacherId) => {
 };
 
 const getTeacherFinanceStudentAvailableCredit = (teacherEntry, studentId) => (
-  roundTeacherFinanceNumber(
+  teacherEntry.studentPaymentBalances?.accounts?.[studentId]
+    ? balanceSummary(teacherEntry.studentPaymentBalances.accounts[studentId]).available
+    : roundTeacherFinanceNumber(
     Object.values(teacherEntry?.paymentAllocations || {})
       .filter((allocation) => (
         allocation.studentId === String(studentId || '').trim()
@@ -4189,6 +4201,7 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
   Object.values(currentEntry.paymentAllocations || {}).forEach((allocation) => {
     if (allocation?.status !== 'credit') return;
     const studentId = String(allocation?.studentId || '').trim();
+    if (currentEntry.studentPaymentBalances?.accounts?.[studentId]) return;
     if (!studentId) return;
     studentIds.add(studentId);
     availableCreditByStudentId.set(
@@ -4198,6 +4211,9 @@ const buildTeacherFinanceMonthSnapshot = (teacherId, monthKey, teacherEntry, tea
         + roundTeacherFinanceNumber(allocation.amount)
       )
     );
+  });
+  Object.entries(currentEntry.studentPaymentBalances?.accounts || {}).forEach(([studentId, account]) => {
+    availableCreditByStudentId.set(studentId, balanceSummary(account).available);
   });
   studentList.forEach((student) => {
     const id = String(student?.id || '').trim();
@@ -10627,6 +10643,10 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], group
     .update(`${teacherId}:${externalId}:${start.toISOString()}`)
     .digest('hex')
     .slice(0, 18);
+  const originalStartMs = Date.parse(event.originalStart || '');
+  const originalStartAt = Number.isFinite(originalStartMs) ? new Date(originalStartMs).toISOString() : '';
+  const originalId = originalStartAt && originalStartAt !== start.toISOString()
+    ? `google-ical-${crypto.createHash('sha1').update(`${teacherId}:${externalId}:${originalStartAt}`).digest('hex').slice(0, 18)}` : '';
   const lessonLink = extractFirstHttpUrl(event.location, event.description, event.url);
   const telemostUrl = matchedGroup
     ? extractFirstTelemostUrl(event.location, event.description, event.url)
@@ -10662,6 +10682,9 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], group
     source: 'google-ical',
     externalCalendarProvider: 'Google Calendar',
     externalEventId: externalId,
+    calendarOriginalStartAt: originalStartAt,
+    calendarMovedFromId: originalId,
+    calendarIsRecurring: Boolean(event.isRecurring),
     externalCalendarName: String(event.calendarName || '').trim(),
     startAt: start.toISOString(),
     createdAt: start.toISOString(),
@@ -17657,6 +17680,232 @@ const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey)
   };
 };
 
+const walletEnabled = teacherId => Boolean(getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId).studentPaymentBalances);
+const walletHasStudent = (teacherId, studentId) => Boolean(getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId).studentPaymentBalances?.accounts?.[studentId]);
+const walletStudentEligible = (student, entry) => !student.deletedAt
+  && entry.studentProfiles?.[student.id]?.pricingMode !== 'monthly'
+  && !readLearningGroupsDb().some(group => group.teacherId === student.teacherId && !group.deletedAt && group.members?.some(m => m.studentId === student.id))
+  && !learningSubscriptions.read().blocks.some(b => b.teacherId === student.teacherId && b.studentId === student.id && !b.cancelledAt);
+
+const walletMarkParts = (key, teacherId, studentId) => {
+  const parts = String(key).split(':');
+  if (parts[0] !== teacherId || parts.at(-4) !== studentId || parts.at(-1) !== 'paid') return null;
+  const dayKey = normalizeDayKey(parts.at(-5));
+  const time = normalizeScheduleTime(parts.slice(-3, -1).join(':'));
+  return dayKey && time ? { dayKey, time, eventId: parts.slice(1, -5).join(':') } : null;
+};
+
+const getWalletOccurrences = (teacherId, student, entry, marks, entries) => {
+  const now = getStudentSchedulePaymentNowInfo();
+  const start = dayKeyToNumber(getStudentSchedulePaymentDateFromCreatedAt(student));
+  const range = { ...now, trackingStartNumber: NaN, lookbackStartNumber: Number.isFinite(start) ? start : now.lookbackStartNumber,
+    todayNumber: now.todayNumber + PAYMENT_TRANSFER_LOOKAHEAD_DAYS };
+  const result = new Map();
+  for (const source of entries) {
+    if (!doesPaymentScheduleEntryMatchStudent(source, student) || source.groupId || source.isLearningGroupEvent) continue;
+    for (const occurrence of getStudentScheduleOccurrenceDays(source, range)) {
+      const dayKey = normalizeDayKey(occurrence.dayKey);
+      const time = normalizeScheduleTime(source.time);
+      if (!dayKey || !time) continue;
+      const event = { ...source, studentId: student.id, date: dayKey, dayKey, time };
+      const markKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, dayKey, 'paid');
+      if (!markKey) continue;
+      const trialKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, dayKey, 'trial');
+      const cents = balanceCents(getLessonPriceForPaymentOccurrence(entry, student.id, { ...event, paidAt: marks[markKey] }).lessonPrice);
+      const original = source.calendarOriginalStartAt;
+      const originalParts = original ? getDatePartsInCalendarTimeZone(new Date(original)) : null;
+      const moveFromKeys = source.calendarMovedFromId && originalParts ? [source.calendarMovedFromId, source.externalEventId].map(id =>
+        buildTeacherCalendarPaymentMarkKey(teacherId, { ...event, id, time: originalParts.time }, originalParts.dayKey, 'paid')) : [];
+      const identity = source.source === 'google-ical'
+        ? `${source.externalEventId}:${source.calendarIsRecurring ? (original || source.startAt) : 'single'}`
+        : `local:${source.id}${source.date ? '' : `:${dayKey}`}`;
+      result.set(markKey, { markKey, dayKey, time, cents, eventId: source.id, durationMinutes: source.durationMinutes,
+        identity, moveFromKeys, external: Boolean(source.externalEventId), eligible: !isTeacherCalendarLessonCancelled(teacherId, event, dayKey, marks)
+          && !isExplicitTrialLesson(event) && !marks[trialKey] && !getLearningSubscriptionOccurrence(student.id, event),
+      });
+    }
+  }
+  // A local synchronized copy and its Google event describe one lesson.
+  const unique = new Map();
+  for (const occurrence of result.values()) {
+    const key = `${occurrence.dayKey}:${occurrence.time}`;
+    const existing = unique.get(key);
+    if (!existing) { unique.set(key, occurrence); continue; }
+    const preferred = occurrence.external && !existing.external ? occurrence : existing;
+    const alias = preferred === occurrence ? existing : occurrence;
+    preferred.moveFromKeys = [...new Set([...preferred.moveFromKeys, alias.markKey, ...alias.moveFromKeys])];
+    preferred.eligible = preferred.eligible && alias.eligible;
+    unique.set(key, preferred);
+  }
+  return [...unique.values()];
+};
+
+const seedStudentBalance = (teacherId, student, entry, marks, occurrences, now) => {
+  const byKey = new Map(occurrences.map(o => [o.markKey, o]));
+  const paid = [];
+  for (const [markKey, paidAt] of Object.entries(marks)) {
+    const parsed = walletMarkParts(markKey, teacherId, student.id);
+    if (!parsed) continue;
+    const ledger = Object.values(entry.lessonLedger || {}).find(l => l.studentId === student.id && l.dayKey === parsed.dayKey && l.time === parsed.time);
+    const occurrence = { ...parsed, durationMinutes: ledger?.durationMinutes || 60, paidAt };
+    const amount = getPaymentAllocationByMarkKey(entry, markKey, student.id)?.amount
+      || ledger?.lessonPrice || getLessonPriceForPaymentOccurrence(entry, student.id, occurrence).lessonPrice;
+    const cents = balanceCents(amount);
+    if (cents <= 0) throw balanceError(`Нужна стоимость старого оплаченного занятия ${parsed.dayKey}.`, 'balance_migration_conflict');
+    paid.push({ ...occurrence, ...byKey.get(markKey), markKey, cents, paidAt });
+  }
+  const openingByMonth = Object.fromEntries(Object.entries(entry.months).map(([key, value]) => [key, value.students?.[student.id]?.paidAmount || 0]));
+  const knownReceiptIds = readPaymentNotificationsDb().items.filter(n => n.teacherId === teacherId && n.studentId === student.id && n.status === 'applied').flatMap(n => [n.id, n.rawHash]).filter(Boolean);
+  return createBalanceAccount({ openingByMonth, paid, knownReceiptIds, now });
+};
+
+const loadWalletCalendar = async teacherId => {
+  const now = getStudentSchedulePaymentNowInfo();
+  return getPaymentScheduleEntries(teacherId, { includeDeletedStudents: true,
+    googleCalendarThroughMonth: String(numberToDayKey(now.todayNumber + PAYMENT_TRANSFER_LOOKAHEAD_DAYS)).slice(0, 7),
+    throwOnGoogleError: true });
+};
+
+const projectStudentBalances = (teacherId, entry, marks) => {
+  for (const [studentId, account] of Object.entries(entry.studentPaymentBalances.accounts)) {
+    const student = findStudentById(studentId, { allowDeleted: true });
+    if (student && !walletStudentEligible(student, entry)) continue;
+    const managed = new Set([
+      ...Object.keys(account.allocations),
+      ...account.entries.flatMap(e => [e.markKey, e.targetMarkKey]).filter(Boolean),
+      ...(account.importedMarkKeys || []),
+    ]);
+    for (const key of managed) {
+      const allocation = account.allocations[key];
+      if (allocation) marks[key] = allocation.paidAt;
+      else delete marks[key];
+    }
+    const monthly = balancePaidByMonth(account);
+    for (const key of new Set([...Object.keys(entry.months), ...Object.keys(monthly)])) {
+      if (!entry.months[key]?.students?.[studentId] && !monthly[key]) continue;
+      const { profile, monthData, record } = getTeacherFinanceStudentRecordForMonth(entry, studentId, key);
+      entry.months[key] = { ...monthData, students: { ...monthData.students, [studentId]: { ...record, paidAmount: monthly[key] || 0 } } };
+      entry.studentProfiles[studentId] = profile;
+    }
+    for (const legacy of Object.values(entry.paymentAllocations)) {
+      if (legacy.studentId !== studentId || legacy.status !== 'allocated') continue;
+      if (!account.allocations[legacy.currentMarkKey]) {
+        legacy.status = 'credit'; legacy.currentMarkKey = ''; legacy.targetMarkKey = '';
+      }
+    }
+    for (const allocation of Object.values(account.allocations)) {
+      if (entry.paymentAllocations[allocation.markKey]?.status !== 'allocated') {
+        entry.paymentAllocations[allocation.markKey] = normalizeTeacherFinancePaymentAllocation({
+          studentId, amount: allocation.cents / 100, originMarkKey: allocation.markKey, currentMarkKey: allocation.markKey,
+          sourceEntryId: allocation.eventId, sourceDayKey: allocation.dayKey, sourceTime: allocation.time,
+          sourceDurationMinutes: allocation.durationMinutes || 60, sourceMarkValue: allocation.paidAt,
+          status: 'allocated', createdAt: allocation.paidAt, updatedAt: allocation.paidAt,
+        }, allocation.markKey);
+      }
+    }
+    for (const ledger of Object.values(entry.lessonLedger)) {
+      if (ledger.studentId !== studentId) continue;
+      ledger.paid = Object.values(account.allocations).some(a => a.dayKey === ledger.dayKey && a.time === ledger.time);
+    }
+  }
+};
+
+// All wallet mutations run under the same per-teacher queue as bank webhooks.
+// Load the remote calendar before reading the financial snapshot, then commit
+// synchronously. Calendar marks are a recoverable projection of this journal.
+const mutateStudentBalances = async (teacherId, { enable = false, preview = false, action = null, allowCalendarFailure = false, expectedToken = '' } = {}) => {
+  let entries = [];
+  let calendarError = '';
+  try { entries = await loadWalletCalendar(teacherId); }
+  catch (error) {
+    if (!allowCalendarFailure || enable) throw balanceError('Календарь недоступен. Деньги и старые отметки сохранены; повторите обновление позже.', 'balance_calendar_unavailable', 503);
+    calendarError = 'Календарь недоступен; поступление сохранено, распределение отложено';
+  }
+  const db = readTeacherFinanceDb();
+  const entry = getTeacherFinanceTeacherEntry(db, teacherId);
+  const marksDb = readTeacherCalendarMarksDb();
+  const marks = normalizeTeacherCalendarMarks(marksDb[teacherId]);
+  const calendarSnapshot = entries.map(e => [e.id, e.studentId, e.date, e.time, e.durationMinutes, e.excludedDates,
+    e.calendarOriginalStartAt, e.calendarMovedFromId]).sort((a, b) => String(a).localeCompare(String(b)));
+  const previewToken = crypto.createHash('sha256').update(JSON.stringify({ entry, marks, calendarSnapshot })).digest('hex');
+  if (enable && expectedToken !== previewToken) throw balanceError('Учёт изменился после предварительной сверки. Обновите страницу и повторите переход.', 'balance_preview_stale');
+  const now = new Date().toISOString();
+  const students = readStudentsDb().filter(s => s.teacherId === teacherId);
+  const conflicts = [];
+  const occurrencesByStudent = new Map();
+  const wallet = entry.studentPaymentBalances || { version: 1, enabledAt: now, accounts: {} };
+  for (const student of students) {
+    const existing = wallet.accounts[student.id];
+    if (!existing && !walletStudentEligible(student, entry)) {
+      if (!student.deletedAt) conflicts.push({ studentId: student.id, studentName: student.nickname || student.name, reason: 'Месячный тариф, мини-группа или абонемент: сохранён отдельный прежний учёт.' });
+      continue;
+    }
+    const occurrences = calendarError ? [] : getWalletOccurrences(teacherId, student, entry, marks, entries);
+    occurrencesByStudent.set(student.id, occurrences);
+    if (!existing) {
+      try {
+        const account = seedStudentBalance(teacherId, student, entry, marks, occurrences, now);
+        account.importedMarkKeys = Object.keys(account.allocations);
+        wallet.accounts[student.id] = account;
+      } catch (error) { conflicts.push({ studentId: student.id, studentName: student.nickname || student.name, reason: error.message }); }
+    }
+  }
+  if (enable && !Object.keys(wallet.accounts).length) throw balanceError('Нет учеников с согласованным поурочным учётом. Переход остановлен без изменений.', 'balance_migration_conflict');
+  if (!entry.studentPaymentBalances && !enable && !preview) throw balanceError('Сначала подключите балансы в разделе «Финансы → Балансы».', 'balance_not_enabled');
+  const actionResult = action ? action({ wallet, entry, marks, occurrencesByStudent, entries, now }) : null;
+  const rows = [];
+  for (const student of students) {
+    const account = wallet.accounts[student.id];
+    if (!account) continue;
+    if (!walletStudentEligible(student, entry)) {
+      rows.push({ studentId: student.id, studentName: student.nickname || student.name, paused: true, ...balanceSummary(account) });
+      continue;
+    }
+    const issues = calendarError ? [{ reason: calendarError }] : reconcileBalanceAccount(account, occurrencesByStudent.get(student.id) || [], now,
+      { allocate: !student.deletedAt && !(entry.studentProfiles[student.id]?.monthlyRate > 0) && !actionResult?.skipAllocation });
+    rows.push({ studentId: student.id, studentName: student.nickname || student.name, deleted: Boolean(student.deletedAt),
+      ...balanceSummary(account, issues) });
+  }
+  if (!preview) {
+    if (enable && !entry.studentPaymentBalances) {
+      const backupFile = path.join(dataDir, `student-balances-before-${teacherId}-${Date.now()}.json`);
+      writeJsonFileAtomic(backupFile, { teacherId, createdAt: now, finance: db[teacherId], marks: marksDb[teacherId] });
+      fs.chmodSync(backupFile, 0o600);
+    }
+    entry.studentPaymentBalances = wallet;
+    projectStudentBalances(teacherId, entry, marks);
+    const financeChanged = JSON.stringify(db[teacherId]) !== JSON.stringify(entry);
+    const marksChanged = JSON.stringify(marksDb[teacherId] || {}) !== JSON.stringify(marks);
+    if (financeChanged) { db[teacherId] = entry; writeTeacherFinanceDb(db); }
+    if (marksChanged) { marksDb[teacherId] = marks; writeTeacherCalendarMarksDb(marksDb); }
+    if (financeChanged || marksChanged) notifyScheduleSyncUpdate({ scope: 'teacher-calendar-marks', action: 'student-balances', teacherId });
+  }
+  return { enabled: Boolean(entry.studentPaymentBalances), preview, previewToken, conflicts, students: rows, marks, actionResult };
+};
+
+const receiveStudentBalancePayment = async (teacher, student, parsed, id) => {
+  let result;
+  let previousKeys = new Set();
+  const response = await mutateStudentBalances(teacher.id, { allowCalendarFailure: true, action: ({ wallet, now }) => {
+    const account = wallet.accounts[student.id];
+    if (!account) throw balanceError('Для этого ученика баланс не подключён. Требуется ручная проверка платежа.', 'balance_migration_conflict');
+    previousKeys = new Set(Object.keys(account.allocations));
+    const receipt = { id, amount: parsed.amount, at: parsed.receivedAt, senderName: parsed.senderName, source: 'bank', aliases: [parsed.rawHash] };
+    if (account.knownReceiptIds.some(key => receipt.aliases.includes(key) || key === id)) { result = { status: 'applied', reason: 'Этот платёж уже сохранён на балансе.' }; return; }
+    const similar = possibleManualReceipts(account, receipt);
+    if (similar.length) {
+      account.pending[id] = { ...receipt, manualReceiptIds: similar.map(e => e.id) };
+      result = { status: 'pending', reason: 'Похожий платёж уже внесён вручную. Подтвердите в разделе «Балансы»: это тот же перевод или новый.' };
+      return;
+    }
+    addBalanceReceipt(account, receipt, now);
+    result = { status: 'applied', reason: `На баланс поступило ${parsed.amount} ₽.` };
+  } });
+  const row = response.students.find(s => s.studentId === student.id);
+  return { ...result, markKeys: row ? Object.keys(getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacher.id).studentPaymentBalances.accounts[student.id].allocations).filter(key => !previousKeys.has(key)) : [],
+    reason: `${result.reason}${result.status === 'applied' ? ` Свободный баланс: ${row?.available || 0} ₽.` : ''}` };
+};
+
 const applyPaymentNotificationToTeacherCalendar = async ({ teacher, student, parsed, matchMode }) => {
   const teacherId = normalizeTeacherId(teacher?.id);
   const studentId = String(student?.id || '').trim();
@@ -17968,12 +18217,20 @@ const handleTbankPaymentNotification = async (payload = {}, context = {}) => {
     return { ok: true, statusCode: 202, entry: result.entry };
   }
 
-  const applyResult = await safelyApplyPaymentNotificationToTeacherCalendar({
-    teacher: teacherResult.teacher,
-    student: match.student,
-    parsed,
-    matchMode: match.matchMode,
-  });
+  const financeEntry = getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherResult.teacher.id);
+  const usesBalance = Boolean(financeEntry.studentPaymentBalances);
+  const eligibleForBalance = walletStudentEligible(match.student, financeEntry);
+  const legacyApply = () => safelyApplyPaymentNotificationToTeacherCalendar({ teacher: teacherResult.teacher, student: match.student, parsed, matchMode: match.matchMode });
+  let applyResult;
+  if (usesBalance && financeEntry.studentPaymentBalances.accounts[match.student.id] && !eligibleForBalance) {
+    applyResult = { status: 'pending', reason: 'Баланс ученика приостановлен после изменения тарифа, группы или абонемента. Требуется ручная сверка платежа.' };
+  } else if (usesBalance && eligibleForBalance) {
+    try { applyResult = await receiveStudentBalancePayment(teacherResult.teacher, match.student, parsed, id); }
+    catch (error) {
+      if (error.code !== 'balance_migration_conflict') throw error;
+      applyResult = await legacyApply();
+    }
+  } else applyResult = await legacyApply();
   const result = storePaymentNotificationResult({
     ...baseEntry,
     status: applyResult.status,
@@ -22079,9 +22336,11 @@ app.get('/api/availability', (_req, res) => {
 });
 
 const paymentNotificationQueue = new Map();
+const paymentTransactionContext = new AsyncLocalStorage();
 const enqueuePaymentNotification = (teacherId, action) => {
+  if (paymentTransactionContext.getStore() === teacherId) return Promise.resolve().then(action);
   const previous = paymentNotificationQueue.get(teacherId) || Promise.resolve();
-  const current = previous.catch(() => {}).then(action);
+  const current = previous.catch(() => {}).then(() => paymentTransactionContext.run(teacherId, action));
   paymentNotificationQueue.set(teacherId, current);
   const cleanup = () => {
     if (paymentNotificationQueue.get(teacherId) === current) paymentNotificationQueue.delete(teacherId);
@@ -24573,7 +24832,7 @@ registerLessonReschedules(app, {
       targetStartAt: new Date(lessonStart(row.target)).toISOString(), durationMinutes: row.target.durationMinutes,
       summary: row.source.googleCalendarTitle || row.studentName, recoverOnly });
   },
-  applyLocal: async row => {
+  applyLocal: async row => enqueuePaymentNotification(row.teacherId, () => {
     const student = findStudentById(row.studentId);
     if (!student || student.teacherId !== row.teacherId) throw new Error('Ученик сменил преподавателя.');
     const data = getStudentData(student.id);
@@ -24596,11 +24855,20 @@ registerLessonReschedules(app, {
     const targetCalendarEntry = { ...moved, id: movedGoogleEntryId(row) };
     const financeDb = readTeacherFinanceDb();
     const teacherFinance = getTeacherFinanceTeacherEntry(financeDb, row.teacherId);
+    const account = teacherFinance.studentPaymentBalances?.accounts?.[row.studentId];
     for (const action of ['paid', 'trial']) {
       const oldKey = buildTeacherCalendarPaymentMarkKey(row.teacherId, row.source, row.source.date, action);
       const newKey = buildTeacherCalendarPaymentMarkKey(row.teacherId, targetCalendarEntry, row.target.date, action);
       if (marks[oldKey]) { marks[newKey] = marks[oldKey]; delete marks[oldKey]; }
       if (action === 'paid') {
+        if (account) {
+          const original = account.allocations[oldKey];
+          if (original) reconcileBalanceAccount(account, [{ ...original, markKey: newKey, eventId: targetCalendarEntry.id,
+            dayKey: row.target.date, time: row.target.time, durationMinutes: row.target.durationMinutes,
+            identity: '', moveFromKeys: [oldKey], eligible: !marks[buildTeacherCalendarPaymentMarkKey(row.teacherId, targetCalendarEntry, row.target.date, 'trial')],
+          }], new Date().toISOString(), { allocate: false });
+          continue;
+        }
         const allocation = getPaymentAllocationByMarkKey(teacherFinance, oldKey, row.studentId);
         if (allocation && allocation.currentMarkKey === oldKey) {
           moveTeacherFinancePaymentAmount(teacherFinance, row.studentId, row.source.date.slice(0,7), row.target.date.slice(0,7), allocation.amount);
@@ -24609,10 +24877,11 @@ registerLessonReschedules(app, {
         }
       }
     }
+    if (account) projectStudentBalances(row.teacherId, teacherFinance, marks);
     financeDb[row.teacherId] = teacherFinance; writeTeacherFinanceDb(financeDb);
     marksDb[row.teacherId] = marks; writeTeacherCalendarMarksDb(marksDb);
     teacherCalendarSyncCache.delete(row.teacherId); teacherCalendarRefreshResultCache.delete(row.teacherId);
-  },
+  }),
   notify: (row, action) => {
     notifyScheduleSyncUpdate({ scope: 'lesson-reschedule', action, teacherId: row.teacherId, studentId: row.studentId, entryId: row.id });
     if (action === 'created') sendPushNotificationToUserKey(`teacher:${row.teacherId}`, {
@@ -37228,6 +37497,30 @@ const reconcileTeacherPaymentCredits = async (
 ) => {
   const normalizedTeacherId = normalizeTeacherId(teacherId);
   const normalizedStudentId = String(studentId || '').trim();
+  if (normalizedTeacherId && walletEnabled(normalizedTeacherId)) {
+    await enqueuePaymentNotification(normalizedTeacherId, () => mutateStudentBalances(normalizedTeacherId, { allowCalendarFailure: true,
+      action: ({ wallet, entries, now }) => {
+        const localEntries = getTeacherScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
+        for (const [studentId, account] of Object.entries(wallet.accounts)) {
+          if (normalizedStudentId && studentId !== normalizedStudentId) continue;
+          for (const allocation of Object.values(account.allocations)) {
+            if (!invalidatedEntryIds.includes(allocation.eventId)) continue;
+            if (allocation.identity && !allocation.identity.startsWith('local:')) continue;
+            if (!localEntries.some(e => e.id === allocation.eventId)) {
+              releaseBalanceAllocation(account, allocation.markKey, now, { reason: 'Занятие удалено в платформе' });
+            } else if (!allocation.identity) {
+              const candidates = entries.filter(e => e.id === allocation.eventId && e.date && e.date !== allocation.dayKey);
+              if (candidates.length === 1) allocation.identity = `local:${allocation.eventId}`;
+            }
+          }
+        }
+      },
+    }));
+  }
+  if (normalizedStudentId && walletHasStudent(normalizedTeacherId, normalizedStudentId)
+    && walletStudentEligible(findStudentById(normalizedStudentId, { allowDeleted: true }) || {}, getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), normalizedTeacherId))) {
+    return { changed: false, transfers: [] };
+  }
   const invalidatedIds = new Set(
     (Array.isArray(invalidatedEntryIds) ? invalidatedEntryIds : [])
       .map((value) => String(value || '').trim())
@@ -37243,6 +37536,7 @@ const reconcileTeacherPaymentCredits = async (
     .filter((allocation) => (
       (allocation.status === 'credit' || (validateAllocated && allocation.status === 'allocated'))
       && (!normalizedStudentId || allocation.studentId === normalizedStudentId)
+      && !previewTeacherEntry.studentPaymentBalances?.accounts?.[allocation.studentId]
     ));
   if (previewAllocations.length === 0) return { changed: false, transfers: [] };
 
@@ -37287,6 +37581,7 @@ const reconcileTeacherPaymentCredits = async (
       validateAllocated
       &&
       allocation.status === 'allocated'
+      && !teacherEntry.studentPaymentBalances?.accounts?.[allocation.studentId]
       && (!normalizedStudentId || allocation.studentId === normalizedStudentId)
       && allocation.targetMarkKey === allocation.currentMarkKey
       && allocation.currentMarkKey !== allocation.originMarkKey
@@ -37379,6 +37674,7 @@ const reconcileTeacherPaymentCredits = async (
   const credits = Object.values(teacherEntry.paymentAllocations)
     .filter((allocation) => (
       allocation.status === 'credit'
+      && !teacherEntry.studentPaymentBalances?.accounts?.[allocation.studentId]
       && (!normalizedStudentId || allocation.studentId === normalizedStudentId)
     ))
     .sort((left, right) => String(left.createdAt || '').localeCompare(String(right.createdAt || '')));
@@ -37908,6 +38204,7 @@ const synchronizeTeacherCalendarPaymentCancellation = async ({
   cancelled,
   scheduleEntries = null,
 }) => {
+  if (!entry.groupId && !entry.isLearningGroupEvent && walletHasStudent(teacherId, entry.studentId)) return { marks: nextMarks, transfers: [] };
   const affectedStudentIds = getTeacherCalendarCancellationStudentIds(entry);
   if (affectedStudentIds.length === 0) return { marks: nextMarks, transfers: [] };
   const normalizedTeacherId = normalizeTeacherId(teacherId);
@@ -38153,7 +38450,15 @@ const synchronizeLearningGroupCalendarCancellation = (entry, cancelled, teacherI
   }
 };
 
-app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
+const serializeWalletRoute = handler => async (req, res) => {
+  try {
+    const teacherId = isTeacherRole(req.auth) ? req.auth.id : req.body?.teacherId || req.query?.teacherId;
+    if (teacherId && walletEnabled(teacherId)) return await enqueuePaymentNotification(teacherId, () => handler(req, res));
+    return await handler(req, res);
+  } catch (error) { if (!res.headersSent) return walletResponseError(res, error); }
+};
+
+app.patch('/api/teacher-calendar-cancellations', serializeWalletRoute(async (req, res) => {
   try {
     const { teacherId, occurrence, cancelled } = req.body || {};
     if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
@@ -38248,6 +38553,18 @@ app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
       cancelled,
     });
     synchronizeLearningGroupCalendarCancellation(occurrenceEntry, cancelled, teacher.id);
+    if (walletHasStudent(teacher.id, occurrenceEntry.studentId) && !occurrenceEntry.groupId && !occurrenceEntry.isLearningGroupEvent) {
+      const refreshed = await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id, { allowCalendarFailure: true,
+        action: ({ wallet, now }) => {
+          for (const studentId of getTeacherCalendarCancellationStudentIds(occurrenceEntry)) {
+            const account = wallet.accounts[studentId];
+            const paidKey = buildTeacherCalendarPaymentMarkKey(teacher.id, { ...occurrenceEntry, studentId }, dayKey, 'paid');
+            if (account && cancelled) releaseBalanceAllocation(account, paidKey, now, { reason: 'Занятие отменено' });
+          }
+        },
+      }));
+      db[teacher.id] = refreshed.marks;
+    }
     let googleSync = { status: 'not-applicable', pending: false };
     try {
       googleSync = await synchronizeTeacherGoogleCalendarCancellation({
@@ -38284,9 +38601,9 @@ app.patch('/api/teacher-calendar-cancellations', async (req, res) => {
     }
     return undefined;
   }
-});
+}));
 
-app.post('/api/teacher-lesson-payment', async (req, res) => {
+app.post('/api/teacher-lesson-payment', serializeWalletRoute(async (req, res) => {
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const teacher = ensureTeacherAccess(req, res, isTeacherRole(req.auth) ? req.auth.id : req.body?.teacherId);
   if (!teacher) return;
@@ -38306,6 +38623,23 @@ app.post('/api/teacher-lesson-payment', async (req, res) => {
       return res.status(404).json({ error: 'Индивидуальное занятие не найдено' });
     }
     const occurrence = { ...source, studentId: student.id, dayKey, date: dayKey };
+    if (walletHasStudent(teacher.id, student.id)) {
+      const result = await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id, {
+        action: ({ wallet, entry, occurrencesByStudent, now }) => {
+          const account = wallet.accounts[student.id];
+          if (!account) throw balanceError('Баланс ученика не подключён.');
+          if (!walletStudentEligible(student, entry)) throw balanceError('Баланс приостановлен после изменения тарифа, группы или абонемента. Требуется сверка.');
+          const key = buildTeacherCalendarPaymentMarkKey(teacher.id, occurrence, dayKey, 'paid');
+          const target = (occurrencesByStudent.get(student.id) || []).find(o => o.markKey === key || o.moveFromKeys.includes(key));
+          if (paid) {
+            if (!target) throw balanceError('Занятие не найдено.');
+            reserveBalanceAllocation(account, target, now, { force: true });
+          } else releaseBalanceAllocation(account, target?.markKey || key, now, { block: true, reason: 'Отметка оплаты снята вручную' });
+          return { amount: target?.cents / 100 || 0 };
+        },
+      }));
+      return res.json({ marks: result.marks, amount: result.actionResult?.amount || 0, paid, fromBalance: true });
+    }
     const marksDb = readTeacherCalendarMarksDb();
     const marks = normalizeTeacherCalendarMarks(marksDb[teacher.id]);
     if (paid && (isTeacherCalendarLessonCancelled(teacher.id, occurrence, dayKey, marks)
@@ -38353,21 +38687,123 @@ app.post('/api/teacher-lesson-payment', async (req, res) => {
     return res.json({ marks, amount, paid });
   } catch (error) {
     console.error('[lesson-payment]', error?.message || error);
-    return res.status(500).json({ error: 'Не удалось сохранить оплату занятия' });
+    return res.status(error.status || 500).json({ error: error.code ? error.message : 'Не удалось сохранить оплату занятия', code: error.code });
   }
+}));
+
+const walletRequestTeacher = (req, res) => {
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) { forbid(res); return null; }
+  const requested = req.body?.teacherId || req.query?.teacherId;
+  if (isTeacherRole(req.auth) && requested && requested !== req.auth.id) { forbid(res); return null; }
+  return ensureTeacherAccess(req, res, isTeacherRole(req.auth) ? req.auth.id : requested);
+};
+const walletResponseError = (res, error) => res.status(error.status || 500).json({
+  error: error.code ? error.message : 'Не удалось обновить баланс. Деньги не начисляйте повторно; обновите историю.',
+  code: error.code || 'balance_failed',
+});
+app.get('/api/student-payment-balances', async (req, res) => {
+  const teacher = walletRequestTeacher(req, res);
+  if (!teacher) return;
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const result = await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id,
+      { preview: !walletEnabled(teacher.id), allowCalendarFailure: walletEnabled(teacher.id) }));
+    return res.json(result);
+  } catch (error) { return walletResponseError(res, error); }
+});
+app.post('/api/student-payment-balances/enable', async (req, res) => {
+  const teacher = walletRequestTeacher(req, res);
+  if (!teacher) return;
+  try {
+    return res.json(await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id,
+      walletEnabled(teacher.id) ? {} : { enable: true, expectedToken: req.body?.previewToken })));
+  } catch (error) { return walletResponseError(res, error); }
+});
+app.post('/api/student-payment-balances/:studentId/receipts', async (req, res) => {
+  const teacher = walletRequestTeacher(req, res);
+  if (!teacher) return;
+  const student = ensureStudentAccess(req, res, req.params.studentId);
+  if (!student) return;
+  if (student.teacherId !== teacher.id) return forbid(res);
+  const payload = req.body || {};
+  try {
+    if (!/^[a-zA-Z0-9_-]{8,120}$/.test(payload.idempotencyKey || '')) throw balanceError('Не указан идентификатор операции.', 'balance_invalid', 400);
+    if (payload.receivedAt && !Number.isFinite(Date.parse(payload.receivedAt))) throw balanceError('Некорректная дата платежа.', 'balance_invalid', 400);
+    const at = normalizePaymentNotificationTimestamp(payload.receivedAt, new Date().toISOString());
+    if (Date.parse(at) > Date.now() + 86_400_000) throw balanceError('Платёж не может иметь будущую дату.', 'balance_invalid', 400);
+    return res.json(await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id, {
+      allowCalendarFailure: true,
+      action: ({ wallet, entry, now }) => {
+        const account = wallet.accounts[student.id];
+        if (!account || !walletStudentEligible(student, entry)) throw balanceError('Для ученика не подключён поурочный баланс.');
+        const receiptId = `manual:${payload.idempotencyKey}`;
+        const similar = account.entries.some(e => e.type === 'receipt' && e.receiptId !== receiptId
+          && e.creditCents === balanceCents(payload.amount) && Math.abs(Date.parse(e.at) - Date.parse(at)) <= 3 * 86_400_000);
+        if (similar && payload.confirmedSeparate !== true && !account.knownReceiptIds.includes(receiptId)) {
+          throw balanceError('В истории есть платёж с такой суммой рядом с этой датой. Сверьте его; отдельный перевод нужно подтвердить.', 'balance_existing_receipt');
+        }
+        return addBalanceReceipt(account, { id: receiptId, amount: payload.amount, at,
+          senderName: normalizePaymentNotificationText(payload.senderName), note: normalizePaymentNotificationText(payload.note), source: 'manual' }, now);
+      },
+    })));
+  } catch (error) { return walletResponseError(res, error); }
+});
+app.post('/api/student-payment-balances/:studentId/confirm', async (req, res) => {
+  const teacher = walletRequestTeacher(req, res);
+  if (!teacher) return;
+  const student = ensureStudentAccess(req, res, req.params.studentId);
+  if (!student) return;
+  if (student.teacherId !== teacher.id) return forbid(res);
+  try {
+    const result = await enqueuePaymentNotification(teacher.id, async () => {
+      const response = await mutateStudentBalances(teacher.id, { allowCalendarFailure: true, action: ({ wallet, entry, now }) => {
+        const account = wallet.accounts[student.id];
+        if (!account || !walletStudentEligible(student, entry)) throw balanceError('Поурочный баланс не подключён или приостановлен.');
+        confirmBalancePending(account, String(req.body?.notificationId || ''), String(req.body?.manualEntryId || ''), now);
+      } });
+      const notifications = readPaymentNotificationsDb();
+      const notification = notifications.items.find(n => n.id === req.body?.notificationId && n.teacherId === teacher.id && n.studentId === student.id);
+      if (notification) { notification.status = 'applied'; notification.reason = req.body.manualEntryId ? 'Связано с ранее внесённым ручным платежом; повторного начисления нет.' : 'Подтверждено как новый платёж на баланс.'; writePaymentNotificationsDb(notifications); }
+      return response;
+    });
+    return res.json(result);
+  } catch (error) { return walletResponseError(res, error); }
+});
+app.post('/api/student-payment-balances/:studentId/release', async (req, res) => {
+  const teacher = walletRequestTeacher(req, res);
+  if (!teacher) return;
+  const student = ensureStudentAccess(req, res, req.params.studentId, { allowDeleted: true });
+  if (!student) return;
+  if (student.teacherId !== teacher.id) return forbid(res);
+  try {
+    if (req.body?.confirmed !== true) throw balanceError('Подтвердите, что это занятие отменено или его оплата снята.');
+    return res.json(await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id, {
+      allowCalendarFailure: true,
+      action: ({ wallet, entry, now }) => {
+        const key = String(req.body?.markKey || '');
+        const account = wallet.accounts[student.id];
+        if (!walletStudentEligible(student, entry)) throw balanceError('Поурочный баланс приостановлен. Сначала проверьте тариф ученика.');
+        if (!account || !walletMarkParts(key, teacher.id, student.id)) throw balanceError('Занятие не принадлежит ученику.');
+        releaseBalanceAllocation(account, key, now, { block: true, reason: 'Учитель подтвердил возврат оплаты на баланс' });
+      },
+    })));
+  } catch (error) { return walletResponseError(res, error); }
 });
 
-app.get('/api/teacher-calendar-marks', (req, res) => {
+app.get('/api/teacher-calendar-marks', async (req, res) => {
   const { teacherId } = req.query || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
-  const db = readTeacherCalendarMarksDb();
-  return res.json({ marks: normalizeTeacherCalendarMarks(db[teacher.id]) });
+  try {
+    if (walletEnabled(teacher.id)) await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id, { allowCalendarFailure: true }));
+    const db = readTeacherCalendarMarksDb();
+    return res.json({ marks: normalizeTeacherCalendarMarks(db[teacher.id]) });
+  } catch (error) { return walletResponseError(res, error); }
 });
 
-app.patch('/api/teacher-calendar-marks', (req, res) => {
+app.patch('/api/teacher-calendar-marks', serializeWalletRoute(async (req, res) => {
   const { teacherId, marks, set, unset } = req.body || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
@@ -38416,6 +38852,32 @@ app.patch('/api/teacher-calendar-marks', (req, res) => {
     }))));
   if (changedPackagePayment) return res.status(409).json({ error: 'Занятие входит в абонемент. Подтверждайте оплату всего блока в разделе «Абонементы».' });
 
+  if (walletEnabled(teacher.id)) {
+    const financeEntry = getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacher.id);
+    const accounts = financeEntry.studentPaymentBalances.accounts;
+    const walletKeys = Object.keys(accounts).flatMap(studentId => Object.keys({ ...currentMarks, ...nextMarks })
+      .filter(key => walletMarkParts(key, teacher.id, studentId)));
+    if (walletKeys.some(key => !currentMarks[key] && nextMarks[key])) {
+      return res.status(409).json({ error: 'После перехода на баланс оплачивайте занятие из его карточки, а перевод вносите в разделе «Балансы».' });
+    }
+    const removed = walletKeys.filter(key => currentMarks[key] && !nextMarks[key]);
+    const walletKeySet = new Set(walletKeys);
+    invalidateTeacherPaymentAllocationsForRemovedMarks(teacher.id,
+      Object.fromEntries(Object.entries(currentMarks).filter(([key]) => !walletKeySet.has(key))), nextMarks);
+    const result = await mutateStudentBalances(teacher.id, { allowCalendarFailure: true,
+      action: ({ wallet, marks: latest, now }) => {
+        // Only apply the delta, never overwrite newer marks with a browser snapshot.
+        for (const [key, value] of Object.entries(nextMarks)) if (currentMarks[key] !== value) latest[key] = value;
+        for (const key of Object.keys(currentMarks)) if (!nextMarks[key]) delete latest[key];
+        for (const [studentId, account] of Object.entries(wallet.accounts)) {
+          for (const key of removed) if (walletMarkParts(key, teacher.id, studentId)) releaseBalanceAllocation(account, key, now,
+            { block: true, reason: 'Отметка оплаты снята вручную' });
+        }
+      },
+    });
+    return res.json({ marks: result.marks });
+  }
+
   invalidateTeacherPaymentAllocationsForRemovedMarks(
     teacher.id,
     currentMarks,
@@ -38429,7 +38891,7 @@ app.patch('/api/teacher-calendar-marks', (req, res) => {
     teacherId: teacher.id,
   });
   return res.json({ marks: db[teacher.id] });
-});
+}));
 
 app.get('/api/teacher-calendar-google', (req, res) => {
   const { teacherId } = req.query || {};
@@ -38815,7 +39277,7 @@ app.patch('/api/teacher-finance/month', async (req, res) => {
   return res.json(await buildTeacherFinanceResponseWithProfitability(teacher.id, resolvedMonth));
 });
 
-app.patch('/api/teacher-finance/students/:studentId', async (req, res) => {
+app.patch('/api/teacher-finance/students/:studentId', serializeWalletRoute(async (req, res) => {
   const { studentId } = req.params || {};
   const { teacherId, month } = req.body || {};
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
@@ -38840,6 +39302,10 @@ app.patch('/api/teacher-finance/students/:studentId', async (req, res) => {
   };
   const currentProfile = normalizeTeacherFinanceProfile(teacherEntry.studentProfiles[student.id]);
   const currentRecord = normalizeTeacherFinanceStudentRecord(currentMonth.students?.[student.id], currentProfile);
+  if (teacherEntry.studentPaymentBalances?.accounts?.[student.id]
+    && Object.hasOwn(req.body || {}, 'paidAmount') && roundTeacherFinanceNumber(req.body.paidAmount) !== currentRecord.paidAmount) {
+    return res.status(409).json({ error: 'Сумма полученных денег ведётся через баланс. Внесите платёж в разделе «Балансы».' });
+  }
   const profile = normalizeTeacherFinanceProfile({ ...currentProfile, ...(req.body || {}) });
   const nowIso = new Date().toISOString();
   profile.pricingHistory = recordPricingChange(currentProfile, profile, nowIso);
@@ -38860,7 +39326,7 @@ app.patch('/api/teacher-finance/students/:studentId', async (req, res) => {
   financeDb[teacher.id] = teacherEntry;
   writeTeacherFinanceDb(financeDb);
   return res.json(await buildTeacherFinanceResponseWithProfitability(teacher.id, resolvedMonth));
-});
+}));
 
 app.get('/api/student-schedule-requests', (req, res) => {
   const { studentId, teacherId, status } = req.query || {};
