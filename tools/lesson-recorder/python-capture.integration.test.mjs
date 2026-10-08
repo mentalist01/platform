@@ -7,6 +7,9 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+const ffmpeg = process.platform === 'win32' ? 'C:/ProgramData/chocolatey/bin/ffmpeg.exe' : 'ffmpeg';
+const hasFfmpeg = (() => { try { execFileSync(ffmpeg, ['-version'], { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; } })();
+
 // Run the actual service and panel against a synthetic OBS RPC transport and
 // a fictional platform. No real OBS, devices, payments, uploads or lessons.
 async function fixture({ queueEnabled = false, pauseDelayMs = 0, mediaFixture = false } = {}) {
@@ -15,7 +18,6 @@ async function fixture({ queueEnabled = false, pauseDelayMs = 0, mediaFixture = 
   const here = path.dirname(fileURLToPath(import.meta.url));
   for (const name of fs.readdirSync(here)) if (/\.(mjs|html|ps1|json)$/.test(name) && !name.includes('.test.')) fs.copyFileSync(path.join(here, name), path.join(app, name));
   if (process.argv.includes('--serve') || mediaFixture) {
-    const ffmpeg=process.platform==='win32'?'C:/ProgramData/chocolatey/bin/ffmpeg.exe':'ffmpeg';
     execFileSync(ffmpeg,['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','testsrc2=s=640x360:r=30:d=24','-f','lavfi','-i','sine=frequency=440:duration=24','-c:v','libx264','-preset','ultrafast','-c:a','aac',path.join(root,'fixture.mkv')],{windowsHide:true});
     fs.writeFileSync(path.join(app,'runtime.json'),JSON.stringify({ffmpeg}));
   }
@@ -106,7 +108,7 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
-  test('real preview API streams scoped media ranges, reuses unchanged cuts and cannot expose recorder controls', async t => {
+  test('real preview API streams scoped media ranges, reuses unchanged cuts and cannot expose recorder controls', { skip: !hasFfmpeg && 'FFmpeg is not installed on this host; real media is tested on the recorder workstation' }, async t => {
     const f = await fixture({mediaFixture:true}); t.after(f.close);
     await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
     await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'QA потоковый просмотр'});
