@@ -25,6 +25,9 @@ import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } f
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
+import { createStudentAvailabilityStore } from './studentAvailability.js';
+import { withTeacherCalendarLock } from './calendarMutations.js';
+import { availabilitySlots } from '../src/utils/groupAvailability.js';
 import { registerLearningGroupMemberTransfer } from './groupMemberTransfer.js';
 import { commitGroupTransferTransaction, recoverGroupTransferTransaction } from './groupTransferTransaction.js';
 import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
@@ -24824,6 +24827,29 @@ registerLessonPace(app, {
   teacherStudents: auth => readStudentsDb().filter(student => !student.deletedAt && student.teacherId === auth.id),
 });
 const availabilityStore = createAvailabilityStore(path.join(dataDir, 'group-availability.json'));
+const studentAvailabilityStore = createStudentAvailabilityStore(path.join(dataDir, 'student-availability.json'));
+studentAvailabilityStore.migrate({ groups: readLearningGroupsDb(), polls: availabilityStore.all(), students: readStudentsDb() });
+const rememberLearningStudentAvailability = (group, poll, studentId, answer, blocked) => {
+  const student = findStudentById(studentId, { allowDeleted: true });
+  if (!student || student.teacherId !== group.teacherId || !poll?.config || !answer) return false;
+  const excluded = blocked ?? (Array.isArray(answer.personalBlockedSlots)
+    ? Object.fromEntries(answer.personalBlockedSlots.map(id => [id, true]))
+    : poll.includeBusyTimes === false
+      ? Object.fromEntries(availabilitySlots(poll.config).filter(slot => !answer.choices?.[slot.id]).map(slot => [slot.id, true])) : {});
+  return studentAvailabilityStore.remember({ teacherId: group.teacherId, studentId, config: poll.config, answer, blocked: excluded,
+    sourceGroupId: group.id, sourceRoundId: poll.id });
+};
+const seedLearningStudentAvailability = (group, studentId, config) => {
+  const student = findStudentById(studentId);
+  return student?.teacherId === group.teacherId
+    ? studentAvailabilityStore.seed({ teacherId: group.teacherId, studentId, config }) : null;
+};
+const commitLearningGroupsAvailability = (groups, polls) => {
+  const normalizedGroups = normalizeLearningGroupsStore(groups);
+  commitGroupTransferTransaction(dataDir, normalizedGroups, polls);
+  learningJsonStoreCache.set(learningGroupsFile, normalizedGroups);
+  availabilityStore.acceptCommitted(polls);
+};
 let lastAvailabilityMaterialized = 0;
 const materializeAvailabilitySchedules = (force = false) => {
   if (!LEARNING_GROUPS_ENABLED || (!force && Date.now() - lastAvailabilityMaterialized < 60000)) return;
@@ -24989,6 +25015,8 @@ registerLessonReschedules(app, {
 
 registerGroupAvailability(app, {
   store: availabilityStore, getGroup: getLearningGroupById, canManage: canManageLearningGroup,
+  rememberAnswer: rememberLearningStudentAvailability,
+  seedAnswer: seedLearningStudentAvailability,
   getStudentName: (id, auth) => getStudentChatVisibleName(findStudentById(id, { allowDeleted: true }), {
     exposeStudentNicknames: isAdminRole(auth) || isTeacherRole(auth),
   }),
@@ -25070,7 +25098,7 @@ app.get('/api/learning-groups', handleLearningRoute((req, res) => {
   return res.json({ groups: groups.map((group) => serializeLearningGroupForAuth(group, req.auth)) });
 }));
 
-app.post('/api/learning-groups', handleLearningRoute((req, res) => {
+app.post('/api/learning-groups', handleLearningRoute(async (req, res) => {
   if (!isAdminRole(req.auth) && !isTeacherRole(req.auth)) return forbid(res);
   const teacherId = isTeacherRole(req.auth)
     ? req.auth.id
@@ -25078,24 +25106,26 @@ app.post('/api/learning-groups', handleLearningRoute((req, res) => {
   if (!teacherId || !findTeacherById(teacherId)) {
     failLearningRequest('Преподаватель не найден', 'teacher_not_found', 404);
   }
-  assertUniqueLearningGroupName(teacherId, req.body?.name);
-  let group = createLearningGroup(req.body || {}, {
-    id: crypto.randomUUID(),
-    teacherId,
+  return withTeacherCalendarLock(teacherId, async () => {
+    assertUniqueLearningGroupName(teacherId, req.body?.name);
+    let group = createLearningGroup(req.body || {}, {
+      id: crypto.randomUUID(),
+      teacherId,
+    });
+    const requestedMembers = Array.from(new Set([
+      ...(Array.isArray(req.body?.studentIds) ? req.body.studentIds : []),
+      ...(Array.isArray(req.body?.memberIds) ? req.body.memberIds : []),
+    ].map((value) => String(value || '').trim()).filter(Boolean)));
+    requestedMembers.forEach((studentId) => {
+      const student = findStudentById(studentId);
+      if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
+      assertStudentAvailableForLearningGroup(student.id, teacherId);
+      group = addLearningGroupMember(group, student, { actorId: req.auth.id });
+    });
+    writeLearningGroupsDb([group, ...readLearningGroupsDb()]);
+    notifyLearningGroupScheduleAccess(group);
+    return res.status(201).json({ group: serializeLearningGroupForAuth(group, req.auth) });
   });
-  const requestedMembers = Array.from(new Set([
-    ...(Array.isArray(req.body?.studentIds) ? req.body.studentIds : []),
-    ...(Array.isArray(req.body?.memberIds) ? req.body.memberIds : []),
-  ].map((value) => String(value || '').trim()).filter(Boolean)));
-  requestedMembers.forEach((studentId) => {
-    const student = findStudentById(studentId);
-    if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
-    assertStudentAvailableForLearningGroup(student.id, teacherId);
-    group = addLearningGroupMember(group, student, { actorId: req.auth.id });
-  });
-  writeLearningGroupsDb([group, ...readLearningGroupsDb()]);
-  notifyLearningGroupScheduleAccess(group);
-  return res.status(201).json({ group: serializeLearningGroupForAuth(group, req.auth) });
 }));
 
 app.get('/api/learning-groups/:groupId', handleLearningRoute((req, res) => {
@@ -25118,34 +25148,53 @@ app.patch('/api/learning-groups/:groupId', handleLearningRoute((req, res) => {
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
-app.post('/api/learning-groups/:groupId/members', handleLearningRoute((req, res) => {
-  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
-  if (!group) return;
-  const student = findStudentById(req.body?.studentId);
-  if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
-  assertStudentAvailableForLearningGroup(student.id, group.teacherId, group.id);
-  const updated = addLearningGroupMember(group, student, {
-    actorId: req.auth.id,
-    lateAddReason: req.body?.lateAddReason || req.body?.overrideReason,
+app.post('/api/learning-groups/:groupId/members', handleLearningRoute(async (req, res) => {
+  const initialGroup = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!initialGroup) return;
+  return withTeacherCalendarLock(initialGroup.teacherId, async () => {
+    const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+    if (!group) return;
+    const student = findStudentById(req.body?.studentId);
+    if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
+    assertStudentAvailableForLearningGroup(student.id, group.teacherId, group.id);
+    const updated = addLearningGroupMember(group, student, {
+      actorId: req.auth.id,
+      lateAddReason: req.body?.lateAddReason || req.body?.overrideReason,
+    });
+    const groups = replaceLearningStoreEntry(readLearningGroupsDb(), updated);
+    const poll = availabilityStore.get(group.id);
+    const answer = poll && !Object.prototype.hasOwnProperty.call(poll.answers || {}, student.id)
+      ? seedLearningStudentAvailability(group, student.id, poll.config) : null;
+    if (answer) {
+      poll.answers ||= {};
+      poll.answers[student.id] = answer;
+      poll.updatedAt = Date.now();
+      commitLearningGroupsAvailability(groups, { ...availabilityStore.all(), [group.id]: poll });
+    } else writeLearningGroupsDb(groups);
+    synchronizeLearningGroupAssignmentRecipients(updated, { addedStudentId: student.id });
+    syncLearningGroupUpcomingLessonParticipants(updated);
+    notifyLearningGroupScheduleAccess(updated);
+    return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
   });
-  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
-  synchronizeLearningGroupAssignmentRecipients(updated, { addedStudentId: student.id });
-  syncLearningGroupUpcomingLessonParticipants(updated);
-  notifyLearningGroupScheduleAccess(updated);
-  return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
-app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRoute((req, res) => {
-  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
-  if (!group) return;
-  const removedStudentId = String(req.params.studentId || '').trim();
-  const updated = removeLearningGroupMember(group, removedStudentId, { actorId: req.auth.id });
-  writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
-  closeLearningGroupStudentLessonConnections(group.id, removedStudentId);
-  syncLearningGroupUpcomingLessonParticipants(updated);
-  synchronizeLearningGroupHomeworksForStudent(removedStudentId);
-  notifyLearningGroupScheduleAccess(updated);
-  return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
+app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRoute(async (req, res) => {
+  const initialGroup = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!initialGroup) return;
+  return withTeacherCalendarLock(initialGroup.teacherId, async () => {
+    const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+    if (!group) return;
+    const removedStudentId = String(req.params.studentId || '').trim();
+    const updated = removeLearningGroupMember(group, removedStudentId, { actorId: req.auth.id });
+    const poll = availabilityStore.get(group.id);
+    if (poll?.answers?.[removedStudentId]) rememberLearningStudentAvailability(group, poll, removedStudentId, poll.answers[removedStudentId]);
+    writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
+    closeLearningGroupStudentLessonConnections(group.id, removedStudentId);
+    syncLearningGroupUpcomingLessonParticipants(updated);
+    synchronizeLearningGroupHomeworksForStudent(removedStudentId);
+    notifyLearningGroupScheduleAccess(updated);
+    return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
+  });
 }));
 
 const learningGroupMemberTransfer = registerLearningGroupMemberTransfer(app, {
@@ -25154,13 +25203,9 @@ const learningGroupMemberTransfer = registerLearningGroupMemberTransfer(app, {
   findStudent: findStudentById,
   readGroups: readLearningGroupsDb,
   store: availabilityStore,
+  rememberAnswer: rememberLearningStudentAvailability,
   serializeGroup: serializeLearningGroupForAuth,
-  commit: (groups, polls) => {
-    const normalizedGroups = normalizeLearningGroupsStore(groups);
-    commitGroupTransferTransaction(dataDir, normalizedGroups, polls);
-    learningJsonStoreCache.set(learningGroupsFile, normalizedGroups);
-    availabilityStore.acceptCommitted(polls);
-  },
+  commit: commitLearningGroupsAvailability,
   completeTransfer: ({ targetGroup, transferReceipt }, studentId) => {
     const poll = availabilityStore.get(targetGroup.id);
     const receipt = poll?.memberTransfers?.[studentId];

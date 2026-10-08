@@ -113,6 +113,22 @@ export function materializeAvailabilityPlans(plans, groups, lessons, createLesso
 
 export function registerGroupAvailability(app, deps) {
   const { store, getGroup, canManage, getStudentName, getBusyEntries, materialize } = deps;
+  const rememberAnswers = (group, poll) => {
+    if (!poll) return;
+    for (const [studentId, answer] of Object.entries(poll.answers || {})) {
+      deps.rememberAnswer?.(group, poll, studentId, answer);
+    }
+  };
+  const seedAnswers = (group, poll) => {
+    poll.answers ||= {};
+    for (const studentId of membersOf(group)) {
+      // An explicit empty answer is still the pupil's current choice. Only
+      // pupils without an answer inherit their saved personal availability.
+      if (Object.prototype.hasOwnProperty.call(poll.answers, studentId)) continue;
+      const answer = deps.seedAnswer?.(group, studentId, poll.config);
+      if (answer) poll.answers[studentId] = answer;
+    }
+  };
   const busyEntries = async (group, config, force = false) => groupAvailabilityBusyEntries(group, await getBusyEntries(group, config, force));
   const locks = calendarMutationLocks;
   const access = (req, manage = false) => {
@@ -139,7 +155,11 @@ export function registerGroupAvailability(app, deps) {
     delete publicPoll.memberTransfers;
     return { canManage: canEdit, closed: group.status === 'completed', blocked, calendarError,
       poll: { ...publicPoll, includeBusyTimes, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
-        answers: Object.fromEntries(memberIds.filter(id => poll.answers[id]).map(id => [id, poll.answers[id]])),
+        answers: Object.fromEntries(memberIds.filter(id => poll.answers[id]).map(id => {
+          const answer = { ...poll.answers[id] };
+          delete answer.personalBlockedSlots;
+          return [id, answer];
+        })),
         proposal: poll.proposal ? { ...poll.proposal,
           // Rebuild old saved names for this viewer; historical proposals may contain a private teacher label.
           authorName: poll.proposal.authorRole === 'teacher' || poll.proposal.authorName === 'Преподаватель'
@@ -169,15 +189,21 @@ export function registerGroupAvailability(app, deps) {
         const config = availabilityConfig(body);
         if (body.includeBusyTimes !== undefined && typeof body.includeBusyTimes !== 'boolean') fail('Выберите режим подбора времени');
         const includeBusyTimes = body.includeBusyTimes ?? (poll?.includeBusyTimes !== false);
+        // Save the old round before replacing it, including a removed pupil's
+        // retained answer. Their available hours belong to the pupil.
+        rememberAnswers(group, poll);
         poll = { id: crypto.randomUUID(), config, includeBusyTimes, hoursVersion: 1, status: 'open', answers: {}, proposal: null,
           plan: poll?.plan || null, updatedAt: Date.now(),
           ...(poll?.memberTransfers ? { memberTransfers: poll.memberTransfers } : {}) };
+        seedAnswers(group, poll);
       } else if (action === 'reopen') {
         if (!poll || poll.id !== body.roundId || poll.status !== 'approved') fail('Расписание уже изменилось. Обновите страницу.', 409);
         const config = currentAvailabilityConfig(poll.hoursVersion === 1 ? poll.config : { ...poll.config, endMinute: AVAILABILITY_END_MINUTE });
         // Availability is independent of the approved pair. Preserve every
         // pupil's saved choices; a new round invalidates stale confirmations.
+        rememberAnswers(group, poll);
         poll = { ...poll, id: crypto.randomUUID(), config, hoursVersion: 1, status: 'open', proposal: null };
+        seedAnswers(group, poll);
       } else if (action === 'settings') {
         if (!poll || poll.id !== body.roundId || !['open','approved'].includes(poll.status)) fail('Подбор уже изменился. Обновите страницу.', 409);
         if (typeof body.includeBusyTimes !== 'boolean' || typeof body.previousIncludeBusyTimes !== 'boolean') fail('Выберите режим подбора времени');
@@ -207,7 +233,12 @@ export function registerGroupAvailability(app, deps) {
             id: `group-availability:${poll.id}:${req.auth.id}:${version}`,
             occurredAt: new Date(updatedAt).toISOString(), updated: Boolean(old),
           } : old.teacherNotification;
-          poll.answers[req.auth.id] = { version, choices, updatedAt, ...(teacherNotification ? { teacherNotification } : {}) };
+          const answer = { version, choices, updatedAt, ...(teacherNotification ? { teacherNotification } : {}),
+            ...(poll.includeBusyTimes === false ? { personalBlockedSlots: Object.keys(blocked) } : {}) };
+          // Rejected, stale and calendar-blocked submissions never update the
+          // personal profile. A successful durable save precedes the poll write.
+          deps.rememberAnswer?.(group, poll, req.auth.id, answer, blocked);
+          poll.answers[req.auth.id] = answer;
           if (changed) answerNotification = { studentId: req.auth.id, answer: poll.answers[req.auth.id] };
           if (poll.proposal) delete poll.proposal.votes[req.auth.id];
         } else if (action === 'propose') {

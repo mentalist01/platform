@@ -64,7 +64,14 @@ async function fixture(t) {
   };
   const config = { startDate: addCalendarDays(moscowDay(), 1), durationMinutes: 60, startMinute: 600, endMinute: 1380, days: [0, 1, 2, 3, 4, 5, 6] };
   const open = async (group, patch = {}) => (await request(`/api/learning-groups/${group.id}/availability/open`, tokens.teacher, { ...config, ...patch })).poll;
-  const answer = (group, student, poll, choices, version = 0) => request(`/api/learning-groups/${group.id}/availability/answer`, tokens[student], { roundId: poll.id, version, choices });
+  const answer = async (group, student, poll, choices, version) => {
+    // A normal member addition can now import version 1 from the pupil's
+    // personal preferences. Submit against the actual current answer version.
+    const currentVersion = version ?? (await request(`/api/learning-groups/${group.id}/availability`, tokens[student]))
+      .poll.answers[student]?.version ?? 0;
+    return request(`/api/learning-groups/${group.id}/availability/answer`, tokens[student],
+      { roundId: poll.id, version: currentVersion, choices });
+  };
   const transfer = (pair, body = {}, token = tokens.teacher, status = 200) => request(
     `/api/learning-groups/${pair.source.id}/members/${pair.student}/transfer`, token,
     { targetGroupId: pair.target.id, ...body }, 'POST', status);

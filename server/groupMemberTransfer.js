@@ -65,7 +65,8 @@ export function prepareLearningGroupMemberTransfer({ groups, polls, sourceGroupI
   const availabilityTransfer = { copiedCount, skippedCount, createdPoll };
   targetPoll.answers ||= {};
   if (sourceAnswer && (!previousTargetAnswer || !sameChoices(previousTargetAnswer.choices, choices))) {
-    targetPoll.answers[student.id] = { version: (previousTargetAnswer?.version || 0) + 1, choices, updatedAt: now,
+    targetPoll.answers[student.id] = { version: (previousTargetAnswer?.version || 0) + 1, choices,
+      updatedAt: sourceAnswer.updatedAt, importedPersonal: true,
       teacherNotification: { id: `group-availability:${targetPoll.id}:${student.id}:transfer-${idFactory()}`,
         occurredAt: stamp, updated: Boolean(previousTargetAnswer) } };
   }
@@ -83,7 +84,8 @@ export function prepareLearningGroupMemberTransfer({ groups, polls, sourceGroupI
   if (previousHistory) delete previousHistory.history;
   targetPoll.memberTransfers[student.id] = { sourceGroupId: source.id, sourceLeftAt: stamp, targetJoinedAt: stamp,
     actorId, availabilityTransfer, sideEffectsPending: true,
-    ...(sourceAnswer ? { sourceAnswer: structuredClone(sourceAnswer) } : {}),
+    ...(sourceAnswer ? { sourceAnswer: structuredClone(sourceAnswer), sourceConfig: structuredClone(sourcePoll.config),
+      sourceRoundId: sourcePoll.id, sourceIncludeBusyTimes: sourcePoll.includeBusyTimes !== false } : {}),
     ...(previousTargetAnswer ? { previousTargetAnswer: structuredClone(previousTargetAnswer) } : {}),
     ...(previousHistory ? { history: [...(previousReceipt.history || []), previousHistory] } : {}) };
   targetPoll.updatedAt = now;
@@ -155,7 +157,13 @@ export function registerLearningGroupMemberTransfer(app, deps) {
       const result = prepareLearningGroupMemberTransfer({ groups: deps.readGroups(), polls: deps.store.all(),
         sourceGroupId: currentSource.id, targetGroupId: target.id, student, actorId: req.auth.id,
         lateAddReason: req.body?.lateAddReason, replaceTargetAnswer: req.body?.replaceTargetAnswer === true });
-      if (!result.alreadyTransferred) deps.commit(result.groups, result.polls);
+      if (!result.alreadyTransferred) {
+        // Preserve the unfiltered source choices before the durable transfer
+        // removes them; a narrower target grid must not erase other hours.
+        const sourcePoll = deps.store.get(currentSource.id);
+        if (sourcePoll?.answers?.[student.id]) deps.rememberAnswer?.(currentSource, sourcePoll, student.id, sourcePoll.answers[student.id]);
+        deps.commit(result.groups, result.polls);
+      }
       const synchronizationPending = await finishSynchronization(result, student.id);
       return res.json({ sourceGroup: deps.serializeGroup(result.sourceGroup, req.auth),
         targetGroup: deps.serializeGroup(result.targetGroup, req.auth), availabilityTransfer: result.availabilityTransfer,
