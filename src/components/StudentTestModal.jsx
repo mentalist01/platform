@@ -12,8 +12,8 @@ import { getQuestionLabelStyle, normalizeQuestionLabel } from '../utils/question
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import { normalizeTurtleScene, parseTurtleSceneJson } from '../utils/turtleScene';
 import {
-  WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD,
-  WORKBOOK_HELPER_INSTALL_URL,
+  getWorkbookHelperInstall,
+  getWorkbookHelperUnsupportedMessage,
 } from '../utils/workbookHelperInstall';
 import {
   QUESTION_DIFFICULTY_MIN_SAMPLE_SIZE,
@@ -1153,6 +1153,8 @@ const StudentTestModal = ({
 }) => {
   const monacoTheme = resolveMonacoColorTheme(theme);
   const { workbookHelperState, launchWorkbookHelper } = useWorkbookHelper();
+  const workbookHelperInstall = getWorkbookHelperInstall();
+  const workbookHelperSupported = workbookHelperInstall.supported;
   const isQuestionCodeDarkTheme = String(theme || '').trim().toLowerCase() === 'dark';
   const [stage, setStage] = useState('select_level'); // select_level | testing
   const [level, setLevel] = useState(null);
@@ -4392,7 +4394,7 @@ const StudentTestModal = ({
                 <div className="student-test-code-focus__files">
                   {extraFiles.map((file) => {
                     const attachmentId = getTestAttachmentId(file);
-                    const canSolve = canSolveTestWorkbook(task?.number, file);
+                    const canSolve = workbookHelperSupported && canSolveTestWorkbook(task?.number, file);
                     const workbookSolutions = Array.isArray(questionWorkbookSolutions?.[attachmentId])
                       ? questionWorkbookSolutions[attachmentId]
                       : [];
@@ -5076,7 +5078,7 @@ const StudentTestModal = ({
                 <div className="space-y-2">
                   {extraFiles.map((file, fileIndex) => {
                     const attachmentId = getTestAttachmentId(file);
-                    const canSolve = canSolveTestWorkbook(task?.number, file);
+                    const canSolve = workbookHelperSupported && canSolveTestWorkbook(task?.number, file);
                     const workbookSolutions = Array.isArray(questionWorkbookSolutions?.[attachmentId])
                       ? questionWorkbookSolutions[attachmentId]
                       : [];
@@ -5154,21 +5156,26 @@ const StudentTestModal = ({
                     );
                   })}
                 </div>
-                {['fallback', 'error'].includes(workbookHelperState.status)
-                  && WORKBOOK_HELPER_INSTALL_URL
+                {!workbookHelperSupported && extraFiles.some((file) => canSolveTestWorkbook(task?.number, file)) && (
+                  <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                    {getWorkbookHelperUnsupportedMessage()}
+                  </p>
+                )}
+                {workbookHelperSupported && ['fallback', 'error'].includes(workbookHelperState.status)
+                  && workbookHelperInstall.url
                   && extraFiles.some((file) => getTestAttachmentId(file) === workbookHelperState.sourceFileId) && (
                     <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
                       Помощник не открылся?{' '}
                       <a
                         className="underline underline-offset-2"
-                        href={WORKBOOK_HELPER_INSTALL_URL}
-                        download={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD || undefined}
-                        target={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? undefined : '_blank'}
+                        href={workbookHelperInstall.url}
+                        download={workbookHelperInstall.isDownload || undefined}
+                        target={workbookHelperInstall.isDownload ? undefined : '_blank'}
                         rel="noopener noreferrer"
                       >
-                        Скачайте или обновите его
+                        {workbookHelperInstall.label}
                       </a>
-                      .
+                      . {workbookHelperInstall.platform === 'mac' && <span>{workbookHelperInstall.badge}. {workbookHelperInstall.instructions}</span>}
                     </div>
                   )}
               </div>

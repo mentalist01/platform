@@ -97,6 +97,26 @@ test('source playback keeps exact picture/audio across chunk boundaries and reus
   await assert.rejects(media.playbackSource(job,-1,root),/фрагмент/);
   t.diagnostic(JSON.stringify({coldSourceMs:Math.round(coldMs),cachedAfterEditMs:+warmMs.toFixed(2)}));
 });
+test('short source windows report physical coverage and are rebuilt when the original gains its missing tail', {timeout:30000,skip:!available&&'ffmpeg unavailable'}, async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'ivan100-growing-source-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const id=crypto.randomUUID(),file=path.join(root,`lesson-${id}.mkv`);
+  const writeSource=frames=>run(['-y','-f','lavfi','-i','testsrc2=s=160x90:r=30','-frames:v',String(frames),'-c:v','libx264','-preset','ultrafast','-g','30',file]);
+  writeSource(646);
+  const clips=[{start:0,end:12.699},{start:13.266,end:17.333},{start:17.999,end:24.199}];
+  const media=new PythonEditMedia({ffmpeg,root:path.join(root,'cache')}),job={id,file,pythonTimeline:{revision:3,sourceEnd:24.766,clips}};
+  const before=structuredClone(job.pythonTimeline);
+  const short=await media.playbackSource(job,17.999,root);
+  assert.equal(short.requestedEnd,24.766);assert.equal(short.complete,false);
+  assert.ok(Math.abs(short.sourceEnd-21.533)<.05,short.sourceEnd);
+  assert.equal((await media.playbackSource(job,17.999,root)).id,short.id,'An unchanged file reuses its physically accurate snapshot');
+  writeSource(750);
+  const extended=await media.playbackSource(job,17.999,root);
+  assert.notEqual(extended.id,short.id,'An incomplete snapshot must be rebuilt after source growth');
+  assert.equal(extended.complete,true);assert.equal(extended.sourceEnd,24.766);
+  assert.equal((await media.playbackSource(job,17.999,root)).id,extended.id);
+  assert.deepEqual(job.pythonTimeline,before,'Coverage probing must never rewrite the timeline');
+});
+
 test('actual ffmpeg montage keeps exact colored frames, audio and original source after cuts/reorder', { timeout: 60000, skip: !available && 'ffmpeg unavailable' }, async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-edit-media-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

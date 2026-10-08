@@ -91,7 +91,9 @@ export class PythonEditMedia {
     const input = this.source(job, recordDirectory), slot = Math.floor(at / 30);
     const end = Math.min((slot + 1) * 30, job.pythonTimeline.sourceEnd);
     const key = JSON.stringify(['source', job.id, input, slot, end]);
-    const cached = [...this.previews].find(([, item]) => item.key === key && fs.existsSync(item.file));
+    const inputStat = fs.statSync(input);
+    const cached = [...this.previews].find(([, item]) => item.key === key && fs.existsSync(item.file)
+      && (item.complete || item.inputSize === inputStat.size && item.inputModified === inputStat.mtimeMs));
     if (cached) {
       const [id, item] = cached; this.previews.delete(id); this.previews.set(id, item);
       return { id, ...item };
@@ -105,6 +107,7 @@ export class PythonEditMedia {
   async copyPlaybackSource(job, input, slot, end, key) {
     const ffprobe = this.ffmpeg.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
     const from = Math.max(0, slot * 30 - 4);
+    const inputStat = fs.statSync(input);
     const id = crypto.randomUUID(), folder = path.join(this.root, job.id);
     fs.mkdirSync(folder, { recursive: true });
     const output = path.join(folder, `source-${id}.mp4`), temporary = `${output}.part.mp4`;
@@ -113,12 +116,15 @@ export class PythonEditMedia {
       // then shift by a known offset. This is one remux, with no video encoder.
       await command(this.ffmpeg, ['-hide_banner','-loglevel','error','-y','-copyts','-start_at_zero','-ss',String(from),'-i',input,'-to',String(end),
         '-map','0:v:0','-map','0:a:0?','-c','copy','-output_ts_offset',String(-from),'-avoid_negative_ts','disabled','-movflags','+faststart',temporary], 30000);
-      const copied = JSON.parse(await command(ffprobe, ['-v','error','-read_intervals','%+#1','-select_streams','v:0','-show_entries','packet=pts_time','-of','json',temporary], 30000));
+      const copied = JSON.parse(await command(ffprobe, ['-v','error','-read_intervals','%+#1','-select_streams','v:0','-show_entries','packet=pts_time:format=duration','-of','json',temporary], 30000));
       const firstOutput = Number(copied.packets?.[0]?.pts_time);
-      if (!Number.isFinite(firstOutput)) throw Error('Фрагмент ещё не записан на диск. Повторите просмотр через секунду.');
+      const duration = Number(copied.format?.duration);
+      if (!Number.isFinite(firstOutput) || !Number.isFinite(duration) || duration <= 0) throw Error('Фрагмент ещё не записан на диск. Повторите просмотр через секунду.');
       fs.renameSync(temporary, output);
+      const actualEnd = Math.min(end, duration + from);
       const item = { file: output, jobId: job.id, key, access: crypto.randomBytes(24).toString('hex'),
-        sourceStart: firstOutput+from, sourceEnd: end, offset: -from };
+        sourceStart: firstOutput+from, sourceEnd: actualEnd, requestedEnd: end, complete: actualEnd >= end - .05,
+        inputSize: inputStat.size, inputModified: inputStat.mtimeMs, offset: -from };
       this.previews.set(id, item);
       while (this.previews.size > 8) {
         const [oldId, old] = this.previews.entries().next().value;

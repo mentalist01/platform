@@ -24,6 +24,7 @@ export class SourceTimelinePlayer {
   stop() { this.generation++; this.pause(); this.clips = []; this.next = null; this.source = null; this.loading = false; }
   pause() { this.playing = false; for (const video of this.videos) video.pause(); }
   async ready(video, source, at, generation) {
+    if (Number.isFinite(source.sourceEnd) && at > source.sourceEnd + .05) throw Error('В исходнике пока нет последних секунд этого фрагмента. Доступная часть сохранена; после сохранения записи OBS повторите просмотр.');
     const changed = video.getAttribute('src') !== source.videoUrl;
     if (changed || video.readyState < 1 || !Number.isFinite(video.duration)) {
       await new Promise((resolve, reject) => {
@@ -96,6 +97,12 @@ export class SourceTimelinePlayer {
     this.time = Math.min(this.clipTime + clip.end - clip.start, this.clipTime + Math.max(0, sourceTime - clip.start)); this.onTime(this.time);
     if (!this.playing || !ended && sourceTime < Math.min(clip.end, this.source.sourceEnd) - .012) return;
     const position = this.nextPosition();
+    if (ended && sourceTime < Math.min(clip.end, this.source.sourceEnd) - .05
+      || this.source.complete === false && this.source.sourceEnd < clip.end - .05) {
+      this.pause();
+      this.onError('В исходнике пока нет последних секунд этого фрагмента. Доступная часть показана; после сохранения записи OBS повторите просмотр.');
+      return;
+    }
     if (!position) { this.time = this.duration(); this.pause(); this.onTime(this.time); return; }
     if (this.next?.ready) {
       const next = this.next, old = this.active;

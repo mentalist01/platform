@@ -38,11 +38,12 @@ node --test src/utils/paymentHistory.test.js server/paymentNotificationHistory.i
 node --test src/utils/paymentSenderLinks.test.js server/paymentSenderLinks.integration.test.js > "$backup/payment-sender-links-tests.log" 2>&1
 node --test scripts/verify-teacher-payment-access.test.mjs > "$backup/payment-access-check-tests.log" 2>&1
 node --test server/workbookHelper.test.js server/workbookHelper.integration.test.js server/workbookQuestionHelper.integration.test.js server/teacherNotesWorkbook.integration.test.js > "$backup/teacher-workbook-tests.log" 2>&1
+node --test tools/workbook-helper-mac/*.test.mjs src/utils/workbookHelperInstall.test.js src/utils/fileDownload.test.js > "$backup/mac-workbook-tests.log" 2>&1
 node --test server/lessonPace.test.js server/individualLessonPace.test.js server/lessonPace.integration.test.js server/homeworkReminders.test.js server/homeworkReminders.integration.test.js > "$backup/lesson-pace-tests.log" 2>&1
 node --test src/utils/collabCodePages.test.js server/collabCodePages.integration.test.js server/collabReadOnly.test.js server/learningPrivateCollab.integration.test.js server/groupCodePresence.integration.test.js > "$backup/code-pages-tests.log" 2>&1
 node --test src/utils/concurrentHomework.test.js src/utils/learningAssignmentState.test.js src/utils/pythonTheoryHomework.test.js src/utils/homeworkComposerDraft.test.js server/concurrentHomework.integration.test.js src/utils/rtcVideoBudget.test.js scripts/releaseClientSnapshot.test.mjs > "$backup/homework-performance-tests.log" 2>&1
 node --test src/utils/rtcVideoCodec.test.js > "$backup/rtc-hardware-tests.log" 2>&1
-node --test server/studentPaymentBalances.test.js server/studentPaymentBalances.integration.test.js server/googleCalendarParseWorker.test.js server/lessonReschedule.integration.test.js > "$backup/student-balances-tests.log" 2>&1
+node --test server/studentPaymentBalances.test.js server/studentPaymentBalances.integration.test.js server/studentPaymentGroupBalances.integration.test.js server/googleCalendarParseWorker.test.js server/lessonReschedule.integration.test.js > "$backup/student-balances-tests.log" 2>&1
 stage=$(mktemp -d /root/app/.release-stage-XXXXXX)
 npm run build -- --outDir "$stage" > "$backup/build.log" 2>&1
 touch "$stage/.ivan100-release-owned"
@@ -59,6 +60,7 @@ node scripts/check-python-practice-release.mjs local "$stage"
 node scripts/check-board-task-clipboard-release.mjs local "$stage"
 node scripts/check-lesson-tools-release.mjs local "$stage"
 node scripts/check-teacher-workbook-release.mjs local "$stage"
+node scripts/check-balance-mac-release.mjs local "$stage"
 node scripts/check-lesson-pace-release.mjs local "$stage"
 node scripts/check-collab-code-pages-release.mjs local "$stage"
 node scripts/check-post-151-release.mjs local "$stage"
@@ -87,6 +89,7 @@ node scripts/check-board-pages-release.mjs verify "$stage"
 node scripts/check-monthly-mock-release.mjs verify "$stage" /root/platform-data
 node scripts/check-lesson-tools-release.mjs verify "$stage" /root/platform-data
 node scripts/check-teacher-workbook-release.mjs verify "$stage" /root/platform-data
+node scripts/check-balance-mac-release.mjs verify "$stage"
 node scripts/check-lesson-pace-release.mjs verify "$stage" /root/platform-data
 node scripts/check-collab-code-pages-release.mjs verify "$stage"
 node scripts/check-post-151-release.mjs verify "$stage" /root/platform-data

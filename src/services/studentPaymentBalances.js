@@ -11,5 +11,6 @@ const request = async (teacherId, path = '', body) => {
 export const getStudentBalances = teacherId => request(teacherId);
 export const enableStudentBalances = (teacherId, previewToken) => request(teacherId, '/enable', { previewToken });
 export const addStudentReceipt = (teacherId, studentId, body) => request(teacherId, `/${encodeURIComponent(studentId)}/receipts`, body);
+export const adjustStudentBalance = (teacherId, studentId, body) => request(teacherId, `/${encodeURIComponent(studentId)}/adjustments`, body);
 export const confirmStudentReceipt = (teacherId, studentId, notificationId, manualEntryId) => request(teacherId, `/${encodeURIComponent(studentId)}/confirm`, { notificationId, manualEntryId });
 export const releaseStudentPayment = (teacherId, studentId, markKey) => request(teacherId, `/${encodeURIComponent(studentId)}/release`, { markKey, confirmed: true });

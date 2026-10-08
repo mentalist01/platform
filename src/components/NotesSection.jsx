@@ -30,7 +30,7 @@ import Editor from './SelfHostedMonacoEditor';
 import ImageViewer from './ImageViewer';
 import StudentSearchSelect from './StudentSearchSelect';
 import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';
-import { buildDownloadUrl } from '../utils/downloadUrl';
+import { downloadAuthenticatedFile } from '../utils/fileDownload';
 import { ensureMonacoColorTheme, resolveMonacoColorTheme } from '../utils/monacoTheme';
 import { highlightPython } from '../utils/pythonHighlight';
 import {
@@ -42,8 +42,8 @@ import {
 } from '../utils/pythonTaskCatalog';
 import './NotesSection.css';
 import {
-  WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD,
-  WORKBOOK_HELPER_INSTALL_URL,
+  getWorkbookHelperInstall,
+  getWorkbookHelperUnsupportedMessage,
 } from '../utils/workbookHelperInstall';
 import {
   LESSON_SHARED_SCOPE,
@@ -308,6 +308,8 @@ const NotesSection = ({
   const [isRefreshingData, setIsRefreshingData] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [workbookAutoSyncStartingId, setWorkbookAutoSyncStartingId] = useState('');
+  const [downloadingFileIds, setDownloadingFileIds] = useState({});
+  const [downloadError, setDownloadError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [folders, setFolders] = useState([]);
   const [foldersError, setFoldersError] = useState('');
@@ -385,6 +387,8 @@ const NotesSection = ({
   const copyFeedbackTimerRef = useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const workbookHelperInstall = getWorkbookHelperInstall();
+  const workbookHelperSupported = workbookHelperInstall.supported;
   const getFileUrl = (file) => withStudentId(file?.url, effectiveStudentId);
   const getMemorySnapshotUrl = (file) => withStudentId(file?.memory?.boardSnapshot?.url, effectiveStudentId);
   const getImageTileManifestUrl = (file) => {
@@ -1839,16 +1843,17 @@ const NotesSection = ({
     );
   };
 
-  const handleDownload = (file) => {
-    const url = buildDownloadUrl(getFileUrl(file));
-    if (!url) return;
-    const link = document.createElement('a');
-    link.href = url;
-    if (file?.name) link.download = file.name;
-    link.rel = 'noopener';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+  const handleDownload = async (file) => {
+    if (downloadingFileIds[file.id]) return;
+    setDownloadError('');
+    setDownloadingFileIds((current) => ({ ...current, [file.id]: true }));
+    try {
+      await downloadAuthenticatedFile({ url: getFileUrl(file), name: file.name, fetchFile: authenticatedUploadsFetch });
+    } catch (error) {
+      setDownloadError(error.message || 'Не удалось скачать файл.');
+    } finally {
+      setDownloadingFileIds((current) => { const next = { ...current }; delete next[file.id]; return next; });
+    }
   };
 
   const handleStartWorkbookAutoSync = async (file) => {
@@ -3521,7 +3526,7 @@ const NotesSection = ({
           {foldersError && <p className="notes-task-hero__error">{foldersError}</p>}
         </header>
 
-        {['student', 'teacher'].includes(role) && WORKBOOK_HELPER_TASK_NUMBERS.has(normalizedCurrentTask) && WORKBOOK_HELPER_INSTALL_URL && (
+        {['student', 'teacher'].includes(role) && WORKBOOK_HELPER_TASK_NUMBERS.has(normalizedCurrentTask) && (
           <aside className="notes-workbook-install-card mx-3 mt-3 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3 sm:items-center">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
@@ -3529,13 +3534,13 @@ const NotesSection = ({
               </span>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-extrabold text-slate-900">Помощник для Excel и LibreOffice</p>
+                  <p className="text-sm font-extrabold text-slate-900">{workbookHelperSupported ? 'Помощник для Excel и LibreOffice' : 'Работа с таблицами'}</p>
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Установка один раз
+                    {workbookHelperInstall.badge}
                   </span>
                 </div>
                 <p className="mt-0.5 text-xs font-medium leading-5 text-slate-600">
-                  {TEXT_TO_WORKBOOK_TASK_NUMBERS.has(normalizedCurrentTask)
+                  {!workbookHelperSupported ? getWorkbookHelperUnsupportedMessage() : TEXT_TO_WORKBOOK_TASK_NUMBERS.has(normalizedCurrentTask)
                     ? 'Установите помощник один раз — затем основная кнопка «Excel / LibreOffice» откроет текст и пустую таблицу вместе.'
                     : 'После установки основная кнопка «Excel / LibreOffice» откроет таблицу и синхронизирует сохранения. Без установки используйте «В браузере».'}
                 </p>
@@ -3548,26 +3553,25 @@ const NotesSection = ({
                 )}
               </div>
             </div>
-            <div className="flex shrink-0 flex-col items-center gap-1">
+            {workbookHelperSupported && workbookHelperInstall.url && <div className="flex shrink-0 flex-col items-center gap-1">
               <a
-                href={WORKBOOK_HELPER_INSTALL_URL}
-                download={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD || undefined}
-                target={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? undefined : '_blank'}
+                href={workbookHelperInstall.url}
+                download={workbookHelperInstall.isDownload || undefined}
+                target={workbookHelperInstall.isDownload ? undefined : '_blank'}
                 rel="noopener noreferrer"
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
               >
                 <Download size={14} aria-hidden="true" />
-                {WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? 'Установить помощник' : 'Установить из Microsoft Store'}
+                {workbookHelperInstall.label}
               </a>
               <p className="max-w-[230px] text-center text-[10px] font-medium leading-4 text-slate-500">
-                {WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD
-                  ? 'Временная версия до публикации в Microsoft Store. Windows может показать предупреждение при первом запуске.'
-                  : 'Установка и обновления выполняются через Microsoft Store.'}
+                {workbookHelperInstall.instructions}
               </p>
-            </div>
+            </div>}
           </aside>
         )}
 
+        {downloadError && <p role="alert" className="mx-3 mt-3 text-sm font-semibold text-rose-600">{downloadError}</p>}
         <div
           key={`notes-library-${currentFolderId || 'root'}`}
           onDrop={uploadBlockedByRole ? undefined : handleDrop}
@@ -4018,10 +4022,6 @@ const NotesSection = ({
                     ).trim();
                     const normalizedContentMatchQuery = contentMatchQuery.toLocaleLowerCase('ru-RU');
                     const isContentSearchTarget = Boolean(contentMatchQuery);
-                    const textPreviewBaseUrl = isTextFile(f.name) ? getFileUrl(f) : '';
-                    const textPreviewUrl = textPreviewBaseUrl && isContentSearchTarget
-                      ? `${textPreviewBaseUrl}#:~:text=${encodeURIComponent(contentMatchQuery)}`
-                      : textPreviewBaseUrl;
                     const cheatsheetSourceLines = cheatsheetSourceCode ? cheatsheetSourceCode.split(/\r?\n/) : [];
                     const cheatsheetLineCount = cheatsheetSourceLines.length;
                     const canCopyLoadedCode = Boolean(
@@ -4424,17 +4424,20 @@ const NotesSection = ({
                                   />
                                 </button>
                               )}
-                              {!isPyFile(f.name) && !(role === 'student' && isExcelFile(f.name)) && (
+                              {getFileUrl(f) && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDownload(f);
+                                    void handleDownload(f);
                                   }}
-                                  className="notes-explorer-file-action-btn rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                                  className="notes-explorer-file-action-btn !w-auto !gap-1.5 !px-2 !opacity-100 rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                                   title="Скачать файл"
+                                  aria-label={`Скачать «${f.name}»`}
+                                  disabled={Boolean(downloadingFileIds[f.id])}
                                   type="button"
                                 >
                                   <Download size={16} />
+                                  <span>{downloadingFileIds[f.id] ? 'Скачиваем…' : 'Скачать'}</span>
                                 </button>
                               )}
                               {['student', 'teacher'].includes(role) && (isExcelFile(f.name) || isTextToWorkbookSource) && (
@@ -4460,7 +4463,7 @@ const NotesSection = ({
                                       : <Monitor size={15} className={isWorkbookAutoSyncStarting ? 'animate-pulse' : ''} />}
                                     <span>В браузере</span>
                                   </button>}
-                                  <button
+                                  {workbookHelperSupported && <button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       void handleLaunchWorkbookHelper(f);
@@ -4472,7 +4475,7 @@ const NotesSection = ({
                                   >
                                     <FileSpreadsheet size={15} className={isWorkbookHelperOpening ? 'animate-pulse' : ''} />
                                     <span>{isWorkbookHelperOpening ? 'Открываем…' : 'Excel / LibreOffice'}</span>
-                                  </button>
+                                  </button>}
                                 </div>
                               )}
                               {movable && (

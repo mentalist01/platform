@@ -12,9 +12,49 @@ export function balanceCents(value) {
   return cents;
 }
 const month = date => String(date || '').slice(0, 7);
-const total = entries => entries.reduce((sum, entry) => sum + entry.creditCents, 0);
+const received = entries => entries.reduce((sum, entry) => sum + entry.creditCents, 0);
+const adjusted = entries => entries.reduce((sum, entry) => sum + (entry.type === 'adjustment' ? entry.adjustmentCents : 0), 0);
+const total = entries => received(entries) + adjusted(entries);
 const spent = account => Object.values(account.allocations).reduce((sum, allocation) => sum + allocation.cents, 0);
 export const availableCents = account => total(account.entries) - spent(account);
+
+// Keep the origin of money when a correction removes only the free balance.
+// Older journals have no funding slices; their current allocations use FIFO.
+function fundingState(account) {
+  const funds = account.entries.filter(e => e.creditCents > 0 || (e.type === 'adjustment' && e.adjustmentCents > 0))
+    .map(e => ({ entryId: e.id, month: e.month || month(e.at), cash: e.creditCents > 0, cents: e.creditCents || e.adjustmentCents }));
+  const byId = new Map(funds.map(fund => [fund.entryId, fund]));
+  const allocationFunds = new Map();
+  const consume = (cents, slices) => {
+    if (slices) {
+      if (!Array.isArray(slices) || slices.some(slice => !object(slice) || !Number.isSafeInteger(slice.cents) || slice.cents <= 0)
+        || slices.reduce((sum, slice) => sum + slice.cents, 0) !== cents) throw balanceError('Повреждены источники денег.', 'balance_corrupt', 503);
+      const ids = new Set();
+      for (const slice of slices) {
+        const fund = byId.get(slice.entryId);
+        if (!fund || ids.has(slice.entryId) || !Number.isSafeInteger(slice.cents) || slice.cents <= 0 || fund.cents < slice.cents) throw balanceError('Повреждены источники денег.', 'balance_corrupt', 503);
+        ids.add(slice.entryId); fund.cents -= slice.cents;
+      }
+      return slices;
+    }
+    const result = [];
+    let remaining = cents;
+    for (const fund of funds) {
+      const used = Math.min(remaining, fund.cents);
+      if (used) { fund.cents -= used; remaining -= used; result.push({ entryId: fund.entryId, cents: used }); }
+      if (!remaining) break;
+    }
+    if (remaining) throw balanceError('Нарушена сумма источников баланса.', 'balance_corrupt', 503);
+    return result;
+  };
+  const allocations = Object.values(account.allocations).sort((a, b) => a.dayKey.localeCompare(b.dayKey) || a.time.localeCompare(b.time) || a.markKey.localeCompare(b.markKey));
+  // Explicit slices stay assigned even if older lessons are subsequently added.
+  for (const allocation of allocations.filter(a => a.funds)) allocationFunds.set(allocation.markKey, consume(allocation.cents, allocation.funds));
+  for (const entry of account.entries.filter(e => e.type === 'adjustment' && e.adjustmentCents < 0 && e.funds)) consume(-entry.adjustmentCents, entry.funds);
+  for (const allocation of allocations.filter(a => !a.funds)) allocationFunds.set(allocation.markKey, consume(allocation.cents));
+  for (const entry of account.entries.filter(e => e.type === 'adjustment' && e.adjustmentCents < 0 && !e.funds)) consume(-entry.adjustmentCents);
+  return { funds, allocationFunds, consume };
+}
 
 export function normalizeStudentBalances(value) {
   if (value == null) return null;
@@ -26,11 +66,16 @@ export function normalizeStudentBalances(value) {
     for (const entry of account.entries) {
       if (!entry.id || ids.has(entry.id) || !Number.isSafeInteger(entry.creditCents) || entry.creditCents < 0
         || !Number.isSafeInteger(entry.cents) || entry.cents < 0) throw balanceError('Повреждена операция баланса.', 'balance_corrupt', 503);
+      if (entry.type === 'adjustment') {
+        if (!Number.isSafeInteger(entry.adjustmentCents) || Math.abs(entry.adjustmentCents) !== entry.cents || entry.creditCents !== 0) throw balanceError('Повреждена корректировка баланса.', 'balance_corrupt', 503);
+      } else if (Object.hasOwn(entry, 'adjustmentCents')) throw balanceError('Повреждена операция баланса.', 'balance_corrupt', 503);
       ids.add(entry.id);
     }
     if (Object.entries(account.allocations).some(([key, a]) => !object(a) || key !== a.markKey || !Number.isSafeInteger(a.cents) || a.cents <= 0
       || !/^\d{4}-\d{2}-\d{2}$/.test(a.dayKey) || !/^\d{2}:\d{2}$/.test(a.time))) throw balanceError('Повреждено списание баланса.', 'balance_corrupt', 503);
-    if (!Number.isSafeInteger(total(account.entries)) || !Number.isSafeInteger(spent(account)) || availableCents(account) < 0) throw balanceError('Нарушена сумма баланса.', 'balance_corrupt', 503);
+    if (!Number.isSafeInteger(received(account.entries)) || !Number.isSafeInteger(adjusted(account.entries))
+      || !Number.isSafeInteger(total(account.entries)) || !Number.isSafeInteger(spent(account)) || !Number.isSafeInteger(availableCents(account)) || availableCents(account) < 0) throw balanceError('Нарушена сумма баланса.', 'balance_corrupt', 503);
+    fundingState(account);
   }
   return copy(value);
 }
@@ -77,6 +122,36 @@ export function addBalanceReceipt(account, { id, amount, at, senderName = '', no
   return { duplicate: false };
 }
 
+export function adjustBalance(account, { mode, amount, reason, idempotencyKey, expectedAvailable } = {}, now) {
+  if (!['add', 'subtract', 'set'].includes(mode) || !['number', 'string'].includes(typeof amount) || String(amount).trim() === ''
+    || !['number', 'string'].includes(typeof expectedAvailable) || String(expectedAvailable).trim() === '') throw balanceError('Укажите действие, сумму и текущий баланс.', 'balance_invalid', 400);
+  const cents = balanceCents(amount);
+  const expectedCents = Math.round(Number(expectedAvailable) * 100);
+  if (!Number.isSafeInteger(expectedCents)) throw balanceError('Некорректный текущий баланс.', 'balance_invalid', 400);
+  const note = typeof reason === 'string' ? reason.trim() : '';
+  if (!note || note.length > 500 || typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 200
+    || expectedCents < 0 || (mode === 'set' ? cents < 0 : cents <= 0)) throw balanceError('Укажите корректную сумму и причину изменения баланса.', 'balance_invalid', 400);
+  const existing = account.entries.find(e => e.type === 'adjustment' && e.idempotencyKey === idempotencyKey);
+  if (existing) {
+    if (existing.mode !== mode || existing.requestedCents !== cents || existing.note !== note || existing.expectedAvailableCents !== expectedCents) throw balanceError('Этот идентификатор уже использован для другой корректировки.', 'balance_idempotency_conflict');
+    return { duplicate: true, entry: existing };
+  }
+  const before = availableCents(account);
+  if (before !== expectedCents) throw balanceError('Баланс изменился. Обновите его и проверьте корректировку ещё раз.', 'balance_stale');
+  const delta = mode === 'set' ? cents - before : mode === 'subtract' ? -cents : cents;
+  const after = before + delta;
+  if (!Number.isSafeInteger(after) || after < 0) throw balanceError('Нельзя списать больше свободного остатка. Оплаченные занятия сохраняются.', 'balance_insufficient');
+  const state = fundingState(account);
+  const slices = delta < 0 ? state.consume(-delta) : undefined;
+  // Pin legacy allocations before the new correction can change their funding.
+  for (const allocation of Object.values(account.allocations)) if (!allocation.funds) allocation.funds = copy(state.allocationFunds.get(allocation.markKey));
+  const entry = journal(account, 'adjustment', Math.abs(delta), {
+    adjustmentCents: delta, mode, requestedCents: cents, expectedAvailableCents: before, idempotencyKey,
+    note, beforeAvailableCents: before, afterAvailableCents: after, ...(slices ? { funds: slices } : {}),
+  }, now);
+  return { duplicate: false, entry };
+}
+
 export function confirmBalancePending(account, id, manualEntryId, now) {
   const receipt = account.pending[id];
   if (!receipt) throw balanceError('Уведомление уже обработано или не найдено.');
@@ -114,8 +189,9 @@ export function reserveBalanceAllocation(account, occurrence, now, { force = fal
   if (!force && account.blocked[occurrence.markKey]) return false;
   if (!occurrence.eligible || occurrence.cents <= 0) throw balanceError('Нельзя оплатить отменённое, пробное или неподходящее занятие.');
   if (availableCents(account) < occurrence.cents) throw balanceError('Недостаточно денег на балансе ученика. Внесите полученный платёж в разделе «Балансы».', 'balance_insufficient');
+  const funds = fundingState(account).consume(occurrence.cents);
   delete account.blocked[occurrence.markKey];
-  account.allocations[occurrence.markKey] = { ...occurrence, paidAt: now };
+  account.allocations[occurrence.markKey] = { ...occurrence, funds, paidAt: now };
   journal(account, 'reserve', occurrence.cents, { markKey: occurrence.markKey, dayKey: occurrence.dayKey, time: occurrence.time, note: 'Занятие оплачено из баланса' }, now);
   return true;
 }
@@ -168,30 +244,25 @@ export function reconcileBalanceAccount(account, occurrences, now, { removedKeys
 // Project money into the existing monthly finance reports. Funds not assigned
 // to a lesson remain in their receipt month; a transfer never creates income.
 export function balancePaidByMonth(account) {
-  const funds = account.entries.filter(e => e.creditCents > 0).map(e => ({ month: e.month || month(e.at), cents: e.creditCents }));
+  const { funds, allocationFunds } = fundingState(account);
+  const cashIds = new Set(funds.filter(fund => fund.cash).map(fund => fund.entryId));
   const result = {};
-  let index = 0;
-  for (const allocation of Object.values(account.allocations).sort((a, b) => a.dayKey.localeCompare(b.dayKey) || a.time.localeCompare(b.time))) {
-    let remaining = allocation.cents;
-    while (remaining > 0 && index < funds.length) {
-      const used = Math.min(remaining, funds[index].cents);
-      funds[index].cents -= used;
-      remaining -= used;
-      if (!funds[index].cents) index += 1;
-    }
-    result[month(allocation.dayKey)] = (result[month(allocation.dayKey)] || 0) + allocation.cents;
+  for (const allocation of Object.values(account.allocations)) {
+    const cash = allocationFunds.get(allocation.markKey).filter(slice => cashIds.has(slice.entryId)).reduce((sum, slice) => sum + slice.cents, 0);
+    if (cash) result[month(allocation.dayKey)] = (result[month(allocation.dayKey)] || 0) + cash;
   }
-  for (const fund of funds) result[fund.month] = (result[fund.month] || 0) + fund.cents;
+  for (const fund of funds) if (fund.cash && fund.cents) result[fund.month] = (result[fund.month] || 0) + fund.cents;
   return Object.fromEntries(Object.entries(result).map(([key, cents]) => [key, cents / 100]));
 }
 
 export function balanceSummary(account, issues = []) {
   return {
     available: availableCents(account) / 100,
-    received: total(account.entries) / 100,
+    received: received(account.entries) / 100,
+    adjusted: adjusted(account.entries) / 100,
     allocated: spent(account) / 100,
     paidLessons: Object.keys(account.allocations).length,
-    entries: [...account.entries].reverse().map(e => ({ ...e, amount: e.cents / 100, balance: (e.balanceCents || 0) / 100 })),
+    entries: [...account.entries].reverse().map(e => ({ ...e, amount: e.cents / 100, ...(e.type === 'adjustment' ? { adjustmentAmount: e.adjustmentCents / 100 } : {}), balance: (e.balanceCents || 0) / 100 })),
     pending: Object.values(account.pending || {}),
     issues,
   };

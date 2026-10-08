@@ -348,7 +348,8 @@ const server = http.createServer(async (req, res) => {
       if (state.jobs[payload.id]?.pythonTimeline.revision !== payload.revision) throw new Error('Монтаж изменился. Повторите просмотр');
       await assertPlaybackOwner();
       return json(res, 200, { videoUrl: `/python/editor/video/${source.id}?access=${source.access}`,
-        sourceStart: source.sourceStart, sourceEnd: source.sourceEnd, offset: source.offset });
+        sourceStart: source.sourceStart, sourceEnd: source.sourceEnd, requestedEnd: source.requestedEnd,
+        complete: source.complete, offset: source.offset });
     }
     if (req.url === '/python/editor/preview') {
       let job, clips;

@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { recorderPackage, recorderRelease } from '../server/recorderPackage.js';
+import { MAC_PACKAGE_NAME, workbookHelperMacPackage } from '../tools/workbook-helper-mac/package.mjs';
 import { checkTeacherUpdateNotes } from './check-teacher-update-notes.mjs';
 
 checkTeacherUpdateNotes();
@@ -124,6 +125,8 @@ await copyMonacoAssets();
 const recorderInstaller = path.join(outDir, 'assets', `IVAN100-Recorder-Windows-${recorderRelease().manifest.version}.zip`);
 await fs.writeFile(recorderInstaller, recorderPackage());
 console.log(`[build] packaged Windows recorder ${recorderRelease().manifest.version}`);
+await fs.writeFile(path.join(outDir, 'assets', MAC_PACKAGE_NAME), workbookHelperMacPackage());
+console.log('[build] packaged macOS workbook helper');
 await verifyInitialBundle();
 await precompressDirectory(outDir);
 console.log(

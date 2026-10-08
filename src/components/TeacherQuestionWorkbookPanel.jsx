@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, FileSpreadsheet, Plus, RefreshCcw, Trash2 } from 'lucide-react';
-import { api } from '../services/api';
+import { api, authenticatedUploadsFetch } from '../services/api';
 import useWorkbookHelper from '../hooks/useWorkbookHelper';
 import { buildDownloadUrl } from '../utils/downloadUrl';
-import { WORKBOOK_HELPER_INSTALL_URL, WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD } from '../utils/workbookHelperInstall';
+import { getWorkbookHelperInstall, getWorkbookHelperUnsupportedMessage } from '../utils/workbookHelperInstall';
+import { downloadAuthenticatedFile } from '../utils/fileDownload';
 import './TeacherQuestionWorkbookPanel.css';
 
 const workbookAttachments = (attachments, taskNumber) => (Array.isArray(attachments) ? attachments : [])
@@ -19,6 +20,8 @@ function WorkbookPanel({ studentId, taskNumber, levelId, questionId, attachments
   const [state, setState] = useState({ solutions: [], loading: true, error: '' });
   const [deletingId, setDeletingId] = useState('');
   const { workbookHelperState, launchWorkbookHelper } = useWorkbookHelper();
+  const workbookHelperInstall = getWorkbookHelperInstall();
+  const workbookHelperSupported = workbookHelperInstall.supported;
   const files = useMemo(() => workbookAttachments(attachments, taskNumber), [attachments, taskNumber]);
   const load = useCallback(async () => {
     const payload = await api.getQuestionWorkbookSolutions(studentId, taskNumber, levelId, questionId);
@@ -60,6 +63,13 @@ function WorkbookPanel({ studentId, taskNumber, levelId, questionId, attachments
       startFresh: !solution, solutionFileId: solution?.fileId || '',
     },
   });
+  const download = async (file) => {
+    try {
+      const url = new URL(file.url, window.location.origin);
+      if (studentId) url.searchParams.set('studentId', studentId);
+      await downloadAuthenticatedFile({ url: url.toString(), name: file.name, fetchFile: authenticatedUploadsFetch });
+    } catch (error) { setState((current) => ({ ...current, error: error.message || 'Не удалось скачать таблицу.' })); }
+  };
   const remove = async (solution) => {
     setDeletingId(solution.fileId);
     try {
@@ -75,7 +85,7 @@ function WorkbookPanel({ studentId, taskNumber, levelId, questionId, attachments
       <header>
         <span className="teacher-question-workbooks__symbol"><FileSpreadsheet size={20} /></span>
         <div><h3>Решения преподавателя</h3><p>{editable
-          ? 'Сохраняйте в LibreOffice (Ctrl+S) — файл появится здесь и сразу будет доступен ученику.'
+          ? workbookHelperSupported ? `Сохраняйте в Excel или LibreOffice (${workbookHelperInstall.saveShortcut}) — файл появится здесь и сразу будет доступен ученику.` : getWorkbookHelperUnsupportedMessage()
           : 'Преподаватель сохранил эти таблицы для вас. Их можно скачать.'}</p></div>
         <button type="button" onClick={() => void refresh()} disabled={state.loading} title="Обновить решения преподавателя"><RefreshCcw size={16} className={state.loading ? 'animate-spin' : ''} /><span>Обновить</span></button>
       </header>
@@ -83,10 +93,11 @@ function WorkbookPanel({ studentId, taskNumber, levelId, questionId, attachments
         const saved = state.solutions.filter((solution) => solution.attachmentId === file.id && solution.canEdit === true);
         return <div className="teacher-question-workbooks__source" key={file.id}>
           <span><FileSpreadsheet size={16} />{file.name}</span>
-          <button type="button" onClick={() => void open(file)} disabled={busy || state.loading || saved.length >= 3}>
+          {file.url && <button type="button" onClick={() => void download(file)}><Download size={16} />Скачать</button>}
+          {workbookHelperSupported && <button type="button" onClick={() => void open(file)} disabled={busy || state.loading || saved.length >= 3}>
             {saved.length ? <Plus size={16} /> : <FileSpreadsheet size={16} />}
             {saved.length ? 'Новое решение в LibreOffice' : 'Открыть в LibreOffice'}
-          </button>
+          </button>}
           {saved.length >= 3 && <small>Сохранено 3 решения. Продолжите одно из них или удалите ненужное.</small>}
         </div>;
       })}
@@ -100,7 +111,7 @@ function WorkbookPanel({ studentId, taskNumber, levelId, questionId, attachments
             <FileSpreadsheet size={19} />
             <div><strong>{solution.name}</strong><small>{[solution.authorName, savedAt, solution.size].filter(Boolean).join(' · ')}</small></div>
             <div className="teacher-question-workbooks__actions">
-              {editable && solution.canEdit === true && file && <button type="button" onClick={() => void open(file, solution)} disabled={busy}>Продолжить в LibreOffice</button>}
+              {editable && workbookHelperSupported && solution.canEdit === true && file && <button type="button" onClick={() => void open(file, solution)} disabled={busy}>Продолжить в LibreOffice</button>}
               <a href={buildDownloadUrl(url.toString())} download={solution.name}><Download size={16} />Скачать</a>
               {editable && solution.canEdit === true && <button type="button" onClick={() => void remove(solution)} disabled={busy} title={`Удалить решение ${solution.name}`} aria-label={`Удалить решение ${solution.name}`}><Trash2 size={16} /></button>}
             </div>
@@ -111,7 +122,10 @@ function WorkbookPanel({ studentId, taskNumber, levelId, questionId, attachments
       {state.error && <p className="teacher-question-workbooks__error" role="alert">{state.error}</p>}
       {editable && workbookHelperState.status !== 'idle' && <div className="teacher-question-workbooks__hint" role="status">
         {workbookHelperState.message}
-        {workbookHelperState.status === 'fallback' && WORKBOOK_HELPER_INSTALL_URL && <a href={WORKBOOK_HELPER_INSTALL_URL} download={WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD || undefined}>Скачать помощник</a>}
+        {workbookHelperSupported && workbookHelperState.status === 'fallback' && workbookHelperInstall.url && <>
+          <a href={workbookHelperInstall.url} download={workbookHelperInstall.isDownload || undefined}>{workbookHelperInstall.label}</a>
+          {workbookHelperInstall.platform === 'mac' && <span>{workbookHelperInstall.badge}. {workbookHelperInstall.instructions}</span>}
+        </>}
       </div>}
     </section>
   );

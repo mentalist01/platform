@@ -2743,47 +2743,30 @@ const TeacherCalendarSection = ({
     setLessonPanelError('');
     setLessonPanelSuccess('');
     try {
-      const month = getFinanceMonthFromDayKey(eventDetailsDayKey);
-      const groupLessonPrice = normalizeFinanceAmount(member?.lessonPrice) || 1000;
-      const snapshot = await api.getTeacherFinance(month, teacherId);
-      const financeStudent = (Array.isArray(snapshot?.students) ? snapshot.students : [])
-        .find((entry) => String(entry?.id || '').trim() === studentId);
-      if (financeStudent) {
-        const record = financeStudent.record || {};
-        const profile = financeStudent.profile || {};
-        const currentPaid = normalizeFinanceAmount(record.paidAmount);
-        const nextPaid = undo
-          ? Math.max(0, currentPaid - groupLessonPrice)
-          : currentPaid + groupLessonPrice;
-        await api.updateTeacherFinanceStudent(
-          studentId,
-          buildTeacherFinanceLessonPayload(record, profile, {
-            month,
-            paidAmount: nextPaid,
-          }),
-          teacherId
-        );
-      }
-      if (undo) await removeLessonPanelMark(markKey);
-      else await saveLessonPanelMark(markKey);
-      setLessonPanelSuccess(
-        undo
-          ? `Оплата ученика «${member.studentName || 'Ученик'}» отменена (${groupLessonPrice.toLocaleString('ru-RU')} ₽).`
-          : `Оплата ученика «${member.studentName || 'Ученик'}» отмечена (${groupLessonPrice.toLocaleString('ru-RU')} ₽).`
-      );
+      const { setLessonPayment } = await import('../services/lessonPayments.js');
+      const result = await setLessonPayment(teacherId, {
+        ...eventDetails,
+        dayKey: eventDetailsDayKey,
+        studentId,
+        time: eventDetails.time || formatMinutesAsTime(eventDetails.startMinutes),
+      }, !undo);
+      const nextMarks = normalizeLessonPanelMarks(result.marks);
+      setLessonPanelMarks(nextMarks);
+      writeLessonPanelMarks(teacherId, nextMarks);
+      const action = result.fromBalance ? (undo ? 'Возвращено на баланс' : 'Оплачено из баланса') : (undo ? 'Оплата вычтена' : 'Оплата добавлена');
+      setLessonPanelSuccess(`${member.studentName || 'Ученик'}: ${action} — ${result.amount.toLocaleString('ru-RU')} ₽.`);
     } catch (err) {
       setLessonPanelError(err?.message || 'Не удалось обновить оплату ученика.');
     } finally {
       setLessonPanelFinanceBusy('');
     }
   }, [
+    eventDetails,
     eventDetailsIsGroup,
     eventDetailsCancelled,
     eventDetailsDayKey,
     lessonPanelFinanceBusy,
     lessonPanelMarks,
-    removeLessonPanelMark,
-    saveLessonPanelMark,
     teacherId,
   ]);
 

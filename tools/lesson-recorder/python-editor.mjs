@@ -113,6 +113,7 @@ async function playbackSource(at) {
   if (!sourceCache.has(key)) {
     const pending = context.request('/python/editor/source', {id:current.id,revision:current.pythonTimeline.revision,at}).then(result => {
       if (!result.videoUrl?.startsWith('/python/editor/video/')) throw Error('Исходник недоступен');
+      if (result.complete === false) sourceCache.delete(key);
       return result;
     }).catch(error => { sourceCache.delete(key); throw error; });
     sourceCache.set(key,pending);
@@ -121,16 +122,40 @@ async function playbackSource(at) {
   return sourceCache.get(key);
 }
 const player = new SourceTimelinePlayer(find('video'), playbackSource,
-  seconds => { if (videoUrl && previewRevision === job()?.pythonTimeline.revision) setPlayhead(seconds + (previewClip ? layout.find(item=>item.id===previewClip)?.time || 0 : 0),false,false); },
-  text => {sourceCache.clear();warmedSource='';discardPreview();render();notify(text,true);});
+  seconds => { if (videoUrl && previewRevision === job()?.pythonTimeline.revision) setPlayhead(seconds + (previewClip ? layout.find(item=>item.id===previewClip)?.time || 0 : 0),false,false); syncPlaybackControls(); },
+  text => {sourceCache.clear();warmedSource='';if(!player.source)discardPreview();render();syncPlaybackControls();notify(text,true);});
 const playbackTools = document.createElement('div'); playbackTools.className='pe-tools pe-playback-controls'; playbackTools.hidden=true;
 playbackTools.innerHTML='<button type="button" aria-label="Воспроизведение монтажа">▶ Воспроизвести</button><button type="button" aria-label="Звук предпросмотра">♫ Звук включён</button><select aria-label="Скорость просмотра"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.5">1,5×</option><option value="2">2×</option></select>';
 style.textContent += '.python-editor .pe-playback-controls{flex:none}.python-editor .pe-playback-controls select{width:80px;padding:7px;font-size:12px}.python-editor--focus .pe-view{overflow-y:auto}.python-editor--focus .pe-playback-controls{margin-top:6px}.python-editor--focus .pe-view .pe-monitor{min-height:100px}';
 find('.pe-play-tools').append(playbackTools);
 style.textContent += '.python-editor .pe-playback-controls{display:contents}.python-editor .pe-play-tools{flex:none}';
-playbackTools.children[0].onclick=()=>{if(player.playing)player.pause();else void player.play().catch(error=>notify(error.message,true));};
+async function togglePlayback() {
+  try { if(player.playing)player.pause();else await player.play(); }
+  catch(error){notify(error.message,true);}
+  finally { syncPlaybackControls(); }
+}
+playbackTools.children[0].onclick=()=>{void togglePlayback();};
 playbackTools.children[1].onclick=()=>{const muted=!player.active.muted;for(const video of player.videos)video.muted=muted;playbackTools.children[1].textContent=muted?'♫ Без звука':'♫ Звук включён';};
 playbackTools.children[2].onchange=event=>{for(const video of player.videos)video.defaultPlaybackRate=video.playbackRate=Number(event.target.value);};
+const fullscreenButton = document.createElement('button'); fullscreenButton.type='button'; fullscreenButton.textContent='⛶ На весь экран'; fullscreenButton.setAttribute('aria-label','Полноэкранный просмотр'); playbackTools.append(fullscreenButton);
+const fullscreenControls = document.createElement('div'); fullscreenControls.className='pe-fullscreen-controls';
+fullscreenControls.innerHTML='<button type="button" aria-label="Воспроизведение в полном экране">▶ Воспроизвести</button><input type="range" min="0" step="0.01" aria-label="Позиция просмотра в полном экране"><output></output><button type="button" aria-label="Выйти из полного экрана">⛶ Свернуть</button>';
+const monitor=find('.pe-monitor'); monitor.append(fullscreenControls);
+style.textContent += '.pe-fullscreen-controls{display:none}.pe-monitor:fullscreen{width:100vw;height:100dvh;aspect-ratio:auto;border:0;border-radius:0;background:#080b13}.pe-monitor:fullscreen .pe-player,.pe-monitor:fullscreen .pe-live-image{height:calc(100% - 66px)}.pe-monitor:fullscreen .pe-fullscreen-controls{display:flex;position:absolute;bottom:0;left:0;right:0;gap:12px;padding:14px;align-items:center;background:#171b2a}.pe-fullscreen-controls input{flex:1;min-width:40px}.pe-fullscreen-controls output{font:12px Consolas,monospace;white-space:nowrap}';
+async function toggleFullscreen() {
+  try { if(document.fullscreenElement === monitor)await document.exitFullscreen();else await monitor.requestFullscreen(); }
+  catch(error){notify(`Не удалось открыть полный экран: ${error.message}`,true);}
+}
+fullscreenButton.onclick=()=>{void toggleFullscreen();}; fullscreenControls.children[3].onclick=()=>{void toggleFullscreen();};
+fullscreenControls.children[0].onclick=()=>{void togglePlayback();}; fullscreenControls.children[1].oninput=event=>setPlayhead(Number(event.target.value));
+for(const video of player.videos){video.addEventListener('play',syncPlaybackControls);video.addEventListener('pause',syncPlaybackControls);video.addEventListener('ended',syncPlaybackControls);video.onclick=()=>{void togglePlayback();};video.ondblclick=()=>{void toggleFullscreen();};}
+function syncPlaybackControls() {
+  const text=player.playing?'Ⅱ Пауза просмотра':'▶ Воспроизвести';
+  playbackTools.children[0].textContent=text; fullscreenControls.children[0].textContent=text;
+  playbackTools.children[0].disabled=fullscreenControls.children[0].disabled=player.loading || !player.source;
+  fullscreenControls.children[1].max=String(totalTime());fullscreenControls.children[1].value=String(playhead);
+  fullscreenControls.children[2].textContent=`${clock(playhead)} / ${clock(totalTime())}`;
+}
 const discardPreview = () => { previewGeneration++; player.stop(); videoUrl = ''; previewClip = ''; liveWanted = true; for(const video of player.videos)video.hidden=true; find('.pe-empty').hidden = false; playbackTools.hidden=true; };
 function showSettings(shown) {
   preparation.hidden = !shown; fragmentTools.hidden = shown;
@@ -218,7 +243,7 @@ function renderMonitor(current, state) {
   find('.pe-empty').hidden = live || Boolean(videoUrl && player.source);
   find('.pe-seek').hidden = live;
   playbackTools.hidden = live || !videoUrl;
-  playbackTools.children[0].textContent = player.playing ? 'Ⅱ Пауза просмотра' : '▶ Воспроизвести';
+  syncPlaybackControls();
   find('[data-op=live]').hidden = !active || liveWanted;
   find('.pe-live-label').textContent = active ? state.obs?.outputPaused ? 'Экран записи · пауза' : '● Экран записи' : 'Предпросмотр · запись ещё не начата';
   const timeline = current?.pythonTimeline;

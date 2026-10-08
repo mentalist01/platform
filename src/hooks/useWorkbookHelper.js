@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '../services/api';
 import { getExternalApiOrigin } from '../utils/runtimeUrls';
+import { getWorkbookHelperInstall, getWorkbookHelperUnsupportedMessage } from '../utils/workbookHelperInstall';
 
 const FALLBACK_HINT_DELAY_MS = 1800;
 
@@ -43,6 +44,11 @@ const useWorkbookHelper = () => {
 
     clearFallbackTimer();
     clearProtocolObservation();
+    const helperInstall = getWorkbookHelperInstall();
+    if (!helperInstall.supported) {
+      setState(buildState('unsupported', { sourceFileId, fileName, message: getWorkbookHelperUnsupportedMessage() }));
+      return { ok: false, unsupported: true };
+    }
     setState(buildState('launching', {
       sourceFileId,
       fileName,
@@ -66,7 +72,7 @@ const useWorkbookHelper = () => {
         launchMode,
         solutionFileId,
         message: payload?.opensSourceText
-          ? 'Открываем текст в Блокноте и пустую таблицу в Excel или LibreOffice…'
+          ? `Открываем текст в ${helperInstall.platform === 'mac' ? 'TextEdit' : 'Блокноте'} и пустую таблицу в Excel или LibreOffice…`
           : 'Открываем файл в Excel или LibreOffice…',
         expiresAt: String(payload?.expiresAt || ''),
       }));
@@ -79,9 +85,9 @@ const useWorkbookHelper = () => {
             ? buildState('opened', {
                 ...current,
                 message: payload?.opensSourceText
-                  ? 'Текст открыт в Блокноте, пустая таблица — в Excel или LibreOffice.'
+                  ? `Текст открыт в ${helperInstall.platform === 'mac' ? 'TextEdit' : 'Блокноте'}, пустая таблица — в Excel или LibreOffice.`
                   : questionContext?.studentId
-                    ? 'Сохраняйте таблицу в LibreOffice (Ctrl+S). Ваше решение появится под заданием и сразу будет доступно ученику.'
+                    ? `Сохраняйте таблицу в Excel или LibreOffice (${helperInstall.saveShortcut}). Ваше решение появится под заданием и сразу будет доступно ученику.`
                   : 'Помощник открыт — сохранения будут появляться в конспектах автоматически.',
               })
             : current
@@ -100,7 +106,7 @@ const useWorkbookHelper = () => {
                 ...current,
                 message: questionContext?.studentId
                   ? 'Если таблица не открылась, установите помощник Excel и LibreOffice и попробуйте снова.'
-                  : 'Не открылось? Локальный помощник должен быть установлен заранее. Для таблицы выберите «Решать» в браузере.',
+                  : 'Не открылось? Установите помощник для вашего устройства или выберите «В браузере». Можно также скачать таблицу.',
               })
             : current
         ));

@@ -62,3 +62,33 @@ test('same-URL seeks wait for pending metadata and only the latest seek moves th
   await Promise.all([first,latest]);
   assert.equal(video.currentTime,4.75);assert.equal(player.time,.75);assert.equal(player.loading,false);
 });
+
+test('physical EOF before the last take stops at available media without claiming or regressing the montage end',async()=>{
+  const clips=[{start:0,end:12.699},{start:13.266,end:17.333},{start:17.999,end:24.199}];
+  // Cover both old metadata that overstated the source and new partial-window metadata.
+  for(const source of [
+    {sourceEnd:24.766},
+    {sourceEnd:21.533,requestedEnd:24.766,complete:false},
+  ]){
+    const times=[],errors=[],video=new Video();video.duration=21.533;
+    const player=new SourceTimelinePlayer(video,async()=>({videoUrl:'short-source',offset:0,...source}),time=>times.push(time),error=>errors.push(error));
+    player.configure(clips);await player.seek(17);player.playing=true;video.currentTime=21.533;
+    player.tick(true);player.tick();
+    assert.equal(player.playing,false);assert.equal(player.time,20.3);
+    assert.ok(times.every(time=>time<=20.3),'An early EOF must never invent the missing final seconds');
+    assert.equal(errors.length,1);assert.match(errors[0],/исходнике/);
+    assert.deepEqual(player.clips,clips,'The recorded timeline is preserved for later source growth or repair');
+  }
+});
+
+test('complete source windows cross into the next window without being treated as missing media',async t=>{
+  const previousRaf=globalThis.requestAnimationFrame,previousCancel=globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame=()=>1;globalThis.cancelAnimationFrame=()=>{};
+  t.after(()=>{globalThis.requestAnimationFrame=previousRaf;globalThis.cancelAnimationFrame=previousCancel;});
+  const errors=[],player=new SourceTimelinePlayer(new Video(),async at=>{
+    const slot=Math.floor(at/30);return{videoUrl:'complete-'+slot,offset:-slot*30,sourceEnd:(slot+1)*30,requestedEnd:(slot+1)*30,complete:true};
+  },()=>{},error=>errors.push(error));
+  player.configure([{start:29,end:32}]);await player.seek(.5,true);await flushed();
+  player.active.currentTime=30;player.tick(true);await flushed();
+  assert.equal(player.playing,true);assert.equal(player.index,0);assert.equal(player.source.sourceEnd,60);assert.deepEqual(errors,[]);
+});
