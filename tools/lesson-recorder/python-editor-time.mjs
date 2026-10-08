@@ -30,3 +30,13 @@ export function trimmedRange(clip, edge, delta, minimum = .04) {
     ? { start: clamp(clip.start + delta, clip.start, clip.end - minimum), end: clip.end }
     : { start: clip.start, end: clamp(clip.end + delta, clip.start + minimum, clip.end) };
 }
+export function cursorEdit(layout, seconds, action, minimum = .04) {
+  if (!Number.isFinite(seconds) || !['split', 'trim-start', 'trim-end'].includes(action)) return null;
+  const clip = clipAtTime(layout, seconds);
+  if (!clip || seconds < clip.time || seconds > clip.time + clip.duration) return null;
+  const at = Math.round((clip.start + seconds - clip.time) * 1000) / 1000;
+  if (action === 'split' && (at - clip.start < minimum || clip.end - at < minimum)) return null;
+  if (action === 'trim-start' && (at - clip.start < .001 || clip.end - at < minimum)) return null;
+  if (action === 'trim-end' && (at - clip.start < minimum || clip.end - at < .001)) return null;
+  return { clipId: clip.id, ...(action === 'split' ? { at } : { start: action === 'trim-start' ? at : clip.start, end: action === 'trim-end' ? at : clip.end }) };
+}

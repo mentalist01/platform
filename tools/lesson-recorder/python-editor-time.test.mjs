@@ -1,7 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange } from './python-editor-time.mjs';
+import { timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit } from './python-editor-time.mjs';
 const clips=[{id:'long',start:20,end:30},{id:'short',start:0,end:.2},{id:'last',start:8,end:13}];
+
+test('quick edits map the output cursor back into reordered, trimmed source ranges and reject cuts on boundaries', () => {
+  const layout = timelineLayout(clips,8);
+  assert.deepEqual(cursorEdit(layout,4,'split'),{clipId:'long',at:24});
+  assert.deepEqual(cursorEdit(layout,12.2,'trim-start'),{clipId:'last',start:10,end:13});
+  assert.deepEqual(cursorEdit(layout,12.2,'trim-end'),{clipId:'last',start:8,end:10});
+  assert.equal(cursorEdit(layout,0,'split'),null);
+  assert.equal(cursorEdit(layout,10,'split'),null);
+  assert.equal(cursorEdit(layout,15.2,'split'),null);
+  assert.equal(cursorEdit(layout,10.01,'trim-end'),null);
+  assert.equal(cursorEdit([],0,'split'),null);
+  assert.equal(cursorEdit(layout,NaN,'split'),null);
+});
 test('playhead maps output time to exact clip geometry after rearranging and across padded short clips',()=>{
   const layout=timelineLayout(clips,8); assert.deepEqual(layout.map(item=>item.time),[0,10,10.2]);
   for(const seconds of [0,1,9.99,10,10.1,10.199,10.2,11,15.2])assert.ok(Math.abs(pixelToTime(layout,timeToPixel(layout,seconds))-seconds)<1e-9);

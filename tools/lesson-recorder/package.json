@@ -1,8 +1,13 @@
 {
   "name": "ivan100-lesson-recorder",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node app.mjs", "test": "node --test *.test.mjs" },
-  "dependencies": { "playwright": "1.58.2" }
+  "scripts": {
+    "start": "node app.mjs",
+    "test": "node --test *.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.58.2"
+  }
 }

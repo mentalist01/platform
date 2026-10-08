@@ -54,6 +54,11 @@ export function finalizeTimeline(timeline, duration) {
 export function editTimeline(timeline, { revision, action, clipId, at, start, end, direction, beforeId }) {
   if (!timeline || timeline.version !== 1 || timeline.approved) throw Error('Этот монтаж уже отправлен или недоступен');
   if (revision !== timeline.revision) throw Error('Монтаж изменился. Обновите ленту и повторите действие.');
+  if (action === 'restore-source') {
+    if (!timeline.finalized || timeline.openStart !== null || !Number.isFinite(timeline.sourceEnd) || timeline.sourceEnd < MIN_CLIP) throw Error('Сначала завершите запись');
+    const next = [{ id: crypto.randomUUID(), start: 0, end: timeline.sourceEnd }];
+    remember(timeline, next); timeline.clips = next; timeline.revision++; return;
+  }
   if (action === 'undo' || action === 'redo') {
     const from = action === 'undo' ? timeline.history : timeline.future;
     const previous = from?.at(-1);

@@ -5,6 +5,25 @@ import { spawn } from 'node:child_process';
 import { ownedRecording } from './storage.mjs';
 import { concatList } from './segments.mjs';
 
+// Native video playback uses byte ranges; it must not buffer an entire lesson
+// as a Blob in the renderer. Each capability grants access to one preview only.
+export function sendPreview(req, res, preview) {
+  const size = fs.statSync(preview.file).size;
+  const range = req.headers.range;
+  let start = 0, end = size - 1;
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match || !match[1] && !match[2]) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); res.end(); return; }
+    if (!match[1]) start = Math.max(0, size - Number(match[2]));
+    else { start = Number(match[1]); if (match[2]) end = Math.min(end, Number(match[2])); }
+    if (![start, end].every(Number.isSafeInteger) || start < 0 || start > end || start >= size) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); res.end(); return; }
+  }
+  res.writeHead(range ? 206 : 200, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1,
+    ...(range ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {}) });
+  const stream = fs.createReadStream(preview.file, { start, end });
+  res.once('close', () => stream.destroy()); stream.on('error', () => res.destroy()); stream.pipe(res);
+}
+
 const command = (exe, args, timeout = 60 * 60_000) => new Promise((resolve, reject) => {
   const child = spawn(exe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let text = '', errors = '';
@@ -30,12 +49,19 @@ export class PythonEditMedia {
     try { return await operation(); } finally { this.work = null; }
   }
   async preview(job, clips, recordDirectory) {
+    const source = this.source(job, recordDirectory);
+    const key = JSON.stringify([job.id, source, clips.map(({ start, end }) => [start, end])]);
+    const cached = [...this.previews].find(([, item]) => item.key === key && fs.existsSync(item.file));
+    if (cached) {
+      const [id, item] = cached; this.previews.delete(id); this.previews.set(id, item);
+      return id;
+    }
     return this.exclusive(job, async () => {
       const id = crypto.randomUUID(); const folder = path.join(this.root, job.id);
       fs.mkdirSync(folder, { recursive: true });
       const output = path.join(folder, `preview-${id}.mp4`);
       await this.render(job, clips, recordDirectory, output, true);
-      this.previews.set(id, { file: output, jobId: job.id, revision: job.pythonTimeline.revision });
+      this.previews.set(id, { file: output, jobId: job.id, revision: job.pythonTimeline.revision, key, access: crypto.randomBytes(24).toString('hex') });
       // Temporary previews only: retain bounded disk use. Original MKV and exports are never removed.
       while (this.previews.size > 3) {
         const [oldId, old] = this.previews.entries().next().value;

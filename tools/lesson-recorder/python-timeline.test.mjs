@@ -3,6 +3,17 @@ import test from 'node:test';
 import { createTimeline, recordingSeconds, observeTimeline, closeTimelineClip, resumeTimeline, finishTimeline, finalizeTimeline, editTimeline, approveTimeline, timelineDuration } from './python-timeline.mjs';
 const draft = () => { const timeline = createTimeline(); closeTimelineClip(timeline, 10); resumeTimeline(timeline, 10); closeTimelineClip(timeline, 20); return timeline; };
 const apply = (timeline, action, extra = {}) => editTimeline(timeline, { revision: timeline.revision, action, clipId: timeline.clips[0]?.id, ...extra });
+
+test('explicit source restoration recovers an empty saved project and remains undoable across reload', () => {
+  let t = draft(); finishTimeline(t,20); finalizeTimeline(t,20); apply(t,'delete'); apply(t,'delete');
+  apply(t,'restore-source'); assert.deepEqual(t.clips.map(c=>[c.start,c.end]),[[0,20]]);
+  t=JSON.parse(JSON.stringify(t)); apply(t,'undo'); assert.deepEqual(t.clips,[]);
+  apply(t,'redo'); assert.equal(timelineDuration(t),20);
+  apply(t,'trim',{start:2,end:18}); const before=structuredClone(t.clips);
+  apply(t,'restore-source'); apply(t,'undo'); assert.deepEqual(t.clips,before);
+  const live=draft(),original=structuredClone(live);assert.throws(()=>apply(live,'restore-source'),/завершите/);assert.deepEqual(live,original);
+  approveTimeline(t,t.revision);assert.throws(()=>apply(t,'restore-source'),/отправлен/);
+});
 test('OBS timecode, pause boundaries and resume exclude pause time', () => {
   assert.equal(recordingSeconds({ outputTimecode: '01:02:03.456' }), 3723.456);
   for (const value of ['', 'bad', '1:2', '1:2:NaN']) assert.equal(recordingSeconds({ outputTimecode: value }), 0);

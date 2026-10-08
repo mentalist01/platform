@@ -9,12 +9,12 @@ import test from 'node:test';
 
 // Run the actual service and panel against a synthetic OBS RPC transport and
 // a fictional platform. No real OBS, devices, payments, uploads or lessons.
-async function fixture({ queueEnabled = false, pauseDelayMs = 0 } = {}) {
+async function fixture({ queueEnabled = false, pauseDelayMs = 0, mediaFixture = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-python-studio-'));
   const app = path.join(root, 'fixture-app'); fs.mkdirSync(app);
   const here = path.dirname(fileURLToPath(import.meta.url));
   for (const name of fs.readdirSync(here)) if (/\.(mjs|html|ps1|json)$/.test(name) && !name.includes('.test.')) fs.copyFileSync(path.join(here, name), path.join(app, name));
-  if (process.argv.includes('--serve')) {
+  if (process.argv.includes('--serve') || mediaFixture) {
     const ffmpeg=process.platform==='win32'?'C:/ProgramData/chocolatey/bin/ffmpeg.exe':'ffmpeg';
     execFileSync(ffmpeg,['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','testsrc2=s=640x360:r=30:d=24','-f','lavfi','-i','sine=frequency=440:duration=24','-c:v','libx264','-preset','ultrafast','-c:a','aac',path.join(root,'fixture.mkv')],{windowsHide:true});
     fs.writeFileSync(path.join(app,'runtime.json'),JSON.stringify({ffmpeg}));
@@ -75,7 +75,7 @@ export class ObsClient extends Base {
   let source = fs.readFileSync(path.join(app, 'app.mjs'), 'utf8').replaceAll('18765', String(port)).replace("from './obs.mjs'", "from './obs-fixture.mjs'");
   if(process.argv.includes('--serve'))source=source.replaceAll("frame-ancestors 'none'","frame-ancestors 'self'");
   source = source.replace('void archive.detectPython().catch(() => {});', '/* QA: no dependency probes. */');
-  if (!queueEnabled) source = source.replace('void queue();', '/* QA: no upload or conversion. */');
+  if (!queueEnabled) source = source.replace('void queue();', '/* QA: no automatic uploads. */').replace('if (!job.url) await uploader.upload(job, save);', 'throw Error("QA: соединение прервано");');
   source = source.replace('const finalizePython = async job => {', 'editMedia.duration=async()=>24; const finalizePython = async job => {');
   const qaRoutes = `
     if(req.url==='/qa/narrow'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end('<iframe title="Монтаж в узком окне" src="/" style="width:390px;height:760px;border:0"></iframe>');}
@@ -106,6 +106,31 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('real preview API streams scoped media ranges, reuses unchanged cuts and cannot expose recorder controls', async t => {
+    const f = await fixture({mediaFixture:true}); t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'QA потоковый просмотр'});
+    const id=(await f.request('/state')).value.jobs[0].id;
+    await f.request('/qa/time',{seconds:2});await f.request('/material/pause',{id,paused:true});
+    const project=async()=>(await f.request('/state')).value.jobs.find(j=>j.id===id);
+    const first=await project();
+    const preview=await f.request('/python/editor/preview',{id,revision:first.pythonTimeline.revision,clipId:first.pythonTimeline.clips[0].id});
+    assert.equal(preview.status,200);const {videoUrl,previewId}=preview.value;assert.ok(videoUrl.includes(previewId));
+    assert.equal((await fetch(f.base+videoUrl.split('?')[0])).status,403);
+    assert.equal((await fetch(f.base+videoUrl+'bad')).status,403);
+    assert.equal((await fetch(f.base+videoUrl,{headers:{'Sec-Fetch-Site':'cross-site'}})).status,403);
+    const video=await fetch(f.base+videoUrl,{headers:{Range:'bytes=0-63'}});assert.equal(video.status,206);assert.equal((await video.arrayBuffer()).byteLength,64);
+    const access=new URL(videoUrl,f.base).searchParams.get('access');assert.equal((await fetch(f.base+'/state?access='+access)).status,403);
+    assert.equal((await fetch(f.base+'/python/editor/edit?access='+access,{method:'POST',body:'{}'})).status,403);
+    const second=await f.request('/python/editor/preview',{id,revision:first.pythonTimeline.revision,clipId:first.pythonTimeline.clips[0].id});assert.equal(second.value.previewId,previewId);
+    await f.request('/python/editor/edit',{id,revision:first.pythonTimeline.revision,action:'trim',clipId:first.pythonTimeline.clips[0].id,start:.5,end:1.5});
+    const edited=await project();const third=await f.request('/python/editor/preview',{id,revision:edited.pythonTimeline.revision,clipId:edited.pythonTimeline.clips[0].id});assert.notEqual(third.value.previewId,previewId);
+    assert.equal((await f.request('/python/editor/edit',{id,revision:edited.pythonTimeline.revision,action:'restore-source'})).status,400,'Live source cannot replace the timeline');
+    await f.request('/material/stop',{id});const stopped=await project();
+    assert.equal((await f.request('/python/editor/edit',{id,revision:stopped.pythonTimeline.revision,action:'restore-source'})).status,200);
+    const restored=await project();assert.equal(restored.pythonTimeline.clips[0].start,0);assert.equal(restored.pythonTimeline.approved,false);
+    assert.equal(restored.url,undefined);assert.equal((await f.request('/upload',{id})).status,400,'Restoration does not approve upload');
+  });
   test('real service confirms delayed pause/resume, returns take boundaries and offers only the owned read-only recording preview', async t => {
     const f = await fixture({pauseDelayMs:700}); t.after(f.close);
     await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});

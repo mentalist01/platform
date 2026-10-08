@@ -17,7 +17,7 @@ import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
 import { startPythonTheory, publishPythonTheory } from './python-theory.mjs';
 import { editTimeline, approveTimeline, finalizeTimeline, timelineDuration } from './python-timeline.mjs';
-import { PythonEditMedia } from './python-edit-media.mjs';
+import { PythonEditMedia, sendPreview } from './python-edit-media.mjs';
 import { startMockReview, publishMockReview } from './mock-review.mjs';
 import { enterFallback } from './fallback.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
@@ -256,6 +256,7 @@ const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': '
 const server = http.createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   const host = req.headers.host;
   if (!['127.0.0.1:18765', 'localhost:18765'].includes(host)) return json(res, 403, { error: 'Forbidden host' });
   if (req.headers.origin && !['http://127.0.0.1:18765', 'http://localhost:18765'].includes(req.headers.origin)) return json(res, 403, { error: 'Forbidden origin' });
@@ -286,13 +287,14 @@ const server = http.createServer(async (req, res) => {
       res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
       return res.end(fs.readFileSync(path.join(here, pathname.slice(1)), 'utf8'));
     }
-    if (req.headers['x-recorder-key'] !== localKey) return json(res, 403, { error: 'Откройте пульт заново' });
     if (req.method === 'GET' && pathname.startsWith('/python/editor/video/')) {
       const preview = editMedia.previews.get(pathname.slice('/python/editor/video/'.length));
+      const access = new URL(req.url, 'http://127.0.0.1:18765').searchParams.get('access');
+      if (req.headers['sec-fetch-site'] === 'cross-site' || req.headers['x-recorder-key'] !== localKey && (!preview?.access || access !== preview.access)) return json(res, 403, { error: 'Предпросмотр недоступен' });
       if (!preview || !fs.existsSync(preview.file)) throw new Error('Предпросмотр устарел. Подготовьте его заново.');
-      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': fs.statSync(preview.file).size });
-      fs.createReadStream(preview.file).on('error', () => res.destroy()).pipe(res); return;
+      sendPreview(req, res, preview); return;
     }
+    if (req.headers['x-recorder-key'] !== localKey) return json(res, 403, { error: 'Откройте пульт заново' });
     if (req.method === 'GET' && req.url === '/state') return json(res, 200, publicState());
     if (req.method === 'GET' && pathname === '/python/editor/live') {
       const job = engine.active();
@@ -343,7 +345,7 @@ const server = http.createServer(async (req, res) => {
         job = { ...job, file: job.file || ownedRecording(recordDirectory, job.id), pythonTimeline: structuredClone(job.pythonTimeline) };
       });
       const previewId = await editMedia.preview(job, clips, path.dirname(job.file));
-      return json(res, 200, { previewId, revision: job.pythonTimeline.revision, duration: timelineDuration({ clips }) });
+      return json(res, 200, { previewId, videoUrl: `/python/editor/video/${previewId}?access=${editMedia.previews.get(previewId).access}`, revision: job.pythonTimeline.revision, duration: timelineDuration({ clips }) });
     }
     if (req.url === '/python/pause' || req.url === '/material/pause') {
       // Keep this local control out of the platform synchronization queue.

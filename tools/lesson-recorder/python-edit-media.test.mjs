@@ -5,10 +5,36 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
-import { PythonEditMedia } from './python-edit-media.mjs';
+import { PythonEditMedia, sendPreview } from './python-edit-media.mjs';
+import http from 'node:http';
 const ffmpeg = process.env.FFMPEG_PATH || (process.platform === 'win32' ? 'C:/ProgramData/chocolatey/bin/ffmpeg.exe' : 'ffmpeg');
 let available = true; try { execFileSync(ffmpeg, ['-version'], { windowsHide: true, stdio: 'ignore' }); } catch { available = false; }
 const run = args => execFileSync(ffmpeg, ['-hide_banner','-loglevel','error', ...args], { windowsHide: true, maxBuffer: 10 * 1024 * 1024 });
+
+test('streaming previews serve exact byte ranges including seek/suffix, and reject malformed requests', async t => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'ivan100-video-range-')),file=path.join(root,'preview.mp4');
+  const bytes=Buffer.from(Array.from({length:1024},(_,i)=>i%256));fs.writeFileSync(file,bytes);
+  const server=http.createServer((req,res)=>sendPreview(req,res,{file}));await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  t.after(async()=>{await new Promise(r=>server.close(r));fs.rmSync(root,{recursive:true,force:true});});
+  const base=`http://127.0.0.1:${server.address().port}`;
+  for(const [range,start,end]of [['bytes=12-31',12,31],['bytes=1000-',1000,1023],['bytes=-10',1014,1023],['bytes=1000-9999',1000,1023]]){
+    const r=await fetch(base,{headers:{Range:range}});assert.equal(r.status,206);assert.equal(r.headers.get('content-range'),`bytes ${start}-${end}/1024`);assert.deepEqual(Buffer.from(await r.arrayBuffer()),bytes.subarray(start,end+1));
+  }
+  for(const range of ['bytes=1024-','bytes=50-40','bytes=0-2,5-8','bytes=-0','garbage','bytes=-','bytes=99999999999999999-']){const r=await fetch(base,{headers:{Range:range}});assert.equal(r.status,416);assert.equal(r.headers.get('content-range'),'bytes */1024');await r.arrayBuffer();}
+  const full=await fetch(base);assert.equal(full.status,200);assert.equal(full.headers.get('accept-ranges'),'bytes');assert.deepEqual(Buffer.from(await full.arrayBuffer()),bytes);
+});
+
+test('identical range previews reuse a bounded LRU without new renders; changed ranges and missing cache are rebuilt',async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'ivan100-preview-cache-')),id=crypto.randomUUID(),file=path.join(root,`lesson-${id}.mkv`);fs.writeFileSync(file,'source');
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const media=new PythonEditMedia({root:path.join(root,'cache')});let renders=0;media.render=async(_job,_clips,_dir,out)=>{renders++;fs.writeFileSync(out,'preview');};
+  const job={id,file,pythonTimeline:{revision:1}},clips=[{start:0,end:4}];
+  const first=await media.preview(job,clips,root);job.pythonTimeline.revision++;
+  assert.equal(await media.preview(job,[{...clips[0],id:'split-id'}],root),first);assert.equal(renders,1);assert.match(media.previews.get(first).access,/^[a-f0-9]{48}$/);
+  fs.unlinkSync(media.previews.get(first).file);assert.notEqual(await media.preview(job,clips,root),first);assert.equal(renders,2);
+  for(let n=5;n<9;n++)await media.preview(job,[{start:0,end:n}],root);
+  assert.equal(media.previews.size,3);assert.equal(fs.readFileSync(file,'utf8'),'source');
+});
 test('preview reads already written frames from an unfinished MKV without stopping its writer', {timeout:30000,skip:!available&&'ffmpeg unavailable'}, async t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'ivan100-open-mkv-'));
   const id=crypto.randomUUID(),file=path.join(root,`lesson-${id}.mkv`);
