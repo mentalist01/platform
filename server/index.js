@@ -25,6 +25,8 @@ import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } f
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
+import { registerLearningGroupMemberTransfer } from './groupMemberTransfer.js';
+import { commitGroupTransferTransaction, recoverGroupTransferTransaction } from './groupTransferTransaction.js';
 import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
 import { IndividualLessonPaceStore } from './individualLessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
@@ -645,6 +647,7 @@ const dataDir = resolveStoragePath(
   process.env.PLATFORM_DATA_DIR || process.env.APP_DATA_DIR || process.env.DATA_DIR,
   defaultDataDir
 );
+recoverGroupTransferTransaction(dataDir);
 const uploadsDir = resolveStoragePath(
   process.env.PLATFORM_UPLOADS_DIR || process.env.APP_UPLOADS_DIR || process.env.UPLOADS_DIR,
   defaultUploadsDir
@@ -25145,6 +25148,42 @@ app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRou
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
+const learningGroupMemberTransfer = registerLearningGroupMemberTransfer(app, {
+  handle: handleLearningRoute,
+  manageGroup: ensureLearningGroupManageAccess,
+  findStudent: findStudentById,
+  readGroups: readLearningGroupsDb,
+  store: availabilityStore,
+  serializeGroup: serializeLearningGroupForAuth,
+  commit: (groups, polls) => {
+    const normalizedGroups = normalizeLearningGroupsStore(groups);
+    commitGroupTransferTransaction(dataDir, normalizedGroups, polls);
+    learningJsonStoreCache.set(learningGroupsFile, normalizedGroups);
+    availabilityStore.acceptCommitted(polls);
+  },
+  completeTransfer: ({ targetGroup, transferReceipt }, studentId) => {
+    const poll = availabilityStore.get(targetGroup.id);
+    const receipt = poll?.memberTransfers?.[studentId];
+    if (!receipt?.sideEffectsPending || receipt.sourceGroupId !== transferReceipt.sourceGroupId
+      || receipt.sourceLeftAt !== transferReceipt.sourceLeftAt || receipt.targetJoinedAt !== transferReceipt.targetJoinedAt) return;
+    receipt.sideEffectsPending = false;
+    availabilityStore.put(targetGroup.id, poll);
+  },
+  afterTransfer: ({ sourceGroup, targetGroup }, studentId) => {
+    closeLearningGroupStudentLessonConnections(sourceGroup.id, studentId);
+    syncLearningGroupUpcomingLessonParticipants(sourceGroup);
+    syncLearningGroupUpcomingLessonParticipants(targetGroup);
+    synchronizeLearningGroupAssignmentRecipients(targetGroup, { addedStudentId: studentId });
+    synchronizeLearningGroupHomeworksForStudent(studentId);
+    notifyLearningGroupScheduleAccess(sourceGroup);
+    notifyLearningGroupScheduleAccess(targetGroup);
+    notifyScheduleSyncUpdate({ scope: 'group-availability', action: 'member-transferred',
+      teacherId: sourceGroup.teacherId, studentId, entryId: sourceGroup.id });
+    notifyScheduleSyncUpdate({ scope: 'group-availability', action: 'member-transferred',
+      teacherId: targetGroup.teacherId, studentId, entryId: targetGroup.id });
+  },
+});
+
 registerGroupParticipation(app, {
   handle:handleLearningRoute, manageGroup:ensureLearningGroupManageAccess,
   lessons:readResolvedGroupLessonSessions,
@@ -44327,6 +44366,15 @@ const runStartupStudentXpRebalance = () => {
 };
 
 runStartupStudentXpRebalance();
+
+try {
+  const recovery = await learningGroupMemberTransfer.recoverPending();
+  if (recovery.recovered || recovery.pending || recovery.skipped) {
+    console.info('[group-member-transfer] startup synchronization:', JSON.stringify(recovery));
+  }
+} catch (error) {
+  console.warn('[group-member-transfer] startup synchronization failed:', error?.message || error);
+}
 
 server.listen(PORT, process.env.PLATFORM_BIND_HOST || '127.0.0.1', () => {
   console.log(`Server running on http://localhost:${PORT}`);

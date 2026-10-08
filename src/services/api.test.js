@@ -28,6 +28,37 @@ const installStorage = (authToken) => {
   return values;
 };
 
+test('group transfer uses one authenticated operation and replacement requires an explicit boolean', async t => {
+  installStorage('group-transfer-fixture');
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const calls = [];
+  const result = { sourceGroup: { id: 'source/a' }, targetGroup: { id: 'target/a' }, availabilityTransfer: { copiedCount: 3, skippedCount: 1 } };
+  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), ...init }); return jsonResponse(result); };
+  assert.deepEqual(await api.transferLearningGroupMember('source/a', 'student/a', {
+    targetGroupId: ' target/a ', lateAddReason: ' Перевод в группу ', replaceTargetAnswer: 'true',
+  }), result);
+  await api.transferLearningGroupMember('source/a', 'student/a', { targetGroupId: 'target/a', replaceTargetAnswer: true });
+  assert.ok(calls.every(call => call.url === '/api/learning-groups/source%2Fa/members/student%2Fa/transfer' && call.method === 'POST'));
+  assert.deepEqual(JSON.parse(calls[0].body), { targetGroupId: 'target/a', lateAddReason: 'Перевод в группу' });
+  assert.deepEqual(JSON.parse(calls[1].body), { targetGroupId: 'target/a', replaceTargetAnswer: true });
+  assert.ok(calls.every(call => new Headers(call.headers).get('Authorization') === 'Bearer group-transfer-fixture'));
+  await assert.rejects(api.transferLearningGroupMember('source/a', 'student/a'), /Выберите группу/);
+  await assert.rejects(api.transferLearningGroupMember('', 'student/a', { targetGroupId: 'target' }), /Выберите исходную группу/);
+  await assert.rejects(api.transferLearningGroupMember('source/a', '', { targetGroupId: 'target' }), /Выберите ученика/);
+  assert.equal(calls.length, 2);
+});
+
+test('group transfer preserves conflict code for an explicit replacement retry', async t => {
+  installStorage('group-transfer-conflict-fixture');
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  globalThis.fetch = async () => jsonResponse({ error: 'В новой группе уже сохранены другие отметки.', code: 'availability_answer_conflict' }, 409);
+  await assert.rejects(api.transferLearningGroupMember('source', 'student', { targetGroupId: 'target' }), error => (
+    error.status === 409 && error.code === 'availability_answer_conflict' && error.message === 'В новой группе уже сохранены другие отметки.'
+  ));
+});
+
 test('name checks and recording homework use authenticated JSON requests and encode library scope', async t => {
   installStorage('recording-homework-fixture');
   const previousFetch = globalThis.fetch;

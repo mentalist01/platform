@@ -269,6 +269,9 @@
 .ga-member-legend{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
 .ga-member-legend>span{display:inline-flex;align-items:center;gap:6px;max-width:100%;border-radius:8px;padding:6px 9px;font-size:11px;overflow-wrap:anywhere}
 .ga-member-legend small{font-size:10px;color:var(--ga-muted)}
+.ga-shell .ga-member-transfer{display:inline-flex;align-items:center;gap:4px;border:0;border-left:1px solid currentColor;border-radius:0;padding:0 0 0 7px;margin-left:2px;background:transparent;color:inherit;font-size:10px;font-weight:700;min-height:24px;opacity:.85;white-space:nowrap}
+.ga-shell .ga-member-transfer:hover:not(:disabled){opacity:1;text-decoration:underline;background:transparent}
+.ga-shell .ga-member-transfer:disabled{cursor:wait;opacity:.45}
 .ga-member-legend i,.ga-option-people i{width:8px;height:8px;flex-shrink:0;border-radius:50%;background:hsl(var(--ga-member-hue) 55% 58%);border:1.5px solid hsl(var(--ga-member-hue) 55% 58%)}
 .ga-shell .ga-color-hint{font-size:11px;margin-bottom:12px}
 .ga-shell .ga-slot.ga-lesson-option{background:var(--ga-slot-bg,var(--ga-bg));color:var(--ga-muted)}

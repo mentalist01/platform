@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 const LearningGroupLessonReplay = React.lazy(() => import('./LearningGroupLessonReplay'));
 import {
   AlertCircle,
+  ArrowRightLeft,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -496,6 +497,13 @@ const LearningGroupsSection = ({
   const [editForm, setEditForm] = useState(EMPTY_GROUP_FORM);
   const [addStudentId, setAddStudentId] = useState('');
   const [lateAddReason, setLateAddReason] = useState('');
+  const [transferForm, setTransferForm] = useState(null);
+  const [transferError, setTransferError] = useState('');
+  const [transferConflict, setTransferConflict] = useState(false);
+  const [availabilityVersion, setAvailabilityVersion] = useState(0);
+  const transferDialogRef = useRef(null);
+  const transferBusyRef = useRef(false);
+  const transferEventOrigin = useRef({});
   const [lessonForm, setLessonForm] = useState(() => ({
     ...EMPTY_LESSON_FORM,
     startAt: toDateTimeLocal(),
@@ -554,6 +562,24 @@ const LearningGroupsSection = ({
       ? groups
       : groups.filter((group) => group.status !== LEARNING_GROUP_STATUS_COMPLETED)
   ), [groups, showCompleted]);
+
+  const transferDestinations = useMemo(() => groups.filter((group) => (
+    transferForm
+    && group.id !== transferForm.sourceGroupId
+    && cleanString(group.teacherId) === transferForm.teacherId
+    && group.status !== LEARNING_GROUP_STATUS_COMPLETED
+  )), [groups, transferForm]);
+  const transferTarget = transferDestinations.find((group) => group.id === transferForm?.targetGroupId);
+  const transferBusy = busyKey.startsWith('transfer-member:');
+  const transferOpen = Boolean(transferForm);
+
+  useEffect(() => {
+    const dialog = transferDialogRef.current;
+    if (!transferOpen || !dialog) return undefined;
+    dialog.showModal();
+    dialog.querySelector('select')?.focus();
+    return () => dialog.close();
+  }, [transferOpen]);
 
   const studentById = useMemo(() => new Map(
     (Array.isArray(students) ? students : []).map((student) => [getStudentId(student), student]).filter(([id]) => id)
@@ -708,9 +734,11 @@ const LearningGroupsSection = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const refreshAfterExternalChange = () => {
+    const refreshAfterExternalChange = (event) => {
+      if (event?.detail?.origin === transferEventOrigin.current) return;
       void refreshGroups(selectedGroupId);
       if (selectedGroupId) void loadGroupDetails(selectedGroupId);
+      if (event?.detail?.transfer) setAvailabilityVersion((current) => current + 1);
     };
     window.addEventListener('learning-groups-changed', refreshAfterExternalChange);
     return () => window.removeEventListener('learning-groups-changed', refreshAfterExternalChange);
@@ -1158,6 +1186,59 @@ const LearningGroupsSection = ({
       () => api.removeLearningGroupMember(selectedGroup.id, member.studentId),
       'Ученик удалён из группы.'
     );
+  };
+
+  const openMemberTransfer = (member) => {
+    if (!isTeacher || !selectedGroup || busyKey || selectedGroup.status === LEARNING_GROUP_STATUS_COMPLETED) return;
+    setTransferError('');
+    setTransferConflict(false);
+    setTransferForm({
+      sourceGroupId: selectedGroup.id,
+      sourceGroupName: selectedGroup.name,
+      teacherId: cleanString(selectedGroup.teacherId),
+      studentId: member.studentId,
+      studentName: member.name || 'Ученик',
+      targetGroupId: '',
+      lateAddReason: `Перевод из группы «${selectedGroup.name}»`,
+      replaceTargetAnswer: false,
+    });
+  };
+
+  const handleTransferMember = async (event) => {
+    event.preventDefault();
+    if (!transferForm || !transferTarget || busyKey || transferBusyRef.current) return;
+    transferBusyRef.current = true;
+    setBusyKey(`transfer-member:${transferForm.studentId}`);
+    setTransferError('');
+    try {
+      const result = await api.transferLearningGroupMember(transferForm.sourceGroupId, transferForm.studentId, {
+        targetGroupId: transferTarget.id,
+        ...(transferTarget.status === LEARNING_GROUP_STATUS_ACTIVE ? { lateAddReason: transferForm.lateAddReason } : {}),
+        ...(transferForm.replaceTargetAnswer ? { replaceTargetAnswer: true } : {}),
+      });
+      const copied = Math.max(0, Number(result?.availabilityTransfer?.copiedCount) || 0);
+      const skipped = Math.max(0, Number(result?.availabilityTransfer?.skippedCount) || 0);
+      const success = `${transferForm.studentName} перенесён(а) в «${transferTarget.name}». ${copied
+        ? `Отметки времени перенесены: ${copied}.`
+        : 'Подходящих отметок времени для переноса нет.'}${skipped ? ` Не совпали интервалы: ${skipped}. В новой группе их нужно выбрать заново.` : ''}${result?.synchronizationPending ? ' Состав и отметки сохранены; расписание ещё обновляется автоматически.' : ''}`;
+      setGroups((current) => [result.sourceGroup, result.targetGroup].filter(Boolean)
+        .reduce((next, group) => upsertGroup(next, decorateGroup(group, students)), current));
+      setTransferForm(null);
+      setTransferConflict(false);
+      setAvailabilityVersion((current) => current + 1);
+      await refreshGroups(transferForm.sourceGroupId);
+      await Promise.all([loadGroupDetails(transferForm.sourceGroupId), loadGroupDetails(transferTarget.id)]);
+      setNotice(success);
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('learning-groups-changed', {
+        detail: { transfer: true, origin: transferEventOrigin.current, sourceGroupId: transferForm.sourceGroupId, targetGroupId: transferTarget.id },
+      }));
+    } catch (requestError) {
+      setTransferError(requestError?.message || 'Не удалось перенести ученика.');
+      if (requestError?.code === 'availability_answer_conflict') setTransferConflict(true);
+    } finally {
+      transferBusyRef.current = false;
+      setBusyKey('');
+    }
   };
 
   const handleRefreshCalendarSchedule = async () => {
@@ -1755,8 +1836,10 @@ const LearningGroupsSection = ({
                 </div>
 
                 {tab === 'availability' && (
-                  <GroupAvailability key={selectedGroup.id} groupId={selectedGroup.id} userId={userId} isTeacher={isTeacher}
-                    onApproved={() => void loadGroupDetails(selectedGroup.id)} />
+                  <GroupAvailability key={`${selectedGroup.id}:${availabilityVersion}`} groupId={selectedGroup.id} userId={userId} isTeacher={isTeacher}
+                    onApproved={() => void loadGroupDetails(selectedGroup.id)}
+                    onTransferMember={isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED ? openMemberTransfer : undefined}
+                    transferBusy={Boolean(busyKey)} />
                 )}
 
                 {tab === 'overview' && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
@@ -1843,6 +1926,18 @@ const LearningGroupsSection = ({
                               </div>
                               <div className="mt-1 text-xs text-violet-700">{participationPlanAt(member).mode==='all' ? 'Все занятия группы' : `Обязательные занятия: ${participationPlanAt(member).slots.map(participationSlotLabel).join(' · ')}`}</div>
                             </div>
+                            {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
+                              <button
+                                type="button"
+                                onClick={() => openMemberTransfer(member)}
+                                disabled={Boolean(busyKey)}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-white px-2.5 py-2 text-xs font-bold text-violet-700 transition hover:bg-violet-50 disabled:opacity-50"
+                                aria-label={`Перенести ${member.name} в другую группу`}
+                                title="Перенести в другую группу вместе с отметками времени"
+                              >
+                                <ArrowRightLeft size={15} /><span className="hidden sm:inline">Перенести</span>
+                              </button>
+                            )}
                             {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
                               <button
                                 type="button"
@@ -2955,6 +3050,57 @@ const LearningGroupsSection = ({
             )}
           </main>
         </div>
+      )}
+
+      {isTeacher && transferForm && (
+        <dialog ref={transferDialogRef} aria-labelledby="group-transfer-title"
+          className="w-[calc(100%_-_2rem)] max-w-lg rounded-3xl border border-violet-100 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-900/45 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          onCancel={(event) => { if (transferBusy) event.preventDefault(); else setTransferForm(null); }}>
+          <form onSubmit={handleTransferMember} className="space-y-4 p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="mb-1 text-xs font-bold uppercase tracking-wider text-violet-600">Перенос ученика</div>
+                <h2 id="group-transfer-title" className="text-xl font-black">Перенести в другую группу</h2>
+                <p className="mt-2 text-sm text-slate-500">{transferForm.studentName} · {transferForm.sourceGroupName}</p>
+              </div>
+              <button type="button" disabled={transferBusy} aria-label="Закрыть перенос ученика" onClick={() => setTransferForm(null)}
+                className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={20} /></button>
+            </div>
+            <Field label="В какую группу">
+              <select aria-label="В какую группу" className={inputClassName} value={transferForm.targetGroupId} disabled={transferBusy} required
+                onChange={(event) => {
+                  setTransferForm((current) => ({ ...current, targetGroupId: event.target.value, replaceTargetAnswer: false }));
+                  setTransferError(''); setTransferConflict(false);
+                }}>
+                <option value="">Выберите группу</option>
+                {transferDestinations.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.memberCount} уч.</option>)}
+              </select>
+            </Field>
+            {transferDestinations.length === 0 && <p className="text-sm text-slate-500">Других доступных групп пока нет. Сначала создайте группу, в которую хотите перенести ученика.</p>}
+            <div className="rounded-2xl border border-violet-100 bg-violet-50 p-3 text-sm leading-relaxed text-violet-800">
+              Ученик будет убран из этой группы и добавлен в выбранную. Его отметки удобного времени тоже перейдут: здесь они исчезнут, а в новой группе появятся автоматически.
+              <p className="mt-2 text-xs text-violet-600">Если в новой группе другая длительность или другие часы подбора, несовпадающие интервалы нужно будет отметить заново.</p>
+            </div>
+            {transferTarget?.status === LEARNING_GROUP_STATUS_ACTIVE && <Field label="Причина присоединения после старта">
+              <textarea aria-label="Причина присоединения после старта" className={`${inputClassName} min-h-20 resize-y`} value={transferForm.lateAddReason}
+                disabled={transferBusy} maxLength={1000} required onChange={(event) => setTransferForm((current) => ({ ...current, lateAddReason: event.target.value }))} />
+            </Field>}
+            {transferError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{transferError}</p>}
+            {transferConflict && <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <input type="checkbox" className="mt-1 accent-violet-600" checked={transferForm.replaceTargetAnswer} disabled={transferBusy}
+                onChange={(event) => setTransferForm((current) => ({ ...current, replaceTargetAnswer: event.target.checked }))} />
+              <span>Заменить прежние отметки в новой группе отметками из текущей</span>
+            </label>}
+            <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+              <button type="button" onClick={() => setTransferForm(null)} disabled={transferBusy}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 disabled:opacity-50">Отмена</button>
+              <button type="submit" disabled={!transferTarget || transferBusy || (transferConflict && !transferForm.replaceTargetAnswer)}
+                className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
+                <BusyButtonContent busy={transferBusy} busyLabel="Переносим…" icon={ArrowRightLeft}>Перенести ученика</BusyButtonContent>
+              </button>
+            </div>
+          </form>
+        </dialog>
       )}
 
       {isTeacher && assignmentComposerOpen && assignmentComposerForm && (

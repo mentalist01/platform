@@ -72,6 +72,8 @@ export function createAvailabilityStore(file) {
   let db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   return {
     get: id => db[id] ? structuredClone(db[id]) : null,
+    all: () => structuredClone(db),
+    acceptCommitted: value => { db = structuredClone(value); },
     polls: () => Object.entries(db).map(([groupId, poll]) => ({ groupId, ...structuredClone(poll) })),
     plans: () => Object.entries(db).filter(([, p]) => p.plan).map(([groupId, p]) => ({ groupId, ...structuredClone(p.plan) })),
     put(id, value) {
@@ -131,8 +133,12 @@ export function registerGroupAvailability(app, deps) {
     catch { calendarError = includeBusyTimes
       ? 'Не удалось проверить календарь преподавателя. Ответы можно собирать, но утверждение временно недоступно. Попробуйте обновить позже.'
       : 'Не удалось проверить свободное время. Выбор и утверждение временно недоступны. Попробуйте обновить позже.'; }
+    const publicPoll = { ...poll };
+    // Internal transfer receipts preserve replaced answers for recovery, but
+    // must not expose answers of former participants to the group.
+    delete publicPoll.memberTransfers;
     return { canManage: canEdit, closed: group.status === 'completed', blocked, calendarError,
-      poll: { ...poll, includeBusyTimes, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
+      poll: { ...publicPoll, includeBusyTimes, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
         answers: Object.fromEntries(memberIds.filter(id => poll.answers[id]).map(id => [id, poll.answers[id]])),
         proposal: poll.proposal ? { ...poll.proposal,
           // Rebuild old saved names for this viewer; historical proposals may contain a private teacher label.
@@ -164,7 +170,8 @@ export function registerGroupAvailability(app, deps) {
         if (body.includeBusyTimes !== undefined && typeof body.includeBusyTimes !== 'boolean') fail('Выберите режим подбора времени');
         const includeBusyTimes = body.includeBusyTimes ?? (poll?.includeBusyTimes !== false);
         poll = { id: crypto.randomUUID(), config, includeBusyTimes, hoursVersion: 1, status: 'open', answers: {}, proposal: null,
-          plan: poll?.plan || null, updatedAt: Date.now() };
+          plan: poll?.plan || null, updatedAt: Date.now(),
+          ...(poll?.memberTransfers ? { memberTransfers: poll.memberTransfers } : {}) };
       } else if (action === 'reopen') {
         if (!poll || poll.id !== body.roundId || poll.status !== 'approved') fail('Расписание уже изменилось. Обновите страницу.', 409);
         const config = currentAvailabilityConfig(poll.hoursVersion === 1 ? poll.config : { ...poll.config, endMinute: AVAILABILITY_END_MINUTE });

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, CalendarDays, Check, CheckCheck, ChevronLeft, Clock3, Heart, Loader2, LockKeyhole, MessageCircle, Plus, RefreshCw, Send, Sparkles, Users, X } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, CalendarDays, Check, CheckCheck, ChevronLeft, Clock3, Heart, Loader2, LockKeyhole, MessageCircle, Plus, RefreshCw, Send, Sparkles, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { AVAILABILITY_DAYS, AVAILABILITY_DAY_NAMES, AVAILABILITY_END_MINUTE, availabilitySlots, clockTime, moscowDay, addCalendarDays, rankedSlots, slotLabel, slotPeople, suggestedPair } from '../utils/groupAvailability';
 import './GroupAvailability.css';
@@ -12,7 +12,7 @@ const defaultConfig = () => ({ startDate: addCalendarDays(moscowDay(), 1), durat
 const memberHues = [260, 30, 205, 335, 55, 290, 185, 10, 230, 315, 45, 275, 195, 350, 65, 245, 20, 305, 215, 325];
 const Avatar = ({ member }) => <span className="ga-avatar ga-member-color" style={{ '--ga-member-hue': member.colorHue }} title={member.name}>{initials(member.name)}</span>;
 
-export default function GroupAvailability({ groupId, userId, isTeacher, onApproved, transport = api.groupAvailability }) {
+export default function GroupAvailability({ groupId, userId, isTeacher, onApproved, onTransferMember, transferBusy = false, transport = api.groupAvailability }) {
   const [data, setData] = useState(null); const dataRef = useRef(null);
   const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false);
   const busyRef = useRef(false); const alive = useRef(true); const loading = useRef(false);
@@ -157,7 +157,7 @@ export default function GroupAvailability({ groupId, userId, isTeacher, onApprov
               {pair.some(id => blocked[id]) && <p role="status">{includeBusyTimes ? 'Это время можно предложить группе. Перед утверждением перенесите пересекающиеся занятия.' : 'Выбранное время стало недоступно. Выберите свободные часы.'}</p>}
               {proposal && pair.length > 0 && <p>Новое предложение заменит предыдущее; участники подтвердят его заново.</p>}
             </div> : <div className="ga-savebar ga-selection-bar"><div><strong>{Object.keys(selectableDraft).length ? `Выбрано вариантов: ${Object.keys(selectableDraft).length}` : 'Отметьте все удобные занятия'}</strong><small>{changed ? 'Есть несохранённые изменения' : poll.answers[userId] ? 'Ваш ответ виден группе' : 'Сохраните ответ, чтобы его увидела группа'}</small>{changed && <button className="ga-discard" disabled={busy} onClick={discardDraft}>Отменить мои изменения</button>}</div><button className="ga-primary" disabled={!canChoose || (!changed && !!poll.answers[userId])} onClick={() => act('answer', { roundId: poll.id, version: myVersion.current, choices: selectableDraft }, 'Ваш выбор сохранён и виден всей группе.')}><Check size={18} />{busy ? 'Сохраняем…' : 'Сохранить мой выбор'}</button></div>)}
-            <div className="ga-member-legend" aria-label="Цвета участников">{members.map(member => <span key={member.id} className="ga-member-color" style={{ '--ga-member-hue': member.colorHue }}><i aria-hidden="true" />{member.name}{member.id === userId ? ' · вы' : ''}{!poll.answers[member.id] && <small>ждём ответ</small>}</span>)}</div>
+            <div className="ga-member-legend" aria-label="Цвета участников">{members.map(member => <span key={member.id} className="ga-member-color" style={{ '--ga-member-hue': member.colorHue }}><i aria-hidden="true" />{member.name}{member.id === userId ? ' · вы' : ''}{!poll.answers[member.id] && <small>ждём ответ</small>}{manage && !data.closed && onTransferMember && <button type="button" className="ga-member-transfer" disabled={busy || transferBusy} title={`Перенести ${member.name} в другую группу`} aria-label={`Перенести ${member.name} в другую группу`} onClick={() => onTransferMember({ studentId: member.id, name: member.name })}><ArrowRightLeft size={13} /><span>Перенести</span></button>}</span>)}</div>
             <p className="ga-color-hint">Цвет ученика — его сохранённый выбор. Зелёный — совпадение нескольких ответов, ярче — могут все. {changed ? 'Ваши новые отметки пока видны только вам: сохраните выбор.' : 'Учитель и ученики видят одинаковые сохранённые ответы.'}</p>
             <nav className="ga-mobile-days" aria-label="День недели">{poll.config.days.map(i => <button key={i} className={day === i ? 'selected' : ''} onClick={() => setDay(i)}>{AVAILABILITY_DAYS[i]}</button>)}</nav>
             <div className="ga-week-options" style={{ '--ga-days': poll.config.days.length }}>

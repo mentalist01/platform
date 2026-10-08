@@ -496,7 +496,13 @@ export const requestLearningGroupJson = async (path, options = {}) => {
     init.body = JSON.stringify(options.body ?? {});
   }
   const res = await apiFetch(path, init);
-  if (!res.ok) throw new Error(await parseApiError(res));
+  if (!res.ok) {
+    const payload = await res.clone().json().catch(() => null);
+    const error = new Error(await parseApiError(res));
+    error.status = res.status;
+    if (payload?.code) error.code = payload.code;
+    throw error;
+  }
   return parseJsonResponse(res);
 };
 
@@ -1235,6 +1241,23 @@ export const api = {
   removeLearningGroupMember: async (groupId, studentId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'members', studentId), { method: 'DELETE' })
   ),
+  transferLearningGroupMember: async (groupId, studentId, options = {}) => {
+    const normalizedGroupId = String(groupId || '').trim();
+    if (!normalizedGroupId) throw new Error('Выберите исходную группу.');
+    const normalizedStudentId = String(studentId || '').trim();
+    if (!normalizedStudentId) throw new Error('Выберите ученика для переноса.');
+    const targetGroupId = String(options?.targetGroupId || '').trim();
+    if (!targetGroupId) throw new Error('Выберите группу для переноса.');
+    const lateAddReason = String(options?.lateAddReason || '').trim();
+    return requestLearningGroupJson(getLearningGroupApiPath(normalizedGroupId, 'members', normalizedStudentId, 'transfer'), {
+      method: 'POST',
+      body: {
+        targetGroupId,
+        ...(lateAddReason ? { lateAddReason } : {}),
+        ...(options?.replaceTargetAnswer === true ? { replaceTargetAnswer: true } : {}),
+      },
+    });
+  },
   startLearningGroup: async (groupId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'start'), { method: 'POST', body: {} })
   ),
