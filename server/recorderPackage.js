@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 // Never distribute state.json, browser profiles, or credentials.
 export const recorderFiles = ['python-editor-time.mjs','python-timeline.mjs','python-edit-media.mjs','python-editor.mjs','python-capture.mjs','lesson-topic.mjs','archive.mjs', 'archive-eta.mjs', 'archive-publish.mjs', 'archive-search.mjs', 'archive-worker.py', 'archive-requirements.txt', 'archive.html', 'updater.mjs', 'update-worker.mjs', 'Install.cmd', 'install.ps1', 'dependencies.ps1', 'app.mjs', 'obs.mjs',
   'start-day.mjs','share-bridge.mjs','share-view.html','office-follow.mjs','foreground-window.ps1','segments.mjs','engine.mjs', 'mock-review.mjs', 'python-theory.mjs', 'fallback.mjs', 'storage.mjs', 'recording-storage.mjs', 'recovery-inbox.mjs', 'rutube.mjs',
-  'panel.html', 'hotkeys.ps1', 'background.vbs', 'watchdog.mjs', 'watchdog-task.ps1', 'README.md', 'package.json', 'package-lock.json'];
+  'panel.html', 'hotkeys.ps1', 'background.vbs', 'watchdog.mjs', 'watchdog-task.ps1', 'README.md', 'package.json', 'package-lock.json', 'python-playback.mjs'];
 const directory = fileURLToPath(new URL('../tools/lesson-recorder/', import.meta.url));
 const table = Array.from({ length: 256 }, (_, n) => {
   for (let bit = 0; bit < 8; bit++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;

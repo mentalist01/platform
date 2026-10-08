@@ -1,4 +1,5 @@
 import { clamp, timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit } from './python-editor-time.mjs';
+import { SourceTimelinePlayer } from './python-playback.mjs';
 const context = window.recorderEditorContext;
 const style = document.createElement('style');
 style.textContent = `
@@ -96,6 +97,7 @@ let previewGeneration = 0;
 let reviewedRevision = -1;
 let liveWanted = true, liveBusy = false, editorVisible = false, transition = null, transitionError = null;
 let preparing = false, preparingBusy = false, startPending = false, preflightLease = false, autoPrepared = false;
+let warmedSource = '';
 const thumbnails = new Map();
 const find = selector => editor.querySelector(selector);
 const field = name => find(`[data-field="${name}"]`);
@@ -104,7 +106,32 @@ const job = () => context.state()?.jobs.find(item => item.id === projectId);
 const selection = () => job()?.pythonTimeline.clips.find(clip => clip.id === selectedId);
 const totalTime = () => layout.at(-1) ? layout.at(-1).time + layout.at(-1).duration : 0;
 const notify = (text, failure = false) => { find('.pe-status').textContent = text; find('.pe-status').classList.toggle('pe-error', failure); };
-const discardPreview = () => { previewGeneration++; find('video').pause(); videoUrl = ''; previewClip = ''; liveWanted = true; find('video').removeAttribute('src'); find('video').load(); find('video').hidden = true; find('.pe-empty').hidden = false; };
+const sourceCache = new Map();
+async function playbackSource(at) {
+  const current = job(), slot = Math.floor(at / 30);
+  const key = `${current.id}:${slot}:${Math.min((slot + 1) * 30, current.pythonTimeline.sourceEnd)}`;
+  if (!sourceCache.has(key)) {
+    const pending = context.request('/python/editor/source', {id:current.id,revision:current.pythonTimeline.revision,at}).then(result => {
+      if (!result.videoUrl?.startsWith('/python/editor/video/')) throw Error('Исходник недоступен');
+      return result;
+    }).catch(error => { sourceCache.delete(key); throw error; });
+    sourceCache.set(key,pending);
+    while (sourceCache.size > 4) sourceCache.delete(sourceCache.keys().next().value);
+  }
+  return sourceCache.get(key);
+}
+const player = new SourceTimelinePlayer(find('video'), playbackSource,
+  seconds => { if (videoUrl && previewRevision === job()?.pythonTimeline.revision) setPlayhead(seconds + (previewClip ? layout.find(item=>item.id===previewClip)?.time || 0 : 0),false,false); },
+  text => {sourceCache.clear();warmedSource='';discardPreview();render();notify(text,true);});
+const playbackTools = document.createElement('div'); playbackTools.className='pe-tools pe-playback-controls'; playbackTools.hidden=true;
+playbackTools.innerHTML='<button type="button" aria-label="Воспроизведение монтажа">▶ Воспроизвести</button><button type="button" aria-label="Звук предпросмотра">♫ Звук включён</button><select aria-label="Скорость просмотра"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.5">1,5×</option><option value="2">2×</option></select>';
+style.textContent += '.python-editor .pe-playback-controls{flex:none}.python-editor .pe-playback-controls select{width:80px;padding:7px;font-size:12px}.python-editor--focus .pe-view{overflow-y:auto}.python-editor--focus .pe-playback-controls{margin-top:6px}.python-editor--focus .pe-view .pe-monitor{min-height:100px}';
+find('.pe-play-tools').append(playbackTools);
+style.textContent += '.python-editor .pe-playback-controls{display:contents}.python-editor .pe-play-tools{flex:none}';
+playbackTools.children[0].onclick=()=>{if(player.playing)player.pause();else void player.play().catch(error=>notify(error.message,true));};
+playbackTools.children[1].onclick=()=>{const muted=!player.active.muted;for(const video of player.videos)video.muted=muted;playbackTools.children[1].textContent=muted?'♫ Без звука':'♫ Звук включён';};
+playbackTools.children[2].onchange=event=>{for(const video of player.videos)video.defaultPlaybackRate=video.playbackRate=Number(event.target.value);};
+const discardPreview = () => { previewGeneration++; player.stop(); videoUrl = ''; previewClip = ''; liveWanted = true; for(const video of player.videos)video.hidden=true; find('.pe-empty').hidden = false; playbackTools.hidden=true; };
 function showSettings(shown) {
   preparation.hidden = !shown; fragmentTools.hidden = shown;
   [...inspectorTabs.children].forEach((button, index) => button.setAttribute('aria-pressed',String(index === (shown ? 0 : 1))));
@@ -187,9 +214,11 @@ function renderMonitor(current, state) {
   find('.pe-live-image').hidden = !live || !find('.pe-live-image').hasAttribute('src');
   find('.pe-live-empty').hidden = !live || find('.pe-live-image').hasAttribute('src');
   find('.pe-live-label').hidden = !live;
-  find('.pe-player').hidden = live || !videoUrl;
-  find('.pe-empty').hidden = live || Boolean(videoUrl);
+  find('.pe-player').hidden = live || !videoUrl || !player.source;
+  find('.pe-empty').hidden = live || Boolean(videoUrl && player.source);
   find('.pe-seek').hidden = live;
+  playbackTools.hidden = live || !videoUrl;
+  playbackTools.children[0].textContent = player.playing ? 'Ⅱ Пауза просмотра' : '▶ Воспроизвести';
   find('[data-op=live]').hidden = !active || liveWanted;
   find('.pe-live-label').textContent = active ? state.obs?.outputPaused ? 'Экран записи · пауза' : '● Экран записи' : 'Предпросмотр · запись ещё не начата';
   const timeline = current?.pythonTimeline;
@@ -216,16 +245,15 @@ function videoEvent(video, event, change) {
     const timer=setTimeout(fail,5000);video.addEventListener(event,ok);video.addEventListener('error',fail);change();
   });
 }
-async function makeThumbnails(url, clips, all, generation) {
+async function makeThumbnails(url, clips, sourceOffset, generation) {
   const decoder=document.createElement('video'); decoder.muted=true; decoder.preload='auto';
   const canvas=document.createElement('canvas');canvas.width=160;canvas.height=90;const paint=canvas.getContext('2d');
   try{
     await videoEvent(decoder,'loadeddata',()=>{decoder.src=url;decoder.load();});
-    let offset=0;
     // Decode a bounded number of small frames, never a whole video into memory.
     for(const clip of clips.slice(0,32)){
       if(generation!==previewGeneration)return;
-      const duration=clip.end-clip.start,at=Math.min(decoder.duration-.04,(all?offset:0)+Math.min(.1,duration/2));offset+=duration;
+      const duration=clip.end-clip.start,at=Math.min(decoder.duration-.04,clip.start+sourceOffset+Math.min(.1,duration/2));
       if(Math.abs(decoder.currentTime-at)>.001)await videoEvent(decoder,'seeked',()=>{decoder.currentTime=Math.max(0,at);});
       if(generation!==previewGeneration)return;
       paint.drawImage(decoder,0,0,160,90); thumbnails.set(thumbnailKey(clip),canvas.toDataURL('image/jpeg',.65));
@@ -254,7 +282,7 @@ function setPlayhead(seconds, seekVideo = true, choose = true, updatePoint = tru
   if (choose && item && selectedId !== item.id) select(item.id);
   if (seekVideo && videoUrl && previewRevision === job()?.pythonTimeline.revision) {
     const secondsInPreview = previewClip ? playhead - layout.find(part => part.id === previewClip)?.time : playhead;
-    if (Number.isFinite(secondsInPreview) && secondsInPreview >= 0 && (!previewClip || secondsInPreview <= selection()?.end - selection()?.start)) find('video').currentTime = secondsInPreview;
+    if (Number.isFinite(secondsInPreview) && secondsInPreview >= 0 && (!previewClip || secondsInPreview <= selection()?.end - selection()?.start)) void player.seek(secondsInPreview,player.playing).catch(error=>notify(error.message,true));
   }
   find('.pe-cursor').style.left = `${timeToPixel(layout, playhead)}px`;
   find('.pe-cursor').hidden = !layout.length;
@@ -266,28 +294,28 @@ function setPlayhead(seconds, seekVideo = true, choose = true, updatePoint = tru
   for (const [op, action] of [['cut-cursor','split'],['trim-start','trim-start'],['trim-end','trim-end']]) find(`[data-op=${op}]`).disabled = Boolean(locked) || !cursorEdit(layout, playhead, action);
 }
 find('.pe-seek input').oninput = event => setPlayhead(Number(event.target.value));
-async function preview(all = false, play = false) {
+async function preview(all = false, play = true) {
+  const startedAt = performance.now();
   const current = job(), requested = structuredClone(selection()), requestedClips = structuredClone(current.pythonTimeline.clips);
   if (!all && !requested) return;
   const offset = all ? playhead : clamp(playhead - (layout.find(part => part.id === requested.id)?.time || 0), 0, requested.end - requested.start);
   if (videoUrl && previewRevision === current.pythonTimeline.revision && previewClip === (all ? '' : requested.id)) {
-    liveWanted = false; renderMonitor(current, context.state()); find('video').currentTime = offset;
-    if (play) await find('video').play(); return;
+    liveWanted = false; renderMonitor(current, context.state()); await player.seek(offset,play); editor.dataset.playbackStartMs=(performance.now()-startedAt).toFixed(1); return;
   }
-  notify('Готовим предпросмотр…');
+  notify('Открываем исходную запись…');
   const generation = ++previewGeneration;
-  const response = await context.request('/python/editor/preview', { id: current.id, revision: current.pythonTimeline.revision, ...(all ? {} : { clipId: requested.id }) });
-  if (generation !== previewGeneration || job()?.id !== current.id || job()?.pythonTimeline.revision !== response.revision) return;
-  discardPreview(); videoUrl = response.videoUrl;
-  if (!videoUrl?.startsWith('/python/editor/video/')) throw Error('Предпросмотр недоступен. Попробуйте снова.');
+  player.configure(all?requestedClips:[requested]); videoUrl='source';
   liveWanted = false;
-  previewClip = all ? '' : requested.id; previewRevision = response.revision;
-  if (all) reviewedRevision = response.revision;
-  const video = find('video');
-  video.onloadedmetadata = () => { video.currentTime = Math.min(offset, Math.max(0, video.duration - .04)); if (play) void video.play().catch(error => notify(`Нажмите воспроизведение. ${error.message}`)); };
-  video.src = videoUrl; renderMonitor(current, context.state());
+  previewClip = all ? '' : requested.id; previewRevision = current.pythonTimeline.revision;
+  renderMonitor(current, context.state());
+  await player.seek(offset,play);
+  if(generation!==previewGeneration || job()?.id!==current.id || job()?.pythonTimeline.revision!==previewRevision || !player.source)return;
+  videoUrl=player.source.videoUrl; if(all)reviewedRevision=previewRevision;
+  renderMonitor(current,context.state());
+  editor.dataset.playbackStartMs=(performance.now()-startedAt).toFixed(1);
   notify(all ? 'Предпросмотр всего монтажа. Проверьте звук и стыки.' : 'Фрагмент готов к просмотру. Остановите воспроизведение в месте разреза.');
-  void makeThumbnails(videoUrl,all?requestedClips:[requested],all,previewGeneration);
+  playbackTools.hidden=false;
+  void makeThumbnails(videoUrl,(all?requestedClips:[requested]).filter(clip=>clip.start>=player.source.sourceStart&&clip.start<player.source.sourceEnd),player.source.offset,previewGeneration);
 }
 function render() {
   const state = context.state();
@@ -404,12 +432,20 @@ function render() {
   find('[data-op=move-right]').disabled=locked||index<0||index>=timeline.clips.length-1;
   find('[data-op=join]').disabled=locked||!selected||!after||Math.abs(selected.end-after.start)>.001;
   editor.querySelectorAll('[data-field]').forEach(input=>{input.disabled=locked||!selected;});
-  if (previewRevision !== -1 && previewRevision !== timeline.revision && videoUrl) notify('Лента изменилась. Подготовьте новый предпросмотр перед проверкой.');
+  if (previewRevision !== -1 && previewRevision !== timeline.revision && videoUrl) { discardPreview(); notify('Лента изменилась. Нажмите воспроизведение — исходник уже подготовлен.'); }
   setPlayhead(playhead, false, false, false);
   renderMonitor(current, state);
   renderPreparation(state);
+  const last = timeline.clips.at(-1);
+  if (editorVisible && !preparing && (!anyActive || isActive && state.obs?.outputPaused)) {
+    const key = last ? `${current.id}:${timeline.sourceEnd}` : '';
+    if (key && key !== warmedSource && !busy && !state.editorBusy && !timeline.approved) {
+      warmedSource = key; void playbackSource(last.start).catch(()=>{});
+    }
+  }
 }
 async function setPaused(current, paused) {
+  if (!paused) discardPreview();
   transition = { id: current.id, paused }; transitionError = null; render();
   try {
     await context.pause(current.id, paused);
@@ -466,7 +502,6 @@ const invoke = op => { if (!find(`[data-op="${op}"]`)?.disabled) void act(() => 
 editor.querySelectorAll('[data-op]').forEach(button => button.onclick = () => invoke(button.dataset.op));
 find('.pe-project').onchange = event => { if (!event.target.value) { void prepareRecording(); return; } projectId = event.target.value; playhead = 0; reviewedRevision = -1; discardPreview(); select(''); };
 find('[aria-label="Масштаб ленты"]').oninput = event => { scale = Number(event.target.value); signature = ''; render(); };
-find('video').ontimeupdate = () => { if (videoUrl && previewRevision === job()?.pythonTimeline.revision) setPlayhead(find('video').currentTime + (previewClip ? layout.find(item=>item.id===previewClip)?.time || 0 : 0), false, false); };
 editor.addEventListener('keydown', event => {
   if (event.key === 'Escape' && editor.classList.contains('python-editor--focus')) {
     event.preventDefault(); focusButton.click(); return;
@@ -486,7 +521,7 @@ editor.addEventListener('keydown', event => {
   else if (event.key === 'Delete' && selectedId) { event.preventDefault(); invoke('delete'); }
   else if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key) && event.target.tagName !== 'VIDEO') { event.preventDefault(); setPlayhead(event.key==='Home'?0:event.key==='End'?totalTime():playhead+(event.key==='ArrowRight'?1:-1)*(event.shiftKey?1:1/30)); }
   else if (!event.ctrlKey && !event.altKey && ['s','q','w'].includes(shortcut)) { event.preventDefault(); invoke(({s:'cut-cursor',q:'trim-start',w:'trim-end'})[shortcut]); }
-  else if (event.code === 'Space' && (event.target.tagName !== 'BUTTON' || event.target.getAttribute('role') === 'option') && event.target.tagName !== 'VIDEO') { event.preventDefault(); if(videoUrl&&!liveWanted){if(find('video').paused)void find('video').play().catch(()=>{});else find('video').pause();}else if(!find('[data-op=preview]').disabled)void act(()=>preview(false,true)); }
+  else if (event.code === 'Space' && (event.target.tagName !== 'BUTTON' || event.target.getAttribute('role') === 'option') && event.target.tagName !== 'VIDEO') { event.preventDefault(); if(videoUrl&&!liveWanted){if(player.playing)player.pause();else void player.play().catch(error=>notify(error.message,true));}else if(!find('[data-op=preview]').disabled)void act(()=>preview(false,true)); }
 });
 const trackContent = find('.pe-track-content');
 const trackPixel = event => event.clientX - trackContent.getBoundingClientRect().left;
@@ -567,5 +602,4 @@ function showMenu(x, y) {
 }
 document.addEventListener('pointerdown', event => { if (menu && !menu.contains(event.target)) menu.remove(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') menu?.remove(); });
-find('video').onerror = () => { if (videoUrl) { discardPreview(); render(); notify('Не удалось открыть предпросмотр. Нажмите «Посмотреть фрагмент» ещё раз.', true); } };
 render(); setInterval(render, 1000);

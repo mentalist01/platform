@@ -12,7 +12,7 @@ const hasFfmpeg = (() => { try { execFileSync(ffmpeg, ['-version'], { windowsHid
 
 // Run the actual service and panel against a synthetic OBS RPC transport and
 // a fictional platform. No real OBS, devices, payments, uploads or lessons.
-async function fixture({ queueEnabled = false, pauseDelayMs = 0, mediaFixture = false } = {}) {
+async function fixture({ queueEnabled = false, pauseDelayMs = 0, mediaFixture = false, sourcePreparationGate = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-python-studio-'));
   const app = path.join(root, 'fixture-app'); fs.mkdirSync(app);
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -79,7 +79,20 @@ export class ObsClient extends Base {
   source = source.replace('void archive.detectPython().catch(() => {});', '/* QA: no dependency probes. */');
   if (!queueEnabled) source = source.replace('void queue();', '/* QA: no automatic uploads. */').replace('if (!job.url) await uploader.upload(job, save);', 'throw Error("QA: соединение прервано");');
   source = source.replace('const finalizePython = async job => {', 'editMedia.duration=async()=>24; const finalizePython = async job => {');
+  if (sourcePreparationGate) source = source.replace('const server = http.createServer', `
+  let qaSourceGate;
+  const qaCopyPlaybackSource = editMedia.copyPlaybackSource.bind(editMedia);
+  editMedia.copyPlaybackSource = async (...args) => {
+    const gate = qaSourceGate;
+    if (gate) { gate.entered = true; await gate.pending; }
+    return qaCopyPlaybackSource(...args);
+  };
+  const server = http.createServer`);
   const qaRoutes = `
+    ${sourcePreparationGate ? `
+    if(req.url==='/qa/source-hold'){let release;const pending=new Promise(resolve=>release=resolve);qaSourceGate={pending,release,entered:false};return json(res,200,{});}
+    if(req.url==='/qa/source-status')return json(res,200,{entered:qaSourceGate?.entered===true,sourceWork:editMedia.sourceWork.size});
+    if(req.url==='/qa/source-release'){qaSourceGate?.release();qaSourceGate=undefined;return json(res,200,{});}` : ''}
     if(req.url==='/qa/narrow'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end('<iframe title="Монтаж в узком окне" src="/" style="width:390px;height:760px;border:0"></iframe>');}
     if(req.url==='/qa/events')return json(res,200,{events:obs.events,settings:obs.settings,scene:obs.scene,owner:obs.owner});
     if(req.url==='/qa/closed'){obs.closed=true;pythonSourceChoices=await obs.choices();return json(res,200,{});}
@@ -200,6 +213,82 @@ if (process.argv.includes('--serve')) {
     assert.equal((await f.request('/python/editor/edit',{id,revision:stopped.pythonTimeline.revision,action:'restore-source'})).status,200);
     const restored=await project();assert.equal(restored.pythonTimeline.clips[0].start,0);assert.equal(restored.pythonTimeline.approved,false);
     assert.equal(restored.url,undefined);assert.equal((await f.request('/upload',{id})).status,400,'Restoration does not approve upload');
+  });
+  test('real source playback API reuses scoped media after edits, keeps paused OBS running and revalidates a pending owner', { timeout: 60000, skip: !hasFfmpeg && 'FFmpeg is not installed on this host; real media is tested on the recorder workstation' }, async t => {
+    const f = await fixture({ mediaFixture: true, sourcePreparationGate: true }); t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'QA быстрый просмотр исходника'});
+    const id=(await f.request('/state')).value.jobs[0].id;
+    const project=async()=>(await f.request('/state')).value.jobs.find(job=>job.id===id);
+    const file=path.join(f.ordinary.recordDirectory,`lesson-${id}.mkv`),original=fs.readFileSync(file);
+    const running=await project();
+    assert.equal((await f.request('/python/editor/source',{id,revision:running.pythonTimeline.revision,at:0})).status,400,'Open take must be paused before source playback');
+    await f.request('/qa/time',{seconds:8});
+    assert.equal((await f.request('/material/pause',{id,paused:true})).status,200);
+    assert.equal((await f.request('/material/pause',{id,paused:false})).status,200);
+    await f.request('/qa/time',{seconds:16});
+    assert.equal((await f.request('/material/pause',{id,paused:true})).status,200);
+    const first=await project(),before=(await f.request('/qa/events')).value;
+    const prepared=await f.request('/python/editor/source',{id,revision:first.pythonTimeline.revision,at:9});
+    assert.equal(prepared.status,200);
+    const { videoUrl,sourceStart,sourceEnd,offset }=prepared.value;
+    assert.ok(sourceStart<=9 && sourceEnd===16 && Number.isFinite(offset),'Capability maps original recording time to seek time');
+    assert.equal((await fetch(f.base+videoUrl.split('?')[0])).status,403);
+    assert.equal((await fetch(f.base+videoUrl+'bad')).status,403);
+    assert.equal((await fetch(f.base+videoUrl,{headers:{'Sec-Fetch-Site':'cross-site'}})).status,403);
+    const bytes=await fetch(f.base+videoUrl,{headers:{Range:'bytes=0-63'}});
+    assert.equal(bytes.status,206); assert.equal(bytes.headers.get('content-type'),'video/mp4');
+    assert.equal((await bytes.arrayBuffer()).byteLength,64);
+    const access=new URL(videoUrl,f.base).searchParams.get('access');
+    assert.equal((await fetch(f.base+'/state?access='+access)).status,403,'Media capability cannot grant access to recorder controls');
+    assert.equal((await f.request('/python/editor/edit',{id,revision:first.pythonTimeline.revision,action:'trim',clipId:first.pythonTimeline.clips[0].id,start:1,end:7})).status,200);
+    let edited=await project();
+    assert.equal((await f.request('/python/editor/edit',{id,revision:edited.pythonTimeline.revision,action:'reorder',clipId:edited.pythonTimeline.clips[1].id,beforeId:edited.pythonTimeline.clips[0].id})).status,200);
+    edited=await project();
+    assert.equal((await f.request('/python/editor/source',{id,revision:first.pythonTimeline.revision,at:9})).status,400,'Old editor revision cannot initiate another request');
+    const reused=await f.request('/python/editor/source',{id,revision:edited.pythonTimeline.revision,at:9});
+    assert.equal(reused.status,200);assert.equal(reused.value.videoUrl,videoUrl,'Reorder and trim reuse the same source capability');
+    const state=(await f.request('/state')).value;
+    assert.equal(state.obs.outputActive,true);assert.equal(state.obs.outputPaused,true);
+    assert.equal(state.editorBusy,'');assert.equal(state.preparingUpload,false);
+    const after=(await f.request('/qa/events')).value;
+    assert.equal(after.owner,before.owner);assert.equal(after.scene,before.scene);
+    assert.equal(after.events.filter(([type])=>['StopRecord','StartRecord','ResumeRecord','PauseRecord','SetCurrentProgramScene','SetProfileParameter'].includes(type)).length,before.events.filter(([type])=>['StopRecord','StartRecord','ResumeRecord','PauseRecord','SetCurrentProgramScene','SetProfileParameter'].includes(type)).length,'Reading playback source never changes OBS output or its ownership');
+    assert.equal((await f.request('/material/pause',{id,paused:false})).status,200);
+    await f.request('/qa/time',{seconds:20});
+    assert.equal((await f.request('/material/pause',{id,paused:true})).status,200);
+    const latest=await project();
+    await f.request('/qa/source-hold');
+    const pending=f.request('/python/editor/source',{id,revision:latest.pythonTimeline.revision,at:18});
+    let gate;
+    for(let i=0;i<50;i++){gate=(await f.request('/qa/source-status')).value;if(gate.entered)break;await new Promise(resolve=>setTimeout(resolve,20));}
+    assert.equal(gate.entered,true,'Source preparation is deterministically held in progress');assert.equal(gate.sourceWork,1);
+    assert.equal((await f.request('/state')).value.editorBusy,'');
+    assert.equal((await f.request('/python/editor/edit',{id,revision:latest.pythonTimeline.revision,action:'delete',clipId:latest.pythonTimeline.clips.at(-1).id})).status,200,'An in-progress remux does not lock timeline editing');
+    await f.request('/qa/source-release');
+    const stalePending=await pending;
+    assert.equal(stalePending.status,400,'Changing the montage cancels an outdated playback request');
+    assert.match(stalePending.value.error,/Монтаж изменился/);
+    const fresh=await project();
+    assert.equal((await f.request('/python/editor/source',{id,revision:fresh.pythonTimeline.revision,at:18})).status,200,'Prepared source remains available to the latest editor revision');
+    assert.equal((await f.request('/material/pause',{id,paused:false})).status,200);
+    await f.request('/qa/time',{seconds:24});
+    assert.equal((await f.request('/material/pause',{id,paused:true})).status,200);
+    const last=await project();
+    await f.request('/qa/source-hold');
+    const ownershipPending=f.request('/python/editor/source',{id,revision:last.pythonTimeline.revision,at:22});
+    for(let i=0;i<50;i++){gate=(await f.request('/qa/source-status')).value;if(gate.entered)break;await new Promise(resolve=>setTimeout(resolve,20));}
+    assert.equal(gate.entered,true,'The ownership race is held without changing the timeline revision');
+    await f.request('/qa/foreign');
+    const foreign=(await f.request('/qa/events')).value;
+    await f.request('/qa/source-release');
+    assert.equal((await ownershipPending).status,400,'Ownership lost while preparing media must be checked before returning its capability');
+    const changed=await project();
+    assert.equal((await f.request('/python/editor/source',{id,revision:changed.pythonTimeline.revision,at:9})).status,400,'Paused foreign OBS output cannot reuse a cached source capability');
+    const final=(await f.request('/qa/events')).value;
+    assert.equal(final.owner,foreign.owner);assert.equal(final.scene,foreign.scene);
+    assert.equal(final.events.filter(([type])=>type==='StopRecord').length,0,'Playback must never stop any recording');
+    assert.deepEqual(fs.readFileSync(file),original,'Playback and edits preserve original source bytes');
   });
   test('real service confirms delayed pause/resume, returns take boundaries and offers only the owned read-only recording preview', async t => {
     const f = await fixture({pauseDelayMs:700}); t.after(f.close);

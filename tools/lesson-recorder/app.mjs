@@ -52,7 +52,7 @@ let pythonSourceChoices;
 const serialize = (fn) => { const next = chain.then(fn); chain = next.catch(() => {}); return next; };
 const ready = () => Boolean(state.config.recordDirectory && state.config.configured && state.config.platform && state.config.telemost && state.config.mic);
 const setupIdle = async () => {
-  if (editMedia?.work) throw new Error('Дождитесь подготовки монтажа Python');
+  if (editMedia?.work || editMedia?.sourceWork.size) throw new Error('Дождитесь подготовки монтажа Python');
   if (archive?.work || archive?.setup || archive?.submitting) throw new Error('Дождитесь окончания обработки архива или поставьте её на паузу');
   return assertSetupIdle({ active: engine.active(), uploadingId, queueBusy, outputActive: obs.connected && (await obs.status()).outputActive });
 };
@@ -144,7 +144,7 @@ async function upload(job) {
   } finally { uploadingId = ''; }
 }
 async function queue() {
-  if (queueBusy || updater.busy || uploadingId || editMedia.work || archive?.work || archive?.submitting) return; queueBusy = true;
+  if (queueBusy || updater.busy || uploadingId || editMedia.work || editMedia.sourceWork.size || archive?.work || archive?.submitting) return; queueBusy = true;
   try {
     importRecoveredRecordings({ directory, recordDirectory, state, save });
     for (const job of Object.values(state.jobs)) {
@@ -283,7 +283,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== 'POST') return json(res, 405, {});
       await shareBridge.receive(await body(req)); return json(res, 200, {});
     }
-    if (req.method === 'GET' && ['/python-editor.mjs','/python-editor-time.mjs'].includes(pathname)) {
+    if (req.method === 'GET' && ['/python-editor.mjs','/python-editor-time.mjs','/python-playback.mjs'].includes(pathname)) {
       res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
       return res.end(fs.readFileSync(path.join(here, pathname.slice(1)), 'utf8'));
     }
@@ -332,6 +332,24 @@ const server = http.createServer(async (req, res) => {
     if (updater.busy) return json(res, 409, { error: 'Пульт обновляется. Подождите завершения.' });
     const payload = await body(req);
     if ((req.url === '/python/pause' || req.url === '/material/pause') && editMedia.work === payload.id) throw new Error('Дождитесь подготовки предпросмотра');
+    if (req.url === '/python/editor/source') {
+      const job = state.jobs[payload.id];
+      if (!job?.pythonTimeline || job.pythonTimeline.revision !== payload.revision || queueBusy || uploadingId) throw new Error('Обновите монтаж или дождитесь обработки');
+      const assertPlaybackOwner = async () => {
+        const active = engine.active();
+        if (!active) return;
+        if (active.id !== job.id || !active.pythonTheory) throw new Error('Предпросмотр доступен после текущей записи');
+        const [recording,profile] = await Promise.all([obs.call('GetRecordStatus'),obs.call('GetProfileParameter',{parameterCategory:'Output',parameterName:'FilenameFormatting'})]);
+        if (!recording.outputActive || !recording.outputPaused || profile.parameterValue !== `lesson-${job.id}`) throw new Error('Для просмотра текущей записи сначала завершите дубль и проверьте запись Python в OBS');
+      };
+      await assertPlaybackOwner();
+      const snapshot = { ...job, file: job.file || ownedRecording(recordDirectory, job.id), pythonTimeline: structuredClone(job.pythonTimeline) };
+      const source = await editMedia.playbackSource(snapshot, payload.at, path.dirname(snapshot.file));
+      if (state.jobs[payload.id]?.pythonTimeline.revision !== payload.revision) throw new Error('Монтаж изменился. Повторите просмотр');
+      await assertPlaybackOwner();
+      return json(res, 200, { videoUrl: `/python/editor/video/${source.id}?access=${source.access}`,
+        sourceStart: source.sourceStart, sourceEnd: source.sourceEnd, offset: source.offset });
+    }
     if (req.url === '/python/editor/preview') {
       let job, clips;
       await serialize(async () => {
@@ -359,7 +377,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.url === '/shutdown') {
       if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу и дождитесь завершения текущей операции');
-      if (engine.active() || uploadingId || queueBusy || editMedia.work || (obs.connected && (await obs.status()).outputActive)) throw new Error('Сначала дождитесь окончания записи и загрузки');
+      if (engine.active() || uploadingId || queueBusy || editMedia.work || editMedia.sourceWork.size || (obs.connected && (await obs.status()).outputActive)) throw new Error('Сначала дождитесь окончания записи и загрузки');
       await pythonPreviewSession.release();
       runtimeWatchdog?.suspend('idle shutdown');
       await uploader.context?.close(); save();

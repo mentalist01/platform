@@ -34,7 +34,20 @@ const command = (exe, args, timeout = 60 * 60_000) => new Promise((resolve, reje
   child.once('exit', code => { clearTimeout(timer); code === 0 ? resolve(text) : reject(Error(`Не удалось подготовить монтаж (${code}). Исходник сохранён.`)); });
 });
 export class PythonEditMedia {
-  constructor({ ffmpeg = 'ffmpeg', root }) { this.ffmpeg = ffmpeg; this.root = path.resolve(root); this.work = null; this.previews = new Map(); }
+  constructor({ ffmpeg = 'ffmpeg', root }) {
+    this.ffmpeg = ffmpeg; this.root = path.resolve(root); this.work = null; this.previews = new Map(); this.sourceWork = new Map();
+    // Capabilities do not survive restart. Remove only their generated cache,
+    // never recordings, final renders, or user files (and never follow links).
+    if (fs.existsSync(this.root)) for (const folder of fs.readdirSync(this.root, { withFileTypes: true })) {
+      if (!folder.isDirectory() || !/^[\da-f-]{36}$/i.test(folder.name)) continue;
+      const directory = path.join(this.root, folder.name);
+      for (const file of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (file.isFile() && /^source-[\da-f-]{36}\.mp4(?:\.part\.mp4)?$/i.test(file.name)) {
+          try { fs.unlinkSync(path.join(directory, file.name)); } catch { /* A locked cache can be retried after the next restart. */ }
+        }
+      }
+    }
+  }
   source(job, recordDirectory) { return ownedRecording(recordDirectory, job.id, job.file); }
   async duration(job, recordDirectory) {
     const ffprobe = this.ffmpeg.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
@@ -69,6 +82,50 @@ export class PythonEditMedia {
       }
       return id;
     });
+  }
+  // Playback reads reusable 30-second pieces of the original recording. A cut,
+  // reorder or duplicate changes only the browser's play list, never the media.
+  // Stream copy keeps the OBS picture/audio and avoids competing with its encoder.
+  async playbackSource(job, at, recordDirectory) {
+    if (!Number.isFinite(at) || at < 0 || at >= job.pythonTimeline.sourceEnd) throw Error('Выберите записанный фрагмент');
+    const input = this.source(job, recordDirectory), slot = Math.floor(at / 30);
+    const end = Math.min((slot + 1) * 30, job.pythonTimeline.sourceEnd);
+    const key = JSON.stringify(['source', job.id, input, slot, end]);
+    const cached = [...this.previews].find(([, item]) => item.key === key && fs.existsSync(item.file));
+    if (cached) {
+      const [id, item] = cached; this.previews.delete(id); this.previews.set(id, item);
+      return { id, ...item };
+    }
+    if (this.sourceWork.has(key)) return this.sourceWork.get(key);
+    if (this.sourceWork.size >= 2) throw Error('Подготавливаем ближайшие фрагменты. Попробуйте через секунду.');
+    const pending = this.copyPlaybackSource(job, input, slot, end, key);
+    this.sourceWork.set(key, pending);
+    try { return await pending; } finally { this.sourceWork.delete(key); }
+  }
+  async copyPlaybackSource(job, input, slot, end, key) {
+    const ffprobe = this.ffmpeg.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
+    const from = Math.max(0, slot * 30 - 4);
+    const id = crypto.randomUUID(), folder = path.join(this.root, job.id);
+    fs.mkdirSync(folder, { recursive: true });
+    const output = path.join(folder, `source-${id}.mp4`), temporary = `${output}.part.mp4`;
+    try {
+      // Preserve timestamps through the seek (including keyframe preroll),
+      // then shift by a known offset. This is one remux, with no video encoder.
+      await command(this.ffmpeg, ['-hide_banner','-loglevel','error','-y','-copyts','-start_at_zero','-ss',String(from),'-i',input,'-to',String(end),
+        '-map','0:v:0','-map','0:a:0?','-c','copy','-output_ts_offset',String(-from),'-avoid_negative_ts','disabled','-movflags','+faststart',temporary], 30000);
+      const copied = JSON.parse(await command(ffprobe, ['-v','error','-read_intervals','%+#1','-select_streams','v:0','-show_entries','packet=pts_time','-of','json',temporary], 30000));
+      const firstOutput = Number(copied.packets?.[0]?.pts_time);
+      if (!Number.isFinite(firstOutput)) throw Error('Фрагмент ещё не записан на диск. Повторите просмотр через секунду.');
+      fs.renameSync(temporary, output);
+      const item = { file: output, jobId: job.id, key, access: crypto.randomBytes(24).toString('hex'),
+        sourceStart: firstOutput+from, sourceEnd: end, offset: -from };
+      this.previews.set(id, item);
+      while (this.previews.size > 8) {
+        const [oldId, old] = this.previews.entries().next().value;
+        this.previews.delete(oldId); fs.unlink(old.file, () => {});
+      }
+      return { id, ...item };
+    } catch (error) { fs.unlink(temporary, () => {}); throw error; }
   }
   async render(job, clips, recordDirectory, output, preview = false) {
     if (!Array.isArray(clips) || !clips.length || clips.length > 300) throw Error('Выберите фрагменты для монтажа');
