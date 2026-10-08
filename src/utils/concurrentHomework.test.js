@@ -35,8 +35,32 @@ test('a stale open group projection expires exactly on time; undated work stays 
   assert.deepEqual(partitionConcurrentHomeworks(entries, now).active.map(x => x.id), ['undated']);
   assert.deepEqual(partitionConcurrentHomeworks(entries, now).history.map(x => x.id), ['expires']);
 });
-test('old individual history is retained while several future assignments remain current', () => {
+test('only the latest individual homework stays current even when earlier deadlines are still ahead', () => {
   const entries = [{ id: 'a', dueAt: '2026-10-14T00:00Z' }, { id: 'b', dueAt: '2026-10-16T00:00Z' }, { id: 'old', dueAt: '2026-09-10T00:00Z' }];
   const result = partitionConcurrentHomeworks(entries, Date.parse('2026-10-10T00:00Z'));
-  assert.equal(result.active.length, 2); assert.equal(result.history[0].id, 'old');
+  assert.deepEqual(result.active.map(x => x.id), ['a']);
+  assert.deepEqual(result.history.map(x => x.id), ['b', 'old']);
+});
+
+test('a newer group assignment does not hide the latest individual homework or reactivate its history', () => {
+  const now = Date.parse('2026-10-10T00:00Z');
+  const entries = [
+    { id: 'python', source: 'learning-group', dueAt: '2026-10-16T00:00Z' },
+    { id: 'individual-new', dueAt: '2026-10-15T00:00Z' },
+    { id: 'ege', source: 'learning-group', dueAt: '2026-10-14T00:00Z' },
+    { id: 'individual-old', dueAt: '2026-10-17T00:00Z' },
+  ];
+  const result = partitionConcurrentHomeworks(entries, now);
+  assert.deepEqual(result.active.map(x => x.id), ['ege', 'individual-new', 'python']);
+  assert.deepEqual(result.history.map(x => x.id), ['individual-old']);
+  assert.deepEqual(entries.map(x => x.id), ['python', 'individual-new', 'ege', 'individual-old']);
+});
+
+test('the latest overdue or undated individual homework remains current as before', () => {
+  for (const latest of [{ id: 'overdue', dueAt: '2026-09-10T00:00Z' }, { id: 'undated' }]) {
+    const older = { id: 'older', dueAt: '2026-10-17T00:00Z' };
+    const result = partitionConcurrentHomeworks([latest, older], Date.parse('2026-10-10T00:00Z'));
+    assert.deepEqual(result.active.map(x => x.id), [latest.id]);
+    assert.deepEqual(result.history.map(x => x.id), ['older']);
+  }
 });

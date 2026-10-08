@@ -34,14 +34,14 @@ export const weeklyHomeworkLessonChoices = (schedule = [], now = Date.now()) => 
 };
 
 export const partitionConcurrentHomeworks = (entries = [], now = Date.now()) => {
-  const latest = entries[0];
+  const latestIndividual = entries.find(entry => entry.source !== 'learning-group');
   const active = [], history = [];
   for (const entry of entries) {
     const group = entry.source === 'learning-group';
     const due = Date.parse(entry.dueAt);
     const open = group
       ? entry.learningAssignmentStatus !== 'closed' && (!Number.isFinite(due) || due > now)
-      : entry === latest || due >= now;
+      : entry === latestIndividual;
     (open ? active : history).push(entry);
   }
   active.sort((a, b) => (Date.parse(a.dueAt) || Infinity) - (Date.parse(b.dueAt) || Infinity));
