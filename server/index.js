@@ -17162,7 +17162,9 @@ const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence)
   ));
   if (allocated) return { month, lessonPrice: allocated.amount };
   const ledger = teacherEntry?.lessonLedger?.[[studentId, dayKey, time, durationMinutes].join(':')];
-  if (!occurrence?.groupId && !event?.groupId && ledger?.lessonPrice > 0) return { month, lessonPrice: ledger.lessonPrice };
+  // Completed group lessons retain their recorded price just like individual
+  // lessons. Personal group rates only apply when no historical quote exists.
+  if (ledger?.lessonPrice > 0) return { month, lessonPrice: ledger.lessonPrice };
   const groupId = String(occurrence?.groupId || '').trim();
   if (groupId) {
     const group = getLearningGroupById(groupId);
@@ -17391,7 +17393,7 @@ const buildTeacherFinanceProfitability = async (
       occurrence.studentId,
       occurrence
     );
-    const lessonPrice = !occurrence.groupId && existing?.lessonPrice > 0
+    const lessonPrice = existing?.lessonPrice > 0
       ? existing.lessonPrice
       : roundTeacherFinanceNumber(resolvedLessonPrice);
     const nextEntry = {

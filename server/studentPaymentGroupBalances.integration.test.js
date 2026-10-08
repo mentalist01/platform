@@ -76,6 +76,80 @@ export async function createGroupWalletFixture({ port: requestedPort } = {}) {
   } catch (error) { await stop(); throw error; }
 }
 
+if (process.env.GROUP_WALLET_UI_FIXTURE !== '1') test('group pricing preserves completed quotes and prepayments while repricing unpaid future lessons', { timeout: 60000 }, async () => {
+  const f = await createGroupWalletFixture();
+  const { ok, read, write } = f;
+  try {
+    const pastDay = f.lessons.find(lesson => lesson.id === 'past').startAt.slice(0, 10);
+    const month = pastDay.slice(0, 7);
+    const pastKey = id => `${id}:${pastDay}:20:00:60`;
+    const finance = read('teacher-finances');
+    finance.owner.studentProfiles.anna = { lessonPrice: 900, pricingMode: 'perLesson' };
+    finance.owner.months[month].students.egor.paidAmount = 1000;
+    finance.owner.months[month].students.anna = { lessonPrice: 900, pricingMode: 'perLesson', paidAmount: 0 };
+    finance.owner.lessonLedger = Object.fromEntries(['egor', 'anna'].map(studentId => [pastKey(studentId), {
+      studentId, dayKey: pastDay, time: '20:00', durationMinutes: 60, lessonPrice: 1000,
+      paid: studentId === 'egor', sourceEntryId: `learning-group-session-past:${studentId}`,
+      sourceSignature: `${studentId}:${pastDay}:20:00:60`, recordedAt: f.lessons[0].completedAt,
+    }]));
+    write('teacher-finances', finance);
+    const token = (await ok('/api/login', { body: { code: 'group-wallet-teacher' } })).token;
+    const loadFinance = () => ok(`/api/teacher-finance?month=${month}`, { token });
+    const future = (await ok('/api/teacher-schedule', { token })).find(lesson => lesson.lessonId === 'future');
+    assert.ok(future);
+    const futurePrices = async () => (await ok('/api/teacher-schedule', { token }))
+      .find(lesson => lesson.lessonId === 'future').memberPaymentStatuses;
+    const price = (statuses, id) => statuses.find(status => status.studentId === id).lessonPrice;
+
+    await loadFinance();
+    let persisted = read('teacher-finances').owner;
+    assert.equal(persisted.lessonLedger[pastKey('egor')].lessonPrice, 1000, 'paid completed group price remains historical');
+    assert.equal(persisted.lessonLedger[pastKey('anna')].lessonPrice, 1000, 'unpaid completed group debt retains its quote');
+    assert.equal(persisted.months[month].students.egor.paidAmount, 1000);
+    assert.equal(price(await futurePrices(), 'anna'), 900, 'future unpaid lesson uses the personal group rate');
+    await ok('/api/teacher-lesson-payment', { token, body: { occurrence: { ...future, studentId: 'egor' }, paid: true } });
+    const beforeTariff = read('teacher-finances').owner;
+    const beforeMarks = read('teacher-calendar-marks');
+    const cash = entry => Object.fromEntries(Object.entries(entry.months).map(([key, value]) => [key,
+      Object.fromEntries(Object.entries(value.students).map(([id, record]) => [id, record.paidAmount])),
+    ]));
+    const oldCash = cash(beforeTariff);
+    const oldAllocations = beforeTariff.paymentAllocations;
+    for (const studentId of ['anna', 'egor']) {
+      await ok(`/api/teacher-finance/students/${studentId}`, { token, method: 'PATCH',
+        body: { month, pricingMode: 'perLesson', lessonPrice: 1100 } });
+    }
+    for (let attempt = 0; attempt < 2; attempt += 1) await loadFinance();
+    persisted = read('teacher-finances').owner;
+    assert.equal(persisted.lessonLedger[pastKey('egor')].lessonPrice, 1000);
+    assert.equal(persisted.lessonLedger[pastKey('anna')].lessonPrice, 1000);
+    const statuses = await futurePrices();
+    assert.equal(price(statuses, 'anna'), 1100, 'new rate changes the future unpaid group lesson');
+    assert.equal(price(statuses, 'egor'), 900, 'future prepayment retains the rate used for its payment');
+    const futureDay = f.lessons.find(lesson => lesson.id === 'future').startAt.slice(0, 10);
+    assert.ok(!Object.values(persisted.lessonLedger).some(lesson => lesson.dayKey === futureDay),
+      'finance reads only materialize completed lessons, so unpaid future rates are not frozen');
+    assert.deepEqual(cash(persisted), oldCash, 'tariff edits and repeated finance reads do not modify received cash');
+    assert.deepEqual(persisted.paymentAllocations, oldAllocations, 'tariff edits do not modify payment allocations');
+    assert.deepEqual(read('teacher-calendar-marks'), beforeMarks, 'tariff edits do not modify payment marks');
+    assert.equal(persisted.studentPaymentBalances, null, 'pricing reads do not enable or migrate wallets');
+
+    // An explicit correction of an erroneous historical quote is retained too;
+    // neither the current 1100 rate nor subsequent reads undo the corrected 900.
+    const correctedFinance = read('teacher-finances');
+    for (const studentId of ['egor', 'anna']) correctedFinance.owner.lessonLedger[pastKey(studentId)].lessonPrice = 900;
+    write('teacher-finances', correctedFinance);
+    for (let attempt = 0; attempt < 2; attempt += 1) await loadFinance();
+    persisted = read('teacher-finances').owner;
+    assert.equal(persisted.lessonLedger[pastKey('egor')].lessonPrice, 900, 'corrected paid historical price remains 900');
+    assert.equal(persisted.lessonLedger[pastKey('anna')].lessonPrice, 900, 'corrected unpaid historical price remains 900');
+    assert.equal(price(await futurePrices(), 'anna'), 1100, 'historical correction leaves the current future rate unchanged');
+    assert.deepEqual(cash(persisted), oldCash, 'quote correction does not rewrite received cash');
+    assert.deepEqual(persisted.paymentAllocations, oldAllocations, 'quote correction does not rewrite payment allocations');
+    assert.deepEqual(read('teacher-calendar-marks'), beforeMarks, 'quote correction does not rewrite payment marks');
+  } finally { await f.stop(); }
+});
+
 if (process.env.GROUP_WALLET_UI_FIXTURE !== '1') test('group wallets preserve migration, individual rates, receipts, marks, moves and refunds', { timeout: 90000 }, async () => {
   const f = await createGroupWalletFixture();
   const { ok, request, read, canonicalMark, rawMark } = f;
