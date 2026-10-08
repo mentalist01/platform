@@ -14,6 +14,7 @@ import StudentSearchSelect from './StudentSearchSelect';
 const LearningGroupsSection = React.lazy(() => import('./LearningGroupsSection'));
 import { buildLearningGroupTargetValue, parseLessonTargetValue } from '../utils/lessonTargets';
 import { partitionConcurrentHomeworks, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
+import { getLearningAssignmentState } from '../utils/learningAssignmentState';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
 import { StudentPaceHistory } from './StudentLessonPace';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
@@ -2844,14 +2845,19 @@ const ScheduleSection = ({
   ]);
 
   const { active: activeHomeworkEntries, history: previousHomeworkEntries } = partitionConcurrentHomeworks(
-    sortedHomeworks, homeworkClock, entry => {
-      const summary = summarizeGoalViews(normalizeEntryGoals(entry).map((goal, index) => buildGoalView(goal, index)).filter(Boolean));
-      const checklist = getHomeworkChecklistItems(entry);
-      return (summary.goalCount > 0 || checklist.length > 0)
-        && (summary.goalCount === 0 || (summary.requiredCompleted && (summary.optionalGoals.length === 0 || summary.optionalCompleted)))
-        && checklist.every(item => item.completedAt);
-    }
+    sortedHomeworks, homeworkClock
   );
+  useEffect(() => {
+    const now = Date.now();
+    const nextDeadline = sortedHomeworks
+      .filter(entry => entry.source === 'learning-group' && entry.learningAssignmentStatus !== 'closed')
+      .map(entry => Date.parse(entry.dueAt))
+      .filter(due => due > now)
+      .sort((left, right) => left - right)[0];
+    if (!nextDeadline) return undefined;
+    const timer = window.setTimeout(() => setHomeworkClock(Date.now()), Math.min(nextDeadline - now + 20, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [sortedHomeworks, homeworkClock]);
   const nextHomeworkEntry = activeHomeworkEntries[0] || null;
   const totalHomeworkCount = sortedHomeworks.length;
   const roadmapFocusTaskNumbers = useMemo(() => {
@@ -3245,6 +3251,10 @@ const ScheduleSection = ({
     const dateText = formatDate(entry?.issuedAt);
     const isLearningGroupHomework = String(entry?.source || '').trim() === 'learning-group'
       && Boolean(String(entry?.learningGroupId || '').trim());
+    const groupAcceptanceClosed = isLearningGroupHomework && getLearningAssignmentState({
+      status: entry.learningAssignmentStatus,
+      dueAt: entry.dueAt,
+    }, homeworkClock).status === 'closed';
     const learningGroupName = String(entry?.learningGroupName || '').trim();
     const learningAssignmentTitle = String(entry?.learningAssignmentTitle || '').trim();
     const deadlineMeta = getHomeworkDeadlineMeta(entry, homeworkClock);
@@ -3729,7 +3739,7 @@ const ScheduleSection = ({
                                 <input
                                   type="text"
                                   value={value}
-                                  disabled={role !== 'student' || busy}
+                                  disabled={role !== 'student' || busy || groupAcceptanceClosed}
                                   onChange={(event) => setVideoQuizDrafts((current) => ({
                                     ...current,
                                     [quizKey]: { ...(current[quizKey] || {}), [question.id]: event.target.value },
@@ -3758,7 +3768,7 @@ const ScheduleSection = ({
                           <button
                             type="button"
                             onClick={() => void handleSubmitVideoQuiz(entry, material)}
-                            disabled={busy}
+                            disabled={busy || groupAcceptanceClosed}
                             className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-black text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
                           >
                             {busy ? <RefreshCcw size={15} className="animate-spin" /> : <CheckCircle size={15} />}
@@ -3951,7 +3961,7 @@ const ScheduleSection = ({
                     const isCompleted = Boolean(item.completedAt);
                     const busyKey = `${entry?.id || ''}:${item.id || ''}`;
                     const isBusy = Boolean(homeworkChecklistBusy[busyKey]);
-                    const canToggle = role === 'student' && Boolean(entry?.id) && Boolean(item.id);
+                    const canToggle = role === 'student' && !groupAcceptanceClosed && Boolean(entry?.id) && Boolean(item.id);
                     return (
                       <div key={item.id || `${item.text}-${index}`} className={`student-today-homework__check-row flex items-start gap-2.5 rounded-xl border px-2.5 py-2 ${isCompleted ? 'student-today-homework__check-row--complete border-emerald-100 bg-emerald-50/80' : 'border-slate-200/80 bg-white'}`}>
                         <button
@@ -4007,6 +4017,11 @@ const ScheduleSection = ({
 
     return (
       <div key={key} className={`rounded-2xl border p-3.5 md:p-5 space-y-3 md:space-y-4 ${cardTone}`}>
+        {groupAcceptanceClosed && (
+          <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+            Приём домашки закрыт. Ваши прежние отметки и решения сохранены.
+          </p>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-2.5 md:gap-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -4350,7 +4365,7 @@ const ScheduleSection = ({
                 const isCompleted = Boolean(item.completedAt);
                 const busyKey = `${entry?.id || ''}:${item.id || ''}`;
                 const isBusy = Boolean(homeworkChecklistBusy[busyKey]);
-                const canToggle = role === 'student' && Boolean(entry?.id) && Boolean(item.id);
+                const canToggle = role === 'student' && !groupAcceptanceClosed && Boolean(entry?.id) && Boolean(item.id);
                 return (
                   <div
                     key={item.id || `${item.text}-${index}`}

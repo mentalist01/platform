@@ -832,6 +832,7 @@ test('learning groups keep shared work isolated while legacy student schedules r
     });
     assert.equal(crossGroupMaterial.code, 'material_not_found');
 
+    const assignmentDueAt = new Date(Date.now() + 7 * 86400000).toISOString();
     const assignmentCreated = await jsonRequest(baseUrl, `/api/learning-groups/${groupId}/assignments`, {
       token: teacher.token,
       method: 'POST',
@@ -840,13 +841,13 @@ test('learning groups keep shared work isolated while legacy student schedules r
         lessonId,
         title: 'Graph traversal homework',
         content: 'Solve both tasks independently',
-        dueAt: '2026-09-10T18:00:00.000Z',
+        dueAt: assignmentDueAt,
         materialIds: [commonMaterial.material.id, lessonMaterial.material.id],
         homework: {
           homeWork: 'Solve both tasks independently',
           lessonLink: 'https://example.com/group-lesson',
           boardLink: 'https://example.com/group-board',
-          dueAt: '2026-09-10T18:00:00.000Z',
+          dueAt: assignmentDueAt,
           dueAtMode: 'manual',
           calendarOffsetMinutes: 180,
           daysToComplete: 7,
@@ -879,7 +880,7 @@ test('learning groups keep shared work isolated while legacy student schedules r
     assert.equal(studentAGroupHomework.learningGroupName, 'Algorithms mini-group');
     assert.equal(studentAGroupHomework.learningAssignmentTitle, 'Graph traversal homework');
     assert.equal(studentAGroupHomework.homeWork, 'Solve both tasks independently');
-    assert.equal(studentAGroupHomework.dueAt, '2026-09-10T18:00:00.000Z');
+    assert.equal(studentAGroupHomework.dueAt, assignmentDueAt);
     assert.equal(studentAGroupHomework.lessonLink, 'https://example.com/group-lesson');
     assert.equal(studentAGroupHomework.boardLink, 'https://example.com/group-board');
     assert.equal(studentAGroupHomework.goals[0].taskNumber, 1);

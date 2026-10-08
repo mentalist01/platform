@@ -33,14 +33,14 @@ export const weeklyHomeworkLessonChoices = (schedule = [], now = Date.now()) => 
   return choices.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
 };
 
-export const partitionConcurrentHomeworks = (entries = [], now = Date.now(), isComplete = () => false) => {
+export const partitionConcurrentHomeworks = (entries = [], now = Date.now()) => {
   const latest = entries[0];
   const active = [], history = [];
   for (const entry of entries) {
     const group = entry.source === 'learning-group';
     const due = Date.parse(entry.dueAt);
     const open = group
-      ? entry.learningAssignmentStatus !== 'closed' && (due >= now || !isComplete(entry))
+      ? entry.learningAssignmentStatus !== 'closed' && (!Number.isFinite(due) || due > now)
       : entry === latest || due >= now;
     (open ? active : history).push(entry);
   }

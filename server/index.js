@@ -369,6 +369,7 @@ import {
 import { synchronizeHomeworkDueAtWithSchedule } from '../src/utils/homeworkScheduleSync.js';
 import { snapshotHomeworkGoalTargets } from '../src/utils/homeworkStats.js';
 import { getPythonHomeworkTheorySelection } from '../src/utils/pythonTheoryHomework.js';
+import { getLearningAssignmentState } from '../src/utils/learningAssignmentState.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 import { applyTeacherBaseNotes } from './teacherBaseNotes.js';
 import {
@@ -24059,6 +24060,8 @@ const serializeLearningMaterialForAuth = (material, auth) => {
 
 const serializeLearningAssignmentForAuth = (assignment, auth) => ({
   ...assignment,
+  acceptanceStatus: assignment.status,
+  ...getLearningAssignmentState(assignment),
   ...(isStudentRole(auth) ? {
     recipientIds: assignment.recipientIds.includes(auth.id) ? [auth.id] : [],
   } : {}),
@@ -24289,7 +24292,7 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       learningAssignmentId: assignment.id,
       learningAssignmentTitle: assignment.title || '',
       studyTrack: homeworkTemplate.studyTrack || '',
-      learningAssignmentStatus: assignment.status,
+      learningAssignmentStatus: getLearningAssignmentState(assignment).status,
       learningAssignmentUpdatedAt: assignment.updatedAt || '',
       teacherId: assignment.teacherId,
       issuedAt,
@@ -25537,7 +25540,7 @@ app.put('/api/learning-groups/:groupId/assignments/:assignmentId/submission', ha
   if (!canStudentReadLearningGroupAssignment(group, req.auth.id, assignment)) {
     return forbid(res);
   }
-  if (assignment.status !== 'assigned') {
+  if (getLearningAssignmentState(assignment).status !== 'assigned') {
     failLearningRequest('Задание сейчас недоступно для отправки', 'assignment_not_open', 409);
   }
   const submissions = readLearningSubmissionsDb();
@@ -40642,7 +40645,7 @@ app.patch('/api/student-next-lesson/:id/checklist', (req, res) => {
       existing.learningGroupId,
       existing.learningAssignmentId
     );
-    if (assignment && assignment.status !== 'assigned') {
+    if (!assignment || getLearningAssignmentState(assignment).status !== 'assigned') {
       return res.status(409).json({
         error: 'Приём этой групповой домашки уже закрыт',
         code: 'learning_group_homework_closed',
@@ -40705,7 +40708,7 @@ app.patch('/api/student-next-lesson/:id/video-quiz', (req, res) => {
   const isGroupHomework = String(existing.source || '').trim() === LEARNING_GROUP_HOMEWORK_SOURCE;
   if (isGroupHomework) {
     const assignment = getLearningAssignmentById(existing.learningGroupId, existing.learningAssignmentId);
-    if (!assignment || assignment.status !== 'assigned' || !assignment.materialIds.includes(materialId)) {
+    if (!assignment || getLearningAssignmentState(assignment).status !== 'assigned' || !assignment.materialIds.includes(materialId)) {
       return res.status(409).json({ error: 'Этот мини-тест уже недоступен' });
     }
   } else if (!normalizeHomeworkMaterialIds(existing.materialIds).includes(materialId)) {

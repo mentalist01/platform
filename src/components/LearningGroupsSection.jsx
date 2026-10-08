@@ -68,6 +68,7 @@ import {
 } from '../utils/homeworkDueAt';
 import { normalizeAssignedMockExamMode } from '../utils/mockExamMode';
 import { getPythonHomeworkTheorySelection } from '../utils/pythonTheoryHomework';
+import { getLearningAssignmentState } from '../utils/learningAssignmentState';
 import { parseTelemostUrl } from '../utils/telemost';
 import {
   LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS,
@@ -1034,7 +1035,7 @@ const LearningGroupsSection = ({
       content: homeWork,
       dueAt,
       lessonId: getLessonId(matchingLesson) || cleanString(assignmentComposerEditing?.lessonId),
-      status,
+      status: assignmentComposerEditing?.acceptanceStatus === 'closed' && status !== 'draft' ? 'closed' : status,
       materialIds,
       recipientMode,
       ...(recipientMode === 'selected' ? { recipientIds } : {}),
@@ -2677,7 +2678,10 @@ const LearningGroupsSection = ({
                     ) : assignments.map((assignment) => {
                       const assignmentId = getAssignmentId(assignment);
                       const isExpanded = expandedAssignmentId === assignmentId;
-                      const assignmentMeta = getStatusMeta(ASSIGNMENT_STATUS_META, assignment.status, 'assigned');
+                      const assignmentState = getLearningAssignmentState(assignment, clockNowMs);
+                      const assignmentMeta = assignmentState.closureReason === 'deadline'
+                        ? { ...ASSIGNMENT_STATUS_META.closed, label: 'Закрыто по сроку' }
+                        : getStatusMeta(ASSIGNMENT_STATUS_META, assignmentState.status, 'assigned');
                       const currentMembersById = new Map(
                         selectedGroup.members.map((member) => [member.studentId, member])
                       );
@@ -2713,6 +2717,7 @@ const LearningGroupsSection = ({
                               </div>
                               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
                                 {assignment.dueAt && <span>Сдать до {formatDate(assignment.dueAt, { withTime: true })}</span>}
+                                {assignment.dueAt && assignmentState.status === 'assigned' && <span>Приём закроется автоматически</span>}
                                 {assignment.lessonId && <span>Связано с занятием</span>}
                               </div>
                             </div>
@@ -2741,7 +2746,7 @@ const LearningGroupsSection = ({
                                       className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700"
                                     ><Send size={14} /> Опубликовать</button>
                                   )}
-                                  {selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && assignment.status === 'assigned' && (
+                                  {selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && assignmentState.status === 'assigned' && (
                                     <button
                                       type="button"
                                       onClick={() => void handleAssignmentStatus(assignment, 'closed')}
@@ -2755,6 +2760,13 @@ const LearningGroupsSection = ({
                                       className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50"
                                     ><Trash2 size={14} /> Удалить</button>
                                   )}
+                                </div>
+                              )}
+
+                              {assignmentState.closureReason === 'deadline' && (
+                                <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+                                  Срок сдачи закончился — приём закрыт автоматически. Результаты учеников сохранены.
+                                  {isTeacher && ' Чтобы снова принимать работу, продлите срок через «Редактировать».'}
                                 </div>
                               )}
 

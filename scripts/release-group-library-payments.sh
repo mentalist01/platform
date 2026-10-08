@@ -7,7 +7,7 @@ revision=$(git rev-parse --short HEAD)
 backup=$(mktemp -d /root/group-library-payments-backup-XXXXXX)
 node scripts/releaseClientSnapshot.mjs dist "$backup/dist" /root/ivan100-release-objects
 cp -a ecosystem.config.cjs "$backup/"
-for name in teacher-finances teacher-calendar-marks learning-groups learning-lesson-sessions learning-subscriptions mock-exams desktop-recordings teacher-subscriptions payment-notifications payment-sender-links teacher-payment-connections lesson-pace individual-lesson-pace; do
+for name in teacher-finances teacher-calendar-marks learning-groups learning-assignments learning-submissions learning-lesson-sessions learning-subscriptions mock-exams desktop-recordings teacher-subscriptions payment-notifications payment-sender-links teacher-payment-connections lesson-pace individual-lesson-pace; do
   if [[ -f "/root/platform-data/$name.json" ]]; then cp -a "/root/platform-data/$name.json" "$backup/"; fi
 done
 published=0
@@ -40,7 +40,7 @@ node --test scripts/verify-teacher-payment-access.test.mjs > "$backup/payment-ac
 node --test server/workbookHelper.test.js server/workbookHelper.integration.test.js server/workbookQuestionHelper.integration.test.js server/teacherNotesWorkbook.integration.test.js > "$backup/teacher-workbook-tests.log" 2>&1
 node --test server/lessonPace.test.js server/individualLessonPace.test.js server/lessonPace.integration.test.js server/homeworkReminders.test.js server/homeworkReminders.integration.test.js > "$backup/lesson-pace-tests.log" 2>&1
 node --test src/utils/collabCodePages.test.js server/collabCodePages.integration.test.js server/collabReadOnly.test.js server/learningPrivateCollab.integration.test.js server/groupCodePresence.integration.test.js > "$backup/code-pages-tests.log" 2>&1
-node --test src/utils/concurrentHomework.test.js server/concurrentHomework.integration.test.js src/utils/rtcVideoBudget.test.js scripts/releaseClientSnapshot.test.mjs > "$backup/homework-performance-tests.log" 2>&1
+node --test src/utils/concurrentHomework.test.js src/utils/learningAssignmentState.test.js src/utils/pythonTheoryHomework.test.js src/utils/homeworkComposerDraft.test.js server/concurrentHomework.integration.test.js src/utils/rtcVideoBudget.test.js scripts/releaseClientSnapshot.test.mjs > "$backup/homework-performance-tests.log" 2>&1
 node --test src/utils/rtcVideoCodec.test.js > "$backup/rtc-hardware-tests.log" 2>&1
 node --test server/studentPaymentBalances.test.js server/studentPaymentBalances.integration.test.js server/googleCalendarParseWorker.test.js server/lessonReschedule.integration.test.js > "$backup/student-balances-tests.log" 2>&1
 stage=$(mktemp -d /root/app/.release-stage-XXXXXX)

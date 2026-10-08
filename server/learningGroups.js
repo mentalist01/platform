@@ -1,6 +1,8 @@
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 import { normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
 import { normalizeParticipationPlans, participationOccurrence } from '../src/utils/groupParticipation.js';
+import { getPythonHomeworkTheorySelection } from '../src/utils/pythonTheoryHomework.js';
+import { getLearningAssignmentState } from '../src/utils/learningAssignmentState.js';
 
 const GROUP_STATUSES = new Set(['forming', 'ready', 'active', 'completed']);
 const MEMBER_STATUSES = new Set(['active', 'removed']);
@@ -135,6 +137,7 @@ const normalizeLearningHomeworkGoals = (value) => (
       const taskNumber = Number(goal.taskNumber);
       if (!Number.isFinite(taskNumber) || taskNumber <= 0) return null;
       const levelId = cleanText(goal.levelId, 40);
+      const pythonTheory = taskNumber >= 100 ? getPythonHomeworkTheorySelection(goal) : null;
       const targetQuestions = Array.from(new Set(
         (Array.isArray(goal.targetQuestions) ? goal.targetQuestions : [])
           .slice(0, 200)
@@ -152,6 +155,10 @@ const normalizeLearningHomeworkGoals = (value) => (
         includeAll: Boolean(goal.includeAll),
         targetQuestions,
         ...(targetQuestionIds.some(Boolean) ? { targetQuestionIds } : {}),
+        ...(pythonTheory ? {
+          pythonTheorySubsectionId: cleanText(pythonTheory.subsectionId, 240),
+          pythonTheoryType: pythonTheory.type,
+        } : {}),
       };
     })
     .filter(Boolean)
@@ -774,6 +781,9 @@ export const upsertLearningSubmission = (existingValue, assignmentValue, student
   const studentId = cleanText(studentIdValue, 180);
   if (!assignment || assignment.deletedAt) fail('Задание не найдено', 'assignment_not_found', 404);
   if (!studentId || !assignment.recipientIds.includes(studentId)) fail('Задание не назначено этому ученику', 'assignment_not_for_student', 403);
+  if (getLearningAssignmentState(assignment, getNowIso(options.now)).status !== 'assigned') {
+    fail('Приём этой домашки закрыт', 'assignment_not_open', 409);
+  }
   const existing = normalizeLearningSubmission(existingValue);
   const status = payload.status === 'draft' ? 'draft' : 'submitted';
   const answerRefs = [

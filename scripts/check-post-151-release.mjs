@@ -9,7 +9,7 @@ const initial = [...html.matchAll(/(?:src|href)="(\/assets\/[^" ]+\.(?:js|css))"
 const files = fs.readdirSync(path.join(directory, 'assets')).filter(file => /\.(?:js|css)$/.test(file));
 const features = files.filter(file => /code-presence|learningAssignmentStatus|ЕГЭ и Python выдаются отдельно|scaleResolutionDownBy|Связь проверяется|collab-solutions__participant-presence/.test(fs.readFileSync(path.join(directory, 'assets', file), 'utf8')));
 const source = features.filter(file => file.endsWith('.js')).map(file => fs.readFileSync(path.join(directory, 'assets', file), 'utf8')).join('\n');
-for (const marker of ['/code-presence', 'Связь проверяется', 'Название домашки', 'ЕГЭ и Python выдаются отдельно', 'learningAssignmentStatus', 'scaleResolutionDownBy']) assert.ok(source.includes(marker), `Missing post-1.5.1 feature: ${marker}`);
+for (const marker of ['/code-presence', 'Связь проверяется', 'Название домашки', 'ЕГЭ и Python выдаются отдельно', 'learningAssignmentStatus', 'Закрыто по сроку', 'Приём закроется автоматически', 'Приём домашки закрыт.', 'scaleResolutionDownBy']) assert.ok(source.includes(marker), `Missing post-1.5.1 feature: ${marker}`);
 if (mode === 'verify') {
   const get = async (route, token) => { const response = await fetch(`https://ivan100.ru${route}`, { headers: { 'Cache-Control': 'no-cache', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: AbortSignal.timeout(25000) }); assert.ok(response.ok, `HTTP ${response.status}: ${route}`); return response; };
   const remote = await (await get('/')).text(); assert.ok(initial.length && initial.every(file => remote.includes(file)), 'Wrong production client');

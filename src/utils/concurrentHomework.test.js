@@ -16,7 +16,7 @@ test('weekly lesson choices skip the short deadline of the other lesson, use Mos
   const choices = weeklyHomeworkLessonChoices([{ weekdayKey: 'wednesday', time: '20:00' }, { weekdayKey: 'friday', time: '20:00' }], Date.parse('2026-10-07T18:10Z'));
   assert.deepEqual(choices.map(x => x.dueAt), ['2026-10-14T17:00:00.000Z', '2026-10-16T17:00:00.000Z']);
 });
-test('completed work stays visible until deadline; closed and completed overdue go to history', () => {
+test('closed and expired group work goes to history even if unfinished', () => {
   const now = Date.parse('2026-10-10T00:00Z');
   const entries = [
     { id: 'future', source: 'learning-group', dueAt: '2026-10-14T00:00Z' },
@@ -25,8 +25,15 @@ test('completed work stays visible until deadline; closed and completed overdue 
     { id: 'pending', source: 'learning-group', dueAt: '2026-10-09T00:00Z' },
   ];
   const result = partitionConcurrentHomeworks(entries, now, e => e.id !== 'pending');
-  assert.deepEqual(result.active.map(x => x.id), ['pending', 'future']);
-  assert.deepEqual(result.history.map(x => x.id), ['closed', 'done']);
+  assert.deepEqual(result.active.map(x => x.id), ['future']);
+  assert.deepEqual(result.history.map(x => x.id), ['closed', 'done', 'pending']);
+});
+
+test('a stale open group projection expires exactly on time; undated work stays visible', () => {
+  const now = Date.parse('2026-10-09T17:00:00Z');
+  const entries = [{ id: 'expires', source: 'learning-group', learningAssignmentStatus: 'assigned', dueAt: '2026-10-09T20:00:00+03:00' }, { id: 'undated', source: 'learning-group' }];
+  assert.deepEqual(partitionConcurrentHomeworks(entries, now).active.map(x => x.id), ['undated']);
+  assert.deepEqual(partitionConcurrentHomeworks(entries, now).history.map(x => x.id), ['expires']);
 });
 test('old individual history is retained while several future assignments remain current', () => {
   const entries = [{ id: 'a', dueAt: '2026-10-14T00:00Z' }, { id: 'b', dueAt: '2026-10-16T00:00Z' }, { id: 'old', dueAt: '2026-09-10T00:00Z' }];

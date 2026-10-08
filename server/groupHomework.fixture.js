@@ -13,7 +13,11 @@ export async function createGroupHomeworkFixture(fixedPort) {
   write('teachers', [{ id: 'teacher-a', name: 'Преподаватель А', code: 'teacher-a-code' }, { id: 'teacher-b', name: 'Другой преподаватель', code: 'teacher-b-code' }]);
   write('students', ['a', 'b', 'c'].map((id, index) => ({ id: `student-${id}`, name: ['Анна · тест', 'Дарья · тест', 'Другой ученик'][index], code: `student-${id}-code`, teacherId: id === 'c' ? 'teacher-b' : 'teacher-a', grade: '11', createdAt: '2026-10-01T10:00:00Z' })));
   write('progress', {}); write('mock-exams', []);
-  write('tests', { 4: { basic: [{ id: 'ege-question', question: 'Тестовое задание ЕГЭ', answer: '17' }] }, 101: { python: [{ id: 'python-question', question: 'Напишите print(1)', answer: '1' }] } });
+  write('tests', { 4: { basic: [{ id: 'ege-question', question: 'Тестовое задание ЕГЭ', answer: '17' }] }, 101: {
+    python: [{ id: 'python-question', question: 'Напишите print(1)', answer: '1', subsectionId: 'input-output' }],
+    pythonSubsections: [{ id: 'input-output', title: 'Ввод и вывод данных', order: 0 }],
+    pythonTheoryBySubsection: { 'input-output': { rutube: { type: 'rutube', content: 'https://rutube.ru/video/0123456789abcdef0123456789abcdef/' }, text: { type: 'text', content: 'print() выводит данные.' } } },
+  } });
   const port = fixedPort || await new Promise(resolve => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
   const base = `http://127.0.0.1:${port}`;
   let logs = '';

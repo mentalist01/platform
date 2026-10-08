@@ -10,6 +10,7 @@ import {
   createLearningMaterial,
   getActiveLearningGroupMembers,
   normalizeLearningAttendanceStore,
+  normalizeLearningAssignmentsStore,
   reviewLearningSubmission,
   setLearningGroupSchedule,
   startLearningGroup,
@@ -34,6 +35,41 @@ const add = (group, id, options = {}) => addLearningGroupMember(group, student(i
   actorId: teacherId,
   now: NOW,
   ...options,
+});
+
+test('Python theory survives group creation, disk reload, editing and explicit removal', () => {
+  const group = add(makeGroup(), 'student-a');
+  for (const type of ['rutube', 'recording', 'text', 'gdoc']) {
+    const goal = { taskNumber: 101, levelId: 'python', targetQuestions: [1], targetQuestionIds: ['python-question'], pythonTheorySubsectionId: ' input-output ', pythonTheoryType: ` ${type.toUpperCase()} ` };
+    const created = createLearningAssignment(group, { title: 'Python', homework: { studyTrack: 'python', goals: [goal] } }, { id: `python-${type}`, now: NOW });
+    const [reloaded] = normalizeLearningAssignmentsStore(JSON.parse(JSON.stringify([created])));
+    assert.equal(reloaded.homework.goals[0].pythonTheorySubsectionId, 'input-output');
+    assert.equal(reloaded.homework.goals[0].pythonTheoryType, type);
+    assert.deepEqual(reloaded.homework.goals[0].targetQuestionIds, ['python-question']);
+    const edited = updateLearningAssignment(reloaded, { title: 'Изменено', dueAt: '2026-10-16T17:00:00Z' }, { now: NOW });
+    assert.deepEqual(edited.homework.goals, reloaded.homework.goals);
+    const cleared = updateLearningAssignment(edited, { homework: { ...edited.homework, goals: [{ ...edited.homework.goals[0], pythonTheoryType: '', pythonTheorySubsectionId: '' }] } }, { now: NOW });
+    assert.equal(cleared.homework.goals[0].pythonTheoryType, undefined);
+    assert.equal(cleared.homework.goals[0].pythonTheorySubsectionId, undefined);
+  }
+});
+
+test('group theory metadata is bounded and only valid for Python task goals', () => {
+  const group = add(makeGroup(), 'student-a');
+  const selection = { pythonTheorySubsectionId: 'x'.repeat(300), pythonTheoryType: 'rutube' };
+  const goals = [
+    { taskNumber: 101, ...selection },
+    { taskNumber: 4, ...selection },
+    { taskNumber: 101, ...selection, pythonTheoryType: 'unsupported' },
+    { taskNumber: 101, ...selection, pythonTheorySubsectionId: ' ' },
+    { type: 'mock', mockExamId: 'mock-a', ...selection },
+  ];
+  const assignment = createLearningAssignment(group, { title: 'Python', homework: { goals } }, { id: 'metadata', now: NOW });
+  assert.equal(assignment.homework.goals[0].pythonTheorySubsectionId.length, 240);
+  for (const goal of assignment.homework.goals.slice(1)) {
+    assert.equal(goal.pythonTheoryType, undefined);
+    assert.equal(goal.pythonTheorySubsectionId, undefined);
+  }
 });
 
 test('group size is chosen by the teacher and legacy capacity does not truncate lessons or homework', () => {
