@@ -108,8 +108,7 @@ export class LearningSubscriptionStore {
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, this.file);
   }
-  reconcile(lessons) {
-    const data = this.read();
+  reconcile(lessons, data = this.read()) {
     if (bindSubscriptionLessons(data.blocks, lessons)) this.save(data);
     return data;
   }

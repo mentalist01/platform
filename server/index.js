@@ -14,6 +14,9 @@ import {
   reserveBalanceAllocation, releaseBalanceAllocation, balancePaidByMonth, balanceError,
   confirmBalancePending, adjustBalance,
 } from './studentPaymentBalances.js';
+import { retainWalletPaymentProjections, selectBalanceReconciliationStudents } from './studentBalanceCore.js';
+import { createStudentBalanceReadContext } from './studentBalanceReadContext.js';
+import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordinator.js';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
 import { matchTeacherPlatformPayment } from './teacherPlatformPayments.js';
 import { TeacherPaymentConnections } from './teacherPaymentConnections.js';
@@ -721,13 +724,13 @@ const getLearningSubscriptionAccess = (studentId, groupId, options = {}) => {
   const lessons = getSubscriptionLessons(data);
   return subscriptionAccess(learningSubscriptions.reconcile(lessons).blocks, studentId, groupId, lessons, options);
 };
-const getLearningSubscriptionOccurrence = (studentId, occurrence) => {
-  const data = learningSubscriptions.read();
+const getLearningSubscriptionOccurrence = (studentId, occurrence, readContext = null) => {
+  const data = readContext ? readContext.subscriptions() : learningSubscriptions.read();
   const source = occurrence?.event || occurrence?.entry || occurrence || {};
   const groupId = occurrence?.groupId || source.groupId;
   if (!groupId || !data.blocks.some(block => block.studentId === studentId && block.groupId === groupId && !block.cancelledAt)) return null;
-  const lessons = readLearningLessonSessionsDb();
-  return subscriptionOccurrence(learningSubscriptions.reconcile(lessons).blocks, lessons, studentId, occurrence);
+  const lessons = readContext ? readContext.lessons() : readLearningLessonSessionsDb();
+  return subscriptionOccurrence((readContext ? readContext.reconciledSubscriptions() : learningSubscriptions.reconcile(lessons)).blocks, lessons, studentId, occurrence);
 };
 const getLearningSubscriptionRoomError = (auth, access) => {
   if (auth?.role !== 'student' || !access?.target?.session?.groupId) return '';
@@ -4019,7 +4022,7 @@ const normalizeTeacherFinancePaymentAllocation = (value, fallbackKey = '') => {
   };
 };
 
-const normalizeTeacherFinancePaymentAllocations = (value) => {
+const normalizeTeacherFinancePaymentAllocations = (value, balances = null) => {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const normalized = {};
   Object.entries(source).forEach(([key, rawAllocation]) => {
@@ -4027,9 +4030,7 @@ const normalizeTeacherFinancePaymentAllocations = (value) => {
     if (!allocation) return;
     normalized[allocation.originMarkKey] = allocation;
   });
-  const entries = Object.entries(normalized);
-  if (entries.length <= TEACHER_FINANCE_PAYMENT_ALLOCATIONS_LIMIT) return normalized;
-  return Object.fromEntries(entries.slice(-TEACHER_FINANCE_PAYMENT_ALLOCATIONS_LIMIT));
+  return retainWalletPaymentProjections(normalized, balances, TEACHER_FINANCE_PAYMENT_ALLOCATIONS_LIMIT);
 };
 
 const getDefaultTeacherFinanceTeacherEntry = () => ({
@@ -4042,6 +4043,7 @@ const getDefaultTeacherFinanceTeacherEntry = () => ({
 
 const normalizeTeacherFinanceTeacherEntry = (value) => {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const studentPaymentBalances = normalizeStudentBalances(source.studentPaymentBalances);
   const studentProfilesSource = source.studentProfiles && typeof source.studentProfiles === 'object' && !Array.isArray(source.studentProfiles)
     ? source.studentProfiles
     : {};
@@ -4082,12 +4084,12 @@ const normalizeTeacherFinanceTeacherEntry = (value) => {
     studentProfiles,
     months,
     lessonLedger: normalizeTeacherFinanceLessonLedger(source.lessonLedger),
-    paymentAllocations: normalizeTeacherFinancePaymentAllocations(source.paymentAllocations),
+    paymentAllocations: normalizeTeacherFinancePaymentAllocations(source.paymentAllocations, studentPaymentBalances),
     paymentAllocationMigrationVersion: Math.max(
       0,
       Math.floor(Number(source.paymentAllocationMigrationVersion) || 0)
     ),
-    studentPaymentBalances: normalizeStudentBalances(source.studentPaymentBalances),
+    studentPaymentBalances,
   };
 };
 
@@ -10155,20 +10157,20 @@ const buildStudentScheduleEntryFromGoogleCalendar = (entry, student, auth) => {
   };
 };
 
-const resolveGroupParticipationOccurrence = (entry) => {
+const resolveGroupParticipationOccurrence = (entry, readContext = null) => {
   const parts = participationOccurrence(entry);
-  const lesson = readResolvedGroupLessonSessions().find(l => l.groupId === entry.groupId && l.status !== 'cancelled'
+  const lesson = (readContext ? readContext.resolvedLessons() : readResolvedGroupLessonSessions()).find(l => l.groupId === entry.groupId && l.status !== 'cancelled'
     && (entry.lessonId ? l.id === entry.lessonId : participationOccurrence(l).day === parts.day && participationOccurrence(l).time === parts.time));
   return lesson ? {...entry, participationSlot:lesson.participationSlot,participationOverrides:lesson.participationOverrides || {}} : entry;
 };
-const isGroupEntryAssigned = (entry, studentId, groupValue = null) => {
+const isGroupEntryAssigned = (entry, studentId, groupValue = null, readContext = null) => {
   if (!entry?.isLearningGroupEvent && !entry?.groupId) return true;
-  if (getLearningSubscriptionOccurrence(studentId, entry)) return true;
-  const group = groupValue || readLearningGroupsDb().find(g => g.id === entry.groupId);
-  return Boolean(group && isGroupLessonAssigned(group, studentId, resolveGroupParticipationOccurrence(entry)));
+  if (getLearningSubscriptionOccurrence(studentId, entry, readContext)) return true;
+  const group = groupValue || (readContext ? readContext.groups() : readLearningGroupsDb()).find(g => g.id === entry.groupId);
+  return Boolean(group && isGroupLessonAssigned(group, studentId, resolveGroupParticipationOccurrence(entry, readContext)));
 };
-const getGroupEntryStudentSourceIds = (entry, studentId) => {
-  const teacherId = entry.teacherId || readLearningGroupsDb().find(g=>g.id===entry.groupId)?.teacherId;
+const getGroupEntryStudentSourceIds = (entry, studentId, readContext = null) => {
+  const teacherId = entry.teacherId || (readContext ? readContext.groups() : readLearningGroupsDb()).find(g=>g.id===entry.groupId)?.teacherId;
   const projected = buildStudentScheduleEntryFromGoogleCalendar(entry,{id:studentId,teacherId},null);
   return [entry.id, `${entry.id}:${studentId}`, projected?.id].filter(Boolean);
 };
@@ -16827,7 +16829,7 @@ const getPaymentScheduleEntryNameKeys = (entry) => {
   return new Set(keys);
 };
 
-const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
+const doesPaymentScheduleEntryMatchStudent = (entry, student, readContext = null) => {
   const studentId = String(student?.id || '').trim();
   if (!studentId) return false;
   const entryStudentId = String(entry?.studentId || '').trim();
@@ -16835,7 +16837,7 @@ const doesPaymentScheduleEntryMatchStudent = (entry, student) => {
 
   if (isGoogleStudentScheduleEntry(entry)) {
     const teacherId = normalizeTeacherId(student?.teacherId);
-    const roster = readStudentsDb().filter((candidate) => (
+    const roster = (readContext ? readContext.students() : readStudentsDb()).filter((candidate) => (
       isActiveStudent(candidate)
       && normalizeTeacherId(candidate?.teacherId) === teacherId
     ));
@@ -16888,7 +16890,7 @@ const expandGoogleCalendarLearningGroupPaymentEntries = (teacherId, entries = []
   });
 };
 
-const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry) => {
+const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry, financeSnapshot = null) => {
   if (!entry?.isLearningGroupEvent || !entry?.groupId) return [];
   const normalizedTeacherId = normalizeTeacherId(teacherId);
   const group = readLearningGroupsDb().find((candidate) => (
@@ -16919,6 +16921,9 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry)
   const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
   const endMinutes = Number.isFinite(startMinutes) ? startMinutes + durationMinutes : NaN;
   if (!dayKey || !Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) return [];
+  // A balance journal contains every pupil's history. Read and validate it
+  // once for this calendar response, never once per pupil and occurrence.
+  const financeEntry = financeSnapshot || getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), normalizedTeacherId);
 
   return (Array.isArray(entry?.participantIds) ? entry.participantIds : [])
     .map((rawStudentId) => {
@@ -16951,7 +16956,7 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry)
         paidMarkKey: payment.paidMarkKey,
         trialMarkKey: payment.trialMarkKey,
         lessonPrice: getLessonPriceForPaymentOccurrence(
-          getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), normalizedTeacherId), studentId,
+          financeEntry, studentId,
           { ...projectedEntry, paidAt: teacherMarks[payment.paidMarkKey] }
         ).lessonPrice || lessonPrice,
       };
@@ -16959,11 +16964,11 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry)
     .filter(Boolean);
 };
 
-const annotateGoogleCalendarLearningGroupPaymentStatuses = (teacherId, entry) => (
+const annotateGoogleCalendarLearningGroupPaymentStatuses = (teacherId, entry, financeSnapshot = null) => (
   entry?.isLearningGroupEvent && entry?.groupId
     ? {
         ...entry,
-        memberPaymentStatuses: buildGoogleCalendarLearningGroupMemberPaymentStatuses(teacherId, entry),
+        memberPaymentStatuses: buildGoogleCalendarLearningGroupMemberPaymentStatuses(teacherId, entry, financeSnapshot),
       }
     : entry
 );
@@ -17145,14 +17150,14 @@ const getTeacherFinanceStudentRecordForMonth = (teacherEntry, studentId, month) 
   return { profile, monthData, record };
 };
 
-const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence) => {
+const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence, readContext = null) => {
   const event = occurrence?.event || occurrence?.entry || occurrence;
   const dayKey = occurrence?.dayKey || occurrence?.date || event?.date || '';
   const time = occurrence?.time || event?.time || '00:00';
   const durationMinutes = normalizeScheduleDurationMinutes(occurrence?.durationMinutes ?? event?.durationMinutes);
   const month = normalizeTeacherFinanceMonthKey(String(dayKey).slice(0, 7));
   if (!month) return { month: '', lessonPrice: 0 };
-  const subscription = getLearningSubscriptionOccurrence(studentId, occurrence);
+  const subscription = getLearningSubscriptionOccurrence(studentId, occurrence, readContext);
   if (subscription) return { month, lessonPrice: subscription.lessonPrice };
   const allocated = Object.values(teacherEntry?.paymentAllocations || {}).find((allocation) => (
     allocation.studentId === studentId && allocation.status === 'allocated'
@@ -17167,7 +17172,7 @@ const getLessonPriceForPaymentOccurrence = (teacherEntry, studentId, occurrence)
   if (ledger?.lessonPrice > 0) return { month, lessonPrice: ledger.lessonPrice };
   const groupId = String(occurrence?.groupId || '').trim();
   if (groupId) {
-    const group = getLearningGroupById(groupId);
+    const group = readContext ? readContext.groups().find(candidate => candidate.id === groupId && !candidate.deletedAt) || null : getLearningGroupById(groupId);
     if (group) {
       const { profile, record } = getTeacherFinanceStudentRecordForMonth(teacherEntry, studentId, month);
       const startsAt = event?.startAt || `${dayKey}T${time}:00+03:00`;
@@ -17703,11 +17708,13 @@ const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey)
   };
 };
 
+const isStudentBalanceMaintenance = () => process.env.BALANCE_MAINTENANCE === '1';
+const studentBalanceMaintenanceError = () => balanceError('Балансы временно приостановлены для восстановления работы платформы. Деньги и история сохранены.', 'balance_maintenance', 503);
 const walletEnabled = teacherId => Boolean(getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId).studentPaymentBalances);
 const walletHasStudent = (teacherId, studentId) => Boolean(getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId).studentPaymentBalances?.accounts?.[studentId]);
-const walletStudentEligible = (student, entry) => !student.deletedAt
+const walletStudentEligible = (student, entry, readContext = null) => !student.deletedAt
   && entry.studentProfiles?.[student.id]?.pricingMode !== 'monthly'
-  && !learningSubscriptions.read().blocks.some(b => b.teacherId === student.teacherId && b.studentId === student.id && !b.cancelledAt);
+  && !(readContext ? readContext.subscriptions() : learningSubscriptions.read()).blocks.some(b => b.teacherId === student.teacherId && b.studentId === student.id && !b.cancelledAt);
 
 const walletMarkParts = (key, teacherId, studentId) => {
   const parts = String(key).split(':');
@@ -17717,14 +17724,14 @@ const walletMarkParts = (key, teacherId, studentId) => {
   return dayKey && time ? { dayKey, time, eventId: parts.slice(1, -5).join(':') } : null;
 };
 
-const getWalletOccurrences = (teacherId, student, entry, marks, entries) => {
+const getWalletOccurrences = (teacherId, student, entry, marks, entries, readContext = null) => {
   const now = getStudentSchedulePaymentNowInfo();
   const start = dayKeyToNumber(getStudentSchedulePaymentDateFromCreatedAt(student));
   const range = { ...now, trackingStartNumber: NaN, lookbackStartNumber: Number.isFinite(start) ? start : now.lookbackStartNumber,
     todayNumber: now.todayNumber + PAYMENT_TRANSFER_LOOKAHEAD_DAYS };
   const result = new Map();
   for (const source of entries) {
-    if (!doesPaymentScheduleEntryMatchStudent(source, student)) continue;
+    if (!doesPaymentScheduleEntryMatchStudent(source, student, readContext)) continue;
     for (const occurrence of getStudentScheduleOccurrenceDays(source, range)) {
       const dayKey = normalizeDayKey(occurrence.dayKey);
       const time = normalizeScheduleTime(source.time);
@@ -17734,11 +17741,11 @@ const getWalletOccurrences = (teacherId, student, entry, marks, entries) => {
       const markKey = buildTeacherCalendarPaymentMarkKey(teacherId, event, dayKey, 'paid');
       if (!markKey) continue;
       const trialKeys = (source.paymentSourceIds || [source.id]).map(id => buildTeacherCalendarPaymentMarkKey(teacherId, { ...event, id }, dayKey, 'trial'));
-      const cents = balanceCents(getLessonPriceForPaymentOccurrence(entry, student.id, { ...event, paidAt: marks[markKey] }).lessonPrice);
+      const cents = balanceCents(getLessonPriceForPaymentOccurrence(entry, student.id, { ...event, paidAt: marks[markKey] }, readContext).lessonPrice);
       const original = source.calendarOriginalStartAt;
       const originalParts = original ? getDatePartsInCalendarTimeZone(new Date(original)) : null;
       const moveFromIds = source.groupId && source.calendarMovedFromId ? getGroupEntryStudentSourceIds({ ...source, id: source.calendarMovedFromId,
-        date: originalParts?.dayKey, time: originalParts?.time }, student.id) : [source.calendarMovedFromId];
+        date: originalParts?.dayKey, time: originalParts?.time }, student.id, readContext) : [source.calendarMovedFromId];
       const moveFromKeys = source.calendarMovedFromId && originalParts ? [...moveFromIds, source.externalEventId].map(id =>
         buildTeacherCalendarPaymentMarkKey(teacherId, { ...event, id, time: originalParts.time }, originalParts.dayKey, 'paid')) : [];
       const identity = (source.paymentSourceType || source.source) === 'google-ical'
@@ -17748,8 +17755,8 @@ const getWalletOccurrences = (teacherId, student, entry, marks, entries) => {
         identity, moveFromKeys: [...new Set([...moveFromKeys, ...aliases.filter(key => key !== markKey)])], external: Boolean(source.externalEventId),
         eligible: !isTeacherCalendarLessonCancelled(teacherId, event, dayKey, marks)
           && !isTeacherCalendarLessonCancelled(teacherId, { ...event, id: source.paymentSourceId || source.id }, dayKey, marks)
-          && !isExplicitTrialLesson(event) && !trialKeys.some(key => marks[key]) && !getLearningSubscriptionOccurrence(student.id, event)
-          && (!source.groupId || isGroupEntryAssigned(source, student.id)),
+          && !isExplicitTrialLesson(event) && !trialKeys.some(key => marks[key]) && !getLearningSubscriptionOccurrence(student.id, event, readContext)
+          && (!source.groupId || isGroupEntryAssigned(source, student.id, null, readContext)),
       });
     }
   }
@@ -17768,7 +17775,7 @@ const getWalletOccurrences = (teacherId, student, entry, marks, entries) => {
   return [...unique.values()];
 };
 
-const seedStudentBalance = (teacherId, student, entry, marks, occurrences, now) => {
+const seedStudentBalance = (teacherId, student, entry, marks, occurrences, now, readContext = null) => {
   const byKey = new Map(occurrences.map(o => [o.markKey, o]));
   const paid = [];
   for (const [markKey, paidAt] of Object.entries(marks)) {
@@ -17777,7 +17784,7 @@ const seedStudentBalance = (teacherId, student, entry, marks, occurrences, now) 
     const ledger = Object.values(entry.lessonLedger || {}).find(l => l.studentId === student.id && l.dayKey === parsed.dayKey && l.time === parsed.time);
     const occurrence = { ...parsed, durationMinutes: ledger?.durationMinutes || 60, paidAt };
     const amount = getPaymentAllocationByMarkKey(entry, markKey, student.id)?.amount
-      || ledger?.lessonPrice || getLessonPriceForPaymentOccurrence(entry, student.id, occurrence).lessonPrice;
+      || ledger?.lessonPrice || getLessonPriceForPaymentOccurrence(entry, student.id, occurrence, readContext).lessonPrice;
     const cents = balanceCents(amount);
     if (cents <= 0) throw balanceError(`Нужна стоимость старого оплаченного занятия ${parsed.dayKey}.`, 'balance_migration_conflict');
     const matched = byKey.get(markKey) || occurrences.find(candidate => candidate.moveFromKeys.includes(markKey));
@@ -17788,7 +17795,7 @@ const seedStudentBalance = (teacherId, student, entry, marks, occurrences, now) 
       importedMarkKeys: matched ? [markKey, ...matched.moveFromKeys] : [markKey] });
   }
   const openingByMonth = Object.fromEntries(Object.entries(entry.months).map(([key, value]) => [key, value.students?.[student.id]?.paidAmount || 0]));
-  const knownReceiptIds = readPaymentNotificationsDb().items.filter(n => n.teacherId === teacherId && n.studentId === student.id && n.status === 'applied').flatMap(n => [n.id, n.rawHash]).filter(Boolean);
+  const knownReceiptIds = (readContext ? readContext.paymentNotifications() : readPaymentNotificationsDb()).items.filter(n => n.teacherId === teacherId && n.studentId === student.id && n.status === 'applied').flatMap(n => [n.id, n.rawHash]).filter(Boolean);
   return createBalanceAccount({ openingByMonth, paid, knownReceiptIds, now });
 };
 
@@ -17803,10 +17810,11 @@ const loadWalletCalendar = async teacherId => {
     availabilityCalendarEntries(teacherId, false, false, true).filter(entry => entry.source !== 'google-calendar'))];
 };
 
-const projectStudentBalances = (teacherId, entry, marks) => {
+const projectStudentBalances = (teacherId, entry, marks, scopeStudentId = '', readContext = null) => {
   for (const [studentId, account] of Object.entries(entry.studentPaymentBalances.accounts)) {
-    const student = findStudentById(studentId, { allowDeleted: true });
-    if (student && !walletStudentEligible(student, entry)) continue;
+    if (scopeStudentId && studentId !== scopeStudentId) continue;
+    const student = readContext ? readContext.students().find(candidate => candidate.id === String(studentId)) || null : findStudentById(studentId, { allowDeleted: true });
+    if (student && !walletStudentEligible(student, entry, readContext)) continue;
     const managed = new Set([
       ...Object.keys(account.allocations),
       ...account.entries.flatMap(e => [e.markKey, e.targetMarkKey]).filter(Boolean),
@@ -17851,7 +17859,8 @@ const projectStudentBalances = (teacherId, entry, marks) => {
 // All wallet mutations run under the same per-teacher queue as bank webhooks.
 // Load the remote calendar before reading the financial snapshot, then commit
 // synchronously. Calendar marks are a recoverable projection of this journal.
-const mutateStudentBalances = async (teacherId, { enable = false, preview = false, action = null, allowCalendarFailure = false, expectedToken = '' } = {}) => {
+const mutateStudentBalances = async (teacherId, { enable = false, preview = false, action = null, allowCalendarFailure = false, expectedToken = '', studentId = '' } = {}) => {
+  if (isStudentBalanceMaintenance()) throw studentBalanceMaintenanceError();
   let entries = [];
   let calendarError = '';
   try { entries = await loadWalletCalendar(teacherId); }
@@ -17859,6 +17868,19 @@ const mutateStudentBalances = async (teacherId, { enable = false, preview = fals
     if (!allowCalendarFailure || enable) throw balanceError('Календарь недоступен. Деньги и старые отметки сохранены; повторите обновление позже.', 'balance_calendar_unavailable', 503);
     calendarError = 'Календарь недоступен; поступление сохранено, распределение отложено';
   }
+  if (entries.some(entry => entry.groupId)) {
+    materializeAvailabilitySchedules();
+    reconcileLearningGroupLifecycle();
+  }
+  const readContext = createStudentBalanceReadContext({
+    readSubscriptions: () => learningSubscriptions.read(),
+    reconcileSubscriptions: (lessons, data) => learningSubscriptions.reconcile(lessons, data),
+    readLessons: readLearningLessonSessionsDb,
+    readResolvedLessons: readResolvedGroupLessonSessions,
+    readGroups: readLearningGroupsDb,
+    readStudents: readStudentsDb,
+    readPaymentNotifications: readPaymentNotificationsDb,
+  });
   const db = readTeacherFinanceDb();
   const entry = getTeacherFinanceTeacherEntry(db, teacherId);
   const marksDb = readTeacherCalendarMarksDb();
@@ -17868,21 +17890,22 @@ const mutateStudentBalances = async (teacherId, { enable = false, preview = fals
   const previewToken = crypto.createHash('sha256').update(JSON.stringify({ entry, marks, calendarSnapshot })).digest('hex');
   if (enable && expectedToken !== previewToken) throw balanceError('Учёт изменился после предварительной сверки. Обновите страницу и повторите переход.', 'balance_preview_stale');
   const now = new Date().toISOString();
-  const students = readStudentsDb().filter(s => s.teacherId === teacherId);
+  const scopeStudentId = enable || preview ? '' : String(studentId || '').trim();
+  const students = selectBalanceReconciliationStudents(readContext.students(), teacherId, { studentId, enable, preview });
   const conflicts = [];
   const occurrencesByStudent = new Map();
   const wallet = entry.studentPaymentBalances || { version: 1, enabledAt: now, accounts: {} };
   for (const student of students) {
     const existing = wallet.accounts[student.id];
-    if (!existing && !walletStudentEligible(student, entry)) {
+    if (!existing && !walletStudentEligible(student, entry, readContext)) {
       if (!student.deletedAt) conflicts.push({ studentId: student.id, studentName: student.nickname || student.name, reason: 'Месячный тариф или абонемент: сохранён отдельный прежний учёт.' });
       continue;
     }
-    const occurrences = calendarError ? [] : getWalletOccurrences(teacherId, student, entry, marks, entries);
+    const occurrences = calendarError ? [] : getWalletOccurrences(teacherId, student, entry, marks, entries, readContext);
     occurrencesByStudent.set(student.id, occurrences);
     if (!existing) {
       try {
-        const account = seedStudentBalance(teacherId, student, entry, marks, occurrences, now);
+        const account = seedStudentBalance(teacherId, student, entry, marks, occurrences, now, readContext);
         account.importedMarkKeys = [...new Set(Object.values(account.allocations)
           .flatMap(allocation => [allocation.markKey, ...(allocation.importedMarkKeys || [])]))];
         wallet.accounts[student.id] = account;
@@ -17896,7 +17919,7 @@ const mutateStudentBalances = async (teacherId, { enable = false, preview = fals
   for (const student of students) {
     const account = wallet.accounts[student.id];
     if (!account) continue;
-    if (!walletStudentEligible(student, entry)) {
+    if (!walletStudentEligible(student, entry, readContext)) {
       rows.push({ studentId: student.id, studentName: student.nickname || student.name, paused: true, ...balanceSummary(account) });
       continue;
     }
@@ -17912,7 +17935,7 @@ const mutateStudentBalances = async (teacherId, { enable = false, preview = fals
       fs.chmodSync(backupFile, 0o600);
     }
     entry.studentPaymentBalances = wallet;
-    projectStudentBalances(teacherId, entry, marks);
+    projectStudentBalances(teacherId, entry, marks, scopeStudentId, readContext);
     const financeChanged = JSON.stringify(db[teacherId]) !== JSON.stringify(entry);
     const marksChanged = JSON.stringify(marksDb[teacherId] || {}) !== JSON.stringify(marks);
     if (financeChanged) { db[teacherId] = entry; writeTeacherFinanceDb(db); }
@@ -17921,6 +17944,34 @@ const mutateStudentBalances = async (teacherId, { enable = false, preview = fals
   }
   return { enabled: Boolean(entry.studentPaymentBalances), preview, previewToken, conflicts, students: rows, marks, actionResult };
 };
+
+const studentBalanceReadVersion = teacherId => {
+  const files = [teacherFinanceFile, teacherCalendarMarksFile, studentsFile, progressFile,
+    teacherCalendarSyncFile, teacherCalendarGoogleFile, learningGroupsFile, learningLessonSessionsFile,
+    learningSubscriptions.file, paymentNotificationsFile,
+    ...['group-availability.json', 'lesson-reschedules.json', 'weekly-schedules.json', 'lesson-pace.json',
+      'desktop-recordings.json', 'lesson-replay-storage-index.json', 'lesson-replay-receipts']
+      .map(name => path.join(dataDir, name))];
+  const revisions = files.map(file => {
+    try {
+      const stat = fs.statSync(file);
+      return [stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs];
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+  });
+  const calendar = teacherCalendarSyncCache.get(teacherId);
+  return JSON.stringify([getStudentSchedulePaymentNowInfo().todayKey, revisions,
+    calendar?.sourceKey, calendar?.loadedAtMs, calendar?.toMs]);
+};
+// Coalesce unchanged schedule polls under the same lock as receipts and edits.
+// Financial actions and explicit validation continue to reconcile immediately.
+const reconcileStudentBalanceReads = createStudentBalanceReadCoordinator({
+  version: studentBalanceReadVersion,
+  enqueue: (teacherId, action) => enqueuePaymentNotification(teacherId, action),
+  reconcile: (teacherId, studentId) => mutateStudentBalances(teacherId, { studentId, allowCalendarFailure: true }),
+});
 
 const receiveStudentBalancePayment = async (teacher, student, parsed, id) => {
   let result;
@@ -24718,7 +24769,7 @@ const studentAssignedLearningMaterial = (studentId, material, group = null) => {
 const weeklyScheduleStore = createRescheduleStore(path.join(dataDir, 'weekly-schedules.json'));
 const lessonRescheduleStore = createRescheduleStore(path.join(dataDir, 'lesson-reschedules.json'));
 const lessonPaceStore = createLessonPaceStore(path.join(dataDir, 'lesson-pace.json'));
-const readResolvedGroupLessonSessions = () => deduplicateGroupLessonSessions(readLearningLessonSessionsDb(), lesson => {
+const readResolvedGroupLessonSessions = (lessons = readLearningLessonSessionsDb()) => deduplicateGroupLessonSessions(lessons, lesson => {
   const recording = getLessonReplaySummary(buildLearningGroupLessonReplayKey(lesson.id));
   return recording.available || recording.provider === 'rutube' || recording.eventCount > 0 || lessonPaceStore.list(lesson.id).length > 0;
 });
@@ -37160,6 +37211,7 @@ app.post('/api/student-schedule/google-sync', async (req, res) => {
 });
 
 app.get('/api/teacher-schedule', async (req, res) => {
+  try {
   materializeAvailabilitySchedules();
   const { teacherId } = req.query || {};
   if (isStudentRole(req.auth)) return forbid(res);
@@ -37172,18 +37224,28 @@ app.get('/api/teacher-schedule', async (req, res) => {
     .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
     .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(entry, homeworkProgressByStudentId));
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
+  const availabilityEntries = availabilityCalendarEntries(teacher.id, true);
+  const financeSnapshot = [...availabilityEntries, ...googleEntries].some(entry => entry?.isLearningGroupEvent && entry?.groupId)
+    ? getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacher.id) : null;
   return res.json(deduplicateGroupScheduleEntries([
     ...localEntries,
-    ...availabilityCalendarEntries(teacher.id, true)
+    ...availabilityEntries
       .map(entry => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
-      .map(entry => annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry)),
+      .map(entry => annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry, financeSnapshot)),
     ...googleEntries
       .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
       .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(
-        annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry),
+        annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry, financeSnapshot),
         homeworkProgressByStudentId
       )),
   ]));
+  } catch (error) {
+    console.error('[teacher-schedule]', error?.message || error);
+    return res.status(error.status || 500).json({
+      error: error.code ? error.message : 'Не удалось загрузить расписание. Повторите обновление.',
+      ...(error.code ? { code: error.code } : {}),
+    });
+  }
 });
 
 const getTeacherCalendarCancellationStudentIds = (entry) => Array.from(new Set([
@@ -37546,11 +37608,17 @@ const reconcileTeacherPaymentCredits = async (
   teacherId,
   { studentId = '', validateAllocated = false, invalidatedEntryIds = [] } = {}
 ) => {
+  // Calendar and lesson reads remain available while wallet writes are paused.
+  // Keep the enabled journal intact so payments never fall back to legacy mode.
+  if (isStudentBalanceMaintenance()) return { changed: false, transfers: [] };
   const normalizedTeacherId = normalizeTeacherId(teacherId);
   const normalizedStudentId = String(studentId || '').trim();
   if (normalizedTeacherId && walletEnabled(normalizedTeacherId)) {
-    await enqueuePaymentNotification(normalizedTeacherId, () => mutateStudentBalances(normalizedTeacherId, { allowCalendarFailure: true,
-      action: ({ wallet, entries, now }) => {
+    if (!invalidatedEntryIds.length && !validateAllocated) {
+      await reconcileStudentBalanceReads(normalizedTeacherId, normalizedStudentId);
+    } else {
+    await enqueuePaymentNotification(normalizedTeacherId, () => mutateStudentBalances(normalizedTeacherId, { allowCalendarFailure: true, studentId: normalizedStudentId,
+      action: invalidatedEntryIds.length ? ({ wallet, entries, now }) => {
         const localEntries = getTeacherScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
         for (const [studentId, account] of Object.entries(wallet.accounts)) {
           if (normalizedStudentId && studentId !== normalizedStudentId) continue;
@@ -37565,8 +37633,9 @@ const reconcileTeacherPaymentCredits = async (
             }
           }
         }
-      },
+      } : null,
     }));
+    }
   }
   if (normalizedStudentId && walletHasStudent(normalizedTeacherId, normalizedStudentId)
     && walletStudentEligible(findStudentById(normalizedStudentId, { allowDeleted: true }) || {}, getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), normalizedTeacherId))) {
@@ -37619,7 +37688,7 @@ const reconcileTeacherPaymentCredits = async (
   const financeDb = readTeacherFinanceDb();
   const teacherEntry = getTeacherFinanceTeacherEntry(financeDb, normalizedTeacherId);
   teacherEntry.paymentAllocations = normalizeTeacherFinancePaymentAllocations(
-    teacherEntry.paymentAllocations
+    teacherEntry.paymentAllocations, teacherEntry.studentPaymentBalances
   );
   const marksDb = readTeacherCalendarMarksDb();
   const marks = normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
@@ -37877,7 +37946,7 @@ const getPaymentAllocationByMarkKey = (teacherEntry, markKey, studentId = '') =>
   // allocation and persist those changes with the enclosing teacher entry.
   if (teacherEntry && typeof teacherEntry === 'object') {
     teacherEntry.paymentAllocations = normalizeTeacherFinancePaymentAllocations(
-      teacherEntry.paymentAllocations
+      teacherEntry.paymentAllocations, teacherEntry.studentPaymentBalances
     );
   }
   const allocations = Object.values(teacherEntry?.paymentAllocations || {});
@@ -38765,6 +38834,10 @@ const walletResponseError = (res, error) => res.status(error.status || 500).json
   error: error.code ? error.message : 'Не удалось обновить баланс. Деньги не начисляйте повторно; обновите историю.',
   code: error.code || 'balance_failed',
 });
+app.use('/api/student-payment-balances', (_req, res, next) => {
+  if (isStudentBalanceMaintenance()) return walletResponseError(res, studentBalanceMaintenanceError());
+  return next();
+});
 app.get('/api/student-payment-balances', async (req, res) => {
   const teacher = walletRequestTeacher(req, res);
   if (!teacher) return;
@@ -38881,7 +38954,7 @@ app.get('/api/teacher-calendar-marks', async (req, res) => {
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
   try {
-    if (walletEnabled(teacher.id)) await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id, { allowCalendarFailure: true }));
+    if (!isStudentBalanceMaintenance() && walletEnabled(teacher.id)) await reconcileStudentBalanceReads(teacher.id);
     const db = readTeacherCalendarMarksDb();
     return res.json({ marks: normalizeTeacherCalendarMarks(db[teacher.id]) });
   } catch (error) { return walletResponseError(res, error); }
