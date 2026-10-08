@@ -85,6 +85,7 @@ export class ObsClient extends Base {
     if(req.url==='/qa/closed'){obs.closed=true;pythonSourceChoices=await obs.choices();return json(res,200,{});}
     if(req.url==='/qa/lesson'){await serialize(()=>engine.start({id:crypto.randomUUID(),title:'Тест обычного урока',local:true,manual:true,cutoffAt:Date.now()+3600000}));obsStatus=await obs.status();return json(res,200,{});}
     if(req.url==='/qa/lost'){obs.output=false;obsStatus=await obs.status();return json(res,200,{});}
+    if(req.url==='/qa/foreign'){obs.output=true;obs.owner='fictional-foreign-recording';obs.scene='Fictional foreign scene';obsStatus=await obs.status();return json(res,200,{});}
     if(req.url==='/qa/time'){const payload=await body(req);obs.seconds=payload.seconds;obsStatus=await obs.status();return json(res,200,{});}
   `;
   source = source.replace("if (req.method === 'GET' && req.url === '/health')", qaRoutes + "if (req.method === 'GET' && req.url === '/health')");
@@ -108,6 +109,73 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('new Python recording after a finished edited project creates a separate source, rejects double starts and preserves the previous montage', async t => {
+    const f = await fixture(); t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    const payload={taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Цикл for'};
+    const starters=await Promise.all([f.request('/python/start',payload),f.request('/python/start',payload)]);
+    assert.deepEqual(starters.map(result=>result.status).sort(),[200,400],'A second click cannot start another output');
+    let state=(await f.request('/state')).value;
+    assert.equal(state.jobs.length,1);
+    const firstId=state.jobs[0].id;
+    await f.request('/qa/time',{seconds:6});
+    assert.equal((await f.request('/material/pause',{id:firstId,paused:true})).status,200);
+    assert.equal((await f.request('/material/pause',{id:firstId,paused:false})).status,200);
+    await f.request('/qa/time',{seconds:14});
+    assert.equal((await f.request('/material/pause',{id:firstId,paused:true})).status,200);
+    assert.equal((await f.request('/material/stop',{id:firstId})).status,200);
+    state=(await f.request('/state')).value;
+    const first=state.jobs.find(job=>job.id===firstId);
+    assert.deepEqual(first.pythonTimeline.clips.map(clip=>[clip.start,clip.end]),[[0,6],[6,14]]);
+    assert.equal((await f.request('/python/editor/edit',{id:firstId,revision:first.pythonTimeline.revision,clipId:first.pythonTimeline.clips[0].id,action:'trim',start:1,end:5})).status,200);
+    const previous=(await f.request('/state')).value.jobs.find(job=>job.id===firstId);
+    const previousTimeline=structuredClone(previous.pythonTimeline);
+    const previousFile=fs.readFileSync(previous.file);
+    await f.request('/qa/time',{seconds:0});
+    assert.equal((await f.request('/python/start',payload)).status,200,'The same topic can be recorded into a new project');
+    state=(await f.request('/state')).value;
+    const next=state.jobs.find(job=>job.id!==firstId);
+    assert.equal(state.jobs.length,2);
+    assert.notEqual(next.id,firstId);
+    assert.equal(next.status,'recording');
+    assert.equal(next.pythonTimeline.clips.length,0);
+    assert.equal(next.pythonTimeline.openStart,0);
+    assert.deepEqual(state.jobs.find(job=>job.id===firstId).pythonTimeline,previousTimeline);
+    assert.equal((await f.request('/python/start',payload)).status,400,'Running the next project still blocks another start');
+    assert.equal((await f.request('/material/stop',{id:firstId})).status,400,'Old project controls cannot stop the new recording');
+    await f.request('/qa/time',{seconds:3});
+    assert.equal((await f.request('/material/pause',{id:next.id,paused:true})).status,200);
+    assert.equal((await f.request('/material/stop',{id:next.id})).status,200);
+    state=(await f.request('/state')).value;
+    const completed=state.jobs.find(job=>job.id===next.id);
+    assert.notEqual(completed.file,previous.file);
+    assert.ok(fs.existsSync(completed.file));
+    assert.deepEqual(completed.pythonTimeline.clips.map(clip=>[clip.start,clip.end]),[[0,3]]);
+    assert.deepEqual(state.jobs.find(job=>job.id===firstId).pythonTimeline,previousTimeline);
+    assert.deepEqual(fs.readFileSync(previous.file),previousFile,'Starting the new project does not rewrite the old source');
+    const events=(await f.request('/qa/events')).value.events;
+    assert.equal(events.filter(([type])=>type==='StartRecord').length,2);
+    assert.equal(events.filter(([type])=>type==='StopRecord').length,2);
+    const persisted=JSON.parse(fs.readFileSync(path.join(f.root,'state.json')));
+    assert.deepEqual(persisted.jobs[firstId].pythonTimeline.clips,previousTimeline.clips,'The old montage remains durable on disk');
+    assert.equal(persisted.jobs[next.id].pythonTimeline.clips.length,1);
+  });
+  test('Python start cannot replace a foreign OBS output or change its scene and filename', async t => {
+    const f = await fixture(); t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    await f.request('/qa/foreign');
+    const before=(await f.request('/qa/events')).value;
+    const start=await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Другая запись'});
+    assert.equal(start.status,400);
+    assert.match(start.value.error,/OBS.*запись/);
+    const after=(await f.request('/qa/events')).value;
+    assert.equal(after.scene,before.scene);
+    assert.equal(after.owner,before.owner);
+    assert.equal(after.events.filter(([type])=>['StartRecord','StopRecord','SetCurrentProgramScene','SetProfileParameter'].includes(type)).length,before.events.filter(([type])=>['StartRecord','StopRecord','SetCurrentProgramScene','SetProfileParameter'].includes(type)).length);
+    const state=(await f.request('/state')).value;
+    assert.equal(state.obs.outputActive,true);
+    assert.equal(state.jobs.length,0);
+  });
   test('real preview API streams scoped media ranges, reuses unchanged cuts and cannot expose recorder controls', { skip: !hasFfmpeg && 'FFmpeg is not installed on this host; real media is tested on the recorder workstation' }, async t => {
     const f = await fixture({mediaFixture:true}); t.after(f.close);
     await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
@@ -231,6 +299,9 @@ if (process.argv.includes('--serve')) {
     assert.equal((await f.request('/state')).value.obs.outputActive, false, 'Stop must confirm inactivity before the ordinary lesson starts');
     assert.equal((await f.request('/qa/lesson', {})).status, 200);
     current = (await f.request('/state')).value; assert.equal(current.obs.scene, 'IVAN100 — Платформа'); assert.equal(current.config.platform, 'lesson-platform');
+    const lesson=current.jobs.find(job=>job.status==='recording');
+    assert.equal((await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Python во время урока'})).status,400,'Python start must wait for the ordinary lesson to finish');
+    assert.equal((await f.request('/state')).value.jobs.find(job=>job.status==='recording').id,lesson.id);
     assert.equal((await f.request('/python/configure', { window: 'python-editor' })).status, 400);
     assert.equal((await f.request('/python/preview', {active:true})).status,400,'A normal lesson must not be redirected by the Python preview');
     assert.equal((await f.request('/material/stop', { id })).status, 400, 'Stale Python finish must not stop the ordinary lesson');
