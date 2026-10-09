@@ -62,6 +62,14 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   const share = createRecordingShareRelay({ now, allowed: (teacherId, id) => enabled(teacherId) && db.jobs[id]?.teacherId === teacherId && db.jobs[id]?.desired === 'record' && db.jobs[id]?.cutoffAt > now() });
   return {
     enabled, settings, stop, share,
+    // Finance uses replay existence when deduplicating lessons, and availability
+    // when reconciling recording subscriptions. Device heartbeats, duration and
+    // upload progress do not change either fact. Keep latest-job replay semantics.
+    availabilityRevision(teacherId) {
+      const latest = new Map();
+      for (const job of jobs(teacherId)) latest.set(job.occurrence.key, job.status === 'ready');
+      return JSON.stringify([...latest].sort(([left], [right]) => left.localeCompare(right)));
+    },
     lessonJob: (teacherId,id) => db.jobs[id]?.teacherId===teacherId ? {...db.jobs[id]} : null,
     libraryJobs: teacherId => jobs(teacherId).map(publicJob),
     activeLessonKeys: teacherId => new Set(jobs(teacherId)

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createDesktopRecordingStore, privateRutubeVideo, RECORDING_RECONNECT_GRACE_MS } from './desktopRecording.js';
+import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordinator.js';
 
 const video = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Secret_Key-123';
 function fixture(t, options = {}) {
@@ -20,6 +21,63 @@ function fixture(t, options = {}) {
   };
   return { root, file, store, connect, now: () => time, advance: (ms) => { time += ms; } };
 }
+
+test('recorder heartbeats reuse finance reads, while recording publication invalidates them', async t => {
+  const f = fixture(t);
+  const { device } = f.connect('teacher');
+  let calls = 0;
+  let queue = Promise.resolve();
+  const read = createStudentBalanceReadCoordinator({
+    now: f.now,
+    version: teacherId => f.store.availabilityRevision(teacherId),
+    enqueue: (_, action) => queue = queue.then(action),
+    reconcile: () => { calls++; },
+  });
+  await read('teacher');
+  const job = f.store.start('teacher', { key: 'lesson' }, 'Lesson', f.now() + 3600000);
+  await read('teacher');
+  assert.equal(calls, 2, 'a new replay may change duplicate lesson selection');
+  f.store.report(device, job.id, { status: 'recording' });
+  for (let n = 0; n < 5; n++) {
+    f.advance(1000);
+    f.store.poll(device, true, undefined, () => true);
+    f.store.report(device, job.id, { status: 'recording', durationMs: (n + 1) * 1000 });
+    await read('teacher');
+  }
+  assert.equal(calls, 2, 'recorder telemetry must not repeat reconciliation');
+  f.store.report(device, job.id, { status: 'saved' });
+  await read('teacher');
+  assert.equal(calls, 2);
+  f.store.report(device, job.id, { status: 'ready', url: video });
+  await read('teacher');
+  assert.equal(calls, 3, 'published recordings change subscription availability');
+  f.advance(15000);
+  await read('teacher');
+  assert.equal(calls, 4, 'normal finance freshness still expires');
+});
+
+test('recording finance revision follows the latest continuation and is teacher scoped', t => {
+  const f = fixture(t);
+  const { device } = f.connect('teacher');
+  f.connect('other');
+  const otherRevision = f.store.availabilityRevision('other');
+  const first = f.store.start('teacher', { key: 'lesson' }, 'Lesson', f.now() + 3600000);
+  f.store.report(device, first.id, { status: 'saved' });
+  const unavailable = f.store.availabilityRevision('teacher');
+  const resumed = f.store.resume(device, first.id, () => true);
+  f.store.report(device, first.id, { status: 'ready', url: video });
+  assert.equal(f.store.replay('lesson').available, false);
+  assert.equal(f.store.availabilityRevision('teacher'), unavailable);
+  f.store.report(device, resumed.id, { status: 'saved' });
+  f.store.report(device, resumed.id, { status: 'ready', url: video });
+  assert.notEqual(f.store.availabilityRevision('teacher'), unavailable);
+  assert.equal(f.store.availabilityRevision('other'), otherRevision);
+  const recovered = f.store.recoverFile(device, resumed.id, '12345678-1234-1234-1234-123456789012');
+  assert.equal(f.store.replay('lesson').available, false);
+  assert.equal(f.store.availabilityRevision('teacher'), unavailable);
+  f.store.report(device, recovered.id, { status: 'ready', url: video });
+  assert.notEqual(f.store.availabilityRevision('teacher'), unavailable);
+});
 test('lesson names are resolved for existing recordings without changing file titles or teacher scope', (t) => {
   let name = 'Олег';
   const f = fixture(t, { lessonNameFor: job => job.occurrence.studentId === 'student' ? name : 'Группа 1' });

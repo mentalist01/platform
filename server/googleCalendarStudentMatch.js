@@ -1,9 +1,20 @@
-export const normalizeCalendarEventText = (value) => String(value || '')
-  .toLowerCase()
-  .replace(/ё/g, 'е')
-  .replace(/[^0-9a-zа-я]+/gi, ' ')
-  .replace(/\s+/g, ' ')
-  .trim();
+// Only memoize context-free text normalization, never a roster match. Roster
+// edits and ambiguous names must still be resolved against the current pupils.
+const calendarTextCache = new Map();
+export const normalizeCalendarEventText = (value) => {
+  const text = String(value || '');
+  if (calendarTextCache.has(text)) return calendarTextCache.get(text);
+  const normalized = text.toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[^0-9a-zа-я]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length <= 512) {
+    if (calendarTextCache.size >= 2048) calendarTextCache.delete(calendarTextCache.keys().next().value);
+    calendarTextCache.set(text, normalized);
+  }
+  return normalized;
+};
 
 export const stripCalendarEventParentheticalText = (value) => {
   let depth = 0;

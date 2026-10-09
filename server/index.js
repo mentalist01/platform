@@ -9968,10 +9968,11 @@ const updateTeacherCalendarSyncStatus = (teacherId, patch = {}) => {
   return next;
 };
 
+let calendarDatePartsFormatter;
 const getDatePartsInCalendarTimeZone = (date) => {
   const value = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(value.getTime())) return null;
-  const formatter = new Intl.DateTimeFormat('en-US', {
+  const formatter = calendarDatePartsFormatter ||= new Intl.DateTimeFormat('en-US', {
     timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
@@ -17956,7 +17957,7 @@ const studentBalanceReadVersion = teacherId => {
     teacherCalendarSyncFile, teacherCalendarGoogleFile, learningGroupsFile, learningLessonSessionsFile,
     learningSubscriptions.file, paymentNotificationsFile,
     ...['group-availability.json', 'lesson-reschedules.json', 'weekly-schedules.json', 'lesson-pace.json',
-      'desktop-recordings.json', 'lesson-replay-storage-index.json', 'lesson-replay-receipts']
+      'lesson-replay-storage-index.json', 'lesson-replay-receipts']
       .map(name => path.join(dataDir, name))];
   const revisions = files.map(file => {
     try {
@@ -17969,7 +17970,8 @@ const studentBalanceReadVersion = teacherId => {
   });
   const calendar = teacherCalendarSyncCache.get(teacherId);
   return JSON.stringify([getStudentSchedulePaymentNowInfo().todayKey, revisions,
-    calendar?.sourceKey, calendar?.loadedAtMs, calendar?.toMs]);
+    calendar?.sourceKey, calendar?.loadedAtMs, calendar?.toMs,
+    desktopRecordings.availabilityRevision(teacherId)]);
 };
 // Coalesce unchanged schedule polls under the same lock as receipts and edits.
 // Financial actions and explicit validation continue to reconcile immediately.
