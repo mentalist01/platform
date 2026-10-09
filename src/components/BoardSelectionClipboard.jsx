@@ -54,7 +54,7 @@ export default function BoardSelectionClipboard(props) {
           if (!blob.type.startsWith('image/') || blob.size > 10 * 1024 * 1024) throw new Error('Изображение фрагмента недоступно или больше 10 МБ');
           const file = new File([blob], 'board-fragment', { type: blob.type });
           // Upload grants access to the destination student/lesson. The server deduplicates the file by its hash.
-          const stored = await api.uploadBoardAsset(file, c.target.studentId, { lessonId: c.target.lessonId });
+          const stored = await api.uploadBoardAsset(file, c.target.studentId, { lessonId: c.target.lessonId, roomId: c.target.roomId });
           if (!stored?.id || !stored?.url) throw new Error('Не удалось перенести изображение');
           return { assetId: stored.id, assetUrl: stored.url };
         })());

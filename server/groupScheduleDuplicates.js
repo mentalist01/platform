@@ -11,9 +11,18 @@ export function deduplicateGroupScheduleEntries(entries) {
       continue;
     }
     const index = indexes.get(key);
+    const previous = result[index];
     // Keep Google's identity, so payment marks and room links resolve to the
     // same occurrence in the student and teacher calendars.
-    if (entry.externalEventId && !result[index].externalEventId) result[index] = entry;
+    const kept = entry.externalEventId && !previous.externalEventId ? entry : previous;
+    // Pupil projections keep the payment identities of both copies. Never
+    // carry another pupil's aliases into this occurrence.
+    if (entry.studentId && entry.studentId === previous.studentId
+      && (entry.paymentSourceIds?.length || previous.paymentSourceIds?.length)) {
+      result[index] = { ...kept, paymentSourceIds: [...new Set([
+        previous.id, entry.id, ...(previous.paymentSourceIds || []), ...(entry.paymentSourceIds || []),
+      ].filter(Boolean))] };
+    } else result[index] = kept;
   }
   return result;
 }

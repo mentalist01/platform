@@ -56,7 +56,9 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
   const data = studentData && typeof studentData === 'object' ? studentData : {};
   const nextSchedule = Array.isArray(schedule) ? schedule : [];
   const homeworks = Array.isArray(data.homeworks) ? [...data.homeworks] : [];
-  const latest = homeworks[0] && typeof homeworks[0] === 'object' ? homeworks[0] : null;
+  // Group assignments have one teacher-owned deadline for every recipient.
+  const latestIndex = homeworks.findIndex(entry => entry && typeof entry === 'object' && entry.source !== 'learning-group');
+  const latest = latestIndex >= 0 ? homeworks[latestIndex] : null;
   if (!latest) {
     return { studentData: { ...data, schedule: nextSchedule }, deadlineChanged: false };
   }
@@ -89,13 +91,13 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
       ...latest,
       dueAtMode: HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
     };
-    homeworks[0] = migratedHomework;
+    homeworks[latestIndex] = migratedHomework;
     return {
       studentData: {
         ...data,
         schedule: nextSchedule,
         homeworks,
-        nextLesson: buildNextLessonSnapshot(data.nextLesson, migratedHomework),
+        nextLesson: latestIndex === 0 ? buildNextLessonSnapshot(data.nextLesson, migratedHomework) : data.nextLesson,
       },
       deadlineChanged: false,
       homeworkChanged: true,
@@ -173,14 +175,14 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
     if (rebuiltDayPlan) updatedHomework.dayPlan = rebuiltDayPlan;
     else delete updatedHomework.dayPlan;
   }
-  homeworks[0] = updatedHomework;
+  homeworks[latestIndex] = updatedHomework;
 
   return {
     studentData: {
       ...data,
       schedule: nextSchedule,
       homeworks,
-      nextLesson: buildNextLessonSnapshot(data.nextLesson, updatedHomework),
+      nextLesson: latestIndex === 0 ? buildNextLessonSnapshot(data.nextLesson, updatedHomework) : data.nextLesson,
     },
     deadlineChanged: true,
     previousDueAt: latest.dueAt || '',

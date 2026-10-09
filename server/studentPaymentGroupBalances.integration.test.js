@@ -76,6 +76,37 @@ export async function createGroupWalletFixture({ port: requestedPort } = {}) {
   } catch (error) { await stop(); throw error; }
 }
 
+if (process.env.GROUP_WALLET_UI_FIXTURE !== '1') test('pupil calendar reads the paid group-plan alias when the same booking is imported from Google', { timeout: 60000 }, async () => {
+  const f = await createGroupWalletFixture();
+  try {
+    const date = f.lessons[0].startAt.slice(0, 10);
+    const progress = f.read('progress');
+    progress.egor.schedule = [{ id: 'google-student-egor', studentId: 'egor', groupId: 'group', isLearningGroupEvent: true,
+      participantIds: ['egor', 'anna'], date, time: '20:00', durationMinutes: 60,
+      source: 'google-calendar', externalEventId: 'event-past', lessonId: 'past', createdAt: '2025-01-01T00:00:00Z' }];
+    f.write('progress', progress);
+    const marksBefore = f.read('teacher-calendar-marks');
+    const teacher = (await f.ok('/api/login', { body: { code: 'group-wallet-teacher' } })).token;
+    await f.ok('/api/teacher-schedule', { token: teacher }); // Normalize the legacy fixture before the comparison.
+    const egor = (await f.ok('/api/login', { body: { code: 'group-wallet-egor' } })).token;
+    const anna = (await f.ok('/api/login', { body: { code: 'group-wallet-anna' } })).token;
+    await f.ok('/api/student-schedule', { token: egor });
+    const financeBefore = f.read('teacher-finances');
+    const rows = await f.ok('/api/student-schedule', { token: egor });
+    const booking = rows.find(row => row.date === date && row.groupId === 'group');
+    assert.ok(booking); assert.equal(booking.id, 'google-student-egor');
+    assert.equal(booking.payment.statesByDate[date].paid, true);
+    assert.equal(booking.payment.statesByDate[date].status, 'paid');
+    assert.ok([f.rawMark, f.canonicalMark].includes(booking.payment.statesByDate[date].paidMarkKey));
+    const otherRows = await f.ok('/api/student-schedule', { token: anna });
+    assert.equal(otherRows.find(row => row.date === date && row.groupId === 'group').payment.statesByDate[date].paid, false);
+    const calendar = await f.ok('/api/teacher-schedule', { token: teacher });
+    assert.equal(calendar.find(row => row.lessonId === 'past').memberPaymentStatuses.find(row => row.studentId === 'egor').paid, true);
+    assert.deepEqual(f.read('teacher-calendar-marks'), marksBefore);
+    assert.deepEqual(f.read('teacher-finances'), financeBefore, 'viewing a paid alias creates no new payment or price change');
+  } finally { await f.stop(); }
+});
+
 if (process.env.GROUP_WALLET_UI_FIXTURE !== '1') test('group pricing preserves completed quotes and prepayments while repricing unpaid future lessons', { timeout: 60000 }, async () => {
   const f = await createGroupWalletFixture();
   const { ok, read, write } = f;

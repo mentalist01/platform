@@ -24,3 +24,16 @@ test('Google and plan lesson copies resolve to one room; every existing recordin
   assert.equal(deduplicateGroupLessonSessions([plan, google], () => true).length, 2);
   assert.deepEqual(deduplicateGroupLessonSessions([{ ...plan, status: 'active' }, google]).map(l => l.id), ['p']);
 });
+
+test('student booking copies retain payment aliases without sharing another pupil marks', () => {
+  const plan = { id: 'plan:pupil', studentId: 'pupil', groupId: 'g', date: '2026-10-07', time: '20:00', paymentSourceIds: ['plan', 'plan:pupil'] };
+  const google = { ...plan, id: 'google:pupil', externalEventId: 'google', paymentSourceIds: undefined };
+  for (const copies of [[plan, google], [google, plan]]) {
+    const [row] = deduplicateGroupScheduleEntries(copies);
+    assert.equal(row.id, google.id);
+    assert.deepEqual(new Set(row.paymentSourceIds), new Set(['plan', 'plan:pupil', 'google:pupil']));
+  }
+  const [row] = deduplicateGroupScheduleEntries([google, { ...plan, studentId: 'other', paymentSourceIds: ['other-secret'] }]);
+  assert.equal(row.paymentSourceIds, undefined);
+  assert.deepEqual(plan.paymentSourceIds, ['plan', 'plan:pupil']);
+});

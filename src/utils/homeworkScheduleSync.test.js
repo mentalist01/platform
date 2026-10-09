@@ -3,6 +3,24 @@ import assert from 'node:assert/strict';
 
 import { synchronizeHomeworkDueAtWithSchedule } from './homeworkScheduleSync.js';
 
+test('pupil calendars cannot move a group deadline even with legacy next-lesson mode', () => {
+  const group = { id: 'group-python', source: 'learning-group', dueAtMode: 'next-lesson', dueAt: '2026-10-09T17:00:00.000Z' };
+  for (const date of ['2026-10-07', '2026-10-14']) {
+    const result = synchronizeHomeworkDueAtWithSchedule({ studentData: { homeworks: [group], nextLesson: group }, schedule: [{ date, time: '20:00' }], now: new Date('2026-10-06T17:00Z'), calendarOffsetMinutes: 180, treatMissingPlannedLessonAsDeleted: true });
+    assert.equal(result.deadlineChanged, false);
+    assert.deepEqual(result.studentData.homeworks, [group]);
+    assert.deepEqual(result.studentData.nextLesson, group);
+  }
+});
+test('an individual automatic deadline still moves when a newer group assignment is first', () => {
+  const group = { id: 'group', source: 'learning-group', dueAtMode: 'next-lesson', dueAt: '2026-10-09T17:00Z' };
+  const individual = { id: 'individual', dueAtMode: 'next-lesson', dueAt: '2026-10-07T17:00Z' };
+  const result = synchronizeHomeworkDueAtWithSchedule({ studentData: { homeworks: [group, individual], nextLesson: group }, schedule: [{ date: '2026-10-14', time: '20:00' }], now: new Date('2026-10-06T17:00Z'), calendarOffsetMinutes: 180 });
+  assert.deepEqual(result.studentData.homeworks[0], group);
+  assert.equal(result.studentData.homeworks[1].dueAt, '2026-10-14T17:00:00.000Z');
+  assert.deepEqual(result.studentData.nextLesson, group);
+});
+
 const makeHomework = (patch = {}) => ({
   id: 'homework-1',
   issuedAt: new Date(2026, 6, 30, 12, 0, 0).toISOString(),

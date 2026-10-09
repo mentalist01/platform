@@ -16051,6 +16051,7 @@ const BoardCanvasSection = ({
                 } else {
                   const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId, {
                     lessonId: learningLessonId,
+                    roomId: liveRoomId,
                   });
                   const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
                   if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');
@@ -16210,6 +16211,7 @@ const BoardCanvasSection = ({
         } else {
           const uploaded = await api.uploadBoardAsset(prepared.file, effectiveStudentId, {
             lessonId: learningLessonId,
+            roomId: liveRoomId,
           });
           const assetUrl = normalizeBoardAssetUrl(uploaded?.url);
           if (!assetUrl || !uploaded?.id) throw new Error('Сервер вернул некорректную ссылку на изображение');

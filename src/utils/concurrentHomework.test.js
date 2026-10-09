@@ -2,6 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { weeklyHomeworkDeadline, weeklyHomeworkLessonChoices, partitionConcurrentHomeworks } from './concurrentHomework.js';
 
+test('both group tracks are visible before their deadlines and only the expired work moves to history', () => {
+  const now = Date.parse('2026-10-09T16:59:59Z');
+  const python = { id: 'python', source: 'learning-group', learningGroupId: 'g2', studyTrack: 'python', issuedAt: '2026-10-02T18:00Z', dueAt: '2026-10-09T17:00Z', learningAssignmentStatus: 'assigned' };
+  const ege = { id: 'ege', source: 'learning-group', learningGroupId: 'g2', studyTrack: 'ege', issuedAt: '2026-10-07T18:00Z', dueAt: '2026-10-14T17:00Z', learningAssignmentStatus: 'assigned' };
+  const previous = { ...python, id: 'old-python', issuedAt: '2026-09-25T18:00Z', dueAt: '2026-10-02T17:00Z' };
+  for (const completedAt of ['', '2026-10-09T16:00Z']) {
+    const result = partitionConcurrentHomeworks([ege, { ...python, checklistItems: [{ completedAt }] }, previous], now);
+    assert.deepEqual(result.active.map(x => x.id), ['python', 'ege']);
+    assert.deepEqual(result.history.map(x => x.id), ['old-python']);
+  }
+  const expired = partitionConcurrentHomeworks([ege, python], Date.parse(python.dueAt));
+  assert.deepEqual(expired.active.map(x => x.id), ['ege']);
+  assert.deepEqual(expired.history.map(x => x.id), ['python']);
+});
+
 test('Wednesday EGE and Friday Python keep independent weekly deadlines', () => {
   const wed = Date.parse('2026-10-07T18:10:00Z'), fri = Date.parse('2026-10-09T18:10:00Z');
   assert.equal(weeklyHomeworkDeadline(wed), '2026-10-14T18:10:00.000Z');

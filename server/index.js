@@ -16558,8 +16558,17 @@ const buildStudentSchedulePaymentState = ({
     date: normalizedDayKey,
     dayKey: normalizedDayKey,
   };
-  const paidMarkKey = buildTeacherCalendarPaymentMarkKey(normalizedTeacherId, paymentEvent, normalizedDayKey, 'paid');
-  const trialMarkKey = buildTeacherCalendarPaymentMarkKey(normalizedTeacherId, paymentEvent, normalizedDayKey, 'trial');
+  const sourceIds = [...new Set([paymentEvent.id,
+    ...(entry?.paymentSourceIds || []), ...(sourceEntry?.paymentSourceIds || []),
+  ].filter(Boolean))];
+  const resolveMarkKey = action => {
+    const keys = sourceIds.map(id => buildTeacherCalendarPaymentMarkKey(
+      normalizedTeacherId, { ...paymentEvent, id }, normalizedDayKey, action
+    ));
+    return keys.find(key => teacherMarks?.[key]) || keys[0] || '';
+  };
+  const paidMarkKey = resolveMarkKey('paid');
+  const trialMarkKey = resolveMarkKey('trial');
   const cancelledMarkKey = buildTeacherCalendarCancellationMarkKey(
     normalizedTeacherId,
     paymentEvent,

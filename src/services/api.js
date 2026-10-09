@@ -3,6 +3,7 @@ import { clearStoredSession } from '../utils/theme.js';
 
 import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl, resolveUploadsUrl } from '../utils/runtimeUrls.js';
 import { USER_SESSION_KEY } from '../utils/theme.js';
+import { resolveBoardAssetTarget } from '../utils/boardAssetTarget.js';
 
 export const getStoredAuthToken = () => {
   if (typeof localStorage === 'undefined') return '';
@@ -3015,10 +3016,11 @@ export const api = {
     return parseJsonResponse(res);
   },
   uploadBoardAsset: async (file, studentId, options = {}) => {
+    const target = resolveBoardAssetTarget(studentId, options);
     const form = new FormData();
     form.append('file', file);
-    if (studentId) form.append('studentId', String(studentId));
-    if (options?.lessonId) form.append('lessonId', String(options.lessonId));
+    if (target.studentId) form.append('studentId', target.studentId);
+    if (target.lessonId) form.append('lessonId', target.lessonId);
     const res = await apiFetch('/api/board-assets', { method: 'POST', body: form });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

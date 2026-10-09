@@ -4,6 +4,30 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createGroupHomeworkFixture } from './groupHomework.fixture.js';
 import { getPythonHomeworkTheoryDetails } from '../src/utils/pythonTheoryHomework.js';
+import { partitionConcurrentHomeworks } from '../src/utils/concurrentHomework.js';
+
+test('different pupil calendars cannot hide group Python before its common deadline', { timeout: 60000 }, async () => {
+  const f = await createGroupHomeworkFixture();
+  try {
+    const route = `/api/learning-groups/${f.groupId}/assignments`, teacher = f.tokens['teacher-a'];
+    const dueAt = new Date(Date.now() + 3 * 86400000).toISOString();
+    const ege = (await f.request(route, teacher, { title: 'ЕГЭ · к среде', dueAt: new Date(Date.now() + 7 * 86400000).toISOString(), homework: { studyTrack: 'ege', homeWork: 'Решить ЕГЭ' } }, 'POST', 201)).assignment;
+    const python = (await f.request(route, teacher, { title: 'Python · к этому уроку', dueAt, homework: { studyTrack: 'python', dueAt, dueAtMode: 'next-lesson', homeWork: 'Решить Python' } }, 'POST', 201)).assignment;
+    const progressPath = path.join(f.data, 'progress.json');
+    const progress = JSON.parse(fs.readFileSync(progressPath, 'utf8'));
+    for (const [id, offset] of [['student-a', 2], ['student-b', 7]]) {
+      progress[id].schedule = [{ id: `calendar-${id}`, date: new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10), time: '20:00', durationMinutes: 60 }];
+    }
+    fs.writeFileSync(progressPath, JSON.stringify(progress));
+    for (const id of ['student-a', 'student-b']) {
+      const value = await f.request('/api/student-next-lesson', f.tokens[id]);
+      const entry = value.homeworks.find(x => x.learningAssignmentId === python.id);
+      assert.equal(entry.dueAt, dueAt);
+      assert.equal(entry.learningAssignmentStatus, 'assigned');
+      assert.deepEqual(new Set(partitionConcurrentHomeworks(value.homeworks).active.map(x => x.learningAssignmentId)), new Set([python.id, ege.id]));
+    }
+  } finally { await f.stop(); }
+});
 
 test('two group assignments have independent deadlines and per-pupil progress through the real API', { timeout: 60000 }, async () => {
   const f = await createGroupHomeworkFixture();
