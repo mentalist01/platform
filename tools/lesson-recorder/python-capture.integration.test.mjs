@@ -58,6 +58,10 @@ export class ObsClient extends Base {
     if(type==='GetSceneItemList')return {sceneItems:this.scenes.get(p.sceneName)||[]};
     if(type==='CreateSceneItem')this.scenes.get(p.sceneName).push({sourceName:p.sourceName});
     if(type==='SetInputSettings')this.settings[p.inputName]={...this.settings[p.inputName],...p.inputSettings};
+    if(type==='GetInputSettings')return {inputSettings:this.settings[p.inputName]||{}};
+    if(type==='GetInputMute')return {inputMuted:false};
+    if(type==='GetInputVolume')return {inputVolumeMul:1};
+    if(type==='GetInputAudioTracks')return {inputAudioTracks:{'1':true}};
     if(type==='GetSceneItemId')return {sceneItemId:1};
     if(type==='GetVideoSettings')return {baseWidth:1920,baseHeight:1080};
     if(type==='StartRecord'){this.paused=false;const template=path.join(process.env.IVAN100_RECORDER_HOME,'fixture.mkv');if(fs.existsSync(template))fs.copyFileSync(template,path.join(process.env.IVAN100_RECORDER_HOME,'fake-video',this.owner+'.mkv'));setTimeout(()=>{this.output=true;},450);}

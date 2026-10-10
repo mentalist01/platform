@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pythonCaptureConfig, pythonCaptureReason, pythonModes } from './python-capture.mjs';
+import { selectTelemostWindow } from './conversation-audio.mjs';
 
 export const SCENES = { office: 'IVAN100 — LibreOffice', share: 'IVAN100 — Демонстрация', platform: 'IVAN100 — Платформа', window: 'IVAN100 — Программа', screen: 'IVAN100 — Экран', pause: 'IVAN100 — Перерыв' };
 export const INPUTS = { office: 'IVAN100: LibreOffice', share: 'IVAN100: демонстрация', platform: 'IVAN100: платформа', window: 'IVAN100: программа', screen: 'IVAN100: монитор', mic: 'IVAN100: микрофон', telemost: 'IVAN100: Телемост' };
@@ -15,6 +16,14 @@ const sha = (text) => crypto.createHash('sha256').update(text).digest('base64');
 export class ObsClient {
   constructor({ configDir = path.join(process.env.APPDATA || '', 'obs-studio'), executable = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' } = {}) {
     this.configDir = configDir; this.executable = executable; this.pending = new Map();
+    this.audioSignals = {};
+  }
+  observeAudioMeters(inputs, now = Date.now()) {
+    this.meters = inputs;
+    for (const input of inputs || []) {
+      const peak = Math.max(0, ...(input.inputLevelsMul || []).flat());
+      if (Number.isFinite(peak) && peak > .0001) this.audioSignals[input.inputName] = { at: now, peak };
+    }
   }
   async connect() {
     if (this.connected && this.socket?.readyState === 1) return;
@@ -33,6 +42,7 @@ export class ObsClient {
       socket.addEventListener('error', failed, { once: true });
       socket.addEventListener('close', () => {
         this.connected = false;
+        this.audioSignals = {};
         for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error('OBS отключился')); }
         this.pending.clear(); failed();
       });
@@ -45,7 +55,7 @@ export class ObsClient {
             ...(auth ? { authentication: sha(sha(config.server_password + auth.salt) + auth.challenge) } : {}) } }));
         }
         if (op === 2) { clearTimeout(timer); this.connected = true; resolve(); }
-        if (op === 5 && d.eventType === 'InputVolumeMeters') this.meters = d.eventData.inputs;
+        if (op === 5 && d.eventType === 'InputVolumeMeters') this.observeAudioMeters(d.eventData.inputs);
         if (op === 7) {
           const request = this.pending.get(d.requestId);
           if (!request) return;
@@ -58,7 +68,7 @@ export class ObsClient {
   }
   async call(requestType, requestData = {}, attempt = 0) {
     await this.connect();
-    return new Promise((resolve, reject) => {
+    const result = await new Promise((resolve, reject) => {
       const requestId = crypto.randomUUID();
       const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error(`OBS: ${requestType} — время ожидания истекло`)); }, 10000);
       this.pending.set(requestId, { resolve, reject, timer });
@@ -67,6 +77,8 @@ export class ObsClient {
       if (error.code !== 207 || attempt >= 20) throw error;
       await delay(200); return this.call(requestType, requestData, attempt + 1);
     });
+    if (requestType === 'SetInputSettings' && requestData.inputName) delete this.audioSignals[requestData.inputName];
+    return result;
   }
   async launch() {
     try { await this.connect(); return; } catch { /* not running */ }
@@ -106,8 +118,8 @@ export class ObsClient {
     config = { ...config };
     if (audioMode === 'platform') config.telemost = config.platform;
     if (audioMode === 'telemost') {
-      const call = choices.telemost.find((item) => item.itemEnabled && /телемост/i.test(item.itemName));
-      if (call) config.telemost = call.itemValue;
+      const call = selectTelemostWindow(choices.telemost, config.telemost);
+      if (call) config.telemost = call;
     }
     for (const [key, label] of [['platform', 'платформы'], ['telemost', 'звука разговора'], ['mic', 'микрофона']]) {
       if (key === 'telemost' && audioMode === 'teacher') continue;

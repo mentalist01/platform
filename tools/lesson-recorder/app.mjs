@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDay } from './start-day.mjs';
+import { checkConversationAudio } from './conversation-audio.mjs';
 import { ShareBridge } from './share-bridge.mjs';
 import { ForegroundWindowReader, OfficeFollower } from './office-follow.mjs';
 import { ObsClient, SCENES, INPUTS, PYTHON_SCENES } from './obs.mjs';
@@ -48,6 +49,7 @@ const localKey = crypto.randomBytes(32).toString('base64url');
 let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBusy = false; let uploadingId = '';
 let recordingControlRevision = 0;
 let sourceWarnings = []; let lastSourceCheck = 0;
+let conversationAudio;
 let pythonSourceChoices;
 const serialize = (fn) => { const next = chain.then(fn); chain = next.catch(() => {}); return next; };
 const ready = () => Boolean(state.config.recordDirectory && state.config.configured && state.config.platform && state.config.telemost && state.config.mic);
@@ -225,7 +227,7 @@ const publicTimeline = timeline => timeline ? { ...timeline, history: undefined,
 const publicState = () => ({
   config: { ...state.config, token: undefined }, paired: Boolean(state.config.token), ready: ready() && !!obsStatus && !sourceWarnings.length,
   updater: updater.info(),
-  obs: obsStatus, error, sourceWarnings, recordDirectory, uploadingId, materialControlBusy: Boolean(engine.pauseOperation),
+  obs: obsStatus, error, sourceWarnings, conversationAudio, recordDirectory, uploadingId, materialControlBusy: Boolean(engine.pauseOperation),
   pythonReady: Boolean(state.config.recordDirectory && obsStatus && !pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices)),
   pythonSourceReason: !obsStatus ? 'Подключите OBS в настройках пульта.' : !state.config.recordDirectory ? 'Выберите папку для видео в настройках пульта.' : pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices),
   preparingUpload: queueBusy || Boolean(editMedia.work), editorBusy: editMedia.work || '', archiveBusy: Boolean(archive.work || archive.setup || archive.submitting),
@@ -588,15 +590,17 @@ setInterval(() => {
         const choices = await obs.choices();
         pythonSourceChoices = choices;
         sourceWarnings = [];
-        for (const [key, label] of [['platform', 'Окно платформы'], ['telemost', 'Звук разговора'], ['mic', 'Микрофон']]) {
-          const selected = key === 'telemost' ? (obs.audioWindow || state.config[key]) : state.config[key];
+        for (const [key, label] of [['platform', 'Окно платформы'], ['mic', 'Микрофон']]) {
+          const selected = state.config[key];
           if (!choices[key].some((item) => item.itemEnabled && item.itemValue === selected)) sourceWarnings.push(`${label}: источник недоступен. Откройте его и проверьте выбор в настройках.`);
         }
+        conversationAudio = await checkConversationAudio({ obs, job: engine.active(), config: state.config, items: choices.telemost, scene: obsStatus?.scene });
+        if (conversationAudio.warning) sourceWarnings.push(conversationAudio.warning);
         lastSourceCheck = Date.now();
       }
       error = platformError ? `Ошибка синхронизации: ${platformError}. Локальное состояние записи показано выше.` : '';
       if (pendingUpdate) await updater.install(pendingUpdate);
-    } catch (failure) { error = failure.message; obsStatus = null; }
+    } catch (failure) { error = failure.message; obsStatus = null; conversationAudio = undefined; }
   }).finally(() => { ticking = false; void queue(); });
 }, 2500);
 
