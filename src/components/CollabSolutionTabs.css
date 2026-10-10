@@ -153,3 +153,13 @@
   overflow: auto;
   background: #fff;
 }
+.collab-solutions__batch { display: grid; gap: 10px; padding: 14px; border-top: 1px solid var(--solution-border); background: var(--solution-muted-surface); }
+.collab-solutions__batch > strong { color: var(--solution-accent); font-size: 14px; }
+.collab-solutions__batch p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.collab-solutions__batch-fields { display: flex; flex-wrap: wrap; gap: 12px; }
+.collab-solutions__batch-fields label { display: grid; gap: 5px; flex: 0 1 150px; min-width: 0; font-weight: 600; }
+.collab-solutions__batch-fields input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 38px; border: 1px solid var(--solution-border); border-radius: 8px; padding: 7px 10px; background: var(--solution-surface); color: var(--solution-text); font: inherit; }
+.collab-solutions__batch-fields input:focus-visible { outline: 2px solid var(--solution-accent); outline-offset: 2px; }
+.collab-solutions__batch-preview { color: var(--solution-accent); }
+.collab-solutions__batch-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@container solutionbar (max-width: 420px) { .collab-solutions__batch-fields label { flex: 1 1 80px; } }

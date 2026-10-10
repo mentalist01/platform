@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Columns2, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
-import { DEFAULT_COLLAB_SOLUTION_ID } from '../utils/collabSolutions';
+import { Check, Columns2, Layers3, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
+import { DEFAULT_COLLAB_SOLUTION_ID, MAX_COLLAB_SOLUTIONS, planNumberedCollabSolutions } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
 
 const MAX_NAME_LENGTH = 48;
@@ -20,6 +20,7 @@ export default function CollabSolutionTabs({
   activeId,
   onSelect,
   onCreate,
+  onCreateMultiple,
   onRename,
   onDelete,
   onReorder,
@@ -47,6 +48,8 @@ export default function CollabSolutionTabs({
   const dragSessionRef = useRef(null);
   const suppressClickRef = useRef(false);
   const [form, setForm] = useState(null);
+  const [batch, setBatch] = useState(null);
+  const batchButtonRef = useRef(null);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -66,6 +69,11 @@ export default function CollabSolutionTabs({
   const otherSolutions = solutions.filter((solution) => solution.id !== activeId);
   const canEdit = !disabled && !readOnly;
   const comparing = Boolean(compareId && comparisonSolution && compareId !== activeId);
+  let batchNames = [], batchError = '';
+  if (batch) {
+    try { batchNames = planNumberedCollabSolutions({ ...batch, existingNames: solutions.map(solution => solution.name), available: MAX_COLLAB_SOLUTIONS - solutions.length }); }
+    catch (cause) { batchError = cause.message; }
+  }
 
   useEffect(() => {
     const tabs = tabsRef.current;
@@ -111,12 +119,14 @@ export default function CollabSolutionTabs({
 
   const cancelForm = () => {
     setForm(null);
+    setBatch(null);
     setError('');
   };
 
   const openForm = (kind, target = activeSolution) => {
     if (!target) return;
     setContextMenu(null);
+    setBatch(null);
     setChoosingComparison(false);
     setName(kind === 'rename' ? target.name || '' : nextSolutionName(solutions));
     setForm({ kind, id: target.id });
@@ -146,6 +156,36 @@ export default function CollabSolutionTabs({
     } finally {
       setSaving(false);
     }
+  };
+
+  const openBatch = () => {
+    cancelForm();
+    setContextMenu(null);
+    setChoosingComparison(false);
+    const numbers = solutions.map(solution => /^\d+$/.test(solution.name.trim()) ? Number(solution.name) : -1).filter(Number.isSafeInteger);
+    const from = Math.min(Number.MAX_SAFE_INTEGER - 20, Math.max(0, ...numbers) + 1);
+    const count = Math.min(4, Math.max(1, MAX_COLLAB_SOLUTIONS - solutions.length));
+    setBatch({ id: activeId, from: String(from), to: String(from + count - 1), count: String(count) });
+  };
+  const changeBatch = (field, value) => {
+    setError('');
+    setBatch(previous => {
+      const next = { ...previous, [field]: value };
+      const integer = number => /^\d+$/.test(String(number)) && Number.isSafeInteger(Number(number));
+      if (field === 'to' && integer(next.from) && integer(next.to) && Number(next.to) >= Number(next.from)) next.count = String(Number(next.to) - Number(next.from) + 1);
+      else if (field !== 'to' && integer(next.from) && integer(next.count) && Number(next.count) > 0) next.to = String(Number(next.from) + Number(next.count) - 1);
+      return next;
+    });
+  };
+  const saveBatch = async event => {
+    event.preventDefault();
+    if (!batch || batch.id !== activeId || !onCreateMultiple || !canEdit || saving || batchError) return;
+    setSaving(true); setError('');
+    try {
+      await onCreateMultiple({ from: batch.from, to: batch.to, count: batch.count });
+      setBatch(null);
+    } catch (cause) { setError(cause?.message || 'Не удалось создать вкладки. Попробуйте ещё раз.'); }
+    finally { setSaving(false); }
   };
 
   const selectTabEntry = (entry) => {
@@ -342,6 +382,14 @@ export default function CollabSolutionTabs({
                 <span>Новый раздел</span>
               </button>
           )}
+          {!readOnly && typeof onCreateMultiple === 'function' && (
+            <button ref={batchButtonRef} type="button" className="collab-solutions__button collab-solutions__create"
+              onClick={openBatch} disabled={!canEdit || !activeSolution || saving}
+              title="Создать сразу несколько вкладок кода" aria-label="Создать сразу несколько вкладок кода"
+              aria-controls={batch ? `${formId}-batch` : undefined} aria-expanded={Boolean(batch)}>
+              <Layers3 size={16} /><span>Несколько вкладок</span>
+            </button>
+          )}
           <button
             type="button"
             className={`collab-solutions__button${comparing || choosingComparison ? ' is-active' : ''}`}
@@ -363,6 +411,28 @@ export default function CollabSolutionTabs({
           </button>
         </div>
       </div>
+
+      {batch && batch.id === activeId && !readOnly && typeof onCreateMultiple === 'function' && (
+        <form id={`${formId}-batch`} className="collab-solutions__batch" aria-label="Создать несколько вкладок кода" onSubmit={saveBatch}
+          onKeyDown={event => { if (event.key === 'Escape' && !saving) { event.preventDefault(); cancelForm(); batchButtonRef.current?.focus(); } }}>
+          <strong>Создать сразу несколько вкладок кода</strong>
+          <div className="collab-solutions__batch-fields">
+            {[['count', 'Сколько вкладок'], ['from', 'От'], ['to', 'До']].map(([field, label]) => (
+              <label key={field} htmlFor={`${inputId}-${field}`}>{label}<input id={`${inputId}-${field}`} type="number" step="1" min={field === 'count' ? 1 : 0}
+                max={field === 'count' ? MAX_COLLAB_SOLUTIONS : Number.MAX_SAFE_INTEGER} value={batch[field]} disabled={!canEdit || saving}
+                onChange={event => changeBatch(field, event.target.value)} autoFocus={field === 'count'} required /></label>
+            ))}
+          </div>
+          <p>Числа идут подряд. Измените количество или последнее число — остальные поля пересчитаются.</p>
+          {batchNames.length > 0 && <p className="collab-solutions__batch-preview" aria-live="polite">Названия: <strong>{batchNames.join(', ')}</strong></p>}
+          <p>Пустые вкладки появятся у всех участников на текущей странице кода.</p>
+          {(error || batchError) && <p role="alert" className="collab-solutions__error">{error || batchError}</p>}
+          <div className="collab-solutions__batch-actions">
+            <button type="submit" className="collab-solutions__button is-active" disabled={!canEdit || saving || Boolean(batchError)}><Check size={15} />{saving ? 'Создаём…' : batchNames.length ? `Создать ${batchNames.length} ${batchNames.length === 1 ? 'вкладку' : batchNames.length >= 2 && batchNames.length <= 4 ? 'вкладки' : 'вкладок'}` : 'Создать вкладки'}</button>
+            <button type="button" className="collab-solutions__button" disabled={saving} onClick={() => { cancelForm(); batchButtonRef.current?.focus(); }}>Отмена</button>
+          </div>
+        </form>
+      )}
 
       {contextMenu && canEdit && typeof document !== 'undefined' && createPortal((
         <div

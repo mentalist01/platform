@@ -176,6 +176,7 @@ import {
   getCollabSolutionChannels,
   listCollabSolutions,
   createEmptyCollabSolution,
+  createNumberedCollabSolutions,
   renameCollabSolution,
   deleteCollabSolution,
   restoreCollabSolution,
@@ -9662,6 +9663,14 @@ const CollabSection = ({
     const solution = createEmptyCollabSolution(doc, { name, pageId: activeCodePageId });
     selectCodeSolution(solution.id);
   };
+  const createCodeSections = (range) => {
+    if (!isTeacher) throw new Error('Создавать несколько вкладок сразу может только преподаватель.');
+    const added = createNumberedCollabSolutions(requireCodePageEditing(), { ...range, pageId: activeCodePageId });
+    selectCodeSolution(added[0].id);
+    setDeletedSolution(null);
+    setSolutionError('');
+    setSolutionNotice(`Созданы вкладки: ${added.map(solution => solution.name).join(', ')}.`);
+  };
   const requireCodePageEditing = () => {
     if (collabReadOnly || !collabDocumentReady || !collabDocRef.current || solutionActionsBusy || localRunBusyRef.current) {
       throw new Error('Дождитесь подключения и завершения текущей операции.');
@@ -11529,6 +11538,7 @@ const CollabSection = ({
             activeId={activeSolutionId}
             onSelect={selectCodeSolution}
             onCreate={createCodeSection}
+            onCreateMultiple={isTeacher ? createCodeSections : undefined}
             onRename={renameCodeSolution}
             onDelete={deleteCodeSolution}
             onReorder={reorderCodeSolutionTabs}

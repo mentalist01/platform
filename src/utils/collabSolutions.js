@@ -292,6 +292,48 @@ export const createEmptyCollabSolution = (doc, options = {}) => (
   createCollabSolution(doc, { ...options, sourceId: null })
 );
 
+export const planNumberedCollabSolutions = ({ from, to, count, existingNames = [], available = MAX_COLLAB_SOLUTIONS } = {}) => {
+  const integer = (value) => /^\d+$/.test(String(value ?? '').trim()) && Number.isSafeInteger(Number(value));
+  if (!integer(from) || !integer(to)) throw new Error('Укажите целые неотрицательные числа в полях «От» и «До».');
+  const first = Number(from), last = Number(to);
+  if (last < first) throw new Error('Число «До» должно быть не меньше числа «От».');
+  const total = last - first + 1;
+  if (!integer(count) || Number(count) !== total) throw new Error(`Для диапазона ${first}–${last} нужно вкладок: ${total}.`);
+  if (total > available) throw new Error(`На этой странице можно добавить ещё ${available} ${available === 1 ? 'вкладку' : available >= 2 && available <= 4 ? 'вкладки' : 'вкладок'}. В диапазоне выбрано ${total}.`);
+  const names = Array.from({ length: total }, (_, index) => String(first + index));
+  const existing = new Set(existingNames.map(name => String(name).trim()));
+  const duplicates = names.filter(name => existing.has(name));
+  if (duplicates.length) throw new Error(`На этой странице уже есть вкладки: ${duplicates.join(', ')}. Измените диапазон.`);
+  return names;
+};
+
+export const createNumberedCollabSolutions = (doc, {
+  from, to, count, pageId = DEFAULT_COLLAB_CODE_PAGE_ID,
+  idFactory = () => globalThis.crypto.randomUUID(), createdAt = Date.now(),
+} = {}) => {
+  requirePage(doc, pageId);
+  const current = listCollabPageSolutions(doc, pageId);
+  const names = planNumberedCollabSolutions({ from, to, count, existingNames: current.map(solution => solution.name),
+    available: MAX_COLLAB_SOLUTIONS - current.length });
+  const catalog = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY);
+  const ids = names.map(() => normalizeId(idFactory()));
+  if (new Set(ids).size !== ids.length || ids.some(id => id === DEFAULT_COLLAB_SOLUTION_ID || catalog.has(id))) {
+    throw new Error('Идентификаторы новых вкладок уже заняты. Повторите создание.');
+  }
+  for (const id of ids) {
+    const channels = getCollabSolutionChannels(doc, id);
+    if (channels.codeText.length || channels.testFileText.length || channels.runMap.size) throw new Error('Данные одной из новых вкладок уже существуют.');
+  }
+  const added = [];
+  // Yjs transactions do not roll back on exceptions: validate the entire batch
+  // before publishing anything. One update also keeps peers from seeing half a batch.
+  doc.transact(() => {
+    names.forEach((name, index) => added.push(createEmptyCollabSolution(doc, { name, id: ids[index], pageId, createdAt })));
+    reorderCollabSolutions(doc, [...current.map(solution => solution.id), ...ids], pageId);
+  }, 'collab-solutions:create-batch');
+  return added;
+};
+
 export const renameCollabSolution = (doc, id, name) => {
   const solutionId = requireSolution(doc, id);
   const solutionName = normalizeName(name);
