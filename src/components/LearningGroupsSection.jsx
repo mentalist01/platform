@@ -45,6 +45,7 @@ import { api, resolveAuthenticatedApiUrl, withStoredAuthToken } from '../service
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import LearningGroupChat from './LearningGroupChat';
 import GroupAvailability from './GroupAvailability';
+import { PersonalGroupAvailability, TeacherGroupPlacement } from './GroupPlacement';
 import {
   LEARNING_GROUP_STATUS_ACTIVE,
   LEARNING_GROUP_STATUS_COMPLETED,
@@ -496,6 +497,8 @@ const LearningGroupsSection = ({
   const [createForm, setCreateForm] = useState(EMPTY_GROUP_FORM);
   const [editForm, setEditForm] = useState(EMPTY_GROUP_FORM);
   const [addStudentId, setAddStudentId] = useState('');
+  const placementChoice = useRef(null);
+  const placementMemberForm = useRef(null);
   const [lateAddReason, setLateAddReason] = useState('');
   const [transferForm, setTransferForm] = useState(null);
   const [transferError, setTransferError] = useState('');
@@ -751,7 +754,7 @@ const LearningGroupsSection = ({
       plannedStartDate: selectedGroup.plannedStartDate || '',
       telemostUrl: parseTelemostUrl(selectedGroup.telemostUrl).url,
     });
-    setAddStudentId('');
+    setAddStudentId(placementChoice.current?.groupId === selectedGroup.id ? placementChoice.current.studentId : '');
     setLateAddReason('');
     setExpandedAssignmentId('');
     setAttendanceLessonId((current) => (
@@ -761,6 +764,19 @@ const LearningGroupsSection = ({
           || (selectedGroup.lessons || [])[0])
     ));
   }, [selectedGroup]);
+
+  useEffect(() => {
+    const choice = placementChoice.current;
+    if (!choice || choice.scrolled || choice.groupId !== selectedGroup?.id || choice.groupId !== selectedGroupId
+      || choice.studentId !== addStudentId || tab !== 'overview') return;
+    const frame = window.requestAnimationFrame(() => {
+      if (placementMemberForm.current && placementChoice.current === choice) {
+        placementMemberForm.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        choice.scrolled = true;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedGroup, selectedGroupId, addStudentId, tab]);
 
   useEffect(() => {
     setEditingLessonId('');
@@ -1172,6 +1188,7 @@ const LearningGroupsSection = ({
       'Ученик добавлен в группу.'
     );
     if (result) {
+      placementChoice.current = null;
       setAddStudentId('');
       setLateAddReason('');
     }
@@ -1615,6 +1632,20 @@ const LearningGroupsSection = ({
         </div>
       </header>
 
+      {!scheduleGroupId && isTeacher && <details className="rounded-3xl border border-violet-200 bg-white">
+        <summary className="cursor-pointer px-5 py-4 font-bold text-violet-700">Подобрать группу новому ученику по свободному времени</summary>
+        <TeacherGroupPlacement students={students} onChoose={(groupId, studentId) => {
+          placementChoice.current = { groupId, studentId };
+          setSelectedGroupId(groupId); setTab('overview'); setAddStudentId(studentId);
+          setNotice('Группа выбрана. Проверьте состав и подтвердите добавление ученика. Пока он продолжает заниматься индивидуально.');
+        }} />
+      </details>}
+      {!scheduleGroupId && !isTeacher && <details className="rounded-3xl border border-violet-200 bg-white" open={groups.length === 0 ? true : undefined}>
+        <summary className="cursor-pointer px-5 py-4 font-bold text-violet-700">Свободное время для подбора будущей группы</summary>
+        <PersonalGroupAvailability individual={!groups.some(group => group.status !== LEARNING_GROUP_STATUS_COMPLETED
+          && group.members?.some(member => member.studentId === userId && member.status === 'active'))} />
+      </details>}
+
       {error && (
         <div className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
@@ -1954,11 +1985,11 @@ const LearningGroupsSection = ({
                       </div>
 
                       {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                        <><GroupParticipationPanel group={selectedGroup} onSaved={()=>loadGroupDetails(selectedGroup.id)}/><form onSubmit={handleAddMember} className="mt-4 space-y-3 rounded-2xl border border-violet-100 bg-violet-50/60 p-3">
+                        <><GroupParticipationPanel group={selectedGroup} onSaved={()=>loadGroupDetails(selectedGroup.id)}/><form ref={placementMemberForm} onSubmit={handleAddMember} className="mt-4 space-y-3 rounded-2xl border border-violet-100 bg-violet-50/60 p-3">
                             <Field label="Добавить ученика">
                             <select
                               value={addStudentId}
-                              onChange={(event) => setAddStudentId(event.target.value)}
+                              onChange={(event) => { placementChoice.current = null; setAddStudentId(event.target.value); }}
                               className={inputClassName}
                               disabled={studentsLoading || availableStudents.length === 0}
                               required

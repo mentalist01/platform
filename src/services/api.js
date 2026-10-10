@@ -514,6 +514,9 @@ export const api = {
     : `/api/lesson-recording-library${body.teacherId ? `?teacherId=${encodeURIComponent(body.teacherId)}` : ''}`,
     id ? { method: 'POST', body } : {}),
   groupAvailability: (groupId, action = '', body) => requestLearningGroupJson(`/api/learning-groups/${encodeURIComponent(groupId)}/availability${action ? `/${action}` : ''}`, action ? { method: 'POST', body } : {}),
+  personalGroupAvailability: (durationMinutes = 60) => requestLearningGroupJson(`/api/student-availability?durationMinutes=${encodeURIComponent(durationMinutes)}`),
+  savePersonalGroupAvailability: body => requestLearningGroupJson('/api/student-availability/answer', { method: 'POST', body }),
+  studentGroupPlacement: studentId => requestLearningGroupJson(`/api/students/${encodeURIComponent(studentId)}/group-placement`),
   downloadDesktopRecorder: async () => {
     const res = await apiFetch('/api/desktop-recording/download');
     if (!res.ok) throw new Error(await parseApiError(res));

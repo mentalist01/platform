@@ -28,6 +28,25 @@ const installStorage = (authToken) => {
   return values;
 };
 
+test('personal group placement uses the pupil session, encodes teacher targets and preserves revision conflicts', async t => {
+  installStorage('placement-fixture');
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const calls = [];
+  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), ...init }); return jsonResponse({ ok: true }); };
+  await api.personalGroupAvailability(90);
+  await api.savePersonalGroupAvailability({ durationMinutes: 60, revision: 'saved-revision', choices: { '0-720': 'yes' } });
+  await api.studentGroupPlacement('student/a');
+  assert.deepEqual(calls.map(call => [call.url, call.method]), [
+    ['/api/student-availability?durationMinutes=90', 'GET'], ['/api/student-availability/answer', 'POST'],
+    ['/api/students/student%2Fa/group-placement', 'GET'],
+  ]);
+  assert.deepEqual(JSON.parse(calls[1].body), { durationMinutes: 60, revision: 'saved-revision', choices: { '0-720': 'yes' } });
+  assert.ok(calls.every(call => new Headers(call.headers).get('Authorization') === 'Bearer placement-fixture'));
+  globalThis.fetch = async () => jsonResponse({ error: 'Обновите анкету' }, 409);
+  await assert.rejects(api.savePersonalGroupAvailability({}), error => error.status === 409 && error.message === 'Обновите анкету');
+});
+
 test('group transfer uses one authenticated operation and replacement requires an explicit boolean', async t => {
   installStorage('group-transfer-fixture');
   const previousFetch = globalThis.fetch;

@@ -26,6 +26,7 @@ import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './goog
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
 import { createStudentAvailabilityStore } from './studentAvailability.js';
+import { registerGroupPlacement } from './groupPlacement.js';
 import { withTeacherCalendarLock } from './calendarMutations.js';
 import { availabilitySlots } from '../src/utils/groupAvailability.js';
 import { registerLearningGroupMemberTransfer } from './groupMemberTransfer.js';
@@ -25022,6 +25023,15 @@ registerLessonReschedules(app, {
       icon: '/favicon.ico', tag: `lesson-reschedule-${row.id}`, data: { url: '/?view=notifications', type: 'lesson-reschedule' },
     }, { logTarget: `teacher:${row.teacherId}` }).catch(error => console.warn('[reschedule] push failed:', error.message));
   },
+});
+
+registerGroupPlacement(app, {
+  store: studentAvailabilityStore,
+  getStudent: findStudentById,
+  groups: readLearningGroupsDb,
+  polls: () => availabilityStore.all(),
+  getEntries: (teacherId, throughDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay),
+  notify: student => notifyScheduleSyncUpdate({ scope: 'student-availability', action: 'answered', teacherId: student.teacherId, studentId: student.id }),
 });
 
 registerGroupAvailability(app, {

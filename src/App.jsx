@@ -20389,7 +20389,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
-        ...(studentHasGroups ? [{ id: 'groups', label: 'Группы и записи', icon: Users }] : []),
+        { id: 'groups', label: studentHasGroups ? 'Группы и записи' : 'Подбор группы', icon: Users },
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -20407,7 +20407,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
-        ...(studentHasGroups ? ['groups'] : []),
+        'groups',
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -22221,11 +22221,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [refreshStudentLessonWorkspace, user.role]);
-
-  useEffect(() => {
-    if (user.role === 'student' && view === 'groups' && studentGroupAccess.userId === user.id
-      && studentGroupAccess.loaded && !studentGroupAccess.hasGroups) navigateToView('schedule');
-  }, [navigateToView, studentGroupAccess, user.id, user.role, view]);
 
   const handleSelectLessonTarget = useCallback(async (targetValue) => {
     if (user.role !== 'teacher') return;
@@ -26601,6 +26596,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               className="mb-4 flex w-full items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left text-violet-900">
               <Users size={24} className="shrink-0 text-violet-600" />
               <span className="flex-1"><strong className="block">Выберите время занятий с группой</strong><span className="text-sm">Отметьте удобные часы и ответьте на предложение преподавателя.</span></span>
+              <ChevronRight size={20} />
+            </button>
+          )}
+          {view === 'schedule' && user.role === 'student' && studentLessonWorkspace.status === 'individual' && (
+            <button type="button" onClick={() => navigateToView('groups')}
+              className="mb-4 flex w-full items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left text-violet-900">
+              <Calendar size={24} className="shrink-0 text-violet-600" />
+              <span className="flex-1"><strong className="block">Свободное время для будущей группы</strong><span className="text-sm">Заполните анкету. Пока подбираем группу, индивидуальные занятия продолжаются.</span></span>
               <ChevronRight size={20} />
             </button>
           )}

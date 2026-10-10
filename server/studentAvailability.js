@@ -115,6 +115,10 @@ export function createStudentAvailabilityStore(file) {
     : { version: 1, migrationVersion: 0, teachers: {} };
   const commit = next => { validateStore(next); writeDurable(file, next); db = next; };
   return {
+    record({ teacherId, studentId, durationMinutes }) {
+      if (!identifier(teacherId) || !identifier(studentId) || !DURATIONS.has(Number(durationMinutes))) throw new Error('Invalid student availability owner');
+      return structuredClone(db.teachers[teacherId]?.[studentId]?.durations?.[String(durationMinutes)] || { slots: {} });
+    },
     remember(input) {
       const next = structuredClone(db);
       const changed = rememberIn(next, input);

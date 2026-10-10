@@ -18,7 +18,7 @@ async function fixture(t) {
   const seed = (name, value) => fs.writeFileSync(file(name), JSON.stringify(value));
   const read = name => JSON.parse(fs.readFileSync(file(name), 'utf8'));
   const createdAt = new Date(Date.now() - 30 * 86400000).toISOString();
-  const ids = Array.from({ length: 30 }, (_, i) => `student-${i}`);
+  const ids = Array.from({ length: 32 }, (_, i) => `student-${i}`);
   seed('teachers', ['teacher', 'other-teacher'].map(id => ({ id, code: id, name: id, createdAt })));
   seed('students', ids.map(id => ({ id, teacherId: 'teacher', code: id, name: id,
     nickname: `Private ${id}`, createdAt, grade: '11' })).concat([
@@ -270,6 +270,42 @@ test('personal time choices survive ordinary roster changes and new polls withou
     assert.deepEqual(f.choices(await f.open(p.target), p.student), expected,
       'Migration reads the receipt original config instead of the incompatible newer source poll');
     assert.equal(hash(f.file('teacher-finances')), financesBefore);
+  });
+
+  await t.test('a new individual pupil saves personal hours before admission, gets owned group recommendations, and joins only explicitly', async () => {
+    const student = 'student-30', token = f.tokens[student];
+    const candidate = await f.create('Pre-admission candidate', ['student-31']);
+    const round = await f.open(candidate);
+    const expected = { '1-720': 'yes', '4-900': 'maybe' };
+    await f.answer(candidate, 'student-31', round, expected);
+    const before = f.snapshot(), studentsBefore = hash(f.file('students'));
+    const initial = await f.request('/api/student-availability?durationMinutes=60', token);
+    assert.equal(initial.answer, null);
+    const saved = await f.request('/api/student-availability/answer', token,
+      { durationMinutes: 60, revision: initial.revision, choices: expected });
+    assert.deepEqual(saved.answer.choices, expected);
+    const suggestions = await f.request(`/api/students/${student}/group-placement`, f.tokens.teacher);
+    const recommendation = suggestions.groups.find(group => group.id === candidate.id);
+    assert.equal(recommendation.fit, 'flexible');
+    assert.equal(recommendation.availableDays, 2);
+    assert.equal(recommendation.alreadyMember, false);
+    assert.ok(!JSON.stringify(suggestions).includes('Private student-31'), 'Peer private identities never leak into suggestions');
+    for (const name of ['learning-groups', 'group-availability', 'learning-lesson-sessions', 'learning-attendance', 'teacher-finances', 'progress']) {
+      assert.equal(f.snapshot()[name], before[name], `${name} remains unchanged during selection`);
+    }
+    assert.equal(hash(f.file('students')), studentsBefore, 'Student status and individual account remain unchanged');
+    await f.request(`/api/students/${student}/group-placement`, f.tokens['other-teacher'], undefined, 'GET', 403);
+    await f.request(`/api/students/${student}/group-placement`, f.tokens['student-1'], undefined, 'GET', 403);
+    await f.request('/api/student-availability', f.tokens.teacher, undefined, 'GET', 403);
+    await f.request('/api/student-availability/answer', token,
+      { durationMinutes: 60, revision: initial.revision, choices: {} }, 'POST', 409);
+    await f.stop(); await f.boot();
+    assert.deepEqual((await f.request('/api/student-availability', token)).answer.choices, expected);
+    assert.ok(!f.read('learning-groups').some(group => group.members.some(member => member.studentId === student && member.status === 'active')));
+    await f.add(candidate, student);
+    assert.deepEqual(f.choices((await f.poll(candidate)).poll, student), expected, 'Admission reuses personal hours in the open poll');
+    assert.equal((await f.poll(candidate)).poll.plan, null, 'A match never approves or changes the lesson schedule');
+    assert.equal(hash(f.file('teacher-finances')), before['teacher-finances']);
   });
 });
 
