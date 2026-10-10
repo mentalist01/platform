@@ -50,18 +50,24 @@ class RecordingPrivacy {
     }
     this.reasons.delete(reason);
     if (!this.reasons.size) { clearInterval(this.timer); this.timer = null; }
-    if (this.reasons.size || (!this.restoreScene && !this.maskedSources.size)) return { hidden: this.reasons.size > 0 };
-    const obs = await this.getObs();
-    await obs.assertCollection();
+    if (this.reasons.size) return { hidden: true };
+    // OBS persists filters across restarts; the new desktop process has no
+    // in-memory mask ownership. A confirmed public view must reconcile them.
+    let obs;
+    try { obs = await this.getObs(); await obs.assertCollection(); }
+    catch (error) {
+      if (await this.isRecording()) throw error;
+      return { hidden: false };
+    }
     const { inputs } = await obs.call('GetInputList');
     for (const sourceName of CAPTURES.filter(name => inputs.some(input => input.inputName === name))) {
       const { filters } = await obs.call('GetSourceFilterList', { sourceName });
-      if (filters.some(filter => filter.filterName === FILTER) || this.maskedSources.has(sourceName)) await obs.call('SetSourceFilterEnabled', { sourceName, filterName: FILTER, filterEnabled: false });
+      if (filters.some(filter => filter.filterName === FILTER && filter.filterEnabled)) await obs.call('SetSourceFilterEnabled', { sourceName, filterName: FILTER, filterEnabled: false });
     }
     this.maskedSources.clear();
     // A deliberate manual choice in the recorder takes precedence over restoration.
     if ((await obs.call('GetCurrentProgramScene')).currentProgramSceneName === SCENE) {
-      await this.switchScene(obs, this.restoreScene);
+      await this.switchScene(obs, this.restoreScene || 'IVAN100 — Платформа');
     }
     this.restoreScene = null;
     return { hidden: false };
