@@ -78,6 +78,7 @@ export class LessonArchive {
     this.timer = setInterval(() => this.runTick(), 2000); this.timer.unref();
   }
   runTick() { return this.tick().catch(e => { this.error = String(e.message).slice(-600); this.data.paused = true; this.work = null; }); }
+  get captureBusy() { return Boolean((this.work && this.work.kind !== 'topic') || this.setup || this.submitting); }
   save() { atomicJson(this.file, this.data); }
   transcriptPath(id) { if (!/^[a-f0-9]{24}$/.test(id)) throw new Error('Запись не найдена'); return path.join(this.root, 'transcripts', `${id}.json`); }
   transcript(id) { return readJson(this.transcriptPath(id), { segments: [] }); }
@@ -227,6 +228,10 @@ export class LessonArchive {
     const topicItem=this.data.items.filter(item=>item.remoteJobId && Date.now()-(item.topicSyncedAt || 0)>60000)
       .reduce((oldest,item)=>!oldest || (item.topicSyncedAt || 0)<(oldest.topicSyncedAt || 0) ? item : oldest,null);
     if(topicItem && this.topicSync){this.work={kind:'topic',id:topicItem.id,title:'Обновляем тему урока'};try{await this.syncTopic(topicItem);}finally{this.work=null;}}
+    // A recording may start during this network-only topic check. Recheck the
+    // reservation before starting any upload, export or transcription work.
+    this.blocked = Boolean(this.isBusy());
+    if (this.blocked) return;
     const pending = this.data.clips.find(c => c.autoPublish && !c.materialId && ['queued', 'processing'].includes(c.materialStatus) && (c.nextPublishAt || 0) <= Date.now());
     if (pending && this.materialPublisher) {
       this.work = { kind: 'publish', id: pending.id, title: pending.title };

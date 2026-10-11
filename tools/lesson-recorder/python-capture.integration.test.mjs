@@ -123,6 +123,7 @@ export class ObsClient extends Base {
     if(req.url==='/qa/source-release'){qaSourceGate?.release();qaSourceGate=undefined;return json(res,200,{});}` : ''}
     if(req.url==='/qa/narrow'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end('<iframe title="Монтаж в узком окне" src="/" style="width:390px;height:760px;border:0"></iframe>');}
     if(req.url==='/qa/events')return json(res,200,{events:obs.events,settings:obs.settings,scene:obs.scene,owner:obs.owner});
+    if(req.url==='/qa/archive-work'){const payload=await body(req);archive.work=payload.kind?{kind:payload.kind}:null;return json(res,200,{});}
     if(req.url==='/qa/closed'){obs.closed=true;pythonSourceChoices=await obs.choices();return json(res,200,{});}
     if(req.url==='/qa/lesson'){await serialize(()=>engine.start({id:crypto.randomUUID(),title:'Тест обычного урока',local:true,manual:true,cutoffAt:Date.now()+3600000}));obsStatus=await obs.status();return json(res,200,{});}
     if(req.url==='/qa/lost'){obs.output=false;obsStatus=await obs.status();return json(res,200,{});}
@@ -150,6 +151,19 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('archive topic checks leave Python setup and start available, while actual transcription stays protected', async t => {
+    const f = await fixture(); t.after(f.close);
+    await f.request('/qa/archive-work',{kind:'topic'});
+    assert.equal((await f.request('/state')).value.archiveBusy,false);
+    assert.equal((await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'})).status,200);
+    assert.equal((await f.request('/python/preview',{active:true})).status,200);
+    const payload={taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Новая запись'};
+    await f.request('/qa/archive-work',{kind:'transcribe'});
+    assert.equal((await f.request('/state')).value.archiveBusy,true);
+    assert.equal((await f.request('/python/start',payload)).status,400);
+    await f.request('/qa/archive-work',{kind:'topic'});
+    assert.equal((await f.request('/python/start',payload)).status,200);
+  });
   test('slow readiness checks for an old Rutube video do not block Python start or take controls', async t => {
     const f = await fixture({ queueEnabled: true, queueGates: true }); t.after(f.close);
     await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});

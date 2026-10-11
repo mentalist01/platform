@@ -16,6 +16,23 @@ function fixture(t, options = {}) {
   return { archive, root, recordings };
 }
 
+test('topic synchronization does not lock capture, and checks the capture reservation before starting media work', async t => {
+  let busy=false, release;
+  const pending=new Promise(resolve=>release=resolve);
+  const f=fixture(t,{isBusy:()=>busy,topicSync:async()=>{await pending;return {topic:null};},materialPublisher:{}});
+  f.archive.data.items=[{id:'a'.repeat(24),remoteJobId:'previous',title:'Предыдущий урок',status:'new'}];
+  f.archive.data.clips=[{id:'clip',autoPublish:true,materialStatus:'queued'}];
+  let uploaded=false;f.archive.prepareMaterial=async()=>{uploaded=true;return {};};
+  const checking=f.archive.tick();
+  assert.equal(f.archive.work.kind,'topic');assert.equal(f.archive.captureBusy,false);
+  busy=true;release();await checking;
+  assert.equal(uploaded,false,'Capture started during the metadata check: no upload may follow it');
+  assert.equal(f.archive.work,null);assert.equal(f.archive.blocked,true);
+  for(const kind of ['transcribe','export','publish']) {f.archive.work={kind};assert.equal(f.archive.captureBusy,true);}
+  f.archive.work=null;f.archive.setup='dependencies';assert.equal(f.archive.captureBusy,true);
+  f.archive.setup='';f.archive.submitting=true;assert.equal(f.archive.captureBusy,true);
+});
+
 test('old completed catalog binds to ready remote jobs, syncs notes and keeps titles stable', async t=>{
   const jobs=[{id:'lesson',status:'ready',title:'Анна · дата'}];let calls=[];
   const f=fixture(t,{jobs:()=>jobs,topicSync:async payload=>{calls.push(payload);return {topic:{text:'Задание №7',source:'notes'}};}});

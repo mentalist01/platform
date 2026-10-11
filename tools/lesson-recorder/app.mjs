@@ -55,14 +55,14 @@ const serialize = (fn) => { const next = chain.then(fn); chain = next.catch(() =
 const ready = () => Boolean(state.config.recordDirectory && state.config.configured && state.config.platform && state.config.telemost && state.config.mic);
 const setupIdle = async () => {
   if (editMedia?.work || editMedia?.sourceWork.size) throw new Error('Дождитесь подготовки монтажа Python');
-  if (archive?.work || archive?.setup || archive?.submitting) throw new Error('Дождитесь окончания обработки архива или поставьте её на паузу');
+  if (archive?.captureBusy) throw new Error('Дождитесь окончания обработки архива или поставьте её на паузу');
   return assertSetupIdle({ active: engine.active(), uploadingId, queueBusy, outputActive: obs.connected && (await obs.status()).outputActive });
 };
 let updater; let pendingUpdate; let archive;
 const api = async (route, body, pairing = false) => {
   const response = await fetch(`${state.config.platformUrl}/api/desktop-recorder${route}`, {
     method: 'POST', signal: AbortSignal.timeout(10000), headers: { 'Content-Type': 'application/json',
-      ...(pairing ? {} : { Authorization: `Bearer ${state.config.token}` }) }, body: JSON.stringify(route === '/poll' ? { ...body, ready: !updater?.busy && ready() && !!obsStatus && !sourceWarnings.length, ...updater?.info(Boolean(engine.active() || uploadingId || queueBusy || obsStatus?.outputActive || archive?.work || archive?.setup)) } : body),
+      ...(pairing ? {} : { Authorization: `Bearer ${state.config.token}` }) }, body: JSON.stringify(route === '/poll' ? { ...body, ready: !updater?.busy && ready() && !!obsStatus && !sourceWarnings.length, ...updater?.info(Boolean(engine.active() || uploadingId || queueBusy || obsStatus?.outputActive || archive?.captureBusy)) } : body),
   });
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) throw Object.assign(new Error('Платформа не отвечает корректно'), { status: response.status });
@@ -146,7 +146,7 @@ async function upload(job) {
   } finally { uploadingId = ''; }
 }
 async function queue() {
-  if (queueRunning || updater.busy || uploadingId || editMedia.work || editMedia.sourceWork.size || archive?.work || archive?.submitting) return; queueRunning = true;
+  if (queueRunning || updater.busy || uploadingId || editMedia.work || editMedia.sourceWork.size || archive?.captureBusy) return; queueRunning = true;
   try {
     importRecoveredRecordings({ directory, recordDirectory, state, save });
     for (const job of Object.values(state.jobs)) {
@@ -190,7 +190,7 @@ archive = new LessonArchive({ directory, recordDirectory: () => state.config.rec
   topicSync: payload => api('/archive/lesson-topic',payload),
   platformUrl: () => state.config.platformUrl,
   jobs: () => Object.values(state.jobs), ffmpeg: runtime.ffmpeg || 'ffmpeg',
-  isBusy: () => Boolean(engine.active() || obsStatus?.outputActive || uploadingId || queueBusy || updater.busy),
+  isBusy: () => Boolean(materialStarting || engine.active() || obsStatus?.outputActive || uploadingId || queueBusy || updater.busy),
   prepareMaterial: async () => {
     let result;
     try { result = await api('/archive/status', {}); }
@@ -240,7 +240,7 @@ const publicState = () => ({
   obs: obsStatus, error, sourceWarnings, conversationAudio, recordDirectory, uploadingId, materialControlBusy: Boolean(engine.pauseOperation),
   pythonReady: Boolean(state.config.recordDirectory && obsStatus && !pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices)),
   pythonSourceReason: !obsStatus ? 'Подключите OBS в настройках пульта.' : !state.config.recordDirectory ? 'Выберите папку для видео в настройках пульта.' : pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices),
-  preparingUpload: queueBusy || Boolean(editMedia.work), editorBusy: editMedia.work || '', archiveBusy: Boolean(archive.work || archive.setup || archive.submitting),
+  preparingUpload: queueBusy || Boolean(editMedia.work), editorBusy: editMedia.work || '', archiveBusy: archive.captureBusy,
   currentLesson: engine.currentLesson || null,
   shareMessage: shareBridge.message || '',
   officeMessage: officeFollower.message,
@@ -389,7 +389,7 @@ const server = http.createServer(async (req, res) => {
       } finally { recordingControlRevision++; }
     }
     if (req.url === '/shutdown') {
-      if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу и дождитесь завершения текущей операции');
+      if (archive.captureBusy) throw new Error('Поставьте обработку архива на паузу и дождитесь завершения текущей операции');
       if (engine.active() || uploadingId || queueBusy || editMedia.work || editMedia.sourceWork.size || (obs.connected && (await obs.status()).outputActive)) throw new Error('Сначала дождитесь окончания записи и загрузки');
       await pythonPreviewSession.release();
       runtimeWatchdog?.suspend('idle shutdown');
@@ -420,7 +420,7 @@ const server = http.createServer(async (req, res) => {
         if (!selected[selected.mode]) throw new Error('Выберите источник изображения для Python');
         const active = engine.active();
         const image = await pythonPreviewSession.image(selected.mode, {
-          idle: !active && !uploadingId && !queueBusy && !archive.work && !archive.setup && !archive.submitting,
+          idle: !active && !uploadingId && !queueBusy && !archive.captureBusy,
           ownRecording: Boolean(active?.pythonTheory && active.status === 'recording'),
         });
         json(res, 200, { image }); return;
@@ -470,7 +470,7 @@ const server = http.createServer(async (req, res) => {
         enableWebsocket(); await obs.setup(recordDirectory);
       } else if (req.url === '/python/configure') {
         await configurePythonCapture({ obs, state, engine, save, payload,
-          busy: Boolean(uploadingId || queueBusy || archive.work || archive.setup || archive.submitting) });
+          busy: Boolean(uploadingId || queueBusy || archive.captureBusy) });
         pythonSourceChoices = await obs.choices();
         obsStatus = await obs.status();
       } else if (req.url === '/configure') {
@@ -516,7 +516,7 @@ const server = http.createServer(async (req, res) => {
         await engine.start({ id: crypto.randomUUID(), title: 'Проверка записи', local: true, testFingerprint: setupFingerprint(state.config), cutoffAt: Date.now() + 60000 });
       } else if (req.url === '/mock-review/start') {
         if (!ready()) throw new Error('Сначала настройте запись и выберите микрофон в пульте');
-        if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');
+        if (archive.captureBusy) throw new Error('Поставьте распознавание архива на паузу перед записью');
         if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
         materialStarting = true;
         try { await startMockReview({ api, engine, payload }); }
@@ -525,7 +525,7 @@ const server = http.createServer(async (req, res) => {
       } else if (req.url === '/python/start') {
         if (editMedia.work) throw new Error('Дождитесь подготовки монтажа');
         if (!state.config.recordDirectory) throw new Error('Сначала выберите папку для видео в настройках пульта');
-        if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');
+        if (archive.captureBusy) throw new Error('Поставьте распознавание архива на паузу перед записью');
         if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
         materialStarting = true;
         try { await startPythonTheory({ api, engine, payload, captureConfig: state.config.pythonCapture }); }
@@ -535,7 +535,7 @@ const server = http.createServer(async (req, res) => {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
         await engine.startForCurrentLesson();
       } else if (req.url === '/fallback') {
-        if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте обработку архива на паузу');
+        if (archive.captureBusy) throw new Error('Поставьте обработку архива на паузу');
         await enterFallback({ engine, obs, payload, save });
         obsStatus = await obs.status();
       } else if (req.url === '/test-stop') {
