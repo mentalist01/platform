@@ -46,7 +46,7 @@ const obs = new ObsClient(runtime.obs ? { executable: runtime.obs } : {});
 const pythonPreviewSession = new PythonPreviewSession({ obs });
 const uploader = new RutubeUploader(directory);
 const localKey = crypto.randomBytes(32).toString('base64url');
-let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBusy = false; let uploadingId = '';
+let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBusy = false; let queueRunning = false; let materialStarting = false; let uploadingId = '';
 let recordingControlRevision = 0;
 let sourceWarnings = []; let lastSourceCheck = 0;
 let conversationAudio;
@@ -146,21 +146,31 @@ async function upload(job) {
   } finally { uploadingId = ''; }
 }
 async function queue() {
-  if (queueBusy || updater.busy || uploadingId || editMedia.work || editMedia.sourceWork.size || archive?.work || archive?.submitting) return; queueBusy = true;
+  if (queueRunning || updater.busy || uploadingId || editMedia.work || editMedia.sourceWork.size || archive?.work || archive?.submitting) return; queueRunning = true;
   try {
     importRecoveredRecordings({ directory, recordDirectory, state, save });
     for (const job of Object.values(state.jobs)) {
       if (job.excludeFromUpload) continue;
+      // Readiness checks are network metadata, not an upload. Keep them in the
+      // background; reserve media work before its first await so a new capture
+      // cannot race with preparing or uploading an older recording.
+      const mediaIdle = !materialStarting && !engine.active() && !obsStatus?.outputActive;
       if (job.pythonTimeline && !job.pythonTimeline.approved) {
-        if (job.status === 'saved' && !job.pythonTimeline.finalized) {
+        if (mediaIdle && job.status === 'saved' && !job.pythonTimeline.finalized) {
+          queueBusy = true;
           try { await finalizePython(job); } catch (failure) { job.error = failure.message; save(); }
+          finally { queueBusy = false; }
         }
         continue;
       }
-      if (job.status === 'saved') {
-        try { await prepare(job); }
+      if (mediaIdle && job.status === 'saved') {
+        queueBusy = true;
+        try {
+          await prepare(job);
+          if (job.pythonTheory || job.mockReview || (state.config.autoUpload && !job.local)) await upload(job);
+        }
         catch (failure) { job.status = 'error'; job.error = failure.message; save(); continue; }
-        if (job.pythonTheory || job.mockReview || (state.config.autoUpload && !job.local)) await upload(job);
+        finally { queueBusy = false; }
       }
       if (job.status === 'processing' && job.url && Date.now() >= (job.nextPublishAt || 0)) {
         job.nextPublishAt = Date.now() + 30000; save();
@@ -169,7 +179,7 @@ async function queue() {
       }
     }
   } catch (failure) { error = failure.message; }
-  finally { queueBusy = false; }
+  finally { queueBusy = false; queueRunning = false; }
 }
 const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => !engine.active()?.pythonTheory && !engine.active()?.mockReview && !engine.active()?.fallbackMode && state.config.autoFollowShare !== false });
 const foregroundReader = new ForegroundWindowReader();
@@ -508,14 +518,18 @@ const server = http.createServer(async (req, res) => {
         if (!ready()) throw new Error('Сначала настройте запись и выберите микрофон в пульте');
         if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');
         if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
-        await startMockReview({ api, engine, payload });
+        materialStarting = true;
+        try { await startMockReview({ api, engine, payload }); }
+        finally { materialStarting = false; }
         obsStatus = await obs.status();
       } else if (req.url === '/python/start') {
         if (editMedia.work) throw new Error('Дождитесь подготовки монтажа');
         if (!state.config.recordDirectory) throw new Error('Сначала выберите папку для видео в настройках пульта');
         if (archive.work || archive.setup || archive.submitting) throw new Error('Поставьте распознавание архива на паузу перед записью');
         if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
-        await startPythonTheory({ api, engine, payload, captureConfig: state.config.pythonCapture });
+        materialStarting = true;
+        try { await startPythonTheory({ api, engine, payload, captureConfig: state.config.pythonCapture }); }
+        finally { materialStarting = false; }
         obsStatus = await obs.status();
       } else if (req.url === '/manual-start') {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');

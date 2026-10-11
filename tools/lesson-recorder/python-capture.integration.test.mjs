@@ -12,7 +12,7 @@ const hasFfmpeg = (() => { try { execFileSync(ffmpeg, ['-version'], { windowsHid
 
 // Run the actual service and panel against a synthetic OBS RPC transport and
 // a fictional platform. No real OBS, devices, payments, uploads or lessons.
-async function fixture({ queueEnabled = false, pauseDelayMs = 0, mediaFixture = false, sourcePreparationGate = false } = {}) {
+async function fixture({ queueEnabled = false, queueGates = false, pauseDelayMs = 0, mediaFixture = false, sourcePreparationGate = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-python-studio-'));
   const app = path.join(root, 'fixture-app'); fs.mkdirSync(app);
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -83,6 +83,20 @@ export class ObsClient extends Base {
   source = source.replace('void archive.detectPython().catch(() => {});', '/* QA: no dependency probes. */');
   if (!queueEnabled) source = source.replace('void queue();', '/* QA: no automatic uploads. */').replace('if (!job.url) await uploader.upload(job, save);', 'throw Error("QA: соединение прервано");');
   source = source.replace('const finalizePython = async job => {', 'editMedia.duration=async()=>24; const finalizePython = async job => {');
+  if (queueGates) source = source
+    .replace('RutubeUploader, privateVideo, videoReady }', 'RutubeUploader, privateVideo }')
+    .replace('const server = http.createServer', `
+  let qaQueueGate;
+  async function videoReady() {
+    if (qaQueueGate?.kind === 'publication') { qaQueueGate.entered = true; await qaQueueGate.pending; }
+    return true;
+  }
+  const qaOriginalPrepare = prepare;
+  prepare = async job => {
+    if (qaQueueGate?.kind === 'media') { qaQueueGate.entered = true; await qaQueueGate.pending; }
+    return qaOriginalPrepare(job);
+  };
+  const server = http.createServer`);
   if (sourcePreparationGate) source = source.replace('const server = http.createServer', `
   let qaSourceGate;
   const qaCopyPlaybackSource = editMedia.copyPlaybackSource.bind(editMedia);
@@ -93,6 +107,16 @@ export class ObsClient extends Base {
   };
   const server = http.createServer`);
   const qaRoutes = `
+    ${queueGates ? `
+    if(req.url==='/qa/queue-hold'){
+      const payload=await body(req);let release;const pending=new Promise(resolve=>release=resolve);
+      qaQueueGate={kind:payload.kind,pending,release,entered:false};
+      const id=crypto.randomUUID(),file=path.join(recordDirectory,'qa-previous.mkv');fs.writeFileSync(file,'old synthetic source');
+      state.jobs[id]={id,title:'Предыдущий урок',createdAt:1,local:true,file,mp4:file,status:payload.kind==='media'?'saved':'processing',url:payload.kind==='media'?undefined:'https://rutube.ru/video/private/'+'a'.repeat(32)+'/?p=fictional'};save();
+      void queue();return json(res,200,{id});
+    }
+    if(req.url==='/qa/queue-status')return json(res,200,{entered:qaQueueGate?.entered===true,running:queueRunning,busy:queueBusy});
+    if(req.url==='/qa/queue-release'){qaQueueGate?.release();qaQueueGate=undefined;return json(res,200,{});}` : ''}
     ${sourcePreparationGate ? `
     if(req.url==='/qa/source-hold'){let release;const pending=new Promise(resolve=>release=resolve);qaSourceGate={pending,release,entered:false};return json(res,200,{});}
     if(req.url==='/qa/source-status')return json(res,200,{entered:qaSourceGate?.entered===true,sourceWork:editMedia.sourceWork.size});
@@ -126,6 +150,57 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('slow readiness checks for an old Rutube video do not block Python start or take controls', async t => {
+    const f = await fixture({ queueEnabled: true, queueGates: true }); t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    const previous=(await f.request('/qa/queue-hold',{kind:'publication'})).value.id;
+    assert.equal((await f.request('/qa/queue-status')).value.entered,true);
+    assert.equal((await f.request('/state')).value.preparingUpload,false,'An HTTP readiness check is not media preparation');
+    const start=await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Новая запись'});
+    assert.equal(start.status,200,start.value.error);
+    const id=(await f.request('/state')).value.jobs.find(job=>job.id!==previous).id;
+    await f.request('/qa/time',{seconds:4});
+    assert.equal((await f.request('/material/pause',{id,paused:true})).status,200);
+    assert.equal((await f.request('/material/pause',{id,paused:false})).status,200);
+    assert.equal((await f.request('/qa/queue-status')).value.entered,true,'The old check remains pending while capture continues');
+    await f.request('/qa/queue-release',{});
+    for(let i=0;i<40&&(await f.request('/qa/queue-status')).value.running;i++)await new Promise(r=>setTimeout(r,50));
+    let state=(await f.request('/state')).value;
+    assert.equal(state.jobs.find(job=>job.id===previous).status,'ready','The old publication completes without cancellation');
+    assert.equal(state.jobs.find(job=>job.id===id).status,'recording');
+    assert.equal((await f.request('/material/stop',{id})).status,200);
+  });
+  test('actual media preparation still blocks a new capture until it finishes', async t => {
+    const f = await fixture({ queueEnabled: true, queueGates: true }); t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    await f.request('/qa/queue-hold',{kind:'media'});
+    assert.equal((await f.request('/qa/queue-status')).value.entered,true);
+    assert.equal((await f.request('/state')).value.preparingUpload,true);
+    const payload={taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Новая запись'};
+    const refused=await f.request('/python/start',payload);
+    assert.equal(refused.status,400);assert.match(refused.value.error,/загрузки/);
+    assert.equal((await f.request('/qa/events')).value.events.filter(([type])=>type==='StartRecord').length,0);
+    await f.request('/qa/queue-release',{});
+    for(let i=0;i<40&&(await f.request('/qa/queue-status')).value.running;i++)await new Promise(r=>setTimeout(r,50));
+    assert.equal((await f.request('/python/start',payload)).status,200);
+  });
+  test('the automatic queue defers media work while recording, including pauses, then resumes after stop', async t => {
+    const f = await fixture({ queueEnabled: true, queueGates: true }); t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    assert.equal((await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Записываем'})).status,200);
+    const id=(await f.request('/state')).value.jobs[0].id;
+    const previous=(await f.request('/qa/queue-hold',{kind:'media'})).value.id;
+    assert.equal((await f.request('/qa/queue-status')).value.entered,false,'No preparation while a recording is active');
+    await f.request('/qa/time',{seconds:4});
+    assert.equal((await f.request('/material/pause',{id,paused:true})).status,200);
+    await new Promise(r=>setTimeout(r,2700));
+    assert.equal((await f.request('/qa/queue-status')).value.entered,false,'A pause still belongs to the active capture');
+    assert.equal((await f.request('/state')).value.jobs.find(job=>job.id===previous).status,'saved');
+    assert.equal((await f.request('/material/stop',{id})).status,200);
+    for(let i=0;i<80&&!(await f.request('/qa/queue-status')).value.entered;i++)await new Promise(r=>setTimeout(r,100));
+    assert.equal((await f.request('/qa/queue-status')).value.entered,true,'Media preparation resumes after capture ends');
+    await f.request('/qa/queue-release',{});
+  });
   test('new Python recording after a finished edited project creates a separate source, rejects double starts and preserves the previous montage', async t => {
     const f = await fixture(); t.after(f.close);
     await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
