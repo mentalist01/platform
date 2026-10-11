@@ -99,3 +99,24 @@ test('preview does not redirect an active lesson, foreign output, stream or busy
 test('preview of the current Python recording reads its active scene without a scene switch or a restoration lease',async()=>{
   const f=previewFixture();f.manual(PYTHON_SCENES.window);f.output(true);assert.equal(await f.session.image('window',{ownRecording:true}),'live frame');await f.session.release();assert.deepEqual(f.switches,[]);
 });
+
+test('an existing preview keeps reading live frames during media work without reactivating sources; source changes remain protected',async()=>{
+  const f=previewFixture();await f.session.image('screen',{idle:true});
+  const switches=[...f.switches];
+  f.time(11000);assert.equal(await f.session.image('screen',{idle:false}),'live frame');
+  assert.deepEqual(f.switches,switches);
+  f.time(13000);await f.session.expire();assert.equal(f.scene(),PYTHON_SCENES.screen,'Visible preview renews its lease');
+  await assert.rejects(f.session.image('window',{idle:false}),/операции/);assert.deepEqual(f.switches,switches);
+  f.time(23000);await f.session.expire();assert.equal(f.scene(),SCENES.platform);
+  await assert.rejects(f.session.image('screen',{idle:false}),/операции/);
+});
+
+test('an existing preview never reads or redirects a foreign recording, stream or manually changed scene during media work',async()=>{
+  for(const change of ['output','stream']){
+    const f=previewFixture();await f.session.image('screen',{idle:true});const switches=[...f.switches];f[change](true);
+    await assert.rejects(f.session.image('screen',{idle:false}),/урока|трансляции/);assert.deepEqual(f.switches,switches);
+  }
+  const f=previewFixture();await f.session.image('screen',{idle:true});f.manual(SCENES.window);
+  await assert.rejects(f.session.image('screen',{idle:false}),/операции/);assert.equal(f.scene(),SCENES.window);
+  await f.session.release();assert.equal(f.scene(),SCENES.window);
+});

@@ -73,9 +73,20 @@ const api = async (route, body, pairing = false) => {
 };
 const engine = new RecorderEngine({ obs, state, save, api, recordDirectory, ready });
 const editMedia = new PythonEditMedia({ ffmpeg: runtime.ffmpeg || 'ffmpeg', root: path.join(directory, 'python-editor-cache') });
+const pythonFinalizeFailures = new Map();
+const pythonSourceVersion = job => {
+  try { const stat = fs.statSync(job.file); return JSON.stringify([job.file, stat.size, stat.mtimeMs]); }
+  catch { return String(job.file); }
+};
 const finalizePython = async job => {
   if (!job?.pythonTimeline || job.pythonTimeline.finalized || !job.file) return;
-  finalizeTimeline(job.pythonTimeline, await editMedia.duration(job, path.dirname(job.file))); save();
+  // An unreadable saved source cannot become readable just by probing it every
+  // queue tick. Retry after the source changes, or an explicit user operation.
+  const version = pythonSourceVersion(job);
+  try {
+    finalizeTimeline(job.pythonTimeline, await editMedia.duration(job, path.dirname(job.file)));
+    pythonFinalizeFailures.delete(job.id); job.error = ''; save();
+  } catch (failure) { pythonFinalizeFailures.set(job.id, version); throw failure; }
 };
 updater = new RecorderUpdater({ directory, here, config: () => state.config, assertIdle: setupIdle,
   report: () => api('/poll', {}),
@@ -156,7 +167,7 @@ async function queue() {
       // cannot race with preparing or uploading an older recording.
       const mediaIdle = !materialStarting && !engine.active() && !obsStatus?.outputActive;
       if (job.pythonTimeline && !job.pythonTimeline.approved) {
-        if (mediaIdle && job.status === 'saved' && !job.pythonTimeline.finalized) {
+        if (mediaIdle && job.status === 'saved' && !job.pythonTimeline.finalized && pythonFinalizeFailures.get(job.id) !== pythonSourceVersion(job)) {
           queueBusy = true;
           try { await finalizePython(job); } catch (failure) { job.error = failure.message; save(); }
           finally { queueBusy = false; }

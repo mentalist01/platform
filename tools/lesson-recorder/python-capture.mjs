@@ -27,12 +27,18 @@ export class PythonPreviewSession {
       if (!ownRecording) throw new Error('Во время другого урока предпросмотр Python недоступен');
       return this.obs.preview(status.scene);
     }
-    if (!idle) throw new Error('Дождитесь окончания текущей операции');
     if (this.lease && status.scene !== this.lease.scene) this.lease = null;
+    // Reading the already active preview does not reserve OBS or change its
+    // sources. Background media work only blocks acquiring/changing a lease.
+    if (this.lease?.mode === mode) {
+      this.lease.expiresAt = this.now() + 12000;
+      return this.obs.preview(status.scene);
+    }
+    if (!idle) throw new Error('Дождитесь окончания текущей операции');
     const previous = this.lease?.previous || status.scene;
     await this.obs.selectPython(mode);
     const scene = (await this.obs.status()).scene;
-    this.lease = { previous, scene, expiresAt: this.now() + 12000 };
+    this.lease = { previous, scene, mode, expiresAt: this.now() + 12000 };
     return this.obs.preview(scene);
   }
   async release() {

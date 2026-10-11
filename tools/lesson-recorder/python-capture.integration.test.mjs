@@ -12,7 +12,7 @@ const hasFfmpeg = (() => { try { execFileSync(ffmpeg, ['-version'], { windowsHid
 
 // Run the actual service and panel against a synthetic OBS RPC transport and
 // a fictional platform. No real OBS, devices, payments, uploads or lessons.
-async function fixture({ queueEnabled = false, queueGates = false, pauseDelayMs = 0, mediaFixture = false, sourcePreparationGate = false } = {}) {
+async function fixture({ queueEnabled = false, queueGates = false, durationFailure = false, pauseDelayMs = 0, mediaFixture = false, sourcePreparationGate = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-python-studio-'));
   const app = path.join(root, 'fixture-app'); fs.mkdirSync(app);
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -83,6 +83,10 @@ export class ObsClient extends Base {
   source = source.replace('void archive.detectPython().catch(() => {});', '/* QA: no dependency probes. */');
   if (!queueEnabled) source = source.replace('void queue();', '/* QA: no automatic uploads. */').replace('if (!job.url) await uploader.upload(job, save);', 'throw Error("QA: соединение прервано");');
   source = source.replace('const finalizePython = async job => {', 'editMedia.duration=async()=>24; const finalizePython = async job => {');
+  if (durationFailure) source = source.replace('editMedia.duration=async()=>24;', `
+    const qaDuration={id:'',attempts:0,fail:true};
+    editMedia.duration=async job=>{if(job.id===qaDuration.id){qaDuration.attempts++;if(qaDuration.fail)throw Error('Не удалось прочитать длительность записи');}return 24;};
+  `);
   if (queueGates) source = source
     .replace('RutubeUploader, privateVideo, videoReady }', 'RutubeUploader, privateVideo }')
     .replace('const server = http.createServer', `
@@ -107,6 +111,18 @@ export class ObsClient extends Base {
   };
   const server = http.createServer`);
   const qaRoutes = `
+    ${durationFailure ? `
+    if(req.url==='/qa/finalization'){
+      const payload=await body(req);
+      if(payload.seed){
+        const id=crypto.randomUUID(),file=path.join(recordDirectory,'lesson-'+id+'.mkv');fs.writeFileSync(file,'incomplete synthetic source');
+        qaDuration.id=id;state.jobs[id]={id,title:'Старый черновик',createdAt:1,local:true,file,status:'saved',pythonTheory:{},pythonTimeline:{version:1,revision:1,clips:[{id:crypto.randomUUID(),start:0,end:24}],history:[],future:[],openStart:null,sourceEnd:24,takeCount:1,approved:false}};save();
+      }
+      if(payload.fail!==undefined)qaDuration.fail=payload.fail;
+      if(payload.changed)fs.appendFileSync(state.jobs[qaDuration.id].file,' appended tail');
+      if(payload.tick)await queue();
+      return json(res,200,{...qaDuration,busy:queueBusy});
+    }` : ''}
     ${queueGates ? `
     if(req.url==='/qa/queue-hold'){
       const payload=await body(req);let release;const pending=new Promise(resolve=>release=resolve);
@@ -151,6 +167,43 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('unchanged unreadable Python drafts are not probed every tick; manual retry and a changed source still work', async t => {
+    const f=await fixture({queueEnabled:true,durationFailure:true});t.after(f.close);
+    const seeded=(await f.request('/qa/finalization',{seed:true,tick:true})).value;
+    assert.equal(seeded.attempts,1);assert.equal(seeded.busy,false);
+    const before=(await f.request('/state')).value.jobs.find(job=>job.id===seeded.id);
+    const source=fs.readFileSync(before.file);
+    for(let n=0;n<4;n++)assert.equal((await f.request('/qa/finalization',{tick:true})).value.attempts,1);
+    const failedManual=await f.request('/python/editor/publish',{id:seeded.id,revision:before.pythonTimeline.revision});
+    assert.equal(failedManual.status,400);assert.match(failedManual.value.error,/длительность/);
+    assert.equal((await f.request('/qa/finalization',{tick:true})).value.attempts,2,'An explicit retry bypasses suppression');
+    assert.deepEqual(fs.readFileSync(before.file),source);
+    assert.deepEqual((await f.request('/state')).value.jobs.find(job=>job.id===seeded.id).pythonTimeline,before.pythonTimeline,'Failure preserves every clip and trim');
+    const repaired=(await f.request('/qa/finalization',{fail:false,changed:true,tick:true})).value;
+    assert.equal(repaired.attempts,3);
+    const after=(await f.request('/state')).value.jobs.find(job=>job.id===seeded.id);
+    assert.equal(after.pythonTimeline.finalized,true);assert.equal(after.error,'');
+    assert.equal((await f.request('/qa/finalization',{tick:true})).value.attempts,3);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    assert.equal((await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Следующий урок'})).status,200);
+  });
+  test('visible Python preview keeps live frames throughout real background media preparation without changing its scene', async t => {
+    const f=await fixture({queueEnabled:true,queueGates:true});t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    assert.equal((await f.request('/python/preview',{active:true})).status,200);
+    const before=(await f.request('/qa/events')).value;
+    const switches=before.events.filter(([type])=>type==='SetCurrentProgramScene').length;
+    await f.request('/qa/queue-hold',{kind:'media'});
+    assert.equal((await f.request('/state')).value.preparingUpload,true);
+    for(let n=0;n<5;n++){
+      const frame=await f.request('/python/preview',{active:true});assert.equal(frame.status,200,frame.value.error);assert.match(frame.value.image,/^data:image/);
+    }
+    const after=(await f.request('/qa/events')).value;
+    assert.equal(after.scene,before.scene);
+    assert.equal(after.events.filter(([type])=>type==='SetCurrentProgramScene').length,switches);
+    assert.equal((await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Следующий урок'})).status,400,'Reading a frame does not remove the media start guard');
+    await f.request('/qa/queue-release',{});
+  });
   test('archive topic checks leave Python setup and start available, while actual transcription stays protected', async t => {
     const f = await fixture(); t.after(f.close);
     await f.request('/qa/archive-work',{kind:'topic'});
