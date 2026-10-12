@@ -6,11 +6,17 @@ import { promisify } from 'node:util';
 import { recorderPackage, recorderRelease } from '../server/recorderPackage.js';
 import { MAC_PACKAGE_NAME, workbookHelperMacPackage } from '../tools/workbook-helper-mac/package.mjs';
 import { checkTeacherUpdateNotes } from './check-teacher-update-notes.mjs';
+import { loadEnv } from 'vite';
+import { validateRtcBuildConfig, verifyRtcBuildBundle } from './rtc-build-config.mjs';
 
 checkTeacherUpdateNotes();
 
 const gzipAsync = promisify(gzip);
 const buildArgs = process.argv.slice(2);
+const modeAt = buildArgs.indexOf('--mode');
+const buildMode = modeAt >= 0 ? buildArgs[modeAt + 1] : (buildArgs.find(arg => arg.startsWith('--mode='))?.slice(7) || 'production');
+const rtcEnv = { ...loadEnv(buildMode, process.cwd(), 'VITE_'), ...process.env };
+if (buildMode !== 'development') validateRtcBuildConfig(rtcEnv);
 const viteBin = path.resolve('node_modules/vite/bin/vite.js');
 
 const buildExitCode = await new Promise((resolve, reject) => {
@@ -65,6 +71,12 @@ const precompressDirectory = async (directoryPath) => {
 };
 
 const outDir = resolveOutDir();
+if (buildMode !== 'development') {
+  const callFiles = (await fs.readdir(path.join(outDir, 'assets'))).filter(name => /^CallSection-.*\.js$/.test(name));
+  if (callFiles.length !== 1) throw Error('[build] Missing or ambiguous call bundle');
+  verifyRtcBuildBundle(await fs.readFile(path.join(outDir, 'assets', callFiles[0]), 'utf8'), rtcEnv);
+  console.log('[build] authenticated TURN and transport policy verified in the call bundle');
+}
 
 const copyMonacoAssets = async () => {
   const sourcePath = path.resolve('node_modules/monaco-editor/min/vs');

@@ -15,6 +15,7 @@ import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCa
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../utils/socketRecovery.js';
 import { clearCallResume, saveCallResume } from '../utils/callResume.js';
+import { shouldEndRecordingOnCallExit } from '../utils/callExitIntent.js';
 import { createPeerRecovery, getRtcPeerConnectionState, reconcileRtcPeer } from '../utils/peerRecovery.js';
 import './CallSection.css';
 import './CallWorkspace.css';
@@ -6294,13 +6295,24 @@ const CallSection = ({
                   </div>
                 </div>
                 <div className="call-controls-group call-controls-group--danger">
+                  {isTeacher && !isGroupLesson && !meetingId && (
+                    <button
+                      type="button"
+                      onClick={() => stopCall({ endRecording: shouldEndRecordingOnCallExit({ action: 'finish-lesson', role, isGroupLesson, meetingId }) })}
+                      disabled={!canStop}
+                      className={`${compactControlButtonClass} border border-rose-300/60 text-rose-600 hover:bg-rose-50`}
+                      title="Завершить урок и остановить его запись"
+                    >
+                      <span>Завершить урок</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => { stopCall({ endRecording: true }); if (meetingId) onMeetingLeft?.(); }}
+                    onClick={() => { stopCall({ endRecording: shouldEndRecordingOnCallExit({ action: 'leave', role, isGroupLesson, meetingId }) }); if (meetingId) onMeetingLeft?.(); }}
                     disabled={!canStop}
                     className={`${compactControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
-                    aria-label="Завершить звонок"
-                    title="Завершить звонок"
+                    aria-label="Выйти из звонка"
+                    title="Выйти из звонка. При переходе в Телемост продолжите урок по резервной ссылке."
                   >
                     <PhoneOff size={18} />
                     <span className="call-workspace-action-label">Выйти</span>
