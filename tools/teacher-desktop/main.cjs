@@ -11,6 +11,7 @@ const { imageContextMenu } = require('./image-context-menu.cjs');
 const { TeacherAppUpdates, readRecorderBusy } = require('./updates.cjs');
 const { pathToFileURL } = require('node:url');
 const { RecordingPrivacy, readRecording } = require('./recording-privacy.cjs');
+const { routeEditingShortcuts } = require('./editing-shortcuts.cjs');
 let privacyObs;
 const recordingPrivacy = new RecordingPrivacy({
   isRecording: readRecording,
@@ -104,6 +105,7 @@ async function loadCabinet(url = policy.PLATFORM_URL) {
 }
 
 function guardWebContents(contents, kind) {
+  routeEditingShortcuts(contents);
   ownedWebContents.add(contents.id);
   contents.once('destroyed', () => ownedWebContents.delete(contents.id));
   const allowed = url => kind === 'recorder' ? policy.isRecorder(url) : policy.isPlatform(url) || policy.isPlatformBlob(url);

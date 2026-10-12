@@ -16,6 +16,7 @@ function fixture() {
     isDestroyed() { return false; }
     getURL() { return this.mainFrame.url; }
     setWindowOpenHandler(handler) { this.windowOpen = handler; }
+    setIgnoreMenuShortcuts(value) { this.ignoreMenuShortcuts = value; }
     send() {}
     async loadURL(url) { this.navigationCount = (this.navigationCount || 0) + 1; this.mainFrame.url = url; this.emit('did-finish-load'); }
     focus() { this.owner?.emit('focus'); }
@@ -105,6 +106,18 @@ test('recorder remains open beside the call without masking OBS or navigating th
   assert.equal(f.windows.filter(window => window.options.title === 'IVAN100 — Пульт записи').length, 1);
   assert.ok(recorder.visible);
   assert.deepEqual(f.privacyCalls, []);
+});
+
+test('cabinet and recorder route native undo keys to their page handlers', async () => {
+  const f=fixture();await f.start();await f.openRecorder('/');
+  const contents=[f.windows[0].platformView.webContents,f.windows.find(w=>w.options.title==='IVAN100 — Пульт записи').webContents];
+  for(const view of contents){
+    const event={preventDefault(){throw Error('Do not cancel the page key event');}};
+    view.emit('before-input-event',event,{type:'keyDown',code:'KeyZ',control:true});
+    assert.equal(view.ignoreMenuShortcuts,true);
+    view.emit('before-input-event',event,{type:'keyDown',key:'r',control:true});
+    assert.equal(view.ignoreMenuShortcuts,false);
+  }
 });
 
 test('workbook launch reaches the installed helper while the cabinet stays open', async () => {

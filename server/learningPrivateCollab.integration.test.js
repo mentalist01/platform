@@ -230,10 +230,14 @@ test('private boards, code and answer chat isolate students; legacy recording is
     while (Date.now()<snapshotDeadline) {
       stored.length=0;
       for(const file of fs.readdirSync(snapshotDir)) {
+        // Atomic snapshot writes briefly expose .tmp files; only published
+        // snapshots are stable inputs for the persistence assertion.
+        if(!file.endsWith('.bin'))continue;
         const doc=new Y.Doc();Y.applyUpdate(doc,fs.readFileSync(path.join(snapshotDir,file)));
         stored.push({pages:doc.getMap('pages').toJSON(),items:doc.getArray('items').toArray()});doc.destroy();
       }
-      if(stored.some(d=>d.pages['page-test-02']) && stored.some(d=>d.items.some(i=>i.id==='private-page-2')))break;
+      if(stored.some(d=>d.pages['page-test-02']?.title==='Вторая страница')
+        && ['stroke-a','private-page-2','shared-page-2'].every(id=>stored.some(d=>d.items.some(i=>i.id===id))))break;
       await new Promise(resolve=>setTimeout(resolve,20));
     }
     assert.ok(stored.some(d=>d.pages['page-test-02']?.title==='Вторая страница'),'Page manifest is persisted to disk');

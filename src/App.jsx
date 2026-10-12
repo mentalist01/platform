@@ -11804,6 +11804,7 @@ export const BoardCanvasSection = ({
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionBox, setSelectionBox] = useState(null);
   const [summonNotice, setSummonNotice] = useState(false);
+  const [boardSynced, setBoardSynced] = useState(false);
   const [isBrushPaletteOpen, setIsBrushPaletteOpen] = useState(false);
   const [isShapePaletteOpen, setIsShapePaletteOpen] = useState(false);
   const [shapeKind, setShapeKind] = useState('rectangle');
@@ -12686,16 +12687,6 @@ export const BoardCanvasSection = ({
   ]);
 
   useEffect(() => {
-    const navigation = pages?.navigation;
-    if (!navigation) return undefined;
-    setZoom(clamp(navigation.zoom, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM));
-    setOffset(navigation.offset);
-    setSummonNotice(true);
-    const timer = setTimeout(() => setSummonNotice(false),3500);
-    return () => clearTimeout(timer);
-  },[pages?.navigation]);
-
-  useEffect(() => {
     if (!isSandbox || !sandboxReadOnly) {
       sandboxViewportAdaptationRef.current = { key: '', hasContent: false };
       return;
@@ -13088,6 +13079,39 @@ export const BoardCanvasSection = ({
     window.cancelAnimationFrame(viewportAnimationRafRef.current);
     viewportAnimationRafRef.current = null;
   }, []);
+
+  const summonedNavigation = pages?.navigation;
+  const acknowledgeBoardNavigation = pages?.acknowledgeNavigation;
+  useEffect(() => {
+    const navigation = summonedNavigation;
+    if (!navigation) return undefined;
+    // An older cursor-follow animation or active pan must not undo the summon
+    // on the following frame. Update refs before scheduling the board render.
+    cancelViewportAnimation();
+    setFollowingRemoteCursorId('');
+    panStateRef.current.active = false;
+    setIsBoardPanning(false);
+    const nextZoom = clamp(navigation.zoom, BOARD_MIN_ZOOM, BOARD_MAX_ZOOM);
+    zoomRef.current = nextZoom;
+    offsetRef.current = navigation.offset;
+    setZoom(nextZoom);
+    setOffset(navigation.offset);
+    setSummonNotice(true);
+    const timer = setTimeout(() => setSummonNotice(false),3500);
+    return () => clearTimeout(timer);
+  },[summonedNavigation,cancelViewportAnimation]);
+
+  useEffect(() => {
+    if (!summonedNavigation || !boardSynced || providerRef.current?.roomname !== liveRoomId) return undefined;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => acknowledgeBoardNavigation?.(summonedNavigation));
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  },[summonedNavigation,acknowledgeBoardNavigation,boardSynced,liveRoomId]);
 
   const animateViewportToOffset = useCallback((targetOffset, durationMs = 300) => {
     const targetX = Number(targetOffset?.x);
@@ -15610,6 +15634,7 @@ export const BoardCanvasSection = ({
 
   useEffect(() => {
     if (!roomId || (!isSandbox && !wsUrl)) {
+      setBoardSynced(false);
       setStatus('disconnected');
       setPeerCount(0);
       resetBoardData();
@@ -15634,6 +15659,7 @@ export const BoardCanvasSection = ({
       if (disposed) return undefined;
 
     setStatus(isSandbox ? 'local' : 'connecting');
+    setBoardSynced(isSandbox);
     const doc = new Y.Doc();
     const remoteCursorActivity = remoteCursorActivityRef.current;
     docRef.current = doc;
@@ -15730,6 +15756,7 @@ export const BoardCanvasSection = ({
       if (event?.status) setStatus(event.status);
     };
     const handleSync = (isSynced) => {
+      setBoardSynced(Boolean(isSynced));
       if (!isSynced || !lessonReplayActiveRef.current) return;
       // Include the merged scene after reconnect even if the local offline
       // changes have already been flushed. An unchanged checkpoint is a no-op.
@@ -15909,6 +15936,7 @@ export const BoardCanvasSection = ({
       }, LESSON_REPLAY_BOARD_CHECKPOINT_MS);
 
     return () => {
+      setBoardSynced(false);
       yItems.unobserve(updateItems);
       if (lessonReplayBoardHeartbeatId) window.clearInterval(lessonReplayBoardHeartbeatId);
       if (!isSandbox && lessonReplayBoardDirtyRef.current) {
@@ -17450,7 +17478,7 @@ export const BoardCanvasSection = ({
       </div>
     );
   };
-  const showBottomSummonButton = !isSandbox && isTeacher && (!embedded || isFullscreen || showEmbeddedSummonButton);
+  const showBottomSummonButton = !isSandbox && isTeacher && typeof pages?.summon === 'function' && (!embedded || isFullscreen || showEmbeddedSummonButton);
   const showBoardLoading = Boolean(!isSandbox && roomId && status === 'connecting');
 
   const saveModal = saveModalOpen && !isSandbox ? (
@@ -18620,7 +18648,7 @@ export const BoardCanvasSection = ({
               <button
                 type="button"
                 onClick={handleSummonStudent}
-                disabled={!roomId}
+                disabled={!roomId || !pages?.canSummon}
                 className="board-bottom-controls__button"
                 aria-label="Призвать к себе"
                 data-tooltip="Призвать к себе"
