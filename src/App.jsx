@@ -22163,6 +22163,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         lessonId: String(selectedLesson.lessonId || selectedLesson.id || '').trim(),
         groupId: selectedGroup.id,
         participantIds,
+        participationOverrides: selectedLesson.participationOverrides,
         groupName: selectedGroup.name,
         topic: selectedLesson.topic || 'Групповое занятие',
         startsAt: selectedLesson.startsAt || selectedLesson.startAt || '',
@@ -23719,6 +23720,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         ? String(options.theoryType).trim()
         : null,
       quickHomework: options?.quickHomework === true,
+      personalWork: pythonTask,
     };
     setPendingOpenTask(nextTask);
     setPendingOpenMockExamId(null);
@@ -26908,7 +26910,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}
               groups={user.role==='teacher'?lessonTargetGroups:undefined}
-              initialGroupId={activeLearningLesson?.groupId|| (user.role==='student'?studentLessonWorkspace.group?.id:'')}
+              initialGroupId={user.role==='teacher'?activeLearningLesson?.groupId:''}
+              lesson={user.role==='student'?activeLearningLesson:undefined}
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}

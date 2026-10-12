@@ -5,7 +5,7 @@ import { getStoredAuthToken } from '../services/api.js';
 import { boardPageBookRoom } from '../utils/boardPages.js';
 import { livePythonExplanation, PYTHON_EXPLANATION_CONTROL } from '../utils/pythonExplanationBoard.js';
 
-export default function usePythonExplanationBoard({ roomId, teacherId, studentId, userId, role, groupId='' }) {
+export default function usePythonExplanationBoard({ roomId, teacherId, studentId, userId, role, groupId='', followTeacher=true }) {
   const [openedRoom, setOpenedRoom] = useState('');
   const [connectedRoom, setConnectedRoom] = useState('');
   const [error, setError] = useState('');
@@ -26,7 +26,7 @@ export default function usePythonExplanationBoard({ roomId, teacherId, studentId
       const update = () => {
         if (disposed) return;
         setConnectedRoom(provider.wsconnected && provider.synced ? roomId : '');
-        if (teacher || !provider.synced) return;
+        if (teacher || !provider.synced || !followTeacher) return;
         const command = livePythonExplanation(control.get(PYTHON_EXPLANATION_CONTROL),
           Array.from(provider.awareness.getStates().values()), teacherId, studentId, groupId);
         if (!command || handled.current === command.id) return;
@@ -49,7 +49,7 @@ export default function usePythonExplanationBoard({ roomId, teacherId, studentId
     };
     void start().catch(failure => { if (!disposed) setError(failure.message || 'Не удалось подключить доску'); });
     return () => { disposed = true; cleanup?.(); };
-  }, [roomId, teacher, teacherId, studentId, groupId]);
+  }, [roomId, teacher, teacherId, studentId, groupId, followTeacher]);
   const change = useCallback(next => {
     const live = runtime.current;
     if (next && !connected) return;

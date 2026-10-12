@@ -373,6 +373,7 @@ const PythonSection = ({
   onSelectStudent,
   groups,
   initialGroupId,
+  lesson,
   studentsLoading,
   openTask,
   onOpenTaskHandled,
@@ -499,12 +500,14 @@ const PythonSection = ({
   const teacherTaskToolsRef = useRef(null);
   const [mobilePythonPathCanvasWidth, setMobilePythonPathCanvasWidth] = useState(0);
   const studentsList = students || [];
-  const groupWorkspace=usePythonLessonWorkspace({role,userId:studentId,teacherId,groups,initialGroupId,activeStudentId,onSelectStudent});
+  const personalTask = openTask?.personalWork === true;
+  const groupWorkspace=usePythonLessonWorkspace({role,userId:studentId,teacherId,groups,initialGroupId,lesson,personalTask,activeStudentId,onSelectStudent});
+  const selectPythonTarget = groupWorkspace.selectTarget;
   const groupMode=Boolean(groupWorkspace.groupId);
   const publishGroupTask=groupWorkspace.publishTask,remoteGroupTask=groupWorkspace.remoteTask;
   const effectiveStudentId = role === 'teacher' ? (groupMode?null:activeStudentId) : studentId;
   const explanationRoomId = ExplanationBoardCanvas ? (groupMode?pythonGroupBoardRoom(groupWorkspace.groupId):pythonExplanationBoardRoom(teacherId, effectiveStudentId)) : '';
-  const explanationBoard = usePythonExplanationBoard({ roomId: explanationRoomId, teacherId, studentId: effectiveStudentId, userId: studentId, role, groupId:groupWorkspace.groupId });
+  const explanationBoard = usePythonExplanationBoard({ roomId: explanationRoomId, teacherId, studentId: effectiveStudentId, userId: studentId, role, groupId:groupWorkspace.groupId, followTeacher:!groupWorkspace.personalWork });
   const codeSyncRoomId = groupMode?pythonGroupCodeBase(groupWorkspace.groupId):effectiveStudentId
     ? `py-sync:${String(effectiveStudentId).trim()}`
     : '';
@@ -550,7 +553,7 @@ const PythonSection = ({
   const followingTeacher = role === 'student' && groupWorkspace.teacherPresent && Boolean(remoteGroupTask?.open);
   const lessonWorkspaceName = groupMode ? groupWorkspace.group?.name : role === 'teacher'
     ? studentsList.find(student => student.id === effectiveStudentId)?.name || 'Индивидуальный урок'
-    : 'Индивидуальный урок';
+    : groupWorkspace.teacherPresent ? 'Индивидуальный урок' : 'Личный Python';
   const lessonWorkspace = {name:lessonWorkspaceName, connected:groupWorkspace.connected, followingTeacher};
   const openLessonTopic = number => {
     const task = taskList.find(item => Number(item.number) === Number(number));
@@ -621,6 +624,7 @@ const PythonSection = ({
 
   useEffect(() => {
     if (role !== 'student' || !openTask) return;
+    if (openTask.personalWork) selectPythonTarget(studentId);
     const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber));
     if (!target) {
       onOpenTaskHandled?.();
@@ -643,7 +647,7 @@ const PythonSection = ({
       setActiveQuestionIndex(null);
     }
     onOpenTaskHandled?.();
-  }, [openTask, role, taskList, onOpenTaskHandled]);
+  }, [openTask, role, taskList, onOpenTaskHandled, selectPythonTarget, studentId]);
 
   useEffect(() => {
     if (role !== 'student') return;
@@ -658,7 +662,7 @@ const PythonSection = ({
       targetQuestions: null,
       section: 'python',
       questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null,
-      subsectionId: String(activeSubsectionId || '').trim() || null
+      subsectionId: String(activeSubsectionId || '').trim() || null,
     });
   }, [activeTask, activeQuestionIndex, activeSubsectionId, role, PYTHON_LEVEL_ID, onTaskStateChange, openTask]);
 
@@ -1934,7 +1938,7 @@ const PythonSection = ({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-gray-500">{role==='teacher'?'Ученик или группа:':'Режим Python:'}</span>
         <StudentSearchSelect
-          students={role==='teacher'?studentsList:[{id:studentId,name:'Личный режим'}]}
+          students={role==='teacher'?studentsList:[{id:studentId,name:'Личный Python · домашка'}]}
           groups={groupWorkspace.groups}
           value={groupWorkspace.targetValue|| (role==='student'?studentId:'')}
           onChange={groupWorkspace.selectTarget}
@@ -1943,6 +1947,10 @@ const PythonSection = ({
           className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
           dark={String(theme || '').trim().toLowerCase() === 'dark'}
         />
+        {role==='student' && !groupMode && groupWorkspace.lessonGroupId && (
+          <Button variant="secondary" onClick={groupWorkspace.joinLesson}>Перейти к уроку группы</Button>
+        )}
+        {role==='student' && <span className="text-xs text-gray-500">{groupMode ? 'Урок группы · общий код' : 'Личный Python · ваши решения сохраняются отдельно'}</span>}
       </div>
     );
   };
