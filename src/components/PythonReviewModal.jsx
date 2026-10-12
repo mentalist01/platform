@@ -1,5 +1,6 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
 import { PythonExplanationBoardButton } from './PythonExplanationBoard';
+import PythonLessonToolbar from './PythonLessonToolbar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from './SelfHostedMonacoEditor';
@@ -264,6 +265,9 @@ const PythonReviewModal = ({
   groupMode = false,
   groupName = '',
   onQuestionChange,
+  lessonWorkspace = null,
+  lessonTopics = [],
+  onSelectLessonTopic,
   explanationBoard = null,
   homeworkLessonBasketItems = [],
   onAddToHomeworkLessonBasket,
@@ -304,7 +308,7 @@ const PythonReviewModal = ({
   const [testResults, setTestResults] = useState([]);
   const [viewportWidth, setViewportWidth] = useState(() => getRuntimeViewportWidth());
   const [viewportHeight, setViewportHeight] = useState(() => getRuntimeViewportHeight());
-  const [workspaceSplitRatio, setWorkspaceSplitRatio] = useState(0.4);
+  const [workspaceSplitRatio, setWorkspaceSplitRatio] = useState(0.34);
   const [isResizingWorkspace, setIsResizingWorkspace] = useState(false);
   const isMobileViewport = viewportWidth < 700;
 
@@ -1822,7 +1826,9 @@ const PythonReviewModal = ({
             }`}
           >
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
-          {groupMode&&<p role="status" className="text-sm font-semibold text-violet-600">{groupName} · совместное решение</p>}
+          {lessonWorkspace && <PythonLessonToolbar teacher name={lessonWorkspace.name || groupName}
+            connected={lessonWorkspace.connected} tasks={lessonTopics} taskNumber={task.number}
+            onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount}/>}
           <div className={`python-runtime-header-card rounded-[22px] border ${
             isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
           } ${elevatedCardClass}`}>

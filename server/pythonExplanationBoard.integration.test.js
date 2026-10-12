@@ -10,6 +10,7 @@ import WebSocket from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { pythonExplanationBoardRoom, PYTHON_EXPLANATION_CONTROL } from '../src/utils/pythonExplanationBoard.js';
+import {PYTHON_INDIVIDUAL_TASK_CONTROL} from '../src/utils/pythonGroupWorkspace.js';
 import { createLearningGroup, addLearningGroupMember, startLearningGroup } from './learningGroups.js';
 
 const serving = process.env.PYTHON_BOARD_QA_SERVE === '1';
@@ -66,6 +67,12 @@ test('Python explanations synchronize, isolate group pupils and survive a server
     pb.getMap('pageControl').set(PYTHON_EXPLANATION_CONTROL,{...command,id:'forged-pupil-command',open:false});
     await new Promise(r=>setTimeout(r,300));
     assert.equal(tb.getMap('pageControl').get(PYTHON_EXPLANATION_CONTROL).id,command.id,'Pupil cannot summon another participant');
+    const taskCommand={id:'individual-task',open:true,active:true,teacherId:teacher.id,studentId:students[0].id,taskNumber:205,questionIndex:1};
+    tb.getMap('pageControl').set(PYTHON_INDIVIDUAL_TASK_CONTROL,taskCommand);
+    await wait(()=>pb.getMap('pageControl').get(PYTHON_INDIVIDUAL_TASK_CONTROL)?.id===taskCommand.id);
+    pb.getMap('pageControl').set(PYTHON_INDIVIDUAL_TASK_CONTROL,{...taskCommand,id:'forged-task',questionIndex:0});
+    await new Promise(r=>setTimeout(r,300));
+    assert.equal(tb.getMap('pageControl').get(PYTHON_INDIVIDUAL_TASK_CONTROL).id,taskCommand.id,'Pupil cannot change the teacher navigation command');
     close();await new Promise(r=>setTimeout(r,350));await stop();await start();
     const restored=await connect(await login(teacher.code));
     assert.deepEqual(restored.getArray('items').toArray().map(x=>x.id),['teacher-stroke','pupil-stroke']);

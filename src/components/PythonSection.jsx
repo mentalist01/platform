@@ -32,7 +32,7 @@ import { buildPracticeStatsForTests, getPythonReviewQuestionIndex, isPythonRevie
 import { getWeeklyTaskPracticeIndicator } from '../utils/weeklyTaskPractice';
 import PythonPracticePanel, { PythonPracticeBadge } from './PythonPracticePanel';
 import PythonExplanationBoard from './PythonExplanationBoard';
-import usePythonGroupWorkspace from '../hooks/usePythonGroupWorkspace';
+import usePythonLessonWorkspace from '../hooks/usePythonLessonWorkspace';
 import {pythonGroupCodeBase,pythonGroupBoardRoom} from '../utils/pythonGroupWorkspace';
 import usePythonExplanationBoard from '../hooks/usePythonExplanationBoard';
 import { pythonExplanationBoardRoom } from '../utils/pythonExplanationBoard';
@@ -499,7 +499,7 @@ const PythonSection = ({
   const teacherTaskToolsRef = useRef(null);
   const [mobilePythonPathCanvasWidth, setMobilePythonPathCanvasWidth] = useState(0);
   const studentsList = students || [];
-  const groupWorkspace=usePythonGroupWorkspace({role,userId:studentId,teacherId,groups,initialGroupId,activeStudentId,onSelectStudent});
+  const groupWorkspace=usePythonLessonWorkspace({role,userId:studentId,teacherId,groups,initialGroupId,activeStudentId,onSelectStudent});
   const groupMode=Boolean(groupWorkspace.groupId);
   const publishGroupTask=groupWorkspace.publishTask,remoteGroupTask=groupWorkspace.remoteTask;
   const effectiveStudentId = role === 'teacher' ? (groupMode?null:activeStudentId) : studentId;
@@ -537,7 +537,7 @@ const PythonSection = ({
   }, [effectiveStudentId,groupWorkspace.groupId]);
 
   useEffect(()=>{
-    if(role!=="teacher"||!groupMode)return;
+    if(role!=="teacher")return;
     publishGroupTask({open:Boolean(reviewTask),taskNumber:reviewTask?.number||0,questionIndex:Math.max(0,activeQuestionIndex||0)});
   },[role,groupMode,reviewTask,activeQuestionIndex,publishGroupTask]);
   useEffect(()=>{
@@ -546,6 +546,22 @@ const PythonSection = ({
     const task=taskList.find(t=>Number(t.number)===Number(command.taskNumber));if(!task)return;
     setActivePracticeReview(null);setActiveTask(task);setActiveQuestionIndex(command.questionIndex);setActiveSubsectionId(null);
   },[role,remoteGroupTask,taskList]);
+
+  const followingTeacher = role === 'student' && groupWorkspace.teacherPresent && Boolean(remoteGroupTask?.open);
+  const lessonWorkspaceName = groupMode ? groupWorkspace.group?.name : role === 'teacher'
+    ? studentsList.find(student => student.id === effectiveStudentId)?.name || 'Индивидуальный урок'
+    : 'Индивидуальный урок';
+  const lessonWorkspace = {name:lessonWorkspaceName, connected:groupWorkspace.connected, followingTeacher};
+  const openLessonTopic = number => {
+    const task = taskList.find(item => Number(item.number) === Number(number));
+    if (!task || followingTeacher) return;
+    setActiveQuestionIndex(0);
+    setActiveSubsectionId(null);
+    setActiveTheoryLaunch(null);
+    setActivePracticeReview(null);
+    if (role === 'teacher') setReviewTask(task);
+    else setActiveTask(task);
+  };
 
   useEffect(() => {
     setShowTeacherTaskToolsMobile(false);
@@ -1782,7 +1798,7 @@ const PythonSection = ({
   const renderTaskCard = (task, idx, section) => {
     const val = Math.max(0, Math.min(100, Number(progressMap[task.id] || 0)));
     const practiceIndicator = practiceItems.find(item => item.task.id === task.id)?.indicator;
-    const clickable = role === 'student';
+    const clickable = role === 'student' || role === 'teacher';
     const isSelected = String(activeTask?.id || '') === String(task.id || '');
     const progressState = val >= 85 ? 'mastered' : (val >= 55 ? 'steady' : (val > 0 ? 'warming' : 'start'));
     const progressLabel = val >= 85 ? 'Уверенно' : (val >= 55 ? 'В темпе' : (val > 0 ? 'Закрепить' : 'Старт'));
@@ -1801,6 +1817,7 @@ const PythonSection = ({
     };
     const openTaskCard = () => {
       if (!clickable) return;
+      if (role === 'teacher') { openLessonTopic(task.number); return; }
       if (isPythonReviewDue(practiceIndicator)) { openPythonPractice(task); return; }
       setActivePracticeReview(null);
       setActiveQuestionIndex(null);
@@ -1819,7 +1836,7 @@ const PythonSection = ({
         onClick={clickable ? openTaskCard : undefined}
         role={clickable ? 'button' : undefined}
         tabIndex={clickable ? 0 : undefined}
-        aria-label={clickable ? `Открыть тему ${task.title}. Выполнено ${val}%` : undefined}
+        aria-label={clickable ? `Открыть тему ${task.title}${role === 'student' ? `. Выполнено ${val}%` : ''}` : undefined}
         onKeyDown={clickable ? (event) => {
           if (event.target !== event.currentTarget) return;
           if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -1831,10 +1848,10 @@ const PythonSection = ({
           <div className="absolute right-3 top-3 z-20 flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setReviewTask(task)}
+              onClick={(event) => { event.stopPropagation(); openLessonTopic(task.number); }}
               className="python-learning-task-card__toolbar-btn inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white/90 text-purple-600 transition hover:border-purple-200 hover:text-purple-800"
-              title={groupMode?'Открыть задачи для группы':'Открыть прогресс по теме'}
-              aria-label={`${groupMode?'Открыть задачи группы по теме':'Открыть прогресс по теме'} ${task.title}`}
+              title="Открыть задачи для совместного решения"
+              aria-label={`Открыть задачи по теме ${task.title}`}
             >
               <BookOpen size={14} />
             </button>
@@ -1917,7 +1934,7 @@ const PythonSection = ({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-gray-500">{role==='teacher'?'Ученик или группа:':'Режим Python:'}</span>
         <StudentSearchSelect
-          students={role==='teacher'?studentsList:[{id:studentId,name:'Самостоятельно'}]}
+          students={role==='teacher'?studentsList:[{id:studentId,name:'Личный режим'}]}
           groups={groupWorkspace.groups}
           value={groupWorkspace.targetValue|| (role==='student'?studentId:'')}
           onChange={groupWorkspace.selectTarget}
@@ -2931,12 +2948,17 @@ const PythonSection = ({
 
       {role === 'student' && activeTask && (
         <PythonTestModal
+          key={`${codeSyncRoomId}:${activeTask.number}:${activePracticeReview?.cycle || ''}`}
           theme={theme}
           task={activeTask}
           groupMode={groupMode&&!activePracticeReview}
           groupName={groupWorkspace.group?.name||''}
           userName={userName}
-          followQuestionIndex={groupMode&&!activePracticeReview?groupWorkspace.remoteTask?.questionIndex:undefined}
+          followQuestionIndex={!activePracticeReview && followingTeacher ? remoteGroupTask?.questionIndex : undefined}
+          followingTeacher={!activePracticeReview && followingTeacher}
+          lessonWorkspace={activePracticeReview ? null : lessonWorkspace}
+          lessonTopics={taskList}
+          onSelectLessonTopic={openLessonTopic}
           explanationBoard={activePracticeReview ? null : explanationBoard}
           reviewMode={Boolean(activePracticeReview)}
           reviewCycle={activePracticeReview?.cycle || ''}
@@ -2976,7 +2998,7 @@ const PythonSection = ({
           ALLOW_MAIN_THREAD_PYTHON_FALLBACK={ALLOW_MAIN_THREAD_PYTHON_FALLBACK}
           onComplete={(taskId, score, options) => {
             onUpdateProgress(taskId, score, options);
-            const quickTaskHandled = !activePracticeReview && onQuickHomeworkTaskSolved?.({
+            const quickTaskHandled = !activePracticeReview && !followingTeacher && onQuickHomeworkTaskSolved?.({
               taskId,
               score,
               options,
@@ -2997,11 +3019,15 @@ const PythonSection = ({
       )}
       {role === 'teacher' && reviewTask && (
         <PythonReviewModal
+          key={`${codeSyncRoomId}:${reviewTask.number}`}
           theme={theme}
           task={reviewTask}
           groupMode={groupMode}
           groupName={groupWorkspace.group?.name||''}
-          onQuestionChange={groupMode?setActiveQuestionIndex:undefined}
+          onQuestionChange={setActiveQuestionIndex}
+          lessonWorkspace={lessonWorkspace}
+          lessonTopics={taskList}
+          onSelectLessonTopic={openLessonTopic}
           explanationBoard={explanationBoard}
           onClose={() => setReviewTask(null)}
           studentId={effectiveStudentId}

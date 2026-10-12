@@ -1,0 +1,15 @@
+.python-lesson-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:7px 16px; padding:9px 12px; border:1px solid var(--border-color,#e2e5f0); border-radius:13px; color:var(--text-primary,#202b42); background:var(--surface-card,#fff); }
+.python-lesson-toolbar__identity { display:flex; align-items:center; flex-wrap:wrap; gap:7px; min-width:0; }
+.python-lesson-toolbar__identity>svg { color:#7c3aed; flex-shrink:0; }
+.python-lesson-toolbar__identity strong { font-size:13px; overflow-wrap:anywhere; }
+.python-lesson-toolbar__identity>span,.python-lesson-toolbar__status { color:var(--text-secondary,#65748c); font-size:11px; }
+.python-lesson-toolbar__status { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+.python-lesson-toolbar__topic { display:flex; align-items:center; gap:7px; margin-left:auto; min-width:0; font-size:12px; }
+.python-lesson-toolbar__topic>span { flex-shrink:0; }
+.python-lesson-toolbar__topic select { max-width:260px; min-width:0; padding:6px 8px; border:1px solid var(--border-color,#e2e5f0); border-radius:8px; background:var(--surface-card,#fff); color:inherit; font:inherit; }
+[data-runtime-theme="dark"] .python-lesson-toolbar { background:#151d30; border-color:#334155; color:#f1f5f9; }
+[data-runtime-theme="dark"] .python-lesson-toolbar__identity>span,[data-runtime-theme="dark"] .python-lesson-toolbar__status { color:#b6c1d4; }
+[data-runtime-theme="dark"] .python-lesson-toolbar__identity>svg { color:#c4b5fd; }
+[data-runtime-theme="dark"] .python-lesson-toolbar__topic select { background:#202b40; border-color:#475569; }
+@media(max-width:699px) { .python-lesson-toolbar { padding:8px; gap:5px 9px; } .python-lesson-toolbar__topic { width:100%; margin-left:0; } .python-lesson-toolbar__topic select { flex:1; width:0; max-width:none; } }
+@media(pointer:coarse) { .python-lesson-toolbar__topic select { min-height:44px; font-size:16px; } }

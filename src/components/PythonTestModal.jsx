@@ -1,5 +1,6 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
 import { PythonExplanationBoardButton } from './PythonExplanationBoard';
+import PythonLessonToolbar from './PythonLessonToolbar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from './SelfHostedMonacoEditor';
@@ -276,6 +277,10 @@ const PythonTestModal = ({
   groupName = '',
   userName,
   followQuestionIndex,
+  followingTeacher = false,
+  lessonWorkspace = null,
+  lessonTopics = [],
+  onSelectLessonTopic,
   explanationBoard = null,
   reviewMode = false,
   reviewCycle = '',
@@ -306,7 +311,7 @@ const PythonTestModal = ({
   const [testResults, setTestResults] = useState([]);
   const [viewportWidth, setViewportWidth] = useState(() => getRuntimeViewportWidth());
   const [viewportHeight, setViewportHeight] = useState(() => getRuntimeViewportHeight());
-  const [workspaceSplitRatio, setWorkspaceSplitRatio] = useState(0.4);
+  const [workspaceSplitRatio, setWorkspaceSplitRatio] = useState(0.34);
   const [isResizingWorkspace, setIsResizingWorkspace] = useState(false);
   const isMobileViewport = viewportWidth < 700;
   const [showTheory, setShowTheory] = useState(Boolean(initialShowTheory));
@@ -1078,7 +1083,7 @@ const PythonTestModal = ({
     }
   }, [currentIndex, questions.length, selectedSubsectionId, subsectionModel]);
 
-  useEffect(()=>{if(groupMode&&Number.isInteger(followQuestionIndex)&&questions.length)setCurrentIndex(Math.max(0,Math.min(followQuestionIndex,questions.length-1)));},[groupMode,followQuestionIndex,questions.length]);
+  useEffect(()=>{if(followingTeacher&&Number.isInteger(followQuestionIndex)&&questions.length)setCurrentIndex(Math.max(0,Math.min(followQuestionIndex,questions.length-1)));},[followingTeacher,followQuestionIndex,questions.length]);
 
   useEffect(() => {
     onSubsectionChange?.(selectedSubsectionId);
@@ -1756,6 +1761,7 @@ const PythonTestModal = ({
   };
 
   const handleNext = () => {
+    if (followingTeacher) return;
     if (Number.isFinite(nextQuestionIndex)) {
       const nextSubsection = visibleSubsections.find((section) => section.questionIndexes.includes(nextQuestionIndex));
       if (nextSubsection?.id) setSelectedSubsectionId(nextSubsection.id);
@@ -2054,6 +2060,7 @@ const PythonTestModal = ({
       }
     : undefined;
   const handleSelectSubsection = (subsectionId) => {
+    if (followingTeacher) return;
     const nextSubsection = visibleSubsections.find((section) => section.id === subsectionId);
     if (!nextSubsection) return;
     setSelectedSubsectionId(nextSubsection.id);
@@ -2082,7 +2089,9 @@ const PythonTestModal = ({
             }`}
           >
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
-          {groupMode&&<p role="status" className="text-sm font-semibold text-violet-600">{groupName} · совместное решение</p>}
+          {lessonWorkspace && <PythonLessonToolbar name={lessonWorkspace.name || groupName}
+            connected={lessonWorkspace.connected} followingTeacher={followingTeacher} tasks={lessonTopics}
+            taskNumber={task.number} onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount}/>}
           <div className={`python-runtime-header-card rounded-[22px] border ${
             isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
           } ${elevatedCardClass}`}>
@@ -2169,6 +2178,7 @@ const PythonTestModal = ({
                       key={`py-subsection-${section.id}`}
                       type="button"
                       onClick={() => handleSelectSubsection(section.id)}
+                      disabled={followingTeacher}
                       data-current={section.id === activeSubsection?.id ? 'true' : 'false'}
                       className={`python-runtime-chip python-runtime-subsection-chip ${subsectionChipSizeClass} shrink-0 rounded-[16px] border text-left text-[11px] font-semibold transition-all ${
                         section.id === activeSubsection?.id
@@ -2232,6 +2242,7 @@ const PythonTestModal = ({
                       key={`py-question-${qId}`}
                       type="button"
                       onClick={() => setCurrentIndex(item.questionIndex)}
+                      disabled={followingTeacher}
                       data-current={isCurrent ? 'true' : 'false'}
                       data-solved={solved ? 'true' : 'false'}
                       aria-current={isCurrent ? 'step' : undefined}
@@ -2800,11 +2811,12 @@ const PythonTestModal = ({
             <Button
               variant={isSolved ? 'success' : 'secondary'}
               onClick={handleNext}
+              disabled={followingTeacher}
               data-state={isSolved ? 'solved' : 'pending'}
               className={`python-runtime-action python-runtime-action--next w-full sm:w-auto ${isDarkTheme && !isSolved ? '!border-slate-700 !bg-slate-800/70 !text-slate-200 hover:!bg-slate-700' : ''}`}
             >
               <ChevronRight size={16} />
-              {Number.isFinite(nextQuestionIndex) ? 'Дальше' : 'Готово'}
+              {followingTeacher ? 'Следуем за преподавателем' : Number.isFinite(nextQuestionIndex) ? 'Дальше' : 'Готово'}
             </Button>
             </div>
           </div>
