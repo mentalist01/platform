@@ -6,6 +6,7 @@ export const MAX_COLLAB_SOLUTIONS = 20;
 export const DEFAULT_COLLAB_CODE_PAGE_ID = 'page-main';
 export const COLLAB_CODE_PAGES_KEY = 'codePages';
 export const COLLAB_CODE_PAGES_DELETED_KEY = 'codePagesDeleted';
+export const COLLAB_CODE_PAGE_ALIASES_KEY = 'lessonCodePageAliases';
 export const COLLAB_SOLUTION_PAGES_KEY = 'codeSolutionPages';
 export const MAX_COLLAB_CODE_PAGES = 20;
 
@@ -91,7 +92,8 @@ export const listCollabCodePages = (doc) => {
       || typeof row?.name !== 'string' || !row.name.trim() || !/^[a-zA-Z0-9_-]{1,100}$/.test(row.mainSolutionId || '')) continue;
     others.push({ id, name: row.name.trim(), mainSolutionId: row.mainSolutionId, createdAt: normalizeCreatedAt(row.createdAt) });
   }
-  return [main, ...others.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id, 'en'))];
+  const ordered=others.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id, 'en'));
+  return doc.getMap('lessonPages').get('version')===1&&deleted.get(main.id)===true&&ordered.length?ordered:[main,...ordered];
 };
 
 export const listCollabPageSolutions = (doc, pageId = DEFAULT_COLLAB_CODE_PAGE_ID) => (
@@ -141,7 +143,9 @@ export const restoreCollabCodePage = (doc, id) => {
 };
 
 export const resolveCollabPageSelection = (doc, saved = {}) => {
-  const page = listCollabCodePages(doc).find(item => item.id === saved?.pageId) || listCollabCodePages(doc)[0];
+  const alias=doc.getMap(COLLAB_CODE_PAGE_ALIASES_KEY).get(saved?.pageId);
+  const pageId=alias==='main'?DEFAULT_COLLAB_CODE_PAGE_ID:(alias||saved?.pageId);
+  const page = listCollabCodePages(doc).find(item => item.id === pageId) || listCollabCodePages(doc)[0];
   const solutions = listCollabPageSolutions(doc, page.id);
   const preferred = saved?.byPage?.[page.id] || saved?.solutionId;
   return { pageId: page.id, solutionId: solutions.some(item => item.id === preferred) ? preferred : page.mainSolutionId };

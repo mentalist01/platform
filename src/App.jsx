@@ -189,10 +189,6 @@ import {
   COLLAB_SOLUTION_PAGES_KEY,
   getCollabSolutionPageId,
   listCollabCodePages,
-  createCollabCodePage,
-  renameCollabCodePage,
-  deleteCollabCodePage,
-  restoreCollabCodePage,
   resolveCollabPageSelection,
 } from './utils/collabSolutions';
 const CollabSolutionTabs = React.lazy(() => import('./components/CollabSolutionTabs'));
@@ -3902,7 +3898,7 @@ const STUDENT_RATING_TOUR_STEPS = [
 /**
  * TEACHER PANEL COMPONENT
  */
-const CollabSection = ({
+export const CollabSection = ({
   role,
   userId,
   userName,
@@ -4032,7 +4028,6 @@ const CollabSection = ({
   const [activeSolutionId, setActiveSolutionId] = useState(DEFAULT_COLLAB_SOLUTION_ID);
   const [codePages, setCodePages] = useState([{ id: DEFAULT_COLLAB_CODE_PAGE_ID, name: 'Страница 1', mainSolutionId: DEFAULT_COLLAB_SOLUTION_ID, count: 1 }]);
   const [activeCodePageId, setActiveCodePageId] = useState(DEFAULT_COLLAB_CODE_PAGE_ID);
-  const [deletedCodePage, setDeletedCodePage] = useState(null);
   const pageSelectionsRef = useRef(new Map());
   const activeCodePage = codePages.find(page => page.id === activeCodePageId) || codePages[0];
   const pageMainSolutionId = activeCodePage?.mainSolutionId || DEFAULT_COLLAB_SOLUTION_ID;
@@ -4169,7 +4164,6 @@ const CollabSection = ({
     setActiveCodePageId(DEFAULT_COLLAB_CODE_PAGE_ID);
     setCodePages([{ id: DEFAULT_COLLAB_CODE_PAGE_ID, name: 'Страница 1', mainSolutionId: DEFAULT_COLLAB_SOLUTION_ID, count: 1 }]);
     pageSelectionsRef.current.clear();
-    setDeletedCodePage(null);
     setCodeSolutions([{ id: DEFAULT_COLLAB_SOLUTION_ID, name: activeGroupParticipantName || DEFAULT_SOLUTION_NAME }]);
     setCompareSolutionId(null);
     setSolutionError('');
@@ -9682,23 +9676,6 @@ const CollabSection = ({
     const selection = resolveCollabPageSelection(collabDocRef.current, { pageId, byPage: Object.fromEntries(pageSelectionsRef.current) });
     selectCodeSolution(selection.solutionId);
   };
-  const createCodePage = name => {
-    const page = createCollabCodePage(requireCodePageEditing(), { name });
-    selectCodeSolution(page.mainSolutionId);
-  };
-  const renameCodePage = (id, name) => renameCollabCodePage(requireCodePageEditing(), id, name);
-  const deleteCodePage = id => {
-    const page = codePages.find(item => item.id === id);
-    deleteCollabCodePage(requireCodePageEditing(), id);
-    setDeletedCodePage(page);
-  };
-  const undoCodePageDeletion = () => {
-    try {
-      restoreCollabCodePage(requireCodePageEditing(), deletedCodePage.id);
-      selectCodePage(deletedCodePage.id);
-      setDeletedCodePage(null);
-    } catch (cause) { setSolutionError(cause.message); }
-  };
   const renameCodeSolution = (id, name) => {
     if (collabReadOnly || !collabDocumentReady || !collabDocRef.current) throw new Error('Совместный код ещё не подключён.');
     renameCollabSolution(collabDocRef.current, id, name);
@@ -11524,7 +11501,7 @@ const CollabSection = ({
         {!isSandbox && roomId && (
           <React.Suspense fallback={<div role="status" className="collab-solutions__notice">Загружаем страницы кода…</div>}>
           <CollabCodePages key={`pages:${roomId}`} pages={codePages} activeId={activeCodePageId}
-            onSelect={selectCodePage} onCreate={createCodePage} onRename={renameCodePage} onDelete={deleteCodePage}
+            onSelect={selectCodePage} roomId={roomId} role={role} userId={userId}
             disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted} readOnly={collabReadOnly} dark={isCollabDarkUi}
             peers={remoteParticipants.map(peer => ({ ...peer, pageId: codeSolutions.find(solution => solution.id === peer.solutionId)?.pageId }))}/>
           </React.Suspense>
@@ -11568,10 +11545,6 @@ const CollabSection = ({
           />
           </React.Suspense>
         )}
-        {deletedCodePage && <div className="collab-solutions__notice" role="status">
-          Страница «{deletedCodePage.name}» и её вкладки удалены.
-          <button type="button" onClick={undoCodePageDeletion} disabled={!collabDocumentReady || solutionActionsBusy || collabReadOnly}>Восстановить страницу</button>
-        </div>}
         {deletedSolution && (
           <div className="collab-solutions__notice" role="status">
             Вариант «{deletedSolution.name}» удалён.

@@ -26,7 +26,7 @@ export const boardPageBookRoom = baseRoomId => baseRoomId ? `${baseRoomId}~pages
 export function boardPagesList(map) {
   const values = map ? Array.from(map.entries()) : [];
   const first={id:FIRST_BOARD_PAGE_ID,title:String(map?.get(FIRST_BOARD_PAGE_ID)?.title || 'Страница 1').slice(0,80),createdAt:0};
-  const additional=values.filter(([id,page])=>id!==FIRST_BOARD_PAGE_ID && PAGE_ID.test(id) && page && typeof page==='object')
+  const additional=values.filter(([id,page])=>id!==FIRST_BOARD_PAGE_ID && PAGE_ID.test(id) && page && typeof page==='object' && !page.deleted)
       .map(([id,page])=>({id,title:String(page.title || 'Страница').slice(0,80),createdAt:Number(page.createdAt)||0}))
       .sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
   return (map?.get(FIRST_BOARD_PAGE_ID)?.deleted && additional.length ? additional : [first,...additional]).slice(0,MAX_BOARD_PAGES);
@@ -35,7 +35,7 @@ export function deleteBoardPage(map,pageId) {
   const pages=boardPagesList(map);
   if(!map || pages.length<=1 || !pages.some(page=>page.id===pageId))return false;
   if(pageId===FIRST_BOARD_PAGE_ID)map.set(pageId,{...map.get(pageId),deleted:true});
-  else map.delete(pageId);
+  else map.set(pageId,{...map.get(pageId),deleted:true});
   return true;
 }
 export function boardPageAfterChange(previous,next,currentId) {

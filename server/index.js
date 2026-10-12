@@ -387,6 +387,7 @@ import {
   getAccessCodeRecoveryCandidates,
 } from './accessCodeLookup.js';
 import { BoundedExecutionSlots, SlidingWindowRateLimiter } from './pythonExecutionLimiter.js';
+import {createLessonPageCatalog,lessonPageRooms} from './lessonPageCatalog.js';
 import { buildQuestionDifficultyIndex } from './questionDifficulty.js';
 
 const { setupWSConnection } = yWsUtils;
@@ -2003,6 +2004,17 @@ const waitForCollabDocumentState = async (requestUrl) => {
   const readyPromise = collabDocReadyPromises.get(ydoc);
   if (readyPromise) await readyPromise;
 };
+const lessonPageCatalog=createLessonPageCatalog({
+  loadBook:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
+  loadCode:async room=>{
+    const loaded=getLoadedCollabDocEntry(`collab/${room}`)?.doc;
+    if(loaded){await collabDocReadyPromises.get(loaded);return {doc:loaded,active:true};}
+    return {doc:rawCollabPersistence?await rawCollabPersistence.getYDoc(`collab/${room}`):new Y.Doc(),active:false};
+  },
+  saveCode:async(room,doc)=>{if(rawCollabPersistence)await rawCollabPersistence.storeUpdate(`collab/${room}`,Y.encodeStateAsUpdate(doc));},
+  saveBook:async(_room,doc)=>{if(!flushBoardDocSnapshot(doc.name,doc))throw Error('Не удалось сохранить страницы занятия');},
+  releaseCode:doc=>doc.destroy(),
+});
 process.on('exit', flushLoadedBoardDocSnapshots);
 process.on('SIGINT', () => {
   flushPendingStudentUsage();
@@ -23500,6 +23512,23 @@ const boardTabletService = createBoardTabletService({
 app.post('/api/board-tablet', boardTabletService.create);
 app.delete('/api/board-tablet/:id', boardTabletService.remove);
 
+const handleLessonPages=async(req,res)=>{
+  const room=String(req.method==='GET'?req.query.room:req.body?.room||'');
+  const access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(room)}`,auth:req.auth,
+    sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningGroupsDb():[],
+    attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
+  const scope=access.allowed?lessonPageRooms(access.target):null;
+  if(!scope||getLearningSubscriptionRoomError(req.auth,access))return forbid(res);
+  const canEdit=(isTeacherRole(req.auth)||isAdminRole(req.auth))&&access.target?.session?.status!=='completed';
+  if(req.method==='POST'&&!canEdit)return forbid(res);
+  try {
+    const result=req.method==='POST'?await lessonPageCatalog.change(scope,req.body):{book:await lessonPageCatalog.ensure(scope)};
+    return res.json({pages:boardPagesList(result.book.getMap('pages')),bookRoom:scope.book,id:result.id,canEdit});
+  }catch(error){return res.status(400).json({error:error.message||'Не удалось подготовить страницы занятия'});}
+};
+app.get('/api/lesson-pages',handleLessonPages);
+app.post('/api/lesson-pages',handleLessonPages);
+
 app.post('/api/board/reset', async (req, res) => {
   const requestedLessonId = typeof req.body?.lessonId === 'string'
     ? req.body.lessonId.trim()
@@ -44201,7 +44230,9 @@ server.on('upgrade', (request, socket, head) => {
     }
     request.learningCollabAccess = access;
     request.learningCollabAuth = session.user;
-    void waitForCollabDocumentState(request.url).then(() => {
+    void waitForCollabDocumentState(request.url).then(async() => {
+      const scope=lessonPageRooms(access.target);
+      if(scope)await lessonPageCatalog.ensure(scope);
       if (socket.destroyed) return;
       if (!getAuthSession(token)) { rejectUpgrade(socket, 401, 'Unauthorized'); return; }
       collabWss.handleUpgrade(request, socket, head, (ws) => {
