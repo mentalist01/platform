@@ -31,6 +31,9 @@ import { buildCurrentPythonProgressMap } from '../utils/pythonProgress';
 import { buildPracticeStatsForTests, getPythonReviewQuestionIndex, isPythonReviewDue } from '../utils/pythonTaskPractice';
 import { getWeeklyTaskPracticeIndicator } from '../utils/weeklyTaskPractice';
 import PythonPracticePanel, { PythonPracticeBadge } from './PythonPracticePanel';
+import PythonExplanationBoard from './PythonExplanationBoard';
+import usePythonExplanationBoard from '../hooks/usePythonExplanationBoard';
+import { pythonExplanationBoardRoom } from '../utils/pythonExplanationBoard';
 import {
   PYTHON_TASK_SECTION_IDS,
   PYTHON_TASK_SECTION_META,
@@ -360,6 +363,9 @@ const PythonSection = ({
   theme = '',
   role,
   studentId,
+  teacherId,
+  userName,
+  ExplanationBoardCanvas,
   students,
   activeStudentId,
   onSelectStudent,
@@ -490,6 +496,8 @@ const PythonSection = ({
   const [mobilePythonPathCanvasWidth, setMobilePythonPathCanvasWidth] = useState(0);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const explanationRoomId = ExplanationBoardCanvas ? pythonExplanationBoardRoom(teacherId, effectiveStudentId) : '';
+  const explanationBoard = usePythonExplanationBoard({ roomId: explanationRoomId, teacherId, studentId: effectiveStudentId, userId: studentId, role });
   const codeSyncRoomId = effectiveStudentId
     ? `py-sync:${String(effectiveStudentId).trim()}`
     : '';
@@ -2903,6 +2911,7 @@ const PythonSection = ({
         <PythonTestModal
           theme={theme}
           task={activeTask}
+          explanationBoard={activePracticeReview ? null : explanationBoard}
           reviewMode={Boolean(activePracticeReview)}
           reviewCycle={activePracticeReview?.cycle || ''}
           onPracticeUpdated={() => { if (studentId) api.getStudentData(studentId).then(data => setStudentData(normalizeLoadedStudentData(data))).catch(() => {}); }}
@@ -2964,6 +2973,7 @@ const PythonSection = ({
         <PythonReviewModal
           theme={theme}
           task={reviewTask}
+          explanationBoard={explanationBoard}
           onClose={() => setReviewTask(null)}
           studentId={effectiveStudentId}
           withStudentId={withStudentId}
@@ -2988,6 +2998,9 @@ const PythonSection = ({
           })}
         />
       )}
+      <PythonExplanationBoard key={explanationRoomId} board={explanationBoard} Canvas={ExplanationBoardCanvas} theme={theme}
+        title={(role === 'teacher' ? reviewTask : activeTask)?.title}
+        context={{ role, userId: studentId, userName, teacherId, activeStudentId: effectiveStudentId, students, tasks: taskList }} />
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
+import { PythonExplanationBoardButton } from './PythonExplanationBoard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from './SelfHostedMonacoEditor';
@@ -260,6 +261,7 @@ const PythonReviewModal = ({
   isGoogleDocEmbedUrl,
   buildGoogleDocFullUrl,
   codeSyncRoomId = '',
+  explanationBoard = null,
   homeworkLessonBasketItems = [],
   onAddToHomeworkLessonBasket,
 }) => {
@@ -1868,6 +1870,8 @@ const PythonReviewModal = ({
                 <span className={`text-[11px] font-semibold ${mutedTextClass}`}>Задача</span>
                 <span className={`text-sm font-black ${primaryTextClass}`}>{`${currentQuestionDisplayIndex} / ${totalVisibleQuestions}`}</span>
               </div>
+              <div className="python-explanation-task-actions">
+              <PythonExplanationBoardButton board={explanationBoard} />
               <button
                 type="button"
                 onClick={onClose}
@@ -1876,6 +1880,7 @@ const PythonReviewModal = ({
               >
                 <X size={17} />
               </button>
+              </div>
             </div>
           </div>
 

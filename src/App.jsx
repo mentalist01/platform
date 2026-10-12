@@ -11705,7 +11705,7 @@ const BoardSection = (props) => (
   </React.Suspense>
 );
 
-const BoardCanvasSection = ({
+export const BoardCanvasSection = ({
   pages = null,
   role,
   userId,
@@ -11720,6 +11720,7 @@ const BoardCanvasSection = ({
   onSelectStudent,
   studentsLoading,
   embedded = false,
+  containedDialogs = false,
   hideStudentPicker = false,
   showEmbeddedSummonButton = false,
   theme = THEME_LIGHT,
@@ -18772,7 +18773,7 @@ const BoardCanvasSection = ({
           {boardCardContent}
         </Card>
       )}
-      {isFullscreen
+      {isFullscreen || containedDialogs
         ? saveModal
         : (typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null)}
     </div>
@@ -26910,6 +26911,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               role={user.role}
               studentId={user.id}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              userName={user.name}
+              ExplanationBoardCanvas={BoardCanvasSection}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={handleSelectStudent}
