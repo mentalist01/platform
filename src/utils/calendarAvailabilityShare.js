@@ -64,8 +64,105 @@ const drawRoundedRect = (context, x, y, width, height, radius) => {
   context.closePath();
 };
 
+// Complement of the union of lessons: duplicates and overlapping lessons must
+// never turn an occupied minute into an available interval.
+export const getCalendarFreeIntervalsByDay = (events = []) => {
+  const start = CALENDAR_AVAILABILITY_EXPORT_START_HOUR * 60;
+  const end = CALENDAR_AVAILABILITY_EXPORT_END_HOUR * 60;
+  const busyDays = Array.from({ length: 7 }, () => []);
+  for (const event of Array.isArray(events) ? events : []) {
+    const day = Number(event?.dayIndex);
+    const from = Number(event?.startMinutes);
+    const to = Number(event?.endMinutes);
+    if (!Number.isInteger(day) || day < 0 || day > 6
+      || !Number.isFinite(from) || !Number.isFinite(to) || to <= from) continue;
+    const clippedStart = Math.max(start, from);
+    const clippedEnd = Math.min(end, to);
+    if (clippedEnd > clippedStart) busyDays[day].push({ startMinutes: clippedStart, endMinutes: clippedEnd });
+  }
+  return busyDays.map((busy) => {
+    const free = [];
+    let cursor = start;
+    for (const interval of busy.sort((a, b) => a.startMinutes - b.startMinutes)) {
+      if (interval.startMinutes > cursor) free.push({ startMinutes: cursor, endMinutes: interval.startMinutes });
+      cursor = Math.max(cursor, interval.endMinutes);
+    }
+    if (cursor < end) free.push({ startMinutes: cursor, endMinutes: end });
+    return free;
+  });
+};
+
+const calendarCanvasToPng = (canvas) => new Promise((resolve) => {
+  canvas.toBlob((blob) => {
+    if (!blob) return resolve(null);
+    const url = typeof URL !== 'undefined' && URL.createObjectURL
+      ? URL.createObjectURL(blob)
+      : '';
+    resolve({ blob, url, width: canvas.width, height: canvas.height });
+  }, 'image/png');
+});
+
+const renderFreeAvailabilityPng = ({ start, events, timezoneLabel, title, dayLabels, width }) => {
+  const days = getCalendarFreeIntervalsByDay(events);
+  const margin = 32;
+  const gap = 12;
+  const dayWidth = (width - margin * 2 - gap * 6) / 7;
+  const gridTop = 148;
+  const headingHeight = 70;
+  const rowHeight = 66;
+  const rowCount = Math.max(2, ...days.map(day => day.length));
+  const columnHeight = headingHeight + rowCount * (rowHeight + gap) + 16;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = gridTop + columnHeight + 72;
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+
+  context.fillStyle = '#f5f3ff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#0f172a';
+  context.font = '700 38px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.fillText(title || 'Свободное время для занятий', margin, 54);
+  context.fillStyle = '#64748b';
+  context.font = '600 22px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.fillText(`${formatAvailabilityShareWeekLabel(start)} • ${timezoneLabel}`, margin, 88);
+  context.font = '500 19px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.fillText('Выберите время внутри любого указанного промежутка.', margin, 119);
+
+  days.forEach((intervals, index) => {
+    const x = margin + index * (dayWidth + gap);
+    context.fillStyle = '#ede9fe';
+    drawRoundedRect(context, x, gridTop, dayWidth, columnHeight, 16);
+    context.fill();
+    context.fillStyle = '#5b21b6';
+    context.textAlign = 'center';
+    context.font = `700 ${width < 1500 ? 18 : 24}px system-ui, -apple-system, Segoe UI, sans-serif`;
+    context.fillText(dayLabels[index] || CALENDAR_AVAILABILITY_DAY_LABELS[index], x + dayWidth / 2, gridTop + 43);
+    if (!intervals.length) {
+      context.fillStyle = '#64748b';
+      context.font = '500 18px system-ui, -apple-system, Segoe UI, sans-serif';
+      context.fillText('Нет свободного', x + dayWidth / 2, gridTop + headingHeight + 29);
+      context.fillText('времени', x + dayWidth / 2, gridTop + headingHeight + 54);
+    }
+    intervals.forEach((interval, row) => {
+      const y = gridTop + headingHeight + row * (rowHeight + gap);
+      context.fillStyle = '#ffffff';
+      drawRoundedRect(context, x + 10, y, dayWidth - 20, rowHeight, 10);
+      context.fill();
+      context.fillStyle = '#0f172a';
+      context.font = `700 ${Math.min(28, Math.floor((dayWidth - 40) / 6.8))}px system-ui, -apple-system, Segoe UI, sans-serif`;
+      context.fillText(`${formatClock(interval.startMinutes)}–${formatClock(interval.endMinutes)}`, x + dayWidth / 2, y + 42);
+    });
+  });
+  context.textAlign = 'left';
+  context.fillStyle = '#64748b';
+  context.font = '500 18px system-ui, -apple-system, Segoe UI, sans-serif';
+  context.fillText(`Свободные промежутки с ${formatClock(CALENDAR_AVAILABILITY_EXPORT_START_HOUR * 60)} до ${formatClock(CALENDAR_AVAILABILITY_EXPORT_END_HOUR * 60)}. Занятое время пропущено.`, margin, canvas.height - 27);
+  return calendarCanvasToPng(canvas);
+};
+
 /**
- * Renders a self-contained PNG of the seven-day busy/free calendar. It does
+ * Renders a self-contained PNG of free intervals or the busy/free calendar. It does
  * not depend on DOM-to-image libraries, so it also works in the Capacitor
  * build and does not capture private names from another part of the page.
  */
@@ -73,15 +170,17 @@ export const renderCalendarAvailabilityPng = async ({
   weekStartDate,
   events = [],
   timezoneLabel = 'GMT+03',
-  title = 'Занятость преподавателя',
+  title,
   dayLabels = CALENDAR_AVAILABILITY_DAY_LABELS,
   width = 1800,
+  mode = 'free',
 } = {}) => {
   if (typeof document === 'undefined') return null;
   const start = cloneDateOnly(weekStartDate);
   if (!start) return null;
 
   const safeWidth = Math.max(1200, Math.round(Number(width) || 1800));
+  if (mode === 'free') return renderFreeAvailabilityPng({ start, events, timezoneLabel, title, dayLabels, width: safeWidth });
   const timeColumnWidth = 132;
   const dayWidth = (safeWidth - timeColumnWidth) / 7;
   const headerHeight = 148;
@@ -106,7 +205,7 @@ export const renderCalendarAvailabilityPng = async ({
 
   context.fillStyle = '#0f172a';
   context.font = '700 38px system-ui, -apple-system, Segoe UI, sans-serif';
-  context.fillText(title, 32, 51);
+  context.fillText(title || 'Занятость преподавателя', 32, 51);
   context.fillStyle = '#64748b';
   context.font = '600 20px system-ui, -apple-system, Segoe UI, sans-serif';
   const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
@@ -214,16 +313,5 @@ export const renderCalendarAvailabilityPng = async ({
   context.font = '500 15px system-ui, -apple-system, Segoe UI, sans-serif';
   context.fillText('Время без карточки — свободное для нового занятия.', 22, canvas.height - 22);
 
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        resolve(null);
-        return;
-      }
-      const url = typeof URL !== 'undefined' && URL.createObjectURL
-        ? URL.createObjectURL(blob)
-        : '';
-      resolve({ blob, url, width: canvas.width, height: canvas.height });
-    }, 'image/png');
-  });
+  return calendarCanvasToPng(canvas);
 };

@@ -868,14 +868,12 @@ const buildCalendarWeekEventsByDayIndex = ({
     if (!explicitDateKey && excludedDates.has(dayKey)) return;
     if (isTeacherCalendarLessonCancelled('', entry, dayKey, {})) return;
 
-    const clampedStart = Math.max(dayStartMinutes, Math.min(dayEndMinutes - 15, startMinutesRaw));
     const durationMinutes = Number.isFinite(Number(entry?.durationMinutes))
       ? Math.max(15, Number(entry.durationMinutes))
       : DEFAULT_EVENT_DURATION_MINUTES;
-    const clampedEnd = Math.max(
-      clampedStart + 20,
-      Math.min(dayEndMinutes, startMinutesRaw + durationMinutes)
-    );
+    const clampedStart = Math.max(dayStartMinutes, startMinutesRaw);
+    const clampedEnd = Math.min(dayEndMinutes, startMinutesRaw + durationMinutes);
+    if (clampedEnd <= clampedStart) return;
     buckets[dayIndex].push({
       ...entry,
       startMinutes: clampedStart,
@@ -953,6 +951,7 @@ const TeacherCalendarSection = ({
   const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
   const [availabilityShareMode, setAvailabilityShareMode] = useState(false);
   const [availabilityShareOffsetWeeks, setAvailabilityShareOffsetWeeks] = useState(4);
+  const [availabilityShareContentMode, setAvailabilityShareContentMode] = useState('free');
   const [availabilityShareImage, setAvailabilityShareImage] = useState(null);
   const [availabilityShareBusy, setAvailabilityShareBusy] = useState(false);
   const [availabilityShareError, setAvailabilityShareError] = useState('');
@@ -988,6 +987,7 @@ const TeacherCalendarSection = ({
   const availabilityShareReturnFocusDateRef = useRef(null);
   const availabilityShareReturnShowWeekendsRef = useRef(null);
   const availabilityShareImageUrlRef = useRef('');
+  const availabilityShareRequestRef = useRef(0);
 
   const weekStartDate = useMemo(() => getWeekStart(focusDate), [focusDate]);
   const weekDays = useMemo(
@@ -1777,6 +1777,7 @@ const TeacherCalendarSection = ({
 
   const generateAvailabilityShareImage = useCallback(async () => {
     if (!availabilityShareMode) return;
+    const requestId = ++availabilityShareRequestRef.current;
     setAvailabilityShareBusy(true);
     setAvailabilityShareError('');
     setAvailabilityShareSuccess('');
@@ -1785,7 +1786,12 @@ const TeacherCalendarSection = ({
         weekStartDate,
         events: availabilityShareEventsFlat,
         timezoneLabel,
+        mode: availabilityShareContentMode,
       });
+      if (requestId !== availabilityShareRequestRef.current) {
+        if (rendered?.url) URL.revokeObjectURL(rendered.url);
+        return;
+      }
       if (!rendered) throw new Error('Не удалось сформировать изображение календаря.');
       const previousUrl = availabilityShareImageUrlRef.current;
       if (previousUrl && typeof URL !== 'undefined' && URL.revokeObjectURL) {
@@ -1794,15 +1800,17 @@ const TeacherCalendarSection = ({
         } catch {}
       }
       availabilityShareImageUrlRef.current = rendered.url || '';
-      setAvailabilityShareImage(rendered);
+      setAvailabilityShareImage({ ...rendered, mode: availabilityShareContentMode });
       setAvailabilityShareSuccess('Изображение недели готово к отправке.');
     } catch (err) {
+      if (requestId !== availabilityShareRequestRef.current) return;
       setAvailabilityShareError(err?.message || 'Не удалось сформировать изображение календаря.');
     } finally {
-      setAvailabilityShareBusy(false);
+      if (requestId === availabilityShareRequestRef.current) setAvailabilityShareBusy(false);
     }
   }, [
     availabilityShareEventsFlat,
+    availabilityShareContentMode,
     availabilityShareMode,
     timezoneLabel,
     weekStartDate,
@@ -1815,6 +1823,7 @@ const TeacherCalendarSection = ({
     }
     const safeOffset = Number(offsetWeeks) === 5 ? 5 : 4;
     setAvailabilityShareOffsetWeeks(safeOffset);
+    setAvailabilityShareContentMode('free');
     setAvailabilityShareMode(true);
     setAvailabilityShareError('');
     setAvailabilityShareSuccess('');
@@ -1831,6 +1840,7 @@ const TeacherCalendarSection = ({
   }, [availabilityShareMode, focusDate, showWeekends]);
 
   const closeAvailabilityShareMode = useCallback(() => {
+    availabilityShareRequestRef.current += 1;
     setAvailabilityShareMode(false);
     setAvailabilityShareError('');
     setAvailabilityShareSuccess('');
@@ -1854,6 +1864,7 @@ const TeacherCalendarSection = ({
   }, []);
 
   const handleAvailabilityShareOffsetChange = useCallback((offsetWeeks) => {
+    availabilityShareRequestRef.current += 1;
     const safeOffset = Number(offsetWeeks) === 5 ? 5 : 4;
     setAvailabilityShareOffsetWeeks(safeOffset);
     setAvailabilityShareError('');
@@ -1862,12 +1873,21 @@ const TeacherCalendarSection = ({
     setFocusDate(getAvailabilityShareWeekStart(new Date(), safeOffset));
   }, []);
 
+  const handleAvailabilityShareContentChange = useCallback((mode) => {
+    if (mode === availabilityShareContentMode) return;
+    availabilityShareRequestRef.current += 1;
+    setAvailabilityShareContentMode(mode);
+    setAvailabilityShareImage(null);
+    setAvailabilityShareError('');
+    setAvailabilityShareSuccess('');
+  }, [availabilityShareContentMode]);
+
   const handleDownloadAvailabilityShareImage = useCallback(() => {
     const image = availabilityShareImage;
     if (!image?.blob || typeof document === 'undefined') return;
     const anchor = document.createElement('a');
     anchor.href = image.url || URL.createObjectURL(image.blob);
-    anchor.download = `занятость-${toDayKey(weekStartDate)}.png`;
+    anchor.download = `${image.mode === 'free' ? 'свободное-время' : 'занятость'}-${toDayKey(weekStartDate)}.png`;
     anchor.click();
     if (!image.url && anchor.href.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') {
       window.setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
@@ -1880,12 +1900,13 @@ const TeacherCalendarSection = ({
     if (!image?.blob) return;
     try {
       if (typeof navigator !== 'undefined' && typeof navigator.share === 'function' && typeof File === 'function') {
-        const file = new File([image.blob], `занятость-${toDayKey(weekStartDate)}.png`, { type: 'image/png' });
+        const freeOnly = image.mode === 'free';
+        const file = new File([image.blob], `${freeOnly ? 'свободное-время' : 'занятость'}-${toDayKey(weekStartDate)}.png`, { type: 'image/png' });
         if (!navigator.canShare || navigator.canShare({ files: [file] })) {
           await navigator.share({
             files: [file],
-            title: 'Моя занятость',
-            text: `Свободное и занятое время: ${availabilityShareWeekLabel}`,
+            title: freeOnly ? 'Свободное время для занятий' : 'Моя занятость',
+            text: `${freeOnly ? 'Свободное время' : 'Свободное и занятое время'}: ${availabilityShareWeekLabel}`,
           });
           setAvailabilityShareSuccess('Изображение отправлено.');
           return;
@@ -1907,6 +1928,7 @@ const TeacherCalendarSection = ({
   }, [availabilityShareMode, generateAvailabilityShareImage, loading, weekStartDate]);
 
   useEffect(() => () => {
+    availabilityShareRequestRef.current += 1;
     const previousUrl = availabilityShareImageUrlRef.current;
     if (previousUrl && typeof URL !== 'undefined' && URL.revokeObjectURL) {
       try {
@@ -4658,10 +4680,28 @@ const TeacherCalendarSection = ({
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wider text-violet-800">Режим отправки занятости</div>
                       <div className="mt-1 text-[11px] text-violet-700">
-                        Имена скрыты, на карточках показано только «Занятие». Неделя: {availabilityShareWeekLabel}
+                        {availabilityShareContentMode === 'free'
+                          ? 'В PNG — только свободные промежутки по дням, занятое время пропущено.'
+                          : 'Имена скрыты, на карточках показано только «Занятие».'} Неделя: {availabilityShareWeekLabel}
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
+                      <div role="group" aria-label="Что показать в картинке" className="inline-flex flex-wrap gap-1 rounded-lg border border-violet-200 bg-white p-1">
+                        {[
+                          { mode: 'free', label: 'Только свободное время' },
+                          { mode: 'all', label: 'Занято и свободно' },
+                        ].map(({ mode, label }) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => handleAvailabilityShareContentChange(mode)}
+                            aria-pressed={availabilityShareContentMode === mode}
+                            className={`rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition ${availabilityShareContentMode === mode ? 'bg-violet-600 text-white' : 'text-violet-700 hover:bg-violet-100'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                       {[4, 5].map((offsetWeeks) => (
                         <button
                           key={`availability-offset-${offsetWeeks}`}
@@ -4711,7 +4751,7 @@ const TeacherCalendarSection = ({
                     <div className="mt-3 overflow-hidden rounded-lg border border-violet-200 bg-white p-2">
                       <img
                         src={availabilityShareImage.url}
-                        alt={`Предпросмотр занятости на неделю ${availabilityShareWeekLabel}`}
+                        alt={`Предпросмотр ${availabilityShareContentMode === 'free' ? 'свободного времени' : 'занятости'} на неделю ${availabilityShareWeekLabel}`}
                         className="block max-h-[360px] w-full object-contain"
                       />
                     </div>
