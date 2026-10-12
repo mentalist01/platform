@@ -11803,7 +11803,7 @@ export const BoardCanvasSection = ({
   const [imageActionNotice, setImageActionNotice] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionBox, setSelectionBox] = useState(null);
-  const [summonNotice, setSummonNotice] = useState(false);
+  const summonNotice = Boolean(pages?.summonNotice);
   const [boardSynced, setBoardSynced] = useState(false);
   const [isBrushPaletteOpen, setIsBrushPaletteOpen] = useState(false);
   const [isShapePaletteOpen, setIsShapePaletteOpen] = useState(false);
@@ -13096,9 +13096,7 @@ export const BoardCanvasSection = ({
     offsetRef.current = navigation.offset;
     setZoom(nextZoom);
     setOffset(navigation.offset);
-    setSummonNotice(true);
-    const timer = setTimeout(() => setSummonNotice(false),3500);
-    return () => clearTimeout(timer);
+    return undefined;
   },[summonedNavigation,cancelViewportAnimation]);
 
   useEffect(() => {
