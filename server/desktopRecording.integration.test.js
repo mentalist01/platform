@@ -193,6 +193,9 @@ test('real platform routes isolate devices and expose one group recording to its
   assert.equal(await desired(), 'record', 'Forged room IDs cannot end another teacher recording');
   await sendRtc(teacherRtc, {type:'leave',roomId}, 'left');
   assert.equal(await desired(), 'record', 'Navigation retains reconnect grace');
+  await sendRtc(pupilRtc, {type:'leave',roomId,endRecording:true}, 'left');
+  assert.equal(await desired(), 'record', 'A pupil using an older client cannot end a recording while the teacher moves to Telemost');
+  await sendRtc(pupilRtc, {type:'join',roomId}, 'joined');
   await sendRtc(teacherRtc, {type:'join',roomId}, 'joined');
   await sendRtc(pupilRtc, {type:'leave',roomId,endRecording:true}, 'left');
   assert.equal(await desired(), 'record', 'Teacher can finish explaining after pupil leaves');

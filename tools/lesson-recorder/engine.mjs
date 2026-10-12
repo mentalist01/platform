@@ -174,6 +174,14 @@ export class RecorderEngine {
       // Refresh display metadata without changing the file name or lesson binding.
       if (local && typeof wanted.lessonName === 'string') local.lessonName = wanted.lessonName;
       if (local) local.lessonTopic=wanted.lessonTopic || null;
+      if (local?.status === 'recording' && wanted.desired === 'record'
+        && !local.fallbackMode && !local.pythonTheory && !local.mockReview
+        && ['platform', 'telemost'].includes(wanted.audioMode) && local.audioMode !== wanted.audioMode) {
+        // A validated transport handoff changes conversation audio, not the
+        // recording ID, file, scene or microphone. The audio check applies it
+        // only after verifying the actual OBS output owner.
+        local.audioMode = wanted.audioMode; this.save();
+      }
       if (wanted.desired === 'stop' && local && !local.fallbackMode && ['starting', 'recording', 'stopping'].includes(local.status)) await this.stop(local);
     }
     for (const wanted of remote.jobs) {

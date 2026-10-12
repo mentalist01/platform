@@ -28,6 +28,16 @@ function fixture(t) {
   return { engine, obs, state, root, job, reports, remote: (value) => { remote = value; }, offline: () => { offline = true; }, online: () => { offline = false; }, advance: (ms) => { now += ms; }, counts: () => [startCount, stopCount], foreign: () => { recording = true; name = 'foreign-output'; } };
 }
 
+test('a server transport handoff updates live conversation mode while keeping the same OBS output and recording ID', async t => {
+  const f=fixture(t);await f.engine.start({...f.job,audioMode:'platform'});
+  const capture=f.engine.active();f.remote({enabled:true,jobs:[{...f.job,audioMode:'telemost'}]});await f.engine.tick();
+  assert.equal(f.engine.active(),capture);assert.equal(capture.audioMode,'telemost');assert.deepEqual(f.counts(),[1,0]);
+  f.remote({enabled:true,jobs:[{...f.job,audioMode:'platform'}]});await f.engine.tick();
+  assert.equal(capture.audioMode,'platform');assert.deepEqual(f.counts(),[1,0]);
+  capture.fallbackMode=true;f.remote({enabled:true,jobs:[{...f.job,audioMode:'telemost'}]});await f.engine.tick();
+  assert.equal(capture.audioMode,'platform','Explicitly chosen fallback sources retain control');
+});
+
 test('Python pause and resume keep one active file, do not publish, and survive reconciliation', async t => {
   const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {} });
   const result = await f.engine.setPythonPaused('one', true);

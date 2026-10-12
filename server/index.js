@@ -22684,7 +22684,10 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
       if (!student) return null;
       if (hasActivePlatformLessonCall(student)) audioMode = 'platform';
       const activity = getTelemostLessonReplayEntry(student.id);
-      if (activity) { occurrence = activity.occurrence; cutoffAt = activity.autoFinishAtMs; }
+      if (activity) {
+        occurrence = activity.occurrence; cutoffAt = activity.autoFinishAtMs;
+        if (req.body?.audioMode === 'telemost') audioMode = 'telemost';
+      }
       else if (hasActivePlatformLessonCall(student)) {
         audioMode = 'platform';
         occurrence = await resolveCurrentLessonReplayOccurrence(student, req.auth, Date.now(), { preferActive: true, allowFallback: true });
@@ -43994,7 +43997,7 @@ const handleRtcMessage = (client, rawData, isBinary) => {
     // Use the authenticated socket's actual room, not a client-supplied target.
     const departingRoom = parseRtcRoomId(client.roomId);
     leaveRtcRoom(client);
-    if (payload?.endRecording === true && departingRoom?.targetType === 'student') {
+    if (payload?.endRecording === true && client.auth.role === 'teacher' && departingRoom?.targetType === 'student') {
       const remaining = rtcRooms.get(departingRoom.roomId);
       const teacherStillPresent = Array.from(remaining?.values() || []).some(peer =>
         peer.auth?.role === 'teacher' && peer.auth.id === departingRoom.teacherId);

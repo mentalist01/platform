@@ -19348,6 +19348,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user, active: callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive,
     studentId: lessonReplayStudentId,
     learningLessonId: isGroupLessonReplayActive ? activeLearningLesson.lessonId : '',
+    audioMode: isGroupLessonReplayActive ? undefined : lessonReplayMode,
   });
   useRecorderShare({ enabled: desktopRecorder.enabled && user.role === 'teacher', jobId: desktopRecorder.jobId, track: desktopShareTrack });
   const legacyRecordingActive = desktopRecorder.settings?.legacyRecordingEnabled === true && !desktopRecorder.enabled;

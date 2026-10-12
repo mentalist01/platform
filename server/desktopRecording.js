@@ -135,7 +135,9 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       const previous = jobs(teacherId).filter((job) => job.occurrence.key === occurrence.key).at(-1);
       if (previous) {
         if (previous.desired === 'record') {
-          previous.lastActiveAt = now(); previous.stopRequestedAt = 0; save();
+          previous.lastActiveAt = now(); previous.stopRequestedAt = 0;
+          if (['platform', 'telemost'].includes(audioMode)) previous.audioMode = audioMode;
+          save();
         }
         // A disconnected browser may have stopped a job before OBS ever
         // received it. The route verifies that the lesson is active again.

@@ -10,6 +10,18 @@ test('a renamed window with fresh sound does not report a lost conversation', ()
   assert.equal(result.status, 'receiving'); assert.equal(result.warning, '');
   assert.match(result.message, /название окна изменилось/);
 });
+
+test('returning from Telemost switches only owned conversation audio back to the platform',async()=>{
+  const f=fixture();f.setSelected('Яндекс Телемост');
+  await f.run([item('platform'),item('Яндекс Телемост')],{job:{...f.job,audioMode:'platform'}});
+  assert.equal(f.selected(),'platform');
+  const writes=f.events.filter(([type])=>type.startsWith('Set'));
+  assert.deepEqual(writes.map(([type])=>type),['SetInputSettings']);
+  assert.equal(writes[0][1].inputName,INPUTS.telemost);
+  const foreign=fixture();foreign.setSelected('Яндекс Телемост');foreign.setOwner('lesson-other');
+  await foreign.run([item('platform'),item('Яндекс Телемост')],{job:{...foreign.job,audioMode:'platform'}});
+  assert.equal(foreign.selected(),'Яндекс Телемост');
+});
 test('silence in an available conversation is not a source failure', () => {
   assert.equal(conversationAudioHealth({ selected: 'call', items: [item('call')], now }).warning, '');
 });

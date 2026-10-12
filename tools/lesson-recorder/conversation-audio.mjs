@@ -30,12 +30,15 @@ export async function checkConversationAudio({ obs, job, config, items, scene, n
   const { inputSettings } = await obs.call('GetInputSettings', { inputName: INPUT });
   let selected = inputSettings.window || '';
   const actual = enabled(items).find(item => item.itemValue === selected);
-  const target = selectTelemostWindow(items, selected);
   const wasTelemost = /телемост|telemost/i.test(selected);
   const defaultSource = selected === config.platform;
-  const followsTelemost = job?.status === 'recording' && job.audioMode === 'telemost' && !job.pythonTheory && !job.mockReview && !job.fallbackMode;
-  if (followsTelemost && scene !== 'IVAN100 — Перерыв'
-    && target && target !== selected && (defaultSource || wasTelemost && !actual)) {
+  const followsLesson = job?.status === 'recording' && !job.pythonTheory && !job.mockReview && !job.fallbackMode;
+  const followsTelemost = followsLesson && job.audioMode === 'telemost';
+  const followsPlatform = followsLesson && job.audioMode === 'platform';
+  const platformAvailable = enabled(items).some(item => item.itemValue === config.platform);
+  const target = followsPlatform ? (platformAvailable ? config.platform : '') : selectTelemostWindow(items, selected);
+  const switchRequested = followsTelemost && (defaultSource || wasTelemost && !actual) || followsPlatform && wasTelemost;
+  if (switchRequested && scene !== 'IVAN100 — Перерыв' && target && target !== selected) {
     await obs.assertCollection();
     const [recording, owner] = await Promise.all([
       obs.call('GetRecordStatus'),

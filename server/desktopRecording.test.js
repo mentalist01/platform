@@ -133,6 +133,19 @@ test('a lesson that never reached OBS can start again when its call resumes', (t
   assert.equal(resumed.audioMode, 'platform');
 });
 
+test('a live lesson transport handoff refreshes its audio mode without finishing or replacing the recording', t => {
+  const f=fixture(t),{device}=f.connect('teacher'),occurrence={key:'lesson',studentId:'pupil'};
+  const job=f.store.start('teacher',occurrence,'Lesson',f.now()+3600000,{audioMode:'platform'});
+  f.store.report(device,job.id,{status:'recording'});
+  f.store.requestStop('lesson');f.advance(1000);
+  const moved=f.store.start('teacher',occurrence,'Lesson',f.now()+3600000,{audioMode:'telemost'});
+  assert.equal(moved.id,job.id);assert.equal(moved.status,'recording');assert.equal(moved.desired,'record');assert.equal(moved.audioMode,'telemost');
+  assert.equal(f.store.poll(device,true,undefined,()=>true).jobs[0].audioMode,'telemost');
+  const returned=f.store.start('teacher',occurrence,'Lesson',f.now()+3600000,{audioMode:'platform'});
+  assert.equal(returned.id,job.id);assert.equal(returned.audioMode,'platform');
+  assert.equal(f.store.settings('teacher').jobs.length,1);
+});
+
 test('OBS keeps the same recording through a two-minute disconnect, then stops after five inactive minutes', (t) => {
   const f = fixture(t); const { device } = f.connect('teacher');
   const cutoff = f.now() + 3600000;
