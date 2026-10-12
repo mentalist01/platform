@@ -107,8 +107,13 @@ function PagedBoardWorkspace(props) {
     summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,...viewport},targetIds);
   },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId]);
   const acknowledgeNavigation=useCallback(command=>{
-    if(teacher || !command?.id || command.id!==lastCommand.current)return;
-    lastApplied.current=command.id;publish();
+    if(teacher || !command?.id || command.id!==lastCommand.current)return undefined;
+    // The canvas calls only after its new page has synced; acknowledge after paint.
+    let secondFrame=0;
+    const firstFrame=window.requestAnimationFrame(()=>{
+      secondFrame=window.requestAnimationFrame(()=>{lastApplied.current=command.id;publish();});
+    });
+    return()=>{window.cancelAnimationFrame(firstFrame);if(secondFrame)window.cancelAnimationFrame(secondFrame);};
   },[teacher,publish]);
   const summonMessage={queued:'Восстанавливаем связь — призыв отправится автоматически',waiting:group && !boardStudentId?'Призыв отправлен — ждём перемещения учеников':'Призыв отправлен — ждём перемещения ученика',sent:'Призыв отправлен',confirmed:group && !boardStudentId?'Ученики перемещены к вам':'Ученик перемещён к вам',expired:'Связь не восстановилась. Повторите призыв после подключения',unconfirmed:'Ученик пока не подтвердил призыв. Проверьте, открыта ли у него доска'}[summonState.phase];
   const page=pages.find(p=>p.id===pageId)||pages[0],index=pages.findIndex(p=>p.id===pageId);

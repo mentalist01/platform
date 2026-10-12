@@ -13103,14 +13103,7 @@ export const BoardCanvasSection = ({
 
   useEffect(() => {
     if (!summonedNavigation || !boardSynced || providerRef.current?.roomname !== liveRoomId) return undefined;
-    let secondFrame = 0;
-    const firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => acknowledgeBoardNavigation?.(summonedNavigation));
-    });
-    return () => {
-      window.cancelAnimationFrame(firstFrame);
-      if (secondFrame) window.cancelAnimationFrame(secondFrame);
-    };
+    return acknowledgeBoardNavigation?.(summonedNavigation);
   },[summonedNavigation,acknowledgeBoardNavigation,boardSynced,liveRoomId]);
 
   const animateViewportToOffset = useCallback((targetOffset, durationMs = 300) => {
