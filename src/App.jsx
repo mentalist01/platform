@@ -11803,7 +11803,7 @@ export const BoardCanvasSection = ({
   const [imageActionNotice, setImageActionNotice] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionBox, setSelectionBox] = useState(null);
-  const summonNotice = Boolean(pages?.summonNotice);
+  const summonNotice = pages?.summonNotice;
   const [boardSynced, setBoardSynced] = useState(false);
   const [isBrushPaletteOpen, setIsBrushPaletteOpen] = useState(false);
   const [isShapePaletteOpen, setIsShapePaletteOpen] = useState(false);
@@ -12376,7 +12376,6 @@ export const BoardCanvasSection = ({
     setImageResizePreview(null);
     setIsImageCropMenuOpen(false);
     setIsImageMoreOpen(false);
-    setSummonNotice(false);
   }, []);
 
   const commitBoardData = useCallback((nextItems, nextEstimatedBytes) => {
@@ -15747,7 +15746,7 @@ export const BoardCanvasSection = ({
       if (event?.status) setStatus(event.status);
     };
     const handleSync = (isSynced) => {
-      setBoardSynced(Boolean(isSynced));
+      setBoardSynced(isSynced);
       if (!isSynced || !lessonReplayActiveRef.current) return;
       // Include the merged scene after reconnect even if the local offline
       // changes have already been flushed. An unchanged checkpoint is a no-op.
@@ -17469,7 +17468,7 @@ export const BoardCanvasSection = ({
       </div>
     );
   };
-  const showBottomSummonButton = !isSandbox && isTeacher && typeof pages?.summon === 'function' && (!embedded || isFullscreen || showEmbeddedSummonButton);
+  const showBottomSummonButton = !isSandbox && isTeacher && pages?.summon && (!embedded || isFullscreen || showEmbeddedSummonButton);
   const showBoardLoading = Boolean(!isSandbox && roomId && status === 'connecting');
 
   const saveModal = saveModalOpen && !isSandbox ? (
