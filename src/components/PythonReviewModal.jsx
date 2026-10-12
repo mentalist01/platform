@@ -30,7 +30,7 @@ import {
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
-import { api } from '../services/api';
+import { api,getStoredAuthToken } from '../services/api';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
 import PythonTestResultCard from './PythonTestResultCard';
 import { Button } from './ui';
@@ -261,6 +261,9 @@ const PythonReviewModal = ({
   isGoogleDocEmbedUrl,
   buildGoogleDocFullUrl,
   codeSyncRoomId = '',
+  groupMode = false,
+  groupName = '',
+  onQuestionChange,
   explanationBoard = null,
   homeworkLessonBasketItems = [],
   onAddToHomeworkLessonBasket,
@@ -593,7 +596,7 @@ const PythonReviewModal = ({
 
   const getFallbackCodeForQuestion = (question, questionId, serverStarterCode = '') => {
     const key = String(questionId ?? '').trim();
-    const solvedCode = solvedCodeById?.[key];
+    const solvedCode = groupMode?null:solvedCodeById?.[key];
     if (typeof solvedCode === 'string' && solvedCode.length > 0) return normalizeCodeText(solvedCode);
     if (typeof serverStarterCode === 'string' && serverStarterCode.length > 0) return normalizeCodeText(serverStarterCode);
     if (typeof question?.starterCode === 'string') return normalizeCodeText(question.starterCode);
@@ -618,11 +621,12 @@ const PythonReviewModal = ({
   };
 
   const loadQuestionCode = async (question, questionId, force = false) => {
-    if (!studentId || !task?.number) return;
+    if ((!studentId&&!groupMode) || !task?.number) return;
     const key = String(questionId ?? '').trim();
     if (!key) return;
     if (questionCodeLoadingByIdRef.current?.[key]) return;
     const cached = getQuestionCodeEntry(key);
+    if(groupMode){if(!cached.loaded)setQuestionCodeEntry(key,{code:getFallbackCodeForQuestion(question,key),input:'',updatedAt:''});return;}
     if (cached.loaded && !force) {
       const hasSavedSnapshot = Boolean(String(cached.updatedAt || '').trim());
       const isDirty = Boolean(questionCodeDirtyByIdRef.current?.[key]);
@@ -717,6 +721,7 @@ const PythonReviewModal = ({
   };
 
   const saveQuestionCode = async (questionId, options = {}) => {
+    if(groupMode){setQuestionCodeDirty(String(questionId),false);return true;}
     if (!studentId || !task?.number) return false;
     const key = String(questionId ?? '').trim();
     if (!key) return false;
@@ -790,7 +795,7 @@ const PythonReviewModal = ({
 
   const scheduleQuestionSave = (questionId) => {
     const key = String(questionId ?? '').trim();
-    if (!key || !studentId || !task?.number) return;
+    if (!key || (!studentId&&!groupMode) || !task?.number) return;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -1000,7 +1005,7 @@ const PythonReviewModal = ({
 
     setRealtimeStatus('connecting');
     const doc = new Y.Doc();
-    const provider = new WebsocketProvider(collabWsUrl, collabRoomId, doc);
+    const provider = new WebsocketProvider(collabWsUrl, collabRoomId, doc, {params:{_auth:getStoredAuthToken()||''},disableBc:true});
     const ytext = doc.getText('monaco');
     const stateMap = doc.getMap('pythonState');
     const runMap = doc.getMap('pythonRun');
@@ -1018,7 +1023,7 @@ const PythonReviewModal = ({
     let seedTimer = null;
     const normalizeDocCodeIfNeeded = () => {
       const rawCode = ytext.toString();
-      const normalizedCode = collapseDuplicatedCode(rawCode);
+      const normalizedCode = groupMode?rawCode:collapseDuplicatedCode(rawCode);
       if (normalizedCode !== rawCode) {
         doc.transact(() => {
           if (ytext.length > 0) ytext.delete(0, ytext.length);
@@ -1039,7 +1044,7 @@ const PythonReviewModal = ({
         return;
       }
       const hasPeers = getAwarenessPeerCount(provider) > 0;
-      if (hasPeers) {
+      if (hasPeers&&!groupMode) {
         return;
       }
       const shouldSeedCode = Boolean(seedCode);
@@ -1082,7 +1087,7 @@ const PythonReviewModal = ({
     };
     const handleCodeChange = (event) => {
       const rawCode = ytext.toString();
-      const nextCode = collapseDuplicatedCode(rawCode);
+      const nextCode = groupMode?rawCode:collapseDuplicatedCode(rawCode);
       if (nextCode !== rawCode) {
         doc.transact(() => {
           if (ytext.length > 0) ytext.delete(0, ytext.length);
@@ -1162,6 +1167,7 @@ const PythonReviewModal = ({
     };
   }, [
     collabRoomId,
+    groupMode,
     editorReady,
     editorMountVersion,
     collabWsUrl,
@@ -1175,13 +1181,14 @@ const PythonReviewModal = ({
   ]);
 
   useEffect(() => {
-    if (!studentId || !task?.number) return;
+    if ((!studentId&&!groupMode) || !task?.number) return;
     flushScheduledQuestionSave();
     const currentQuestion = questions[currentIndex];
     const currentId = String(currentQuestion?.id ?? '').trim();
     if (!currentId) return;
     loadQuestionCode(currentQuestion, currentId).catch(() => {});
-  }, [studentId, task?.number, questions, currentIndex, solvedCodeById]);
+  }, [studentId, groupMode, task?.number, questions, currentIndex, solvedCodeById]);
+  useEffect(()=>{if(questions.length)onQuestionChange?.(currentIndex);},[currentIndex,questions.length,onQuestionChange]);
 
   useEffect(() => {
     setEditorReady(false);
@@ -1815,6 +1822,7 @@ const PythonReviewModal = ({
             }`}
           >
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
+          {groupMode&&<p role="status" className="text-sm font-semibold text-violet-600">{groupName} · совместное решение</p>}
           <div className={`python-runtime-header-card rounded-[22px] border ${
             isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
           } ${elevatedCardClass}`}>
@@ -1842,7 +1850,7 @@ const PythonReviewModal = ({
                   </p>
                 </div>
               </div>
-              <div className={`python-runtime-progress-card rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
+              {!groupMode&&<div className={`python-runtime-progress-card rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
                 <div className="flex items-center justify-between gap-2.5">
                   <div className="python-runtime-progress-summary flex items-center gap-1.5">
                     <span className={`python-runtime-progress-label text-[10px] font-semibold ${mutedTextClass}`}>Прогресс темы</span>
@@ -1865,7 +1873,7 @@ const PythonReviewModal = ({
                     style={{ width: `${Math.max(0, Math.min(100, currentMastery))}%` }}
                   />
                 </div>
-              </div>
+              </div>}
               <div className={`python-runtime-overview-card flex items-center justify-center gap-2 rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
                 <span className={`text-[11px] font-semibold ${mutedTextClass}`}>Задача</span>
                 <span className={`text-sm font-black ${primaryTextClass}`}>{`${currentQuestionDisplayIndex} / ${totalVisibleQuestions}`}</span>

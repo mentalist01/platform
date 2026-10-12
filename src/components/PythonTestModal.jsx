@@ -28,7 +28,7 @@ import {
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
-import { api } from '../services/api';
+import { api,getStoredAuthToken } from '../services/api';
 import { getPythonReviewSolvedIds, pythonReviewDraftKey } from '../utils/pythonTaskPractice';
 import useQuestionSolveTimer from '../hooks/useQuestionSolveTimer';
 import { buildDownloadUrl } from '../utils/downloadUrl';
@@ -272,6 +272,10 @@ const PythonTestModal = ({
   normalizeXpTotal,
   buildGoogleDocFullUrl,
   codeSyncRoomId = '',
+  groupMode = false,
+  groupName = '',
+  userName,
+  followQuestionIndex,
   explanationBoard = null,
   reviewMode = false,
   reviewCycle = '',
@@ -358,7 +362,7 @@ const PythonTestModal = ({
   const subsectionModel = useMemo(() => buildPythonSubsectionModel(taskEntry, PYTHON_LEVEL_ID), [taskEntry, PYTHON_LEVEL_ID]);
   const collabBaseRoomId = String(codeSyncRoomId || '').trim();
   const collabWsUrl = useMemo(() => getCollabWsUrl(), []);
-  const localCollabName = useMemo(() => 'Ученик', []);
+  const localCollabName = useMemo(() => userName||'Ученик', [userName]);
   const localCollabColor = useMemo(
     () => pickCollabColor(`student-${studentId || 'anon'}`, '#0ea5e9'),
     [studentId]
@@ -649,7 +653,7 @@ const PythonTestModal = ({
 
   const getFallbackCodeForQuestion = (question, questionId, serverStarterCode = '') => {
     const key = String(questionId ?? '').trim();
-    const solvedCode = solvedCodeById?.[key];
+    const solvedCode = groupMode?null:solvedCodeById?.[key];
     if (!reviewMode && typeof solvedCode === 'string' && solvedCode.length > 0) return normalizeCodeText(solvedCode);
     if (typeof serverStarterCode === 'string' && serverStarterCode.length > 0) return normalizeCodeText(serverStarterCode);
     if (typeof question?.starterCode === 'string') return normalizeCodeText(question.starterCode);
@@ -674,11 +678,12 @@ const PythonTestModal = ({
   };
 
   const loadQuestionCode = async (question, questionId, force = false) => {
-    if (!studentId || !task?.number) return;
+    if ((!studentId&&!groupMode) || !task?.number) return;
     const key = String(questionId ?? '').trim();
     if (!key) return;
     if (questionCodeLoadingByIdRef.current?.[key]) return;
     const cached = getQuestionCodeEntry(key);
+    if(groupMode){if(!cached.loaded)setQuestionCodeEntry(key,{code:getFallbackCodeForQuestion(question,key),input:'',updatedAt:''});return;}
     if (reviewMode) {
       if (cached.loaded && !force) return;
       let draft = null;
@@ -786,6 +791,7 @@ const PythonTestModal = ({
   };
 
   const saveQuestionCode = async (questionId, options = {}) => {
+    if(groupMode){setQuestionCodeDirty(String(questionId),false);return true;}
     if (!studentId || !task?.number) return false;
     const key = String(questionId ?? '').trim();
     if (!key) return false;
@@ -1072,6 +1078,8 @@ const PythonTestModal = ({
     }
   }, [currentIndex, questions.length, selectedSubsectionId, subsectionModel]);
 
+  useEffect(()=>{if(groupMode&&Number.isInteger(followQuestionIndex)&&questions.length)setCurrentIndex(Math.max(0,Math.min(followQuestionIndex,questions.length-1)));},[groupMode,followQuestionIndex,questions.length]);
+
   useEffect(() => {
     onSubsectionChange?.(selectedSubsectionId);
   }, [onSubsectionChange, selectedSubsectionId]);
@@ -1158,7 +1166,7 @@ const PythonTestModal = ({
 
     setRealtimeStatus('connecting');
     const doc = new Y.Doc();
-    const provider = new WebsocketProvider(collabWsUrl, collabRoomId, doc);
+    const provider = new WebsocketProvider(collabWsUrl, collabRoomId, doc, {params:{_auth:getStoredAuthToken()||''},disableBc:true});
     const ytext = doc.getText('monaco');
     const stateMap = doc.getMap('pythonState');
     const runMap = doc.getMap('pythonRun');
@@ -1176,7 +1184,7 @@ const PythonTestModal = ({
     let seedTimer = null;
     const normalizeDocCodeIfNeeded = () => {
       const rawCode = ytext.toString();
-      const normalizedCode = collapseDuplicatedCode(rawCode);
+      const normalizedCode = groupMode?rawCode:collapseDuplicatedCode(rawCode);
       if (normalizedCode !== rawCode) {
         doc.transact(() => {
           if (ytext.length > 0) ytext.delete(0, ytext.length);
@@ -1240,7 +1248,7 @@ const PythonTestModal = ({
     };
     const handleCodeChange = (event) => {
       const rawCode = ytext.toString();
-      const nextCode = collapseDuplicatedCode(rawCode);
+      const nextCode = groupMode?rawCode:collapseDuplicatedCode(rawCode);
       if (nextCode !== rawCode) {
         doc.transact(() => {
           if (ytext.length > 0) ytext.delete(0, ytext.length);
@@ -1321,6 +1329,7 @@ const PythonTestModal = ({
     };
   }, [
     collabRoomId,
+    groupMode,
     editorReady,
     editorMountVersion,
     collabWsUrl,
@@ -2073,6 +2082,7 @@ const PythonTestModal = ({
             }`}
           >
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
+          {groupMode&&<p role="status" className="text-sm font-semibold text-violet-600">{groupName} · совместное решение</p>}
           <div className={`python-runtime-header-card rounded-[22px] border ${
             isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
           } ${elevatedCardClass}`}>

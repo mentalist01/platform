@@ -74,8 +74,8 @@ export const normalizeBoardAssetEntry = (value) => {
   const hash = String(value.hash || '').trim().toLowerCase();
   const sizeBytes = Math.max(0, Math.floor(Number(value.sizeBytes) || 0));
   const createdAt = String(value.createdAt || '').trim();
-  if (!id || (!studentId && !lessonId) || !storageName || !getBoardAssetExtension(mimeType)) return null;
-  if (lessonId && (!groupId || !teacherId)) return null;
+  if (!id || (!studentId && !lessonId && !groupId) || !storageName || !getBoardAssetExtension(mimeType)) return null;
+  if ((lessonId || groupId) && (!groupId || !teacherId)) return null;
   if (!storageName.startsWith('board-asset-')) return null;
   return {
     id,
@@ -86,7 +86,7 @@ export const normalizeBoardAssetEntry = (value) => {
     hash: /^[a-f0-9]{64}$/.test(hash) ? hash : '',
     sizeBytes,
     createdAt,
-    ...(lessonId ? { groupId, lessonId } : {}),
+    ...(groupId ? { groupId, ...(lessonId?{lessonId}:{}) } : {}),
   };
 };
 

@@ -294,6 +294,7 @@ import {
 import {
   applyLearningAttendanceEvent,
   authorizeLearningCollabUpgrade,
+  canAccessPythonGroup,
   authorizeLearningRealtimeRoom,
   buildLearningAttendanceKey,
   buildLearningLessonRoomNames,
@@ -21893,6 +21894,11 @@ const handleUploadRequest = (req, res) => {
   let boardAssetGroup = null;
   const boardAsset = boardAssetGrants.find((entry) => {
     const lessonId = String(entry?.lessonId || '').trim();
+    if(!lessonId&&entry.groupId&&LEARNING_GROUPS_ENABLED){
+      const group=getLearningGroupById(entry.groupId);
+      if(group&&entry.teacherId===group.teacherId&&canAccessPythonGroup(req.auth,group)){boardAssetGroup=group;return true;}
+      return false;
+    }
     if (lessonId && LEARNING_GROUPS_ENABLED) {
       const lesson = readLearningLessonSessionsDb().find((item) => item.id === lessonId);
       const group = lesson ? getLearningGroupById(lesson.groupId) : null;
@@ -41214,7 +41220,12 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
     let learningLesson = null;
     let learningGroup = null;
     let student = null;
-    if (requestedLessonId) {
+    const requestedRoom=String(req.body?.roomId||'');
+    const pythonGroupAccess=!requestedLessonId&&requestedRoom&&LEARNING_GROUPS_ENABLED?authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(requestedRoom)}`,auth:req.auth,groups:readLearningGroupsDb()}):null;
+    if(pythonGroupAccess?.target?.targetType==='group'&&pythonGroupAccess.target.kind==='python-board'){
+      if(!pythonGroupAccess.allowed||pythonGroupAccess.readOnly||!isKnownBoardPage(pythonGroupAccess))return forbid(res);
+      learningGroup=pythonGroupAccess.target.group;
+    } else if (requestedLessonId) {
       if (!LEARNING_GROUPS_ENABLED) return res.status(404).json({ error: 'Занятие не найдено' });
       learningLesson = readLearningLessonSessionsDb().find((entry) => entry.id === requestedLessonId) || null;
       learningGroup = learningLesson ? getLearningGroupById(learningLesson.groupId) : null;
@@ -41255,17 +41266,17 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
     let entries = readBoardAssetsDb();
     let entry = entries.find((item) => (
       item.hash === hash
-      && (learningLesson
-        ? item.lessonId === learningLesson.id
-        : (!item.lessonId && item.studentId === student.id))
+      && (learningGroup
+        ? (learningLesson?item.lessonId === learningLesson.id:(!item.lessonId&&item.groupId===learningGroup.id))
+        : (!item.lessonId && !item.groupId && item.studentId === student.id))
     )) || null;
     let created = false;
     if (!entry) {
       const countedStorageNames = new Set();
       const currentTotal = entries.reduce((sum, item) => {
-        const sameScope = learningLesson
-          ? item.lessonId === learningLesson.id
-          : (!item.lessonId && item.studentId === student.id);
+        const sameScope = learningGroup
+          ? (learningLesson?item.lessonId === learningLesson.id:(!item.lessonId&&item.groupId===learningGroup.id))
+          : (!item.lessonId && !item.groupId && item.studentId === student.id);
         if (!sameScope || countedStorageNames.has(item.storageName)) return sum;
         countedStorageNames.add(item.storageName);
         return sum + Math.max(0, Number(item.sizeBytes) || 0);
@@ -41284,9 +41295,9 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
       const createdAt = new Date().toISOString();
       entry = normalizeBoardAssetEntry({
         id: crypto.randomUUID(),
-        studentId: learningLesson ? '' : student.id,
+        studentId: learningGroup ? '' : student.id,
         teacherId: normalizeTeacherId(learningGroup?.teacherId || student?.teacherId),
-        ...(learningLesson ? { groupId: learningGroup.id, lessonId: learningLesson.id } : {}),
+        ...(learningGroup ? {groupId:learningGroup.id,...(learningLesson?{lessonId:learningLesson.id}:{})} : {}),
         storageName,
         mimeType,
         hash,

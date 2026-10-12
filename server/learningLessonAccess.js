@@ -1,5 +1,6 @@
 import {parseBoardPageRoom} from '../src/utils/boardPages.js';
 import {pythonExplanationBoardRoom} from '../src/utils/pythonExplanationBoard.js';
+import {pythonGroupBoardRoom,pythonGroupCodeBase} from '../src/utils/pythonGroupWorkspace.js';
 
 const MAX_ENTITY_ID_LENGTH = 160;
 const MAX_ROOM_ID_LENGTH = 760;
@@ -359,7 +360,21 @@ export const hasActiveLearningGroupWorkspace = (studentIdValue, teacherIdValue, 
   ));
 };
 
-export const resolveLearningRealtimeRoomTarget = ({ roomId, sessions, students } = {}) => {
+export const canAccessPythonGroup = (auth,group,students) => {
+  if(!auth?.id||!group?.id||group.deletedAt)return false;
+  if(auth.role==='admin')return true;
+  if(auth.role==='teacher')return auth.id===group.teacherId;
+  if(students&&!normalizeCollection(students,'students').some(s=>s.id===auth.id&&!s.deletedAt&&s.teacherId===group.teacherId))return false;
+  return auth.role==='student'&&(!auth.teacherId||auth.teacherId===group.teacherId)
+    &&(group.members||[]).some(m=>(typeof m==='string'?m:m.studentId||m.id)===auth.id&&isActiveLearningGroupMember(m));
+};
+export const resolveLearningRealtimeRoomTarget = ({ roomId, sessions, students, groups } = {}) => {
+  for(const group of normalizeCollection(groups,'groups')) {
+    const board=pythonGroupBoardRoom(group.id),prefix=`py-collab:${pythonGroupCodeBase(group.id)}:`;
+    if(board&&roomId===board)return {targetType:'group',kind:'python-board',groupId:group.id,teacherId:group.teacherId,group,roomId};
+    if(pythonGroupCodeBase(group.id)&&roomId.startsWith(prefix)&&/^\d+:[a-zA-Z0-9._-]+:[a-zA-Z0-9._-]+$/.test(roomId.slice(prefix.length)))
+      return {targetType:'group',kind:'python',groupId:group.id,teacherId:group.teacherId,group,roomId};
+  }
   const parsedLessonTarget = parseLearningLessonRoomTarget(roomId);
   if (parsedLessonTarget) {
     const session = normalizeCollection(sessions, 'sessions').find((entry) => (
@@ -395,6 +410,7 @@ export const authorizeLearningRealtimeRoom = ({
     roomId: normalizedRoomId,
     sessions,
     students,
+    groups,
   });
   if (!target) {
     const additional = typeof authorizeAdditionalRoom === 'function'
@@ -461,7 +477,7 @@ export const authorizeLearningRealtimeRoom = ({
     return { allowed: false, reason: 'group-workspace-required', target };
   }
 
-  const baseAllowed = target.targetType === 'lesson'
+  const baseAllowed = target.targetType === 'group' ? canAccessPythonGroup(auth,target.group,students) : target.targetType === 'lesson'
     ? canAccessLearningLessonSession(auth, target.session, { groups, attendanceRecords })
     : canAccessLegacyLearningRoom(auth, target);
   const role = normalizeText(auth.role, 40).toLowerCase();
@@ -476,7 +492,7 @@ export const authorizeLearningRealtimeRoom = ({
     reason: allowed ? '' : 'forbidden',
     target,
     windowState,
-    readOnly: target.targetType === 'lesson' && (
+    readOnly: (target.targetType === 'group'&&target.group.status==='completed') || target.targetType === 'lesson' && (
       windowState.past
       || (windowState.notStarted && !['teacher', 'admin'].includes(
         normalizeText(auth.role, 40).toLowerCase()
@@ -522,7 +538,7 @@ export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) 
   const role = normalizeText(options?.auth?.role, 40).toLowerCase();
   const readOnly = Boolean(
     access.allowed
-    && ((pageRoom?.book && !['teacher','admin'].includes(role))
+    && (access.readOnly || (pageRoom?.book && !['teacher','admin'].includes(role))
     || (access.target?.targetType === 'lesson' && (
       access.readOnly
       || normalizeText(access.target?.session?.status, 40) === 'completed'

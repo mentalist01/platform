@@ -5,7 +5,7 @@ import { getStoredAuthToken } from '../services/api.js';
 import { boardPageBookRoom } from '../utils/boardPages.js';
 import { livePythonExplanation, PYTHON_EXPLANATION_CONTROL } from '../utils/pythonExplanationBoard.js';
 
-export default function usePythonExplanationBoard({ roomId, teacherId, studentId, userId, role }) {
+export default function usePythonExplanationBoard({ roomId, teacherId, studentId, userId, role, groupId='' }) {
   const [openedRoom, setOpenedRoom] = useState('');
   const [connectedRoom, setConnectedRoom] = useState('');
   const [error, setError] = useState('');
@@ -28,7 +28,7 @@ export default function usePythonExplanationBoard({ roomId, teacherId, studentId
         setConnectedRoom(provider.wsconnected && provider.synced ? roomId : '');
         if (teacher || !provider.synced) return;
         const command = livePythonExplanation(control.get(PYTHON_EXPLANATION_CONTROL),
-          Array.from(provider.awareness.getStates().values()), teacherId, studentId);
+          Array.from(provider.awareness.getStates().values()), teacherId, studentId, groupId);
         if (!command || handled.current === command.id) return;
         handled.current = command.id; setOpenedRoom(command.open ? roomId : '');
       };
@@ -49,17 +49,17 @@ export default function usePythonExplanationBoard({ roomId, teacherId, studentId
     };
     void start().catch(failure => { if (!disposed) setError(failure.message || 'Не удалось подключить доску'); });
     return () => { disposed = true; cleanup?.(); };
-  }, [roomId, teacher, teacherId, studentId]);
+  }, [roomId, teacher, teacherId, studentId, groupId]);
   const change = useCallback(next => {
     const live = runtime.current;
     if (next && !connected) return;
     if (teacher && live?.roomId === roomId && live.provider.synced) {
-      const command = { id: crypto.randomUUID(), open: next, teacherId, studentId };
+      const command = { id: crypto.randomUUID(), open: next, teacherId, studentId, ...(groupId?{groupId}:{}) };
       live.control.set(PYTHON_EXPLANATION_CONTROL, command);
       live.provider.awareness.setLocalStateField('pythonExplanation', { id: command.id, open: next, userId });
     }
     setOpenedRoom(next ? roomId : '');
-  }, [connected, roomId, teacher, teacherId, studentId, userId]);
+  }, [connected, roomId, teacher, teacherId, studentId, userId, groupId]);
   const openBoard = useCallback(() => change(true), [change]);
   const closeBoard = useCallback(() => change(false), [change]);
   return { roomId, open: Boolean(roomId && openedRoom === roomId), connected, error, openBoard, closeBoard };

@@ -3024,6 +3024,7 @@ export const api = {
     form.append('file', file);
     if (target.studentId) form.append('studentId', target.studentId);
     if (target.lessonId) form.append('lessonId', target.lessonId);
+    if(options.roomId)form.append('roomId',String(options.roomId));
     const res = await apiFetch('/api/board-assets', { method: 'POST', body: form });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);

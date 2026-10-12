@@ -18745,7 +18745,7 @@ export const BoardCanvasSection = ({
         }
       }}
     >
-      {!isSandbox && isTeacher && !isGroupLesson && !activeStudentId && (
+      {!isSandbox && isTeacher && !isGroupLesson && !activeStudentId && !pages?.liveRoomId && (
         <div className="mb-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
           <div>
@@ -26906,7 +26906,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               ExplanationBoardCanvas={BoardCanvasSection}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
-              onSelectStudent={handleSelectStudent}
+              onSelectStudent={setActiveStudentId}
+              groups={user.role==='teacher'?lessonTargetGroups:undefined}
+              initialGroupId={activeLearningLesson?.groupId|| (user.role==='student'?studentLessonWorkspace.group?.id:'')}
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}
