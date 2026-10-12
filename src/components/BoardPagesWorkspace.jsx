@@ -6,7 +6,6 @@ import {getStoredAuthToken} from '../services/api.js';
 import {MAX_BOARD_PAGES,boardPageBookRoom,boardPageRoom,boardPagesList,boardPageSummonTarget,boardPageInitialState,deleteBoardPage,boardPageAfterChange} from '../utils/boardPages.js';
 import './BoardPagesWorkspace.css';
 import BoardSelectionClipboard from './BoardSelectionClipboard.jsx';
-import {createBoardSummonDelivery} from '../utils/boardSummonDelivery.js';
 
 const id = () => crypto.randomUUID();
 export default function BoardPagesWorkspace(props) {
@@ -43,7 +42,7 @@ function PagedBoardWorkspace(props) {
     if (!bookRoom) return undefined;
     let disposed=false,cleanup;
     const start=async()=>{
-      const {Y,WebsocketProvider}=await loadYjsRuntime();if(disposed)return;
+      const [{Y,WebsocketProvider},{createBoardSummonDelivery}]=await Promise.all([loadYjsRuntime(),import('../utils/boardSummonDelivery.js')]);if(disposed)return;
       const doc=new Y.Doc(),provider=new WebsocketProvider(getCollabWsUrl(),bookRoom,doc,{params:{_auth:getStoredAuthToken() || ''},disableBc:true});
       const map=doc.getMap('pages'),control=doc.getMap('pageControl');
       runtime.current={doc,provider,map,control};
