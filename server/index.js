@@ -1,6 +1,7 @@
 import { calculateLessonPrice, isDurationPricing, lessonRateAt, normalizePricingHistory, recordPricingChange, matchLessonPaymentTotal } from '../src/utils/lessonPricing.js';
 import { registerWeeklySchedules, applyWeeklySchedule, weeklyReservations } from './weeklySchedule.js';
 import { deduplicateGroupScheduleEntries, deduplicateGroupLessonSessions } from './groupScheduleDuplicates.js';
+import { createStudentGroupPaymentEntryResolver } from './studentScheduleGroupPayments.js';
 import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { weeklyScheduleLabel } from '../src/utils/weeklySchedule.js';
 import { PYTHON_RUNNER_SCRIPT } from './pythonRunnerSource.js';
@@ -16716,11 +16717,15 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   const studentId = String(student?.id || '').trim();
   const teacherId = normalizeTeacherId(student?.teacherId);
   materializeAvailabilitySchedules();
+  const groupEntries = availabilityCalendarEntries(teacherId, true, true);
+  const resolveGroupPaymentEntry = createStudentGroupPaymentEntryResolver(
+    groupEntries, studentId, getGroupEntryStudentSourceIds
+  );
   const rawBaseSchedule = deduplicateGroupScheduleEntries([
     ...(Array.isArray(schedule) ? schedule : []),
-    ...availabilityCalendarEntries(teacherId, true, true)
+    ...groupEntries
       .map(entry => projectGoogleCalendarEntryForPaymentStudent(entry, student)).filter(Boolean),
-  ]);
+  ].map(resolveGroupPaymentEntry));
   if (!studentId || !teacherId) return rawBaseSchedule;
 
   try {
@@ -16743,7 +16748,8 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   try {
     googleEntries = (await fetchTeacherGoogleCalendarEntries(teacherId))
       .map((entry) => projectGoogleCalendarEntryForPaymentStudent(entry, student))
-      .filter(Boolean);
+      .filter(Boolean)
+      .map(resolveGroupPaymentEntry);
     googleEntries = filterTeacherCalendarCancelledSchedule(teacherId, googleEntries, teacherMarks);
   } catch {
     googleEntries = [];
