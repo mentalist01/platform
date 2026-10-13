@@ -9,6 +9,16 @@ export function timelineLayout(clips, scale, minimumWidth = 40, gap = 4) {
     time += duration; x += width + gap; return item;
   });
 }
+const minZoom=.01,maxZoom=30;
+export const zoomScale = value => minZoom*(maxZoom/minZoom)**(clamp(Number(value),0,100)/100);
+export const zoomPosition = scale => clamp(100*Math.log(clamp(scale,minZoom,maxZoom)/minZoom)/Math.log(maxZoom/minZoom),0,100);
+export const zoomLayout = (clips,scale) => timelineLayout(clips,scale,clamp(scale*20,.5,40),clamp(scale/2,.1,4));
+export function fitTimelineScale(clips,width){
+  if(!clips.length)return minZoom;
+  let low=minZoom,high=maxZoom;
+  for(let i=0;i<40;i++){const mid=(low+high)/2,last=zoomLayout(clips,mid).at(-1);if(last.x+last.width<=Math.max(0,width))low=mid;else high=mid;}
+  return low;
+}
 export function clipAtTime(layout, seconds) {
   return layout.find(item => seconds >= item.time && seconds < item.time + item.duration) || layout.at(-1);
 }

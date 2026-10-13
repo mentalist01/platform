@@ -1,7 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit, remapPlayhead } from './python-editor-time.mjs';
+import { timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit, remapPlayhead,zoomScale,zoomPosition,zoomLayout,fitTimelineScale } from './python-editor-time.mjs';
 const clips=[{id:'long',start:20,end:30},{id:'short',start:0,end:.2},{id:'last',start:8,end:13}];
+
+test('lower zoom range fits long lessons and hundreds of short clips while retaining cursor mapping',()=>{
+  assert.equal(zoomScale(0),.01);assert.equal(zoomScale(100),30);assert.equal(zoomScale(-1),.01);
+  for(const position of [0,10,30,70,100])assert.ok(Math.abs(zoomPosition(zoomScale(position))-position)<1e-9);
+  assert.ok(zoomScale(25)<zoomScale(50)&&zoomScale(50)<zoomScale(75));
+  for(const footage of [Array.from({length:61},(_,id)=>({id,start:id*48,end:id*48+48})),Array.from({length:300},(_,id)=>({id,start:id,end:id+.04}))]){
+    for(const width of [320,970,1800]){
+      const scale=fitTimelineScale(footage,width),layout=zoomLayout(footage,scale),last=layout.at(-1);
+      assert.ok(last.x+last.width<=width+.001,`${footage.length} clips should fit ${width}px`);
+      assert.ok(zoomLayout(footage,Math.min(30,scale+.001)).at(-1).x+zoomLayout(footage,Math.min(30,scale+.001)).at(-1).width>width||scale>=29.99);
+      const time=last.time/2;assert.ok(Math.abs(pixelToTime(layout,timeToPixel(layout,time))-time)<1e-8);
+    }
+  }
+  assert.equal(fitTimelineScale([],500),.01);
+});
 
 test('editing retains the current source frame when reordering, trimming, splitting or undoing a cut',()=>{
   const original=[{id:'one',takeNumber:1,start:10,end:20},{id:'two',takeNumber:2,start:40,end:50}];
