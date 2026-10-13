@@ -68,3 +68,10 @@ test('default theory uses the Python topic title instead of a technical subsecti
   });
   assert.equal(choice.subsectionTitle, 'Цикл for');
 });
+test('Python homework theory keeps chapter metadata for a private video and leaves other formats alone', () => {
+  const chapters = [{time:0,title:'Начало'},{time:135,title:'range()'}];
+  const entry = {pythonTheoryBySubsection:{__default__:{rutube:{type:'rutube',content:'https://rutube.ru/video/private/abc123/?p=private_key',chapters}}}};
+  const details = getPythonHomeworkTheoryDetails(entry,{pythonTheorySubsectionId:'__default__',pythonTheoryType:'rutube'});
+  assert.deepEqual(details.chapters,chapters);
+  assert.equal(details.content,'https://rutube.ru/video/private/abc123/?p=private_key');
+});

@@ -13,7 +13,7 @@ export const getPythonVideoMaterials = (tasks, testsDb, levelId = 'python') => (
         }, levelId);
         const url = getRutubeEmbedUrl(details?.content);
         if (!url) return [];
-        return [{ id: `${number}:${choice.key}`, url,
+        return [{ id: `${number}:${choice.key}`, url, ...(details.chapters ? {chapters:details.chapters} : {}),
           title: `${task.title || `Тема ${number}`} · ${choice.subsectionTitle}` }];
       });
   })

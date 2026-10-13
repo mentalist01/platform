@@ -1,4 +1,6 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
+import RutubeChapterPlayer from './RutubeChapterPlayer';
+import { videoChapterMetadata } from '../utils/videoChapters';
 import { PythonExplanationBoardButton } from './PythonExplanationBoard';
 import PythonLessonToolbar from './PythonLessonToolbar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -159,7 +161,7 @@ const normalizeTheoryItem = (value, fallbackType = '') => {
     const content = String(value.content || '').trim();
     if (!content) return null;
     if (detectedType === 'rutube' && !getRutubeEmbedUrl(content)) return null;
-    return { type: detectedType, content };
+    return { type: detectedType, content, ...(detectedType === 'rutube' ? videoChapterMetadata(value) : {}) };
   }
   const content = String(value.content || '').trim();
   return content ? { type: 'text', content } : null;
@@ -2519,15 +2521,7 @@ const PythonReviewModal = ({
               ) : theoryType === 'rutube' ? (
                 theoryRutubeUrl ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2">
-                    <div className="aspect-video w-full overflow-hidden rounded-[24px] border border-slate-700 bg-black">
-                      <iframe
-                        title={`rutube-theory-review-${task.number}`}
-                        src={theoryRutubeUrl}
-                        className="h-full w-full"
-                        allow="clipboard-write; autoplay"
-                        allowFullScreen
-                      />
-                    </div>
+                    <RutubeChapterPlayer url={theoryRutubeUrl} chapters={theory?.chapters} title={`rutube-theory-review-${task.number}`} />
                     <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-violet-500 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                     <RutubeViewingHelp />
                   </div>

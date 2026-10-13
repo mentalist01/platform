@@ -1,4 +1,7 @@
 import { preparePythonTests } from '../utils/pythonTestData.js';
+import RutubeChapterPlayer from './RutubeChapterPlayer';
+import VideoChaptersEditor from './VideoChaptersEditor';
+import { videoChapterMetadata, chaptersToText, parseVideoChapters } from '../utils/videoChapters';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, Plus, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
@@ -289,7 +292,7 @@ const normalizeTheoryItem = (value, fallbackType = '') => {
     const content = String(value.content || '').trim();
     if (!content) return null;
     if (detectedType === 'rutube' && !getRutubeEmbedUrl(content)) return null;
-    return { type: detectedType, content };
+    return { type: detectedType, content, ...(detectedType === 'rutube' ? videoChapterMetadata(value) : {}) };
   }
   const content = String(value.content || '').trim();
   return content ? { type: 'text', content } : null;
@@ -490,6 +493,7 @@ const PythonSection = ({
   const [subsectionError, setSubsectionError] = useState('');
   const [theoryType, setTheoryType] = useState('text');
   const [theoryText, setTheoryText] = useState('');
+  const [theoryChaptersText, setTheoryChaptersText] = useState('');
   const [theoryUrl, setTheoryUrl] = useState('');
   const [theoryRecordingDraft, setTheoryRecordingDraft] = useState(null);
   const [theorySaving, setTheorySaving] = useState(false);
@@ -804,6 +808,7 @@ const PythonSection = ({
     const theory = selectedManageTheory;
     setTheoryText(theoryType === 'text' ? String(theory?.content || '') : '');
     setTheoryUrl(theoryType === 'gdoc' || theoryType === 'rutube' ? String(theory?.content || '') : '');
+    setTheoryChaptersText(theoryType === 'rutube' ? chaptersToText(theory?.chapters) : '');
     setTheoryRecordingDraft(
       theoryType === THEORY_RECORDING_TYPE
         ? normalizeTheoryRecording(theory?.content)
@@ -1448,6 +1453,10 @@ const PythonSection = ({
         setTheoryUrl(embedUrl);
       }
       nextTheory = { type: theoryType, content };
+      if (theoryType === 'rutube') {
+        try { const chapters = parseVideoChapters(theoryChaptersText); if (chapters.length) nextTheory.chapters = chapters; }
+        catch (failure) { setTheoryError(failure.message); return; }
+      }
     }
 
     const nextTheoryVariants = {
@@ -2909,16 +2918,9 @@ const PythonSection = ({
                   className="w-full px-4 py-2 rounded-xl bg-white border border-purple-100 focus:border-purple-500 outline-none"
                 />
                 {getRutubeEmbedUrl(theoryUrl) && (
-                  <div className="aspect-video overflow-hidden rounded-2xl border border-purple-100 bg-slate-950">
-                    <iframe
-                      title={`rutube-theory-preview-${manageTaskNumber}`}
-                      src={getRutubeEmbedUrl(theoryUrl)}
-                      className="h-full w-full"
-                      allow="clipboard-write; autoplay"
-                      allowFullScreen
-                    />
-                  </div>
+                  <RutubeChapterPlayer url={theoryUrl} chapters={(() => { try { return parseVideoChapters(theoryChaptersText); } catch { return []; } })()} title={`rutube-theory-preview-${manageTaskNumber}`} />
                 )}
+                <VideoChaptersEditor value={theoryChaptersText} onChange={setTheoryChaptersText} disabled={theorySaving} />
                 <p className="text-[11px] text-gray-400">Вставьте ссылку из Rutube или код вставки плеера. Для видео «только по ссылке» вставляйте полную ссылку вместе с ключом ?p= — без него плеер не откроется.</p>
               </div>
             ) : (

@@ -20,6 +20,7 @@ import { startPythonTheory, continuePythonTheory, publishPythonTheory } from './
 import { editTimeline, approveTimeline, finalizeTimeline } from './python-timeline.mjs';
 import { PythonEditMedia, sendPreview } from './python-edit-media.mjs';
 import {pythonExportDuration} from './python-speed.mjs';
+import {pythonProjects,managePythonProject} from './python-projects.mjs';
 import { startMockReview, publishMockReview } from './mock-review.mjs';
 import { enterFallback } from './fallback.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
@@ -49,6 +50,7 @@ const uploader = new RutubeUploader(directory);
 const localKey = crypto.randomBytes(32).toString('base64url');
 let error = ''; let obsStatus = null; let chain = Promise.resolve(); let queueBusy = false; let queueRunning = false; let materialStarting = false; let uploadingId = '';
 let recordingControlRevision = 0;
+let pythonOpenId = '';
 let sourceWarnings = []; let lastSourceCheck = 0;
 let conversationAudio;
 let pythonSourceChoices;
@@ -162,7 +164,7 @@ async function queue() {
   try {
     importRecoveredRecordings({ directory, recordDirectory, state, save });
     for (const job of Object.values(state.jobs)) {
-      if (job.excludeFromUpload) continue;
+      if (job.excludeFromUpload || job.pythonArchivedAt) continue;
       // Readiness checks are network metadata, not an upload. Keep them in the
       // background; reserve media work before its first await so a new capture
       // cannot race with preparing or uploading an older recording.
@@ -258,7 +260,8 @@ const publicState = () => ({
   officeMessage: officeFollower.message,
   recoveryDrafts: recoveryDrafts(),
   testVerified: state.config.testFingerprint === setupFingerprint(state.config),
-  jobs: Object.values(state.jobs).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50).map(job => ({ ...job,
+  jobs: [...new Map([...Object.values(state.jobs).filter(job=>!job.pythonArchivedAt).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50),
+    ...(state.jobs[pythonOpenId] && !state.jobs[pythonOpenId].pythonArchivedAt ? [state.jobs[pythonOpenId]] : [])].map(job=>[job.id,job])).values()].map(job => ({ ...job,
     ...(job.pythonTimeline ? { pythonTimeline: publicTimeline(job.pythonTimeline) } : {}),
   })),
 });
@@ -307,7 +310,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== 'POST') return json(res, 405, {});
       await shareBridge.receive(await body(req)); return json(res, 200, {});
     }
-    if (req.method === 'GET' && ['/python-editor.mjs','/python-editor-time.mjs','/python-playback.mjs','/python-source-map.mjs','/python-speed.mjs'].includes(pathname)) {
+    if (req.method === 'GET' && ['/python-library.mjs','/python-editor.mjs','/python-editor-time.mjs','/python-playback.mjs','/python-source-map.mjs','/python-speed.mjs'].includes(pathname)) {
       res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
       return res.end(fs.readFileSync(path.join(here, pathname.slice(1)), 'utf8'));
     }
@@ -320,6 +323,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.headers['x-recorder-key'] !== localKey) return json(res, 403, { error: 'Откройте пульт заново' });
     if (req.method === 'GET' && req.url === '/state') return json(res, 200, publicState());
+    if (req.method === 'GET' && req.url === '/python/projects') return json(res, 200, {projects:pythonProjects(state.jobs)});
     if (req.method === 'GET' && pathname === '/python/editor/live') {
       const job = engine.active();
       const id = new URL(req.url, 'http://127.0.0.1:18765').searchParams.get('id');
@@ -426,6 +430,24 @@ const server = http.createServer(async (req, res) => {
     }
     await serialize(async () => {
       if (updater.busy) throw new Error('Пульт обновляется. Подождите завершения.');
+      if (req.url === '/python/project/open' || req.url === '/python/project/manage') {
+        if (materialStarting || engine.active() || obsStatus?.outputActive || uploadingId || queueBusy || editMedia.work) throw Error('Сначала завершите запись или отправку');
+        const job=state.jobs[payload.id];
+        if (req.url.endsWith('/open')) {
+          if (!job?.pythonTimeline || job.pythonArchivedAt) throw Error('Черновик не найден. Проверьте корзину');
+          pythonOpenId=job.id; return;
+        }
+        const before=structuredClone(state.jobs);
+        try {
+          const current=managePythonProject(state.jobs,payload);
+          if(payload.action==='save'||payload.action==='archive') {
+            const snapshotId=crypto.createHash('sha256').update(current.pythonProjectId||current.id).digest('hex');
+            atomicJson(path.join(directory,'python-drafts',`${snapshotId}.json`),current);
+          }
+          save();
+        }catch(failure){state.jobs=before;throw failure;}
+        return;
+      }
       if (req.url === '/python/preview') {
         if (payload.active === false) { await pythonPreviewSession.release(); return; }
         const selected = pythonCaptureConfig(state.config.pythonCapture);
@@ -440,7 +462,7 @@ const server = http.createServer(async (req, res) => {
       if (!req.url.startsWith('/python/') && !req.url.startsWith('/material/')) await pythonPreviewSession.release();
       if (req.url === '/python/editor/edit' || req.url === '/python/editor/publish') {
         const job = state.jobs[payload.id];
-        if (!job?.pythonTimeline || job.url || job.pythonTimeline.approved || editMedia.work || uploadingId || queueBusy || !['recording', 'saved', 'error'].includes(job.status)) throw new Error('Этот монтаж сейчас недоступен для изменения');
+        if (!job?.pythonTimeline || job.pythonArchivedAt || job.url || job.pythonTimeline.approved || editMedia.work || uploadingId || queueBusy || !['recording', 'saved', 'error'].includes(job.status)) throw new Error('Этот монтаж сейчас недоступен для изменения');
         if (req.url.endsWith('/publish')) {
           if (!job.file || engine.active() || (await obs.status()).outputActive) throw new Error('Сначала завершите запись');
           await finalizePython(job);

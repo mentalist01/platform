@@ -1,4 +1,6 @@
 import RutubeViewingHelp from './RutubeViewingHelp';
+import RutubeChapterPlayer from './RutubeChapterPlayer';
+import { videoChapterMetadata } from '../utils/videoChapters';
 import { PythonExplanationBoardButton } from './PythonExplanationBoard';
 import PythonLessonToolbar from './PythonLessonToolbar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -159,7 +161,7 @@ const normalizeTheoryItem = (value, fallbackType = '') => {
     const content = String(value.content || '').trim();
     if (!content) return null;
     if (detectedType === 'rutube' && !getRutubeEmbedUrl(content)) return null;
-    return { type: detectedType, content };
+    return { type: detectedType, content, ...(detectedType === 'rutube' ? videoChapterMetadata(value) : {}) };
   }
   const content = String(value.content || '').trim();
   return content ? { type: 'text', content } : null;
@@ -692,7 +694,7 @@ const PythonTestModal = ({
     if (reviewMode) {
       if (cached.loaded && !force) return;
       let draft = null;
-      try { draft = JSON.parse(window.localStorage.getItem(pythonReviewDraftKey({ studentId, taskNumber: task.number, questionId: key, cycle: reviewCycle }))); } catch {}
+      try { draft = JSON.parse(window.localStorage.getItem(pythonReviewDraftKey({ studentId, taskNumber: task.number, questionId: key, cycle: reviewCycle }))); } catch { /* An unreadable local draft falls back to the saved solution. */ }
       setQuestionCodeEntry(key, {
         code: typeof draft?.code === 'string' ? draft.code : getFallbackCodeForQuestion(question, key),
         input: typeof draft?.input === 'string' ? draft.input : '',
@@ -2517,9 +2519,7 @@ const PythonTestModal = ({
                 ) : theoryType === 'rutube' ? (
                   theoryRutubeUrl ? (
                     <div className="python-runtime-theory-body mt-3">
-                      <div className="aspect-video overflow-hidden rounded-2xl border border-purple-100 bg-black">
-                        <iframe title={`rutube-theory-${task.number}`} src={theoryRutubeUrl} className="h-full w-full" allow="clipboard-write; autoplay" allowFullScreen />
-                      </div>
+                      <RutubeChapterPlayer url={theoryRutubeUrl} chapters={theory?.chapters} title={`rutube-theory-${task.number}`} />
                       <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-600 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                       <RutubeViewingHelp />
                     </div>
@@ -2908,15 +2908,7 @@ const PythonTestModal = ({
               ) : theoryType === 'rutube' ? (
                 theoryRutubeUrl ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2">
-                    <div className="aspect-video w-full overflow-hidden rounded-[24px] border border-slate-700 bg-black">
-                      <iframe
-                        title={`rutube-theory-${task.number}`}
-                        src={theoryRutubeUrl}
-                        className="h-full w-full"
-                        allow="clipboard-write; autoplay"
-                        allowFullScreen
-                      />
-                    </div>
+                    <RutubeChapterPlayer url={theoryRutubeUrl} chapters={theory?.chapters} title={`rutube-theory-${task.number}`} />
                     <a href={getRutubeWatchUrl(theory?.content)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-violet-500 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                     <RutubeViewingHelp />
                   </div>

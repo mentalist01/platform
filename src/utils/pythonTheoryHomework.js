@@ -2,6 +2,7 @@ import {
   buildPythonSubsectionModel,
   PYTHON_DEFAULT_SUBSECTION_ID,
 } from './pythonSubsections.js';
+import { videoChapterMetadata } from './videoChapters.js';
 
 export const PYTHON_HOMEWORK_THEORY_TYPES = ['recording', 'rutube', 'text', 'gdoc'];
 
@@ -30,7 +31,7 @@ const normalizeTheoryItem = (value, fallbackType = '') => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const type = normalizePythonHomeworkTheoryType(value.type || fallbackType || 'text');
   if (!type || !hasTheoryContent(value.content, type)) return null;
-  return { type, content: value.content };
+  return { type, content: value.content, ...(type === 'rutube' ? videoChapterMetadata(value) : {}) };
 };
 
 const normalizeTheoryVariants = (value) => {
@@ -111,7 +112,7 @@ export const getPythonHomeworkTheoryDetails = (taskEntry, goal, levelId = 'pytho
   const selectedTheory = variantsBySubsection?.[selection.subsectionId]?.[selection.type]
     || (selection.subsectionId === PYTHON_DEFAULT_SUBSECTION_ID ? legacyVariants?.[selection.type] : null);
   if (matchingChoice && selectedTheory) {
-    return { ...matchingChoice, content: selectedTheory.content, available: true };
+    return { ...matchingChoice, content: selectedTheory.content, ...videoChapterMetadata(selectedTheory), available: true };
   }
   const defaultSectionTitle = normalizeText(options?.defaultSectionTitle) || 'Вся тема';
   const subsectionModel = buildPythonSubsectionModel(taskEntry, levelId, {

@@ -145,6 +145,7 @@ export class ObsClient extends Base {
     if(req.url==='/qa/lost'){obs.output=false;obsStatus=await obs.status();return json(res,200,{});}
     if(req.url==='/qa/foreign'){obs.output=true;obs.owner='fictional-foreign-recording';obs.scene='Fictional foreign scene';obsStatus=await obs.status();return json(res,200,{});}
     if(req.url==='/qa/time'){const payload=await body(req);obs.seconds=payload.seconds;obsStatus=await obs.status();return json(res,200,{});}
+    if(req.url==='/qa/recent-jobs'){for(let i=0;i<75;i++)state.jobs['newer-'+i]={id:'newer-'+i,title:'Newer lesson',local:true,status:'ready',createdAt:Date.now()+i+100};save();return json(res,200,{});}
   `;
   source = source.replace("if (req.method === 'GET' && req.url === '/health')", qaRoutes + "if (req.method === 'GET' && req.url === '/health')");
   const toolbar = "<main><div class=\"row\"><button onclick=\"fetch('/qa/lesson',{method:'POST'}).then(()=>refresh())\">QA: обычный урок</button><button onclick=\"fetch('/qa/closed',{method:'POST'}).then(()=>choices()).then(()=>refresh())\">QA: закрыть редактор</button></div>";
@@ -167,6 +168,30 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('draft library preserves edits and sources, restores removal and opens an old project beyond 50 recent jobs',async t=>{
+    const f=await fixture({mediaFixture:true});t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Library QA'});
+    const id=(await f.request('/state')).value.jobs.find(j=>j.status==='recording').id;
+    const live=(await f.request('/state')).value.jobs.find(j=>j.id===id);
+    assert.equal((await f.request('/python/project/manage',{id,revision:live.pythonTimeline.revision,action:'archive'})).status,400);
+    await f.request('/material/stop',{id});
+    const saved=(await f.request('/state')).value.jobs.find(j=>j.id===id),bytes=fs.readFileSync(saved.file);
+    for(const action of ['rename','save','archive'])assert.equal((await f.request('/python/project/manage',{id,revision:saved.pythonTimeline.revision,action,name:'Новое название'})).status,200);
+    assert.equal((await f.request('/state')).value.jobs.some(j=>j.id===id),false);
+    assert.equal((await f.request('/python/project/open',{id})).status,400);
+    assert.equal((await f.request('/python/continue',{id,revision:saved.pythonTimeline.revision})).status,400);
+    const summaries=(await f.request('/python/projects')).value.projects;assert.equal(summaries.length,1);assert.ok(summaries[0].archivedAt);assert.equal(summaries[0].name,'Новое название');
+    assert.equal((await fetch(f.base+'/python/projects')).status,403);
+    assert.equal((await f.request('/python/project/manage',{id,revision:saved.pythonTimeline.revision,action:'restore'})).status,200);
+    const restored=(await f.request('/state')).value.jobs.find(j=>j.id===id);assert.deepEqual(restored.pythonTimeline,saved.pythonTimeline);assert.deepEqual(fs.readFileSync(saved.file),bytes);assert.equal(restored.title,'Library QA');
+    assert.ok(fs.readdirSync(path.join(f.root,'python-drafts')).some(name=>name.endsWith('.json')));
+    await f.request('/qa/recent-jobs',{});
+    assert.equal((await f.request('/state')).value.jobs.some(j=>j.id===id),false);
+    assert.equal((await f.request('/python/projects')).value.projects.some(j=>j.id===id),true);
+    assert.equal((await f.request('/python/project/open',{id})).status,200);
+    assert.equal((await f.request('/state')).value.jobs.some(j=>j.id===id),true);
+  });
   test('saved draft accepts whole-video decimal speed, persists through continuation, rejects live changes and keeps original edits',async t=>{
     const f=await fixture({mediaFixture:true});t.after(f.close);await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
     await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Ускоренный урок'});

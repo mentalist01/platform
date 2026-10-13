@@ -2,6 +2,7 @@ import { clamp, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cu
 import { SourceTimelinePlayer } from './python-playback.mjs';
 import {pythonSourceAt} from './python-source-map.mjs';
 import {pythonExportSpeed,pythonExportDuration,pythonPreviewSpeed} from './python-speed.mjs';
+import {createPythonLibrary} from './python-library.mjs';
 const context = window.recorderEditorContext;
 const style = document.createElement('style');
 style.textContent = `
@@ -416,7 +417,7 @@ function render() {
   if (find('.pe-status').dataset.loading) { delete find('.pe-status').dataset.loading; notify(''); }
   if (gesture) return;
   const continued=new Set(state.jobs.filter(item=>item.pythonContinuedFrom&&(item.status!=='error'||item.file)).map(item=>item.pythonContinuedFrom));
-  const projects = state.jobs.filter(item => item.pythonTimeline && !continued.has(item.id));
+  const projects = state.jobs.filter(item => item.pythonTimeline && !item.pythonArchivedAt && !continued.has(item.id));
   editor.classList.toggle('python-editor--empty', !projects.length);
   emptyHelp.hidden = Boolean(projects.length);
   find('.pe-empty').firstElementChild.hidden = !projects.length;
@@ -448,9 +449,9 @@ function render() {
   const active = projects.find(item => ['starting', 'recording', 'stopping'].includes(item.status));
   if (active && active.id !== projectId || !projects.some(item => item.id === projectId)) { projectId = active?.id || projects[0].id; selectedId = ''; signature = ''; playhead = 0; reviewedRevision = -1; discardPreview(); if (active) { preparing = false; showSettings(false); } }
   const selectProject = find('.pe-project');
-  const options = String(preparing) + projects.map(item => `${item.id}:${item.title}:${item.status}:${item.pythonTimeline.clips.length}:${Boolean(item.pythonTimeline.approved)}`).join('|');
+  const options = String(preparing) + projects.map(item => `${item.id}:${item.pythonDraftName||item.title}:${item.status}:${item.pythonTimeline.clips.length}:${Boolean(item.pythonTimeline.approved)}`).join('|');
   if (selectProject.dataset.options !== options) {
-      selectProject.replaceChildren(...(preparing ? [new Option('Новая запись Python', '')] : []), ...projects.map(item => { const option = document.createElement('option'); option.value = item.id; option.textContent = item.title + ' · ' + new Date(item.createdAt).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) + ` · ${item.pythonTimeline.clips.length} фрагм.` + (item.pythonTimeline.approved ? item.status==='ready'?' · опубликовано':item.status==='error'?' · ошибка отправки':' · сборка / отправка' : item.status === 'recording' ? ' · запись' : ' · черновик'); return option; }));
+      selectProject.replaceChildren(...(preparing ? [new Option('Новая запись Python', '')] : []), ...projects.map(item => { const option = document.createElement('option'); option.value = item.id; option.textContent = (item.pythonDraftName||item.title) + ' · ' + new Date(item.createdAt).toLocaleString('ru-RU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) + ` · ${item.pythonTimeline.clips.length} фрагм.` + (item.pythonTimeline.approved ? item.status==='ready'?' · опубликовано':item.status==='error'?' · ошибка отправки':' · сборка / отправка' : item.status === 'recording' ? ' · запись' : ' · черновик'); return option; }));
     selectProject.dataset.options = options;
   }
   selectProject.value = preparing ? '' : projectId;
@@ -615,6 +616,7 @@ async function operation(op) {
 const invoke = op => { if (!find(`[data-op="${op}"]`)?.disabled) void act(() => operation(op)); };
 editor.querySelectorAll('[data-op]').forEach(button => button.onclick = () => invoke(button.dataset.op));
 find('.pe-project').onchange = event => { if (!event.target.value) { void prepareRecording(); return; } projectId = event.target.value; playhead = 0; reviewedRevision = -1; discardPreview(); select(''); };
+createPythonLibrary({editor,context,onOpen:id=>{projectId=id;preparing=false;playhead=0;reviewedRevision=-1;discardPreview();showSettings(false);select('');}});
 function changeScale(value,fit=false){const scroll=find('.pe-track-scroll'),anchor=timeToPixel(layout,playhead)-scroll.scrollLeft;scale=value;zoomInput.value=String(zoomPosition(scale));signature='';render();scroll.scrollLeft=fit?0:Math.max(0,timeToPixel(layout,playhead)-clamp(anchor,0,scroll.clientWidth));}
 zoomInput.oninput = event => changeScale(zoomScale(event.target.value));
 editor.addEventListener('keydown', event => {
