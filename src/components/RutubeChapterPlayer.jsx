@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { getRutubeEmbedUrl } from '../utils/learningGroups';
 import { formatChapterTime, normalizeVideoChapters } from '../utils/videoChapters';
 
-export default function RutubeChapterPlayer({ url, chapters, title, className = '' }) {
+export default function RutubeChapterPlayer({ url, chapters, title, className = '', loading }) {
   const embedUrl = getRutubeEmbedUrl(url);
   const frame = useRef(null), ready = useRef(false), pending = useRef(null);
   const [start, setStart] = useState(null);
@@ -42,7 +42,7 @@ export default function RutubeChapterPlayer({ url, chapters, title, className = 
   return (
     <div className={`w-full ${className}`}>
       <div className="aspect-video overflow-hidden rounded-2xl border border-purple-100 bg-black">
-        <iframe ref={frame} title={title} src={src.toString()} className="h-full w-full" allow="clipboard-write; autoplay" allowFullScreen />
+        <iframe ref={frame} title={title} src={src.toString()} className="h-full w-full" allow="clipboard-write; autoplay" allowFullScreen loading={loading} />
       </div>
       {items.length > 0 && (
         <nav aria-label="Тайм-коды видео" className="mt-3 max-h-64 space-y-1 overflow-y-auto rounded-xl border border-violet-200 bg-violet-50 p-3 text-slate-800">

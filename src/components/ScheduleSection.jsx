@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import RutubeViewingHelp from './RutubeViewingHelp';
+import RutubeChapterPlayer from './RutubeChapterPlayer';
 const StudentLessonReschedule = React.lazy(() => import('./LessonReschedule').then(m => ({ default: m.StudentLessonReschedule })));
 import { isScheduleEntryInDateRange } from '../utils/scheduleDateRange';
 const StudentWeeklySchedule = React.lazy(() => import('./WeeklySchedule').then(m => ({ default: m.StudentWeeklySchedule })));
@@ -3456,16 +3457,12 @@ const ScheduleSection = ({
                 </div>
                 {goalView.pythonTheory.type === 'rutube' && getRutubeEmbedUrl(goalView.pythonTheory.content) && (
                   <div className="border-t border-violet-100 bg-white p-3.5">
-                    <div className="aspect-video w-full overflow-hidden rounded-2xl bg-slate-950 shadow-sm">
-                      <iframe
-                        title={`Видео-теория: ${goalView.pythonTheory.subsectionTitle}`}
-                        src={getRutubeEmbedUrl(goalView.pythonTheory.content)}
-                        className="h-full w-full"
-                        allow="clipboard-write; autoplay"
-                        allowFullScreen
-                        loading="lazy"
-                      />
-                    </div>
+                    <RutubeChapterPlayer
+                      title={`Видео-теория: ${goalView.pythonTheory.subsectionTitle}`}
+                      url={goalView.pythonTheory.content}
+                      chapters={goalView.pythonTheory.chapters}
+                      loading="lazy"
+                    />
                     <a href={getRutubeWatchUrl(goalView.pythonTheory.content)} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-violet-700 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                     <RutubeViewingHelp />
                   </div>
@@ -4285,6 +4282,32 @@ const ScheduleSection = ({
                 : 0;
               return (
                 <div key={goalView.viewKey} className="rounded-xl border border-purple-100/80 bg-white/90 px-3 py-2.5 space-y-2.5">
+                  {goalView.pythonTheory && (
+                    <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-violet-600">Сначала изучи теорию</div>
+                          <div className="text-sm font-bold text-slate-900">{goalView.pythonTheory.subsectionTitle}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openPythonTheory(goalView)}
+                          disabled={!goalView.pythonTheory.available}
+                          className="rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-bold text-violet-700 disabled:opacity-50"
+                        >
+                          {goalView.pythonTheory.available ? 'Изучить теорию' : 'Теория недоступна'}
+                        </button>
+                      </div>
+                      {goalView.pythonTheory.available && goalView.pythonTheory.type === 'rutube' && (
+                        <RutubeChapterPlayer
+                          title={`Видео-теория: ${goalView.pythonTheory.subsectionTitle}`}
+                          url={goalView.pythonTheory.content}
+                          chapters={goalView.pythonTheory.chapters}
+                          loading="lazy"
+                        />
+                      )}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <div className="text-xs font-semibold text-purple-700">{goalView.heading}</div>
@@ -6134,7 +6157,7 @@ const ScheduleSection = ({
                 <X size={19} />
               </button>
             </header>
-            <div className="min-h-0 flex-1 overflow-hidden bg-slate-50 p-3 sm:p-5">
+            <div className={`min-h-0 flex-1 ${homeworkTheoryPreview.type === 'rutube' ? 'overflow-y-auto' : 'overflow-hidden'} bg-slate-50 p-3 sm:p-5`}>
               {homeworkTheoryPreview.type === 'recording' ? (
                 <TheoryRecordingPlayer
                   recording={homeworkTheoryPreview.content}
@@ -6144,16 +6167,12 @@ const ScheduleSection = ({
                 />
               ) : homeworkTheoryPreview.type === 'rutube' ? (
                 getRutubeEmbedUrl(homeworkTheoryPreview.content) ? (
-                  <div className="flex h-full flex-col items-center justify-center">
-                    <div className="aspect-video w-full overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm">
-                      <iframe
-                        title={homeworkTheoryPreview.subsectionTitle}
-                        src={getRutubeEmbedUrl(homeworkTheoryPreview.content)}
-                        className="h-full w-full"
-                        allow="clipboard-write; autoplay"
-                        allowFullScreen
-                      />
-                    </div>
+                  <div className="w-full">
+                    <RutubeChapterPlayer
+                      title={homeworkTheoryPreview.subsectionTitle}
+                      url={homeworkTheoryPreview.content}
+                      chapters={homeworkTheoryPreview.chapters}
+                    />
                     <a href={getRutubeWatchUrl(homeworkTheoryPreview.content)} target="_blank" rel="noreferrer" className="mt-2 text-xs font-semibold text-violet-700 underline underline-offset-2">Если плеер не работает, открыть на Rutube</a>
                     <RutubeViewingHelp />
                   </div>
