@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { ownedRecording } from './storage.mjs';
 import { concatList } from './segments.mjs';
+import {pythonSourceAt,pythonSourceRanges} from './python-source-map.mjs';
 
 // Native video playback uses byte ranges; it must not buffer an entire lesson
 // as a Blob in the renderer. Each capability grants access to one preview only.
@@ -88,9 +89,10 @@ export class PythonEditMedia {
   // Stream copy keeps the OBS picture/audio and avoids competing with its encoder.
   async playbackSource(job, at, recordDirectory) {
     if (!Number.isFinite(at) || at < 0 || at >= job.pythonTimeline.sourceEnd) throw Error('Выберите записанный фрагмент');
-    const input = this.source(job, recordDirectory), slot = Math.floor(at / 30);
-    const end = Math.min((slot + 1) * 30, job.pythonTimeline.sourceEnd);
-    const key = JSON.stringify(['source', job.id, input, slot, end]);
+    const segment=pythonSourceAt(job,at);if(!segment)throw Error('Выберите записанный фрагмент');
+    const input=ownedRecording(segment.file ? path.dirname(segment.file) : recordDirectory,segment.id,segment.file),slot=Math.floor((at-segment.start)/30);
+    const end=Math.min((slot+1)*30,segment.end-segment.start);
+    const key = JSON.stringify(['source', job.id, input, slot, end,segment.start]);
     const inputStat = fs.statSync(input);
     const cached = [...this.previews].find(([, item]) => item.key === key && fs.existsSync(item.file)
       && (item.complete || item.inputSize === inputStat.size && item.inputModified === inputStat.mtimeMs));
@@ -100,11 +102,11 @@ export class PythonEditMedia {
     }
     if (this.sourceWork.has(key)) return this.sourceWork.get(key);
     if (this.sourceWork.size >= 2) throw Error('Подготавливаем ближайшие фрагменты. Попробуйте через секунду.');
-    const pending = this.copyPlaybackSource(job, input, slot, end, key);
+    const pending = this.copyPlaybackSource(job, input, slot, end, key,segment.start);
     this.sourceWork.set(key, pending);
     try { return await pending; } finally { this.sourceWork.delete(key); }
   }
-  async copyPlaybackSource(job, input, slot, end, key) {
+  async copyPlaybackSource(job, input, slot, end, key, origin = 0) {
     const ffprobe = this.ffmpeg.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1');
     const from = Math.max(0, slot * 30 - 4);
     const inputStat = fs.statSync(input);
@@ -123,8 +125,8 @@ export class PythonEditMedia {
       fs.renameSync(temporary, output);
       const actualEnd = Math.min(end, duration + from);
       const item = { file: output, jobId: job.id, key, access: crypto.randomBytes(24).toString('hex'),
-        sourceStart: firstOutput+from, sourceEnd: actualEnd, requestedEnd: end, complete: actualEnd >= end - .05,
-        inputSize: inputStat.size, inputModified: inputStat.mtimeMs, offset: -from };
+        sourceStart: firstOutput+from+origin, sourceEnd: actualEnd+origin, requestedEnd: end+origin, complete: actualEnd >= end - .05,
+        inputSize: inputStat.size, inputModified: inputStat.mtimeMs, offset: -from-origin };
       this.previews.set(id, item);
       while (this.previews.size > 8) {
         const [oldId, old] = this.previews.entries().next().value;
@@ -135,19 +137,22 @@ export class PythonEditMedia {
   }
   async render(job, clips, recordDirectory, output, preview = false) {
     if (!Array.isArray(clips) || !clips.length || clips.length > 300) throw Error('Выберите фрагменты для монтажа');
-    const input = this.source(job, recordDirectory);
     const folder = path.join(this.root, job.id, crypto.randomUUID());
     fs.mkdirSync(folder, { recursive: true });
     const parts = [];
     try {
-      for (const [index, clip] of clips.entries()) {
+      let index=0;
+      for (const clip of clips) {
         if (![clip.start, clip.end].every(Number.isFinite) || clip.start < 0 || clip.end <= clip.start || clip.end > job.pythonTimeline.sourceEnd + .02) throw Error('Некорректные границы фрагмента');
-        const part = path.join(folder, `${index}.mkv`);
-        await command(this.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(clip.start), '-i', input, '-t', String(clip.end - clip.start),
+        for (const range of pythonSourceRanges(job,clip)) {
+        const input=ownedRecording(range.file ? path.dirname(range.file) : recordDirectory,range.id,range.file);
+        const part = path.join(folder, `${index++}.mkv`);
+        await command(this.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(range.startInFile), '-i', input, '-t', String(range.endInFile-range.startInFile),
           '-map', '0:v:0', '-map', '0:a:0?', ...(preview ? ['-vf', "scale='min(960,iw)':-2"] : []),
           '-c:v', 'libx264', '-threads', '2', '-bf', '0', '-preset', preview ? 'ultrafast' : 'veryfast', '-crf', preview ? '28' : '18', '-pix_fmt', 'yuv420p',
           '-c:a', 'pcm_s16le', '-ar', '48000', '-avoid_negative_ts', 'make_zero', part]);
         parts.push(part);
+        }
       }
       const list = path.join(folder, 'concat.txt'); fs.writeFileSync(list, concatList(parts));
       const temporary = `${output}.part.mp4`;

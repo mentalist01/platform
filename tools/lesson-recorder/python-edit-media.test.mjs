@@ -11,6 +11,25 @@ const ffmpeg = process.env.FFMPEG_PATH || (process.platform === 'win32' ? 'C:/Pr
 let available = true; try { execFileSync(ffmpeg, ['-version'], { windowsHide: true, stdio: 'ignore' }); } catch { available = false; }
 const run = args => execFileSync(ffmpeg, ['-hide_banner','-loglevel','error', ...args], { windowsHide: true, maxBuffer: 10 * 1024 * 1024 });
 
+test('continued draft plays and renders both originals, including cuts across the file boundary and a second continuation', {timeout:60000,skip:!available&&'ffmpeg unavailable'},async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'python-continued-media-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const ids=[crypto.randomUUID(),crypto.randomUUID(),crypto.randomUUID()],files=ids.map(id=>path.join(root,`lesson-${id}.mkv`));
+ for(const [index,color]of ['red','blue','lime'].entries())run(['-y','-f','lavfi','-i',`color=${color}:s=160x90:r=30:d=2`,'-f','lavfi','-i',`sine=frequency=${440*(index+1)}:duration=2`,'-c:v','libx264','-g','30','-c:a','aac',files[index]]);
+ const hashes=files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'));
+ const job={id:ids[2],file:files[2],pythonCaptureOffset:4,pythonPreviousSources:[{id:ids[0],file:files[0],start:0,end:2},{id:ids[1],file:files[1],start:2,end:4}],pythonTimeline:{revision:5,sourceEnd:6}};
+ const media=new PythonEditMedia({ffmpeg,root:path.join(root,'cache')});
+ for(const [at,channel]of [[.5,0],[2.5,2],[4.5,1]]){
+  const source=await media.playbackSource(job,at,root),pixel=[...run(['-ss',String(at+source.offset),'-i',source.file,'-frames:v','1','-vf','scale=1:1','-f','rawvideo','-pix_fmt','rgb24','pipe:1'])];
+  assert.ok(pixel[channel]>150&&pixel.every((v,i)=>i===channel||v<50),`${at}: ${pixel}`);
+  assert.equal(source.sourceEnd,Math.ceil(at/2)*2);
+ }
+ const output=path.join(root,'montage.mp4'),clips=[{start:4,end:5},{start:1.8,end:2.2},{start:0,end:1}];await media.render(job,clips,root,output);
+ const probe=ffmpeg.replace(/ffmpeg(\.exe)?$/i,'ffprobe$1');const duration=+JSON.parse(execFileSync(probe,['-v','error','-show_entries','format=duration','-of','json',output],{encoding:'utf8',windowsHide:true})).format.duration;
+ assert.ok(Math.abs(duration-2.4)<.15,duration);
+ for(const [at,channel]of [[.5,1],[1.1,0],[1.3,2],[1.8,0]]){const pixel=[...run(['-ss',String(at),'-i',output,'-frames:v','1','-vf','scale=1:1','-f','rawvideo','-pix_fmt','rgb24','pipe:1'])];assert.ok(pixel[channel]>150,`${at}: ${pixel}`);}
+ assert.deepEqual(files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')),hashes,'All originals preserved');
+});
+
 test('restart removes only generated source playback cache and preserves recordings and exported edits', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-source-cache-restart-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

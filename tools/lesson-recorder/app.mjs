@@ -16,7 +16,7 @@ import { pythonCaptureConfig, pythonCaptureReason, configurePythonCapture, Pytho
 import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
-import { startPythonTheory, publishPythonTheory } from './python-theory.mjs';
+import { startPythonTheory, continuePythonTheory, publishPythonTheory } from './python-theory.mjs';
 import { editTimeline, approveTimeline, finalizeTimeline, timelineDuration } from './python-timeline.mjs';
 import { PythonEditMedia, sendPreview } from './python-edit-media.mjs';
 import { startMockReview, publishMockReview } from './mock-review.mjs';
@@ -84,7 +84,7 @@ const finalizePython = async job => {
   // queue tick. Retry after the source changes, or an explicit user operation.
   const version = pythonSourceVersion(job);
   try {
-    finalizeTimeline(job.pythonTimeline, await editMedia.duration(job, path.dirname(job.file)));
+    finalizeTimeline(job.pythonTimeline, (job.pythonCaptureOffset || 0) + await editMedia.duration(job, path.dirname(job.file)));
     pythonFinalizeFailures.delete(job.id); job.error = ''; save();
   } catch (failure) { pythonFinalizeFailures.set(job.id, version); throw failure; }
 };
@@ -306,7 +306,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== 'POST') return json(res, 405, {});
       await shareBridge.receive(await body(req)); return json(res, 200, {});
     }
-    if (req.method === 'GET' && ['/python-editor.mjs','/python-editor-time.mjs','/python-playback.mjs'].includes(pathname)) {
+    if (req.method === 'GET' && ['/python-editor.mjs','/python-editor-time.mjs','/python-playback.mjs','/python-source-map.mjs'].includes(pathname)) {
       res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
       return res.end(fs.readFileSync(path.join(here, pathname.slice(1)), 'utf8'));
     }
@@ -533,13 +533,16 @@ const server = http.createServer(async (req, res) => {
         try { await startMockReview({ api, engine, payload }); }
         finally { materialStarting = false; }
         obsStatus = await obs.status();
-      } else if (req.url === '/python/start') {
+      } else if (req.url === '/python/start' || req.url === '/python/continue') {
         if (editMedia.work) throw new Error('Дождитесь подготовки монтажа');
         if (!state.config.recordDirectory) throw new Error('Сначала выберите папку для видео в настройках пульта');
         if (archive.captureBusy) throw new Error('Поставьте распознавание архива на паузу перед записью');
         if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
         materialStarting = true;
-        try { await startPythonTheory({ api, engine, payload, captureConfig: state.config.pythonCapture }); }
+        try {
+          if(req.url==='/python/continue') await continuePythonTheory({engine,payload,captureConfig:state.config.pythonCapture});
+          else await startPythonTheory({ api, engine, payload, captureConfig: state.config.pythonCapture });
+        }
         finally { materialStarting = false; }
         obsStatus = await obs.status();
       } else if (req.url === '/manual-start') {

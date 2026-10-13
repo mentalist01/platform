@@ -1,9 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { startPythonTheory, publishPythonTheory } from './python-theory.mjs';
+import { startPythonTheory, continuePythonTheory, publishPythonTheory } from './python-theory.mjs';
+import fs from 'node:fs';import path from 'node:path';import os from 'node:os';import crypto from 'node:crypto';
+import {createTimeline} from './python-timeline.mjs';
 const catalog = { teacherId: 't1', tasks: [{ number: 101, title: 'Ввод', subsections: [{ id: '__default__', title: 'Вся тема', existingUrl: '' }] }] };
 const payload = { taskNumber: 101, subsectionId: '__default__', expectedUrl: '', title: 'Ввод данных' };
 const captureConfig = { mode: 'window', window: 'python-editor', mic: 'python-mic' };
+
+test('continuation keeps the old source, edit history, topic and take numbers and cannot fork or restart a sent draft',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'python-continue-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const id=crypto.randomUUID(),file=path.join(root,`lesson-${id}.mkv`);fs.writeFileSync(file,'existing footage');
+ const timeline={...createTimeline(),sourceEnd:1537.766,openStart:null,finalized:true,takeCount:47,clips:[{id:'edited',start:20,end:25,takeNumber:3}],history:[{clips:[],knownIds:['edited']}],revision:9};
+ const parent={id,title:'Цикл for',status:'saved',file,pythonTimeline:timeline,pythonTheory:{teacherId:'t1',taskNumber:101,subsectionId:'__default__'}};
+ const state={jobs:{[id]:parent}},engine={state,active:()=>null,start:async job=>{state.jobs[job.id]=job;}};
+ const before=JSON.stringify(parent);const nextId=await continuePythonTheory({engine,payload:{id,revision:9},captureConfig});
+ const next=state.jobs[nextId];assert.notEqual(nextId,id);assert.equal(next.pythonCaptureOffset,1537.766);assert.equal(next.pythonTimeline.openStart,1537.766);assert.equal(next.pythonTimeline.finalized,false);
+ assert.deepEqual(next.pythonTimeline.clips,timeline.clips);assert.deepEqual(next.pythonTimeline.history,timeline.history);assert.equal(next.pythonTimeline.takeCount,47);assert.deepEqual(next.pythonTheory,parent.pythonTheory);
+ assert.equal(JSON.stringify(parent),before);assert.equal(fs.readFileSync(file,'utf8'),'existing footage');
+ await assert.rejects(continuePythonTheory({engine,payload:{id,revision:9},captureConfig}),/продолжение/);
+ delete state.jobs[nextId];await assert.rejects(continuePythonTheory({engine,payload:{id,revision:8},captureConfig}),/изменился/);
+ parent.pythonTimeline.approved=true;await assert.rejects(continuePythonTheory({engine,payload:{id,revision:9},captureConfig}),/черновик/);parent.pythonTimeline.approved=false;
+ fs.unlinkSync(file);await assert.rejects(continuePythonTheory({engine,payload:{id,revision:9},captureConfig}),/исходник/);
+});
 test('preflight binds an independent recording to the selected teacher and topic', async () => {
   let started; const engine = { active: () => null, start: async job => { started = job; } };
   await startPythonTheory({ api: async () => catalog, engine, payload, captureConfig, now: () => 100 });

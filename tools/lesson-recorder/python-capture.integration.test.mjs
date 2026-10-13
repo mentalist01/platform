@@ -167,6 +167,28 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('saved Python draft continues with previous edits, plays both sources and resumes again after saving', {timeout:60000}, async t=>{
+    const f=await fixture({mediaFixture:true});t.after(f.close);
+    await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    assert.equal((await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Урок для продолжения'})).status,200);
+    let state=(await f.request('/state')).value;const original=state.jobs[0].id;
+    await f.request('/qa/time',{seconds:12});await f.request('/material/pause',{id:original,paused:true});await f.request('/material/stop',{id:original});
+    const parent=(await f.request('/state')).value.jobs.find(j=>j.id===original),before=JSON.stringify(parent.pythonTimeline),bytes=fs.readFileSync(parent.file);
+    await f.request('/qa/time',{seconds:0});
+    assert.equal((await f.request('/python/continue',{id:original,revision:parent.pythonTimeline.revision})).status,200);
+    state=(await f.request('/state')).value;const continued=state.jobs.find(j=>j.status==='recording');assert.notEqual(continued.id,original);assert.equal(continued.pythonCaptureOffset,24);assert.equal(continued.pythonTimeline.clips[0].id,parent.pythonTimeline.clips[0].id);
+    assert.equal((await fetch(f.base+'/python-source-map.mjs')).status,200);
+    await f.request('/qa/time',{seconds:5});await f.request('/material/pause',{id:continued.id,paused:true});
+    const current=(await f.request('/state')).value.jobs.find(j=>j.id===continued.id);assert.deepEqual(current.pythonTimeline.clips.map(c=>[c.start,c.end]),[[0,12],[24,29]]);
+    for(const at of [1,25]){const source=await f.request('/python/editor/source',{id:current.id,revision:current.pythonTimeline.revision,at});assert.equal(source.status,200,source.value.error);assert.ok(source.value.sourceStart<=at&&source.value.sourceEnd>at);}
+    assert.equal((await f.request('/material/stop',{id:current.id})).status,200);
+    const saved=(await f.request('/state')).value.jobs.find(j=>j.id===current.id);assert.equal(saved.pythonTimeline.sourceEnd,48);
+    assert.equal((await f.request('/python/continue',{id:original,revision:parent.pythonTimeline.revision})).status,400);
+    await f.request('/qa/time',{seconds:0});
+    assert.equal((await f.request('/python/continue',{id:saved.id,revision:saved.pythonTimeline.revision})).status,200);
+    state=(await f.request('/state')).value;assert.equal(state.jobs.find(j=>j.status==='recording').pythonCaptureOffset,48);assert.equal(state.jobs.find(j=>j.status==='recording').pythonPreviousSources.length,2);
+    assert.equal(JSON.stringify(state.jobs.find(j=>j.id===original).pythonTimeline),before);assert.deepEqual(fs.readFileSync(parent.file),bytes);
+  });
   test('unchanged unreadable Python drafts are not probed every tick; manual retry and a changed source still work', async t => {
     const f=await fixture({queueEnabled:true,durationFailure:true});t.after(f.close);
     const seeded=(await f.request('/qa/finalization',{seed:true,tick:true})).value;

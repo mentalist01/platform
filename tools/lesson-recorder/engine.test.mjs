@@ -285,6 +285,18 @@ test('retry cannot restart OBS with the name of an existing recording', async (t
   assert.deepEqual(f.counts(), [0, 0]);
 });
 
+test('continued Python capture adds OBS time to the saved source and keeps prior cuts while pausing and stopping',async t=>{
+ const f=fixture(t);let seconds=0;
+ const status=f.obs.status;f.obs.status=async()=>({...await status(),outputTimecode:`00:00:${seconds}.000`});
+ const pause=f.obs.setRecordPaused;f.obs.setRecordPaused=async(id,value)=>({...await pause(id,value),outputTimecode:`00:00:${seconds}.000`});
+ const timeline={...createTimeline(),sourceEnd:24,openStart:24,takeCount:3,clips:[{id:'old',start:2,end:7,takeNumber:1}]};
+ await f.engine.start({...f.job,local:true,pythonTheory:{},pythonCaptureOffset:24,pythonTimeline:timeline});
+ seconds=5;await f.engine.tick();await f.engine.setPythonPaused('one',true);
+ assert.deepEqual(f.engine.active().pythonTimeline.clips.map(c=>[c.start,c.end]),[[2,7],[24,29]]);assert.equal(timeline.takeCount,4);
+ await f.engine.setPythonPaused('one',false);assert.equal(timeline.openStart,29);
+ seconds=9;await f.engine.stop(f.engine.active());assert.equal(timeline.sourceEnd,33);assert.deepEqual(timeline.clips.map(c=>[c.start,c.end]),[[2,7],[24,29],[29,33]]);
+});
+
 test('fallback capture ignores stale server stop after recovery but still obeys local cutoff', async t => {
   const f = fixture(t); await f.engine.start({ ...f.job, fallbackMode: true });
   f.remote({ enabled: true, jobs: [{ ...f.job, desired: 'stop' }] });
