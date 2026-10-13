@@ -40,3 +40,15 @@ export function cursorEdit(layout, seconds, action, minimum = .04) {
   if (action === 'trim-end' && (at - clip.start < minimum || clip.end - at < .001)) return null;
   return { clipId: clip.id, ...(action === 'split' ? { at } : { start: action === 'trim-start' ? at : clip.start, end: action === 'trim-end' ? at : clip.end }) };
 }
+
+// Keep the cursor on the same source moment after cuts and reordering. Splits
+// retain the take number so either half can recover its original position.
+export function remapPlayhead(before, after, seconds) {
+  const old=clipAtTime(timelineLayout(before,1),seconds),next=timelineLayout(after,1);
+  const total=next.at(-1)?next.at(-1).time+next.at(-1).duration:0;
+  if(!old)return clamp(seconds,0,total);
+  const source=old.start+clamp(seconds-old.time,0,old.duration);
+  const sameTake=next.find(item=>item.takeNumber&&item.takeNumber===old.takeNumber&&source>=item.start&&source<item.end);
+  const item=next.find(item=>item.id===old.id&&source>=item.start&&source<item.end)||sameTake||next.find(item=>item.id===old.id);
+  return item?item.time+clamp(source-item.start,0,item.duration):clamp(seconds,0,total);
+}

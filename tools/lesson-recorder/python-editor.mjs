@@ -1,4 +1,4 @@
-import { clamp, timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit } from './python-editor-time.mjs';
+import { clamp, timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit, remapPlayhead } from './python-editor-time.mjs';
 import { SourceTimelinePlayer } from './python-playback.mjs';
 import {pythonSourceAt} from './python-source-map.mjs';
 import {pythonExportSpeed,pythonExportDuration,pythonPreviewSpeed} from './python-speed.mjs';
@@ -7,7 +7,7 @@ const style = document.createElement('style');
 style.textContent = `
 .python-editor[hidden],.python-editor [hidden]{display:none!important}.python-editor{margin-top:24px;overflow:hidden;border:1px solid #51416f;background:linear-gradient(135deg,#211b35,#121a29);border-radius:22px;color:#e9edf8;box-shadow:0 12px 35px #06091330}.pe-header{padding:22px 24px;border-bottom:1px solid #ffffff12;display:flex;align-items:center;gap:16px;flex-wrap:wrap}.pe-header h2{font-size:21px;margin:5px 0}.pe-header>div{flex:1;min-width:190px}.pe-header p{font-size:12px;margin:0}.python-editor button{font:600 12px Segoe UI,sans-serif;white-space:nowrap;transition:background .15s,border-color .15s}.python-editor button:focus-visible,.python-editor input:focus-visible{outline:2px solid #bba2ff;outline-offset:3px}.pe-project{max-width:300px;min-width:0}.pe-workspace{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:0}.pe-view{padding:22px;min-width:0}.pe-player{width:100%;aspect-ratio:16/9;background:#080b13;border:1px solid #ffffff0d;border-radius:14px;display:block}.pe-empty{aspect-ratio:16/9;display:grid;place-items:center;text-align:center;color:#94a0b7;background:radial-gradient(ellipse at top,#3a2854,#080c14);border-radius:14px;padding:32px}.pe-empty strong{display:block;font-size:17px;color:#e4d8ff;margin-bottom:10px}.pe-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}.pe-tools button{padding:8px 11px}.pe-status{color:#abb4cc;font-size:12px;line-height:1.6;margin-top:10px}.pe-inspector{padding:22px;border-left:1px solid #ffffff12;background:#ffffff03}.pe-inspector h3{font-size:14px;margin:0 0 15px}.pe-inspector label{font-size:11px;color:#aab4ca;display:block;margin:10px 0 5px}.pe-inspector input{width:100%;padding:9px;min-width:0}.pe-inspector .pe-tools button{flex:1}.pe-timeline{border-top:1px solid #ffffff12;padding:18px 22px 22px;position:relative}.pe-track-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px}.pe-track-tools strong{flex:1;font-size:13px}.pe-track-tools input{width:100px}.pe-track-scroll{overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;padding-bottom:12px;scrollbar-color:#8261c1 #121826}.pe-ruler,.pe-track{display:flex;gap:4px;min-width:100%}.pe-ruler>span{flex:none;font-size:10px;color:#8e9ab1;position:relative;height:20px;border-left:1px solid #667085;padding-left:5px}.pe-track>button{position:relative;flex:none;height:76px;min-width:72px;overflow:hidden;text-align:left;padding:12px;border:1px solid #725095;border-radius:9px;background:linear-gradient(130deg,#45305f,#342847);color:#f5edff}.pe-track>button[aria-selected=true]{border-color:#cdaaff;box-shadow:inset 0 0 0 1px #cdaaff;background:linear-gradient(130deg,#7051a0,#423059)}.pe-track>button small{display:block;font-size:11px;margin-top:8px;opacity:.75}.pe-track>button:after{content:'';position:absolute;left:0;right:0;bottom:0;height:12px;background:repeating-linear-gradient(90deg,#b094d833 0 2px,transparent 2px 6px)}.pe-track .pe-recording{background:linear-gradient(130deg,#692f4b,#3c2637);border-color:#e57996;animation:pe-live 2s ease-in-out infinite}.pe-track .pe-recording:after{background:repeating-linear-gradient(90deg,#eaa0b833 0 2px,transparent 2px 6px)}.pe-cursor{position:absolute;top:0;bottom:0;width:2px;background:#f1ddff;pointer-events:none;box-shadow:0 0 8px #d9acff}.pe-footer{padding:15px 22px;border-top:1px solid #ffffff12;display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:#131822}.pe-footer p{font-size:12px;flex:1;margin:0}.pe-footer button{background:linear-gradient(100deg,#8855dc,#ad4bd0);border-color:#b46eee;color:#fff;padding:12px 17px}.pe-menu{position:fixed;z-index:1000;padding:7px;display:grid;gap:3px;width:230px;max-height:calc(100dvh - 24px);overflow:auto;background:#242033eF;backdrop-filter:blur(16px);border:1px solid #8670a966;border-radius:12px;box-shadow:0 16px 50px #0008}.pe-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:10px}.pe-menu button:hover{background:#9f72e333}.pe-error{color:#ffb3c5}.pe-save-note{font-size:11px;color:#8994a9;padding:0 22px 15px}@keyframes pe-live{50%{border-color:#ffa2bd}}@media(prefers-reduced-motion:reduce){.pe-recording{animation:none!important}}@media(max-width:720px){.pe-workspace{grid-template-columns:1fr}.pe-inspector{border-left:0;border-top:1px solid #ffffff12}.pe-header,.pe-view,.pe-inspector,.pe-timeline{padding:16px}.pe-project{width:100%;max-width:none}.pe-footer button{width:100%}.pe-header>div{min-width:0}}`;
 document.head.append(style);
-style.textContent += '.python-editor .pe-header{margin:0}.python-editor .pe-player{margin:0}.python-editor .pe-track strong{font-size:11px;white-space:nowrap}body:has(.python-editor--focus) main>:not(.python-editor){visibility:hidden}';
+style.textContent += '.python-editor .pe-header{margin:0}.python-editor .pe-player{margin:0;max-height:none}.python-editor .pe-track strong{font-size:11px;white-space:nowrap}body:has(.python-editor--focus) main>:not(.python-editor){visibility:hidden}';
 style.textContent += `
 .pe-focus-button{margin-left:auto}.python-editor--focus{position:fixed;inset:12px;z-index:50;display:flex;flex-direction:column;max-height:calc(100dvh - 24px);margin:0}.python-editor--focus .pe-header{padding:12px 18px;flex:none}.python-editor--focus .pe-header h2{font-size:18px}.python-editor--focus .pe-workspace{flex:1;min-height:0}.python-editor--focus .pe-view{display:flex;flex-direction:column;min-height:0;padding:14px}.python-editor--focus .pe-player,.python-editor--focus .pe-empty{flex:1;min-height:0;aspect-ratio:auto;object-fit:contain}.python-editor--focus .pe-inspector{overflow-y:auto;padding:14px}.python-editor--focus .pe-inspector h3{margin-bottom:8px}.python-editor--focus .pe-inspector label{margin-top:7px}.python-editor--focus .pe-inspector input{padding:6px}.python-editor--focus .pe-inspector .pe-tools{margin-top:6px}.python-editor--focus .pe-timeline{padding:12px 18px;flex:none}.python-editor--focus .pe-track-tools{margin-bottom:8px}.python-editor--focus .pe-track>button{height:62px}.python-editor--focus .pe-footer{padding:10px 18px;flex:none}.python-editor--focus .pe-save-note{padding-bottom:8px}body:has(.python-editor--focus){overflow:hidden}body:has(.python-editor--focus) #python-transport{display:none!important}@media(max-width:720px){.python-editor--focus{inset:0;max-height:100dvh;border-radius:0;overflow-y:auto}.python-editor--focus .pe-workspace{flex:none;min-height:420px}.python-editor--focus .pe-view{min-height:320px}.python-editor--focus .pe-inspector{max-height:280px}.python-editor--focus .pe-header p{display:none}.python-editor--focus .pe-footer{position:sticky;bottom:0}.python-editor--focus .pe-project{width:auto;flex:1}}`;
 const editor = document.createElement('section'); editor.className = 'python-editor'; editor.id = 'python-editor'; editor.tabIndex = 0; editor.setAttribute('aria-label', 'Монтажная студия Python');
@@ -31,7 +31,7 @@ let returnFocus;
 function setExpanded(expanded) {
   editor.classList.toggle('python-editor--focus', expanded);
   focusButton.textContent = expanded ? 'Свернуть редактор' : 'Развернуть редактор';
-  if(expanded){editor.setAttribute('role','dialog');editor.setAttribute('aria-modal','true');for(const child of editor.parentElement.children){if(child!==editor){inertBefore.set(child,child.inert);child.inert=true;}}}
+  if(expanded){editor.setAttribute('role','dialog');editor.setAttribute('aria-modal','true');for(const child of editor.parentElement.children){if(child!==editor){if(!inertBefore.has(child))inertBefore.set(child,child.inert);child.inert=true;}}}
   else{editor.removeAttribute('role');editor.removeAttribute('aria-modal');for(const[child,inert]of inertBefore)child.inert=inert;inertBefore.clear();}
 }
 focusButton.onclick = () => {
@@ -104,6 +104,8 @@ let projectId = '', selectedId = '', busy = false, videoUrl = '', previewClip = 
 let playhead = 0, layout = [], snapping = true, gesture = null, inspectorSignature = '';
 let previewGeneration = 0;
 let reviewedRevision = -1;
+let frameProject = '', autoPreviewKey = '', fullscreenWasExpanded = false, fullscreenActive = false;
+let viewSpeed=1, viewSpeedProject='', viewExportSpeed=1;
 let liveWanted = true, liveBusy = false, editorVisible = false, transition = null, transitionError = null;
 let preparing = false, preparingBusy = false, startPending = false, preflightLease = false, autoPrepared = false;
 let warmedSource = '';
@@ -135,38 +137,61 @@ const player = new SourceTimelinePlayer(find('video'), playbackSource,
   seconds => { if (videoUrl && previewRevision === job()?.pythonTimeline.revision) setPlayhead(seconds + (previewClip ? layout.find(item=>item.id===previewClip)?.time || 0 : 0),false,false); syncPlaybackControls(); },
   text => {sourceCache.clear();warmedSource='';if(!player.source)discardPreview();render();syncPlaybackControls();notify(text,true);});
 const playbackTools = document.createElement('div'); playbackTools.className='pe-tools pe-playback-controls'; playbackTools.hidden=true;
-playbackTools.innerHTML='<button type="button" aria-label="Воспроизведение монтажа">▶ Воспроизвести</button><button type="button" aria-label="Звук предпросмотра">♫ Звук включён</button><select aria-label="Скорость просмотра"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.5">1,5×</option><option value="2">2×</option></select>';
+playbackTools.innerHTML='<button type="button" aria-label="Воспроизведение монтажа">▶ Воспроизвести</button><button type="button" aria-label="Звук предпросмотра">♫ Звук включён</button><select aria-label="Скорость просмотра"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="1.5">1,5×</option><option value="2">2×</option></select><label class="pe-volume">Громкость <input type="range" min="0" max="1" step="0.01" value="1" aria-label="Громкость предпросмотра"></label>';
 style.textContent += '.python-editor .pe-playback-controls{flex:none}.python-editor .pe-playback-controls select{width:80px;padding:7px;font-size:12px}.python-editor--focus .pe-view{overflow-y:auto}.python-editor--focus .pe-playback-controls{margin-top:6px}.python-editor--focus .pe-view .pe-monitor{min-height:100px}';
 find('.pe-play-tools').append(playbackTools);
 style.textContent += '.python-editor .pe-playback-controls{display:contents}.python-editor .pe-play-tools{flex:none}';
 async function togglePlayback() {
-  try { if(player.playing)player.pause();else await player.play(); }
+  if (!canReview()) return;
+  try {
+    if(player.playing||player.playWhenReady)player.pause();
+    else if(!videoUrl || previewClip || previewRevision !== job()?.pythonTimeline.revision || !player.source)await preview(true,true);
+    else await player.play();
+  }
   catch(error){notify(error.message,true);}
   finally { syncPlaybackControls(); }
 }
 playbackTools.children[0].onclick=()=>{void togglePlayback();};
-playbackTools.children[1].onclick=()=>{const muted=!player.active.muted;for(const video of player.videos)video.muted=muted;playbackTools.children[1].textContent=muted?'♫ Без звука':'♫ Звук включён';};
-playbackTools.children[2].onchange=event=>{for(const video of player.videos)video.defaultPlaybackRate=video.playbackRate=Number(event.target.value);};
+playbackTools.children[1].onclick=()=>{const muted=!player.active.muted;for(const video of player.videos)video.muted=muted;syncPlaybackControls();};
+playbackTools.children[2].onchange=event=>{viewSpeed=Number(event.target.value);viewSpeedProject=projectId;viewExportSpeed=pythonExportSpeed(job()?.pythonTimeline.speed);for(const video of player.videos)video.defaultPlaybackRate=video.playbackRate=viewSpeed;};
+const volumeInput=playbackTools.querySelector('input');
+volumeInput.oninput=()=>{for(const video of player.videos){video.volume=Number(volumeInput.value);video.muted=video.volume===0;}syncPlaybackControls();};
 const fullscreenButton = document.createElement('button'); fullscreenButton.type='button'; fullscreenButton.textContent='⛶ На весь экран'; fullscreenButton.setAttribute('aria-label','Полноэкранный просмотр'); playbackTools.append(fullscreenButton);
-const fullscreenControls = document.createElement('div'); fullscreenControls.className='pe-fullscreen-controls';
-fullscreenControls.innerHTML='<button type="button" aria-label="Воспроизведение в полном экране">▶ Воспроизвести</button><input type="range" min="0" step="0.01" aria-label="Позиция просмотра в полном экране"><output></output><button type="button" aria-label="Выйти из полного экрана">⛶ Свернуть</button>';
-const monitor=find('.pe-monitor'); monitor.append(fullscreenControls);
-style.textContent += '.pe-fullscreen-controls{display:none}.pe-monitor:fullscreen{width:100vw;height:100dvh;aspect-ratio:auto;border:0;border-radius:0;background:#080b13}.pe-monitor:fullscreen .pe-player,.pe-monitor:fullscreen .pe-live-image{height:calc(100% - 66px)}.pe-monitor:fullscreen .pe-fullscreen-controls{display:flex;position:absolute;bottom:0;left:0;right:0;gap:12px;padding:14px;align-items:center;background:#171b2a}.pe-fullscreen-controls input{flex:1;min-width:40px}.pe-fullscreen-controls output{font:12px Consolas,monospace;white-space:nowrap}';
+const cinemaButton=document.createElement('button');cinemaButton.type='button';cinemaButton.textContent='Только видео';cinemaButton.setAttribute('aria-label','Скрыть инструменты монтажа');cinemaButton.hidden=true;playbackTools.append(cinemaButton);
+const frameButtons=[[-1,'← Кадр','Предыдущий кадр'],[1,'Кадр →','Следующий кадр']].map(([direction,label,name])=>{const button=document.createElement('button');button.type='button';button.textContent=label;button.setAttribute('aria-label',name);button.onclick=()=>{player.pause();setPlayhead(playhead+direction/(player.source?.frameRate||30));};playbackTools.append(button);return button;});
+const monitor=find('.pe-monitor');monitor.tabIndex=0;monitor.setAttribute('role','button');monitor.setAttribute('aria-label','Воспроизвести или приостановить монтаж от курсора');
+style.textContent += `
+.pe-monitor[aria-disabled=false]{cursor:pointer}.pe-volume{display:flex;align-items:center;gap:6px;font-size:11px;color:#abb4cc;margin:0}.pe-volume input{width:80px}.python-editor:fullscreen{inset:0;width:100vw;height:100dvh;max-height:100dvh;margin:0;border:0;border-radius:0;box-sizing:border-box;background:#171827}.python-editor:fullscreen .pe-focus-button,.python-editor:fullscreen .pe-footer,.python-editor:fullscreen .pe-save-note{display:none}.python-editor:fullscreen .pe-header{padding:8px 14px}.python-editor:fullscreen .pe-header h2{font-size:16px}.python-editor:fullscreen .pe-play-tools [data-op=preview],.python-editor:fullscreen .pe-play-tools [data-op=preview-all]{display:none}.python-editor:fullscreen .pe-status{min-height:0}.python-editor:fullscreen.python-editor--cinema .pe-header,.python-editor:fullscreen.python-editor--cinema .pe-inspector,.python-editor:fullscreen.python-editor--cinema .pe-timeline,.python-editor:fullscreen.python-editor--cinema .pe-speed-settings,.python-editor:fullscreen.python-editor--cinema .pe-session,.python-editor:fullscreen.python-editor--cinema .pe-record-tools{display:none}.python-editor:fullscreen.python-editor--cinema .pe-workspace{grid-template-columns:minmax(0,1fr)}.python-editor:fullscreen.python-editor--cinema .pe-view{padding:8px 12px}.python-editor:fullscreen.python-editor--cinema .pe-monitor{min-height:0}.python-editor:fullscreen.python-editor--cinema .pe-play-tools{margin-top:6px}.python-editor:fullscreen.python-editor--cinema .pe-status:empty{display:none}
+@media(max-width:720px){.python-editor:fullscreen .pe-workspace{flex:1;min-height:0}.python-editor:fullscreen .pe-view{min-height:160px}.python-editor:fullscreen .pe-inspector{max-height:160px}.python-editor:fullscreen .pe-monitor{flex:1;min-height:80px;aspect-ratio:auto}.python-editor:fullscreen.python-editor--cinema .pe-view{min-height:0}.python-editor:fullscreen .pe-speed-settings{padding:8px 12px}.python-editor:fullscreen .pe-gesture-note{display:none}}
+`;
 async function toggleFullscreen() {
-  try { if(document.fullscreenElement === monitor)await document.exitFullscreen();else await monitor.requestFullscreen(); }
-  catch(error){notify(`Не удалось открыть полный экран: ${error.message}`,true);}
+  try {
+    if(document.fullscreenElement === editor)await document.exitFullscreen();
+    else {fullscreenWasExpanded=editor.classList.contains('python-editor--focus');setExpanded(true);await editor.requestFullscreen();editor.focus({preventScroll:true});}
+  }
+  catch(error){if(!fullscreenActive)setExpanded(fullscreenWasExpanded);notify(`Не удалось открыть полный экран: ${error.message}`,true);}
 }
-fullscreenButton.onclick=()=>{void toggleFullscreen();}; fullscreenControls.children[3].onclick=()=>{void toggleFullscreen();};
-fullscreenControls.children[0].onclick=()=>{void togglePlayback();}; fullscreenControls.children[1].oninput=event=>setPlayhead(Number(event.target.value));
-for(const video of player.videos){video.addEventListener('play',syncPlaybackControls);video.addEventListener('pause',syncPlaybackControls);video.addEventListener('ended',syncPlaybackControls);video.onclick=()=>{void togglePlayback();};video.ondblclick=()=>{void toggleFullscreen();};}
+fullscreenButton.onclick=()=>{void toggleFullscreen();};
+cinemaButton.onclick=()=>{const cinema=editor.classList.toggle('python-editor--cinema');cinemaButton.textContent=cinema?'Показать монтаж':'Только видео';cinemaButton.setAttribute('aria-label',cinema?'Показать инструменты монтажа':'Скрыть инструменты монтажа');};
+document.addEventListener('fullscreenchange',()=>{const active=document.fullscreenElement===editor;if(!active&&fullscreenActive){editor.classList.remove('python-editor--cinema');setExpanded(fullscreenWasExpanded);}fullscreenActive=active;cinemaButton.hidden=!active;cinemaButton.textContent='Только видео';cinemaButton.setAttribute('aria-label','Скрыть инструменты монтажа');fullscreenButton.textContent=active?'⛶ Выйти из полного экрана':'⛶ На весь экран';fullscreenButton.setAttribute('aria-label',active?'Выйти из полного экрана':'Полноэкранный просмотр');});
+monitor.onclick=()=>{void togglePlayback();};
+monitor.onkeydown=event=>{if(event.target===monitor&&['Enter',' '].includes(event.key)){event.preventDefault();event.stopPropagation();if(!event.repeat)void togglePlayback();}};
+monitor.ondblclick=()=>{void toggleFullscreen();};
+for(const video of player.videos){video.addEventListener('play',syncPlaybackControls);video.addEventListener('pause',syncPlaybackControls);video.addEventListener('ended',syncPlaybackControls);video.addEventListener('volumechange',syncPlaybackControls);}
+function canReview(){
+  const current=job(),state=context.state();
+  return Boolean(!preparing&&!busy&&current?.pythonTimeline.clips.length&&(current.file||current.status==='recording')&&!state?.editorBusy&&!state?.updater?.busy&&!state?.materialControlBusy&&!state?.uploadingId&&!context.pausePending?.()&&(!state?.jobs.some(item=>['starting','recording','stopping'].includes(item.status))||current.status==='recording'&&state.obs?.outputPaused));
+}
 function syncPlaybackControls() {
-  const text=player.playing?'Ⅱ Пауза просмотра':'▶ Воспроизвести';
-  playbackTools.children[0].textContent=text; fullscreenControls.children[0].textContent=text;
-  playbackTools.children[0].disabled=fullscreenControls.children[0].disabled=player.loading || !player.source;
-  fullscreenControls.children[1].max=String(totalTime());fullscreenControls.children[1].value=String(playhead);
-  fullscreenControls.children[2].textContent=`${clock(playhead)} / ${clock(totalTime())}`;
+  playbackTools.children[0].textContent=player.playing||player.playWhenReady?'Ⅱ Пауза просмотра':'▶ Воспроизвести';
+  playbackTools.children[0].disabled=!canReview();
+  playbackTools.children[1].textContent=player.active.muted?'♫ Без звука':'♫ Звук включён';
+  volumeInput.value=String(player.active.volume);
+  for(const button of frameButtons)button.disabled=!canReview();
+  monitor.setAttribute('aria-disabled',String(!canReview()));
+  monitor.title=canReview()?'Нажмите на видео или пробел — просмотр всего монтажа от курсора. Двойной клик — полный экран.':'';
 }
-const discardPreview = () => { previewGeneration++; player.stop(); videoUrl = ''; previewClip = ''; liveWanted = true; for(const video of player.videos)video.hidden=true; find('.pe-empty').hidden = false; playbackTools.hidden=true; };
+const discardPreview = (keepFrame=false) => { previewGeneration++; player.stop(); videoUrl = ''; previewClip = ''; previewRevision=-1; liveWanted = !keepFrame; if(!keepFrame)frameProject=''; for(const video of player.videos)video.hidden=!(keepFrame&&frameProject===projectId&&video===player.active); find('.pe-empty').hidden = keepFrame&&frameProject===projectId; playbackTools.hidden=!keepFrame; };
 function showSettings(shown) {
   preparation.hidden = !shown; fragmentTools.hidden = shown;
   [...inspectorTabs.children].forEach((button, index) => button.setAttribute('aria-pressed',String(index === (shown ? 0 : 1))));
@@ -252,10 +277,11 @@ function renderMonitor(current, state) {
   find('.pe-live-image').hidden = !live || !find('.pe-live-image').hasAttribute('src');
   find('.pe-live-empty').hidden = !live || find('.pe-live-image').hasAttribute('src');
   find('.pe-live-label').hidden = !live;
-  find('.pe-player').hidden = live || !videoUrl || !player.source;
-  find('.pe-empty').hidden = live || Boolean(videoUrl && player.source);
+  const picture=Boolean(videoUrl&&player.source||frameProject===current?.id);
+  for(const video of player.videos)video.hidden=live||!picture||video!==player.active;
+  find('.pe-empty').hidden = live || picture;
   find('.pe-seek').hidden = live;
-  playbackTools.hidden = live || !videoUrl;
+  playbackTools.hidden = live || !current?.pythonTimeline.clips.length;
   syncPlaybackControls();
   find('[data-op=live]').hidden = !active || liveWanted;
   find('.pe-live-label').textContent = active ? state.obs?.outputPaused ? 'Экран записи · пауза' : '● Экран записи' : 'Предпросмотр · запись ещё не начата';
@@ -307,8 +333,11 @@ const act = async operation => {
   finally { busy = false; await context.refresh(); render(); }
 };
 async function edit(action, extra = {}) {
-  const current = job(); await context.request('/python/editor/edit', { id: current.id, revision: current.pythonTimeline.revision, action, clipId: selectedId, ...extra });
-  discardPreview(); signature = ''; await context.refresh(); render(); notify('Монтаж сохранён. Исходник не изменён.');
+  const current = job(),before=structuredClone(current.pythonTimeline.clips),cursor=playhead;
+  await context.request('/python/editor/edit', { id: current.id, revision: current.pythonTimeline.revision, action, clipId: selectedId, ...extra });
+  discardPreview(true);autoPreviewKey=''; signature = ''; await context.refresh();
+  if(job()?.id===current.id)playhead=remapPlayhead(before,job().pythonTimeline.clips,cursor);
+  render(); notify('Монтаж сохранён. Нажмите видео или пробел — просмотр от курсора.');
 }
 function renderSpeed(current,locked,active){
   speedControls.hidden=preparing||!current;if(!current)return;
@@ -324,7 +353,9 @@ speedInput.oninput=()=>{speedDirty=true;render();};
 speedInput.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();void act(()=>applySpeed(speedInput.value));}};
 speedApply.onclick=()=>{void act(()=>applySpeed(speedInput.value));};speedReset.onclick=()=>{void act(()=>applySpeed(1));};
 function setExportPreviewSpeed(current){
-  const rate=pythonPreviewSpeed(current.pythonTimeline),select=playbackTools.children[2];
+  const exportSpeed=pythonExportSpeed(current.pythonTimeline.speed);
+  if(viewSpeedProject!==current.id||viewExportSpeed!==exportSpeed){viewSpeed=pythonPreviewSpeed(current.pythonTimeline);viewSpeedProject=current.id;viewExportSpeed=exportSpeed;}
+  const rate=viewSpeed,select=playbackTools.children[2];
   const old=select.querySelector('[data-export-speed]');old?.remove();
   if(![...select.options].some(option=>Number(option.value)===rate)){const option=new Option(`${String(rate).replace('.',',')}× · готовое видео`,String(rate));option.dataset.exportSpeed='true';select.add(option);}
   select.value=String(rate);
@@ -340,7 +371,7 @@ function setPlayhead(seconds, seekVideo = true, choose = true, updatePoint = tru
   if (choose && item && selectedId !== item.id) select(item.id);
   if (seekVideo && videoUrl && previewRevision === job()?.pythonTimeline.revision) {
     const secondsInPreview = previewClip ? playhead - layout.find(part => part.id === previewClip)?.time : playhead;
-    if (Number.isFinite(secondsInPreview) && secondsInPreview >= 0 && (!previewClip || secondsInPreview <= selection()?.end - selection()?.start)) void player.seek(secondsInPreview,player.playing).catch(error=>notify(error.message,true));
+    if (Number.isFinite(secondsInPreview) && secondsInPreview >= 0 && (!previewClip || secondsInPreview <= selection()?.end - selection()?.start)) void player.seek(secondsInPreview,player.playing||player.playWhenReady).catch(error=>notify(error.message,true));
   }
   find('.pe-cursor').style.left = `${timeToPixel(layout, playhead)}px`;
   find('.pe-cursor').hidden = !layout.length;
@@ -354,7 +385,8 @@ function setPlayhead(seconds, seekVideo = true, choose = true, updatePoint = tru
 find('.pe-seek input').oninput = event => setPlayhead(Number(event.target.value));
 async function preview(all = false, play = true) {
   const startedAt = performance.now();
-  const current = job(), requested = structuredClone(selection()), requestedClips = structuredClone(current.pythonTimeline.clips);
+  const current = job();if(!current || !current.pythonTimeline.clips.length)return;
+  const requested = structuredClone(selection()), requestedClips = structuredClone(current.pythonTimeline.clips);
   if (!all && !requested) return;
   const offset = all ? playhead : clamp(playhead - (layout.find(part => part.id === requested.id)?.time || 0), 0, requested.end - requested.start);
   if (videoUrl && previewRevision === current.pythonTimeline.revision && previewClip === (all ? '' : requested.id)) {
@@ -369,10 +401,10 @@ async function preview(all = false, play = true) {
   renderMonitor(current, context.state());
   await player.seek(offset,play);
   if(generation!==previewGeneration || job()?.id!==current.id || job()?.pythonTimeline.revision!==previewRevision || !player.source)return;
-  videoUrl=player.source.videoUrl; if(all)reviewedRevision=previewRevision;
+  videoUrl=player.source.videoUrl; frameProject=current.id;if(all)reviewedRevision=previewRevision;
   renderMonitor(current,context.state());
   editor.dataset.playbackStartMs=(performance.now()-startedAt).toFixed(1);
-  const speed=pythonExportSpeed(current.pythonTimeline.speed),rate=pythonPreviewSpeed(current.pythonTimeline);
+  const speed=pythonExportSpeed(current.pythonTimeline.speed),rate=player.active.playbackRate;
   notify((all ? 'Предпросмотр всего монтажа. Проверьте звук и стыки.' : 'Фрагмент готов к просмотру. Остановите воспроизведение в месте разреза.')+(speed!==rate?` Просмотр при ${rate}×; готовое видео будет при ${speed}×.`:''));
   playbackTools.hidden=false;
   void makeThumbnails(videoUrl,(all?requestedClips:[requested]).filter(clip=>clip.start>=player.source.sourceStart&&clip.start<player.source.sourceEnd),player.source.offset,previewGeneration);
@@ -400,7 +432,7 @@ function render() {
     find('.pe-selection').textContent = 'Фрагменты появятся после первой паузы';
     find('.pe-ruler').replaceChildren();
     find('.pe-track').innerHTML = '<div class="pe-track-placeholder">Здесь будут фрагменты вашего урока</div>';
-    find('.pe-duration').textContent = 'Итого 0:00.0';
+    find('.pe-duration').textContent = 'Лента до ускорения 0:00.0';
     find('.pe-cursor').hidden = true;
     find('.pe-seek input').value = '0'; find('.pe-seek output').textContent = '0:00.0 / 0:00.0';
     find('.pe-fragment').classList.add('pe-fragment--empty');
@@ -422,7 +454,7 @@ function render() {
   }
   selectProject.value = preparing ? '' : projectId;
   const current = job(), timeline = current.pythonTimeline;
-  find('.pe-empty').firstElementChild.innerHTML = timeline.clips.length ? '<strong>Выберите фрагмент в ленте</strong>Двойной клик по фрагменту — просмотр. Для разреза или обрезки поставьте курсор на нужное место.' : '<strong>В ленте пока нет фрагментов</strong>' + (timeline.finalized ? 'Исходник сохранён. Можно добавить всю запись в ленту или отменить удаление.' : 'Завершите первый дубль кнопкой паузы — он появится здесь.');
+  find('.pe-empty').firstElementChild.innerHTML = timeline.clips.length ? '<strong>Нажмите здесь — просмотр от курсора</strong>Пробел — воспроизведение или пауза. Выберите место в ленте, чтобы продолжить с него.' : '<strong>В ленте пока нет фрагментов</strong>' + (timeline.finalized ? 'Исходник сохранён. Можно добавить всю запись в ленту или отменить удаление.' : 'Завершите первый дубль кнопкой паузы — он появится здесь.');
   const anyActive = state.jobs.some(item => ["starting","recording","stopping"].includes(item.status));
   const isActive = current.status === 'recording' && active?.id === current.id;
   find('.pe-record-tools').hidden = !isActive;
@@ -460,7 +492,7 @@ function render() {
   if (isActive && !state.obs?.outputPaused) {
     const recording = document.createElement('button'); recording.type = 'button'; recording.className = 'pe-recording'; recording.style.width = `${Math.max(140, (timeline.sourceEnd - (timeline.openStart || 0)) * scale)}px`; const title = document.createElement('strong'); title.textContent = `● Дубль ${(timeline.takeCount ?? timeline.clips.length) + 1}`; const duration = document.createElement('small'); duration.textContent = `${clock(timeline.sourceEnd - (timeline.openStart ?? timeline.sourceEnd))} · записывается`; recording.append(title,duration); recording.onclick = () => notify('Нажмите «Завершить дубль», чтобы добавить этот фрагмент в ленту.'); find('.pe-track').append(recording);
   }
-  find('.pe-duration').textContent = `Итого ${clock(timeline.clips.reduce((sum, clip) => sum + clip.end - clip.start, 0))}`;
+  find('.pe-duration').textContent = `Лента до ускорения ${clock(timeline.clips.reduce((sum, clip) => sum + clip.end - clip.start, 0))}`;
   editor.querySelectorAll('[data-op]').forEach(button => { const op = button.dataset.op; button.disabled = locked || (!selected && !['undo', 'redo', 'snap', 'fit', 'pause', 'retake', 'publish', 'preview-all', 'live'].includes(op)); });
   find('[data-op=undo]').disabled = locked || !timeline.canUndo;
   find('[data-op=redo]').disabled = locked || !timeline.canRedo;
@@ -495,10 +527,14 @@ function render() {
   find('[data-op=move-right]').disabled=locked||index<0||index>=timeline.clips.length-1;
   find('[data-op=join]').disabled=locked||!selected||!after||Math.abs(selected.end-after.start)>.001;
   editor.querySelectorAll('[data-field]').forEach(input=>{input.disabled=locked||!selected;});
-  if (previewRevision !== -1 && previewRevision !== timeline.revision && videoUrl) { discardPreview(); notify('Лента изменилась. Нажмите воспроизведение — исходник уже подготовлен.'); }
+  if (previewRevision !== -1 && previewRevision !== timeline.revision && videoUrl) { discardPreview(true); notify('Лента изменилась. Нажмите видео или пробел — просмотр от курсора.'); }
   setPlayhead(playhead, false, false, false);
   renderMonitor(current, state);
   renderPreparation(state);
+  const previewKey=`${current.id}:${timeline.revision}`;
+  if(editorVisible&&canReview()&&!player.loading&&autoPreviewKey!==previewKey&&(!videoUrl||previewRevision!==timeline.revision)){
+    autoPreviewKey=previewKey;void preview(true,false).catch(error=>notify(error.message,true));
+  }
   const last = timeline.clips.at(-1);
   if (editorVisible && !preparing && (!anyActive || isActive && state.obs?.outputPaused)) {
     const key = last ? `${current.id}:${timeline.sourceEnd}` : '';
@@ -577,6 +613,7 @@ editor.querySelectorAll('[data-op]').forEach(button => button.onclick = () => in
 find('.pe-project').onchange = event => { if (!event.target.value) { void prepareRecording(); return; } projectId = event.target.value; playhead = 0; reviewedRevision = -1; discardPreview(); select(''); };
 find('[aria-label="Масштаб ленты"]').oninput = event => { scale = Number(event.target.value); signature = ''; render(); };
 editor.addEventListener('keydown', event => {
+  if(event.key==='Escape'&&document.fullscreenElement===editor){event.preventDefault();void document.exitFullscreen();return;}
   if (event.key === 'Escape' && editor.classList.contains('python-editor--focus')) {
     event.preventDefault(); focusButton.click(); return;
   }
@@ -593,9 +630,9 @@ editor.addEventListener('keydown', event => {
   else if (event.ctrlKey && shortcut === 'z') { event.preventDefault(); invoke(event.shiftKey ? 'redo' : 'undo'); }
   else if (event.ctrlKey && shortcut === 'y') { event.preventDefault(); invoke('redo'); }
   else if (event.key === 'Delete' && selectedId) { event.preventDefault(); invoke('delete'); }
-  else if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key) && event.target.tagName !== 'VIDEO') { event.preventDefault(); setPlayhead(event.key==='Home'?0:event.key==='End'?totalTime():playhead+(event.key==='ArrowRight'?1:-1)*(event.shiftKey?1:1/30)); }
+  else if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) { event.preventDefault();player.pause();setPlayhead(event.key==='Home'?0:event.key==='End'?totalTime():playhead+(event.key==='ArrowRight'?1:-1)*(event.shiftKey?1:1/(player.source?.frameRate||30))); }
   else if (!event.ctrlKey && !event.altKey && ['s','q','w'].includes(shortcut)) { event.preventDefault(); invoke(({s:'cut-cursor',q:'trim-start',w:'trim-end'})[shortcut]); }
-  else if (event.code === 'Space' && (event.target.tagName !== 'BUTTON' || event.target.getAttribute('role') === 'option') && event.target.tagName !== 'VIDEO') { event.preventDefault(); if(videoUrl&&!liveWanted){if(player.playing)player.pause();else void player.play().catch(error=>notify(error.message,true));}else if(!find('[data-op=preview]').disabled)void act(()=>preview(false,true)); }
+  else if (event.code === 'Space' && (event.target.tagName !== 'BUTTON' || event.target.getAttribute('role') === 'option')) { event.preventDefault();void togglePlayback(); }
 });
 const trackContent = find('.pe-track-content');
 const trackPixel = event => event.clientX - trackContent.getBoundingClientRect().left;
@@ -672,7 +709,7 @@ function showMenu(x, y) {
   for (const [op, label] of [['preview', 'Посмотреть'], ['cut-cursor', 'Разделить по курсору · S'], ['trim-start', 'Убрать до курсора · Q'], ['trim-end', 'Убрать после курсора · W'], ['duplicate', 'Создать копию'], ['join', 'Объединить с правой частью'], ['move-left', 'Переместить раньше'], ['move-right', 'Переместить позже'], ['delete', 'Удалить из монтажа'], ['undo', 'Отменить действие'], ['redo','Вернуть действие']]) {
     const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role', 'menuitem'); button.textContent = label; button.disabled=find(`[data-op="${op}"]`)?.disabled; button.onclick = () => { menu.remove(); invoke(op); }; menu.append(button);
   }
-  document.body.append(menu); menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - 240))}px`; menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
+  editor.append(menu); menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - 240))}px`; menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
 }
 document.addEventListener('pointerdown', event => { if (menu && !menu.contains(event.target)) menu.remove(); });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') menu?.remove(); });

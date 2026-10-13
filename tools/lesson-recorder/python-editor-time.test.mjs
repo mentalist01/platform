@@ -1,7 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit } from './python-editor-time.mjs';
+import { timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit, remapPlayhead } from './python-editor-time.mjs';
 const clips=[{id:'long',start:20,end:30},{id:'short',start:0,end:.2},{id:'last',start:8,end:13}];
+
+test('editing retains the current source frame when reordering, trimming, splitting or undoing a cut',()=>{
+  const original=[{id:'one',takeNumber:1,start:10,end:20},{id:'two',takeNumber:2,start:40,end:50}];
+  assert.equal(remapPlayhead(original,[original[1],original[0]],13),3);
+  assert.equal(remapPlayhead(original,[{...original[0],end:15},original[1]],13),8);
+  assert.equal(remapPlayhead(original,[{...original[0],start:12},original[1]],5),3);
+  assert.equal(remapPlayhead(original,[{...original[0],start:17},original[1]],5),0);
+  const split=[{...original[0],end:15},{...original[0],id:'half',start:15},original[1]];
+  assert.equal(remapPlayhead(original,split,7),7);
+  assert.equal(remapPlayhead(split,original,7),7);
+  assert.equal(remapPlayhead(original,[original[0]],13),10);
+  assert.equal(remapPlayhead(original,[],13),0);
+  assert.equal(remapPlayhead([],original,NaN),0);
+  assert.deepEqual(original,[{id:'one',takeNumber:1,start:10,end:20},{id:'two',takeNumber:2,start:40,end:50}]);
+});
 
 test('quick edits map the output cursor back into reordered, trimmed source ranges and reject cuts on boundaries', () => {
   const layout = timelineLayout(clips,8);

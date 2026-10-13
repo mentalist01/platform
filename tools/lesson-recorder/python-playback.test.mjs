@@ -8,6 +8,20 @@ class Video extends EventTarget {
   async play(){this.playCalls++;this.paused=false;}pause(){this.paused=true;}
 }
 const flushed=()=>new Promise(resolve=>setImmediate(resolve));
+
+test('pause cancels autoplay during source preparation, and play can resume a pending cursor seek',async t=>{
+  const raf=globalThis.requestAnimationFrame,cancel=globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame=()=>1;globalThis.cancelAnimationFrame=()=>{};
+  t.after(()=>{globalThis.requestAnimationFrame=raf;globalThis.cancelAnimationFrame=cancel;});
+  let release;const video=new Video(),player=new SourceTimelinePlayer(video,()=>new Promise(resolve=>release=resolve),()=>{},assert.fail);
+  player.configure([{start:10,end:20}]);const first=player.seek(3,true);await flushed();
+  assert.equal(player.playWhenReady,true);player.pause();release({videoUrl:'one',offset:0,sourceEnd:30});await first;
+  assert.equal(player.playing,false);assert.equal(video.playCalls,0);assert.equal(player.time,3);
+  const next=player.seek(5);await flushed();await player.play();assert.equal(player.playWhenReady,true);
+  release({videoUrl:'one',offset:0,sourceEnd:30});await next;
+  assert.equal(player.playing,true);assert.equal(player.time,5);assert.equal(video.playCalls,1);
+  player.stop();assert.equal(player.playWhenReady,false);
+});
 test('virtual playback maps reordered, split and duplicate clips to their original positions',()=>{
   const clips=[{start:60,end:62},{start:10,end:11},{start:10,end:11}];
   assert.deepEqual(playbackPosition(clips,.5),{index:0,time:0,source:60.5});

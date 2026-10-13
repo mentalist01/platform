@@ -11,6 +11,15 @@ const ffmpeg = process.env.FFMPEG_PATH || (process.platform === 'win32' ? 'C:/Pr
 let available = true; try { execFileSync(ffmpeg, ['-version'], { windowsHide: true, stdio: 'ignore' }); } catch { available = false; }
 const run = args => execFileSync(ffmpeg, ['-hide_banner','-loglevel','error', ...args], { windowsHide: true, maxBuffer: 10 * 1024 * 1024 });
 
+test('source preview reports sixty frames per second for frame-by-frame review', {timeout:30000,skip:!available&&'ffmpeg unavailable'},async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'python-frame-rate-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const id=crypto.randomUUID(),file=path.join(root,`lesson-${id}.mkv`);
+  run(['-y','-f','lavfi','-i','testsrc2=s=160x90:r=60:d=2','-c:v','libx264',file]);
+  const media=new PythonEditMedia({ffmpeg,root:path.join(root,'cache')});
+  const source=await media.playbackSource({id,file,pythonTimeline:{sourceEnd:2}},.5,root);
+  assert.equal(source.frameRate,60);
+});
+
 test('fractional export accelerates exact edited ranges, keeps audio pitch and sync, and leaves the draft and original intact', {timeout:60000,skip:!available&&'ffmpeg unavailable'},async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'python-speed-export-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
  const id=crypto.randomUUID(),file=path.join(root,`lesson-${id}.mkv`);
@@ -115,6 +124,7 @@ test('source playback keeps exact picture/audio across chunk boundaries and reus
   const started=performance.now();
   const [first,duplicate]=await Promise.all([media.playbackSource(job,10,root),media.playbackSource(job,10,root)]);
   assert.equal(first.id,duplicate.id,'Concurrent playback requests share one preparation');
+  assert.equal(first.frameRate,30,'Frame stepping uses the captured frame rate');
   const coldMs=performance.now()-started;
   for(const at of [.5,24.5,30.5,48.5,60.5]){
     const source=await media.playbackSource(job,at,root);

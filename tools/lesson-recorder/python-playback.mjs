@@ -12,7 +12,7 @@ export class SourceTimelinePlayer {
   constructor(video, resolveSource, onTime, onError) {
     this.videos = [video, video.cloneNode(false)]; video.after(this.videos[1]);
     this.resolveSource = resolveSource; this.onTime = onTime; this.onError = onError;
-    this.active = video; this.clips = []; this.generation = 0; this.playing = false; this.time = 0;
+    this.active = video; this.clips = []; this.generation = 0; this.playing = false; this.playWhenReady = false; this.time = 0;
     for (const element of this.videos) {
       element.controls = false; element.preload = 'auto'; element.hidden = true;
       element.addEventListener('timeupdate', () => {if(element===this.active)this.tick();});
@@ -22,7 +22,7 @@ export class SourceTimelinePlayer {
   }
   configure(clips) { this.stop(); this.clips = clips.map(clip => ({...clip})); }
   stop() { this.generation++; this.pause(); this.clips = []; this.next = null; this.source = null; this.loading = false; }
-  pause() { this.playing = false; for (const video of this.videos) video.pause(); }
+  pause() { this.playing = false; this.playWhenReady = false; for (const video of this.videos) video.pause(); }
   async ready(video, source, at, generation) {
     if (Number.isFinite(source.sourceEnd) && at > source.sourceEnd + .05) throw Error('В исходнике пока нет последних секунд этого фрагмента. Доступная часть сохранена; после сохранения записи OBS повторите просмотр.');
     const changed = video.getAttribute('src') !== source.videoUrl;
@@ -47,24 +47,22 @@ export class SourceTimelinePlayer {
   }
   async seek(seconds, play = false) {
     const position = playbackPosition(this.clips, seconds); if (!position) return;
-    const generation = ++this.generation; this.pause(); this.next = null; this.loading = true;
+    const generation = ++this.generation; this.pause(); this.playWhenReady=play; this.next = null; this.loading = true;
     try {
       const source = await this.resolveSource(Math.min(position.source, this.clips[position.index].end - .001));
       if (generation !== this.generation || !await this.ready(this.active, source, position.source, generation)) return;
       this.source = source; this.index = position.index; this.clipTime = position.time; this.time = seconds; this.loading = false;
       this.onTime(seconds); this.active.hidden = false;
-      if (play) await this.play(); else void this.preloadNext();
-    } catch(error) { if(generation===this.generation)this.onError(error.message); throw error; }
+      if (this.playWhenReady) await this.play(); else void this.preloadNext();
+    } catch(error) { if(generation===this.generation){this.pause();this.onError(error.message);} throw error; }
     finally { if(generation===this.generation)this.loading=false; }
   }
   async play() {
-    if (!this.clips.length || this.loading) return;
-    let generation = this.generation;
-    if (this.time >= this.duration() - .02) {
-      const reset = this.seek(0); generation = this.generation; await reset;
-    }
-    if (generation !== this.generation || !this.clips.length || this.loading) return;
-    this.playing = true; await this.active.play();
+    if (!this.clips.length) return;
+    if (this.loading) {this.playWhenReady=true;return;}
+    if (this.time >= this.duration() - .02) return this.seek(0,true);
+    const generation = this.generation;
+    this.playWhenReady = false; this.playing = true; await this.active.play();
     if (generation !== this.generation || !this.playing) return;
     this.frame(); void this.preloadNext();
   }

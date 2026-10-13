@@ -119,13 +119,14 @@ export class PythonEditMedia {
       // then shift by a known offset. This is one remux, with no video encoder.
       await command(this.ffmpeg, ['-hide_banner','-loglevel','error','-y','-copyts','-start_at_zero','-ss',String(from),'-i',input,'-to',String(end),
         '-map','0:v:0','-map','0:a:0?','-c','copy','-output_ts_offset',String(-from),'-avoid_negative_ts','disabled','-movflags','+faststart',temporary], 30000);
-      const copied = JSON.parse(await command(ffprobe, ['-v','error','-read_intervals','%+#1','-select_streams','v:0','-show_entries','packet=pts_time:format=duration','-of','json',temporary], 30000));
+      const copied = JSON.parse(await command(ffprobe, ['-v','error','-read_intervals','%+#1','-select_streams','v:0','-show_entries','packet=pts_time:format=duration:stream=r_frame_rate,avg_frame_rate','-of','json',temporary], 30000));
       const firstOutput = Number(copied.packets?.[0]?.pts_time);
       const duration = Number(copied.format?.duration);
       if (!Number.isFinite(firstOutput) || !Number.isFinite(duration) || duration <= 0) throw Error('Фрагмент ещё не записан на диск. Повторите просмотр через секунду.');
       fs.renameSync(temporary, output);
       const actualEnd = Math.min(end, duration + from);
-      const item = { file: output, jobId: job.id, key, access: crypto.randomBytes(24).toString('hex'),
+      const rate=(copied.streams?.[0]?.r_frame_rate||copied.streams?.[0]?.avg_frame_rate||'').split('/').map(Number),frameRate=rate[0]/rate[1];
+      const item = { file: output, jobId: job.id, key, access: crypto.randomBytes(24).toString('hex'),frameRate:Number.isFinite(frameRate)&&frameRate>0&&frameRate<=240?frameRate:30,
         sourceStart: firstOutput+from+origin, sourceEnd: actualEnd+origin, requestedEnd: end+origin, complete: actualEnd >= end - .05,
         inputSize: inputStat.size, inputModified: inputStat.mtimeMs, offset: -from-origin };
       this.previews.set(id, item);
