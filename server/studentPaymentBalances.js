@@ -196,6 +196,34 @@ export function reserveBalanceAllocation(account, occurrence, now, { force = fal
   return true;
 }
 
+export function settleBalanceLesson(account, occurrence, { source = 'balance', receipt = {} } = {}, now) {
+  if (!['balance', 'receipt'].includes(source)) throw balanceError('Выберите источник оплаты.', 'balance_invalid', 400);
+  if (account.allocations[occurrence.markKey]) return { alreadyPaid: true, receivedAmount: 0 };
+  if (!occurrence.eligible || occurrence.cents <= 0) throw balanceError('Это занятие нельзя оплатить.');
+  let receivedAmount = 0;
+  if (source === 'receipt') {
+    if (receipt.confirmed !== true || !/^[a-zA-Z0-9_-]{8,120}$/.test(receipt.idempotencyKey || '')) {
+      throw balanceError('Подтвердите полученный перевод.', 'balance_invalid', 400);
+    }
+    const cents = balanceCents(receipt.amount);
+    const at = receipt.receivedAt || now;
+    if (!Number.isFinite(Date.parse(at)) || Date.parse(at) > Date.parse(now) + 86_400_000 || cents < occurrence.cents) {
+      throw balanceError('Укажите полученную сумму не меньше стоимости занятия и корректную дату.', 'balance_invalid', 400);
+    }
+    const id = `manual:${receipt.idempotencyKey}`;
+    const similar = account.entries.some(e => e.type === 'receipt' && e.receiptId !== id
+      && e.creditCents === cents && Math.abs(Date.parse(e.at) - Date.parse(at)) <= 3 * 86_400_000);
+    if (similar && receipt.confirmedSeparate !== true && !account.knownReceiptIds.includes(id)) {
+      throw balanceError('Похожий перевод уже учтён. Используйте баланс или подтвердите, что это отдельный перевод.', 'balance_existing_receipt');
+    }
+    const result = addBalanceReceipt(account, { id, amount: cents / 100, at,
+      senderName: String(receipt.senderName || '').slice(0, 200), note: String(receipt.note || '').slice(0, 500), source: 'manual' }, now);
+    if (!result.duplicate) receivedAmount = cents / 100;
+  }
+  reserveBalanceAllocation(account, occurrence, now, { force: true });
+  return { alreadyPaid: false, receivedAmount };
+}
+
 export function reconcileBalanceAccount(account, occurrences, now, { removedKeys = [], allocate = true } = {}) {
   const byKey = new Map(occurrences.map(o => [o.markKey, o]));
   const moves = new Map();
@@ -230,7 +258,9 @@ export function reconcileBalanceAccount(account, occurrences, now, { removedKeys
     }
   }
   if (allocate) {
-    const candidates = occurrences.filter(o => o.eligible && !account.allocations[o.markKey] && !account.blocked[o.markKey])
+    // Archived slots stay available for explicit payments and existing allocations,
+    // but must not consume new transfers before payment tracking began.
+    const candidates = occurrences.filter(o => o.eligible && o.autoEligible !== false && !account.allocations[o.markKey] && !account.blocked[o.markKey])
       .sort((a, b) => a.dayKey.localeCompare(b.dayKey) || a.time.localeCompare(b.time) || a.markKey.localeCompare(b.markKey));
     for (const occurrence of candidates) {
       if (occurrence.cents <= 0) continue;

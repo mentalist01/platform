@@ -20,7 +20,7 @@ test('wallet API: migration, isolation, receipts, duplicates, manual review, und
   const dataDir = path.join(root, 'data'); fs.mkdirSync(dataDir);
   const write = (name, data) => fs.writeFileSync(path.join(dataDir, `${name}.json`), JSON.stringify(data));
   const read = name => JSON.parse(fs.readFileSync(path.join(dataDir, `${name}.json`)));
-  const createdAt = '2025-01-01T00:00:00.000Z';
+  const createdAt = '2024-01-01T00:00:00.000Z';
   const past = shift(-4), next = shift(-2), future = shift(2);
   const romanOld = shift(-11), romanMoved = shift(-6), romanNext = shift(-1);
   const romanGoogleId = date => `google-ical-${crypto.createHash('sha1').update(`owner:roman-series:${date}T14:00:00.000Z`).digest('hex').slice(0, 18)}`;
@@ -37,14 +37,19 @@ test('wallet API: migration, isolation, receipts, duplicates, manual review, und
   await new Promise(resolve => calendar.listen(0, '127.0.0.1', resolve));
   const calendarUrl = `http://127.0.0.1:${calendar.address().port}/calendar.ics`;
   const lessons = [past, next, future, shift(4)].map((date, index) => ({ id: `lesson-${index}`, studentId: 'student-owner', date, time: '18:00', durationMinutes: 60, subject: 'Python', createdAt }));
+  const archivedLesson = { ...lessons[0], id: 'archive-before-tracking', date: '2024-12-30' };
   write('teachers', ['owner', 'second'].map(id => ({ id, name: id, codeHash: hash(`wallet-${id}-login`), createdAt })));
   write('students', [...['owner', 'second'].map(id => ({ id: `student-${id}`, teacherId: id, name: 'Dima', code: `wallet-student-${id}`, grade: '11', createdAt, studyStatus: 'active' })), { id: 'roman', teacherId: 'owner', name: 'Roman', code: 'wallet-roman-login', grade: '11', createdAt }]);
   write('tests', {});
-  write('progress', { 'student-owner': { schedule: lessons, progress: {}, homeworks: [], solvedByTask: {}, solvedEvents: [], mocks: [] }, 'student-second': { schedule: [{ ...lessons[0], studentId: 'student-second', id: 'second-lesson' }], progress: {}, homeworks: [], solvedByTask: {}, solvedEvents: [], mocks: [] } });
+  write('progress', { 'student-owner': { schedule: [archivedLesson, ...lessons], progress: {}, homeworks: [], solvedByTask: {}, solvedEvents: [], mocks: [] }, 'student-second': { schedule: [{ ...lessons[0], studentId: 'student-second', id: 'second-lesson' }], progress: {}, homeworks: [], solvedByTask: {}, solvedEvents: [], mocks: [] } });
   const progress = read('progress');
   progress.roman = { schedule: [{ id: 'roman-next', studentId: 'roman', date: romanNext, time: '17:00', durationMinutes: 60, createdAt }], homeworks: [], progress: {}, solvedByTask: {}, solvedEvents: [], mocks: [] };
+  const selectedLesson = { id: 'self-service-selected', studentId: 'self-service', date: shift(3), time: '15:00', durationMinutes: 60, createdAt };
+  const olderDebt = { ...selectedLesson, id: 'self-service-older', date: shift(-3) };
+  progress['self-service'] = { schedule: [olderDebt, selectedLesson], homeworks: [], progress: {}, solvedByTask: {}, solvedEvents: [], mocks: [] };
+  write('students', [...read('students'), { id: 'self-service', teacherId: 'owner', name: 'Self service', code: 'wallet-self-service', grade: '11', createdAt }]);
   write('progress', progress);
-  write('teacher-finances', { owner: { studentProfiles: { 'student-owner': { lessonPrice: 2000 }, roman: { lessonPrice: 2000 } }, months: { [past.slice(0, 7)]: { students: { 'student-owner': { paidAmount: 2000, lessonPrice: 2000 }, roman: { paidAmount: 4000, lessonPrice: 2000 } } } } }, second: { studentProfiles: { 'student-second': { lessonPrice: 2000 } } } });
+  write('teacher-finances', { owner: { studentProfiles: { 'student-owner': { lessonPrice: 2000 }, roman: { lessonPrice: 2000 }, 'self-service': { lessonPrice: 2000 } }, months: { [past.slice(0, 7)]: { students: { 'student-owner': { paidAmount: 2000, lessonPrice: 2000 }, roman: { paidAmount: 4000, lessonPrice: 2000 } } } } }, second: { studentProfiles: { 'student-second': { lessonPrice: 2000 } } } });
   write('teacher-calendar-marks', { owner: { [mark('owner', 'student-owner', lessons[0])]: createdAt, [romanMark(romanOld)]: createdAt, [romanMark(romanMoved)]: createdAt } });
   write('teacher-calendar-sync', { owner: { enabled: true, icalUrl: calendarUrl, updatedAt: createdAt } });
   write('payment-sender-links', Object.fromEntries(['owner', 'second'].map(id => [id, { links: { иванп: { senderName: 'Иван П', senderKey: 'иванп', studentId: `student-${id}`, createdAt, updatedAt: createdAt } } }])));
@@ -54,6 +59,8 @@ test('wallet API: migration, isolation, receipts, duplicates, manual review, und
   const conflictFinance = read('teacher-finances'); conflictFinance.owner.studentProfiles.conflict = { lessonPrice: 2000 }; write('teacher-finances', conflictFinance);
   const conflictMarks = read('teacher-calendar-marks'); conflictMarks.owner[mark('owner', 'conflict', conflictLessons[0])] = createdAt; write('teacher-calendar-marks', conflictMarks);
   const links = read('payment-sender-links'); links.owner.links.legacy = { senderName: 'Legacy', senderKey: 'legacy', studentId: 'conflict', createdAt, updatedAt: createdAt }; write('payment-sender-links', links);
+  links.owner.links.плательщикт = { senderName: 'Плательщик Т', senderKey: 'плательщикт', studentId: 'self-service', createdAt, updatedAt: createdAt };
+  write('payment-sender-links', links);
   const port = await freePort(), base = `http://127.0.0.1:${port}`;
   let child, logs = '';
   const start = async () => {
@@ -108,6 +115,23 @@ test('wallet API: migration, isolation, receipts, duplicates, manual review, und
     await ok('/api/student-payment-balances/enable', { token: secondToken, body: { previewToken: secondPreview.previewToken } });
     const secret = (await ok('/api/teacher-payment-connection', { token, body: {} })).connection.secret;
     const secondSecret = (await ok('/api/teacher-payment-connection', { token: secondToken, body: {} })).connection.secret;
+    const quote = await ok('/api/teacher-lesson-payment/preview', { token, body: { occurrence: selectedLesson } });
+    assert.equal(quote.amount, 2000); assert.equal(quote.available, 0); assert.equal(quote.usesBalance, true);
+    assert.equal((await request('/api/teacher-lesson-payment/preview', { token: secondToken, body: { occurrence: selectedLesson } })).status, 403);
+    const settle = { occurrence: selectedLesson, paid: true, paymentSource: 'receipt', receipt: {
+      confirmed: true, amount: 2000, receivedAt: new Date().toISOString(), idempotencyKey: 'self-service-transfer-2000',
+    } };
+    let selectedPayment = await ok('/api/teacher-lesson-payment', { token, body: settle });
+    assert.equal(selectedPayment.receivedAmount, 2000);
+    assert.ok(selectedPayment.marks[mark('owner', 'self-service', selectedLesson)]);
+    assert.equal(selectedPayment.marks[mark('owner', 'self-service', olderDebt)], undefined, 'explicit payment targets the selected lesson');
+    selectedPayment = await ok('/api/teacher-lesson-payment', { token, body: settle });
+    assert.equal(selectedPayment.alreadyPaid, true); assert.equal(selectedPayment.receivedAmount, 0);
+    assert.equal((await ok('/api/student-payment-balances', { token })).students.find(row => row.studentId === 'self-service').received, 2000);
+    const lateBank = await ok('/api/payment-notifications/tbank', { body: { id: 'late-selected-payment', secret,
+      title: 'Т-Банк', text: 'Пополнение на 2000 ₽, счет RUB. Плательщик Т. Доступно 500 000 ₽', receivedAt: settle.receipt.receivedAt } });
+    assert.equal(lateBank.notification.status, 'pending', 'late bank notification must be linked to the manual receipt before crediting');
+    assert.equal((await ok('/api/student-payment-balances', { token })).students.find(row => row.studentId === 'self-service').received, 2000);
     const legacyPayment = await ok('/api/payment-notifications/tbank', { body: { id: 'legacy-after-migration', secret, title: 'Т-Банк', text: 'Пополнение на 2000 ₽, счет RUB. Legacy. Доступно 500 000 ₽', receivedAt: new Date().toISOString() } });
     assert.equal(legacyPayment.notification.status, 'applied', 'excluded student keeps legacy bank processing');
     const legacyKey = legacyPayment.notification.markKeys[0];
@@ -121,6 +145,7 @@ test('wallet API: migration, isolation, receipts, duplicates, manual review, und
     data = await ok('/api/student-payment-balances', { token });
     assert.equal(data.students[0].received, 4000); assert.equal(data.students[0].allocated, 4000);
     assert.ok(data.marks[mark('owner', 'student-owner', lessons[1])], 'past debt precedes future lesson');
+    assert.equal(data.marks[mark('owner', 'student-owner', archivedLesson)], undefined, 'a historical slot before tracking must not swallow a new payment');
     assert.equal((await ok('/api/student-payment-balances', { token: secondToken })).students[0].received, 0, 'other teacher unchanged');
     await hook('one-transfer', 2000, secondSecret);
     assert.equal((await ok('/api/student-payment-balances', { token: secondToken })).students[0].received, 2000, 'same sender and transfer ID isolated by teacher');

@@ -13,7 +13,7 @@ import {
   normalizeStudentBalances, createBalanceAccount, balanceCents, balanceSummary,
   addBalanceReceipt, possibleManualReceipts, reconcileBalanceAccount,
   reserveBalanceAllocation, releaseBalanceAllocation, balancePaidByMonth, balanceError,
-  confirmBalancePending, adjustBalance,
+  confirmBalancePending, adjustBalance, settleBalanceLesson,
 } from './studentPaymentBalances.js';
 import { retainWalletPaymentProjections, selectBalanceReconciliationStudents } from './studentBalanceCore.js';
 import { createStudentBalanceReadContext } from './studentBalanceReadContext.js';
@@ -17790,6 +17790,7 @@ const getWalletOccurrences = (teacherId, student, entry, marks, entries, readCon
         : `local:${source.paymentSourceId || source.id}${source.date ? '' : `:${dayKey}`}`;
       result.set(markKey, { markKey, dayKey, time, cents, eventId: source.id, groupId: source.groupId || '', durationMinutes: source.durationMinutes,
         identity, moveFromKeys: [...new Set([...moveFromKeys, ...aliases.filter(key => key !== markKey)])], external: Boolean(source.externalEventId),
+        autoEligible: !Number.isFinite(now.trackingStartNumber) || dayKeyToNumber(dayKey) >= now.trackingStartNumber,
         eligible: !isTeacherCalendarLessonCancelled(teacherId, event, dayKey, marks)
           && !isTeacherCalendarLessonCancelled(teacherId, { ...event, id: source.paymentSourceId || source.id }, dayKey, marks)
           && !isExplicitTrialLesson(event) && !trialKeys.some(key => marks[key]) && !getLearningSubscriptionOccurrence(student.id, event, readContext)
@@ -38893,6 +38894,41 @@ app.patch('/api/teacher-calendar-cancellations', serializeWalletRoute(async (req
   }
 }));
 
+app.post('/api/teacher-lesson-payment/preview', async (req, res) => {
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const teacher = ensureTeacherAccess(req, res, isTeacherRole(req.auth) ? req.auth.id : req.body?.teacherId);
+  if (!teacher) return;
+  const payload = req.body?.occurrence || {};
+  const student = ensureStudentAccess(req, res, payload.studentId, { allowDeleted: true });
+  if (!student) return;
+  if (student.teacherId !== teacher.id) return forbid(res);
+  const dayKey = normalizeDayKey(payload.dayKey || payload.date);
+  if (!dayKey) return res.status(400).json({ error: 'Укажите дату занятия' });
+  try {
+    const entries = await getPaymentScheduleEntries(teacher.id, { includeDeletedStudents: true, googleCalendarThroughMonth: dayKey.slice(0, 7) });
+    const source = findTeacherCalendarCancellationSource([...entries, ...expandGoogleCalendarLearningGroupPaymentEntries(teacher.id,
+      availabilityCalendarEntries(teacher.id).filter(entry => entry.source !== 'google-calendar'))], payload);
+    if (!source || String(source.studentId) !== student.id || (source.groupId && !isGroupEntryAssigned(source, student.id))) {
+      return res.status(404).json({ error: 'Занятие ученика не найдено' });
+    }
+    const occurrence = { ...source, studentId: student.id, dayKey, date: dayKey };
+    const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacher.id]);
+    const key = buildTeacherCalendarPaymentMarkKey(teacher.id, occurrence, dayKey, 'paid');
+    if (isTeacherCalendarLessonCancelled(teacher.id, occurrence, dayKey, marks) || isExplicitTrialLesson(occurrence)
+      || marks[buildTeacherCalendarPaymentMarkKey(teacher.id, occurrence, dayKey, 'trial')]) {
+      throw balanceError('Отменённое или пробное занятие не требует оплаты.');
+    }
+    const entry = getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacher.id);
+    const account = entry.studentPaymentBalances?.accounts?.[student.id];
+    if (account && !walletStudentEligible(student, entry)) throw balanceError('Баланс приостановлен. Сначала нужна сверка тарифа или абонемента.');
+    const allocation = account?.allocations[key] || getPaymentAllocationByMarkKey(entry, key, student.id);
+    const amount = allocation?.cents ? allocation.cents / 100 : allocation?.status === 'allocated' ? allocation.amount
+      : getLessonPriceForPaymentOccurrence(entry, student.id, { ...occurrence, paidAt: marks[key] || '' }).lessonPrice;
+    if (!(amount > 0)) throw balanceError('Сначала укажите стоимость занятия у ученика.');
+    return res.json({ amount, paid: Boolean(marks[key]), usesBalance: Boolean(account), available: account ? balanceSummary(account).available : 0 });
+  } catch (error) { return res.status(error.status || 500).json({ error: error.code ? error.message : 'Не удалось проверить оплату занятия', code: error.code }); }
+});
+
 app.post('/api/teacher-lesson-payment', serializeWalletRoute(async (req, res) => {
   if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
   const teacher = ensureTeacherAccess(req, res, isTeacherRole(req.auth) ? req.auth.id : req.body?.teacherId);
@@ -38924,12 +38960,16 @@ app.post('/api/teacher-lesson-payment', serializeWalletRoute(async (req, res) =>
           const target = (occurrencesByStudent.get(student.id) || []).find(o => o.markKey === key || o.moveFromKeys.includes(key));
           if (paid) {
             if (!target) throw balanceError('Занятие не найдено.');
-            reserveBalanceAllocation(account, target, now, { force: true });
+            const settlement = settleBalanceLesson(account, target, {
+              source: req.body?.paymentSource || 'balance', receipt: req.body?.receipt || {},
+            }, now);
+            return { amount: target.cents / 100, ...settlement };
           } else releaseBalanceAllocation(account, target?.markKey || key, now, { block: true, reason: 'Отметка оплаты снята вручную' });
           return { amount: target?.cents / 100 || 0 };
         },
       }));
-      return res.json({ marks: result.marks, amount: result.actionResult?.amount || 0, paid, fromBalance: true });
+      return res.json({ marks: result.marks, amount: result.actionResult?.amount || 0, paid, fromBalance: true,
+        receivedAmount: result.actionResult?.receivedAmount || 0, alreadyPaid: result.actionResult?.alreadyPaid || false });
     }
     const marksDb = readTeacherCalendarMarksDb();
     const marks = normalizeTeacherCalendarMarks(marksDb[teacher.id]);
@@ -38952,6 +38992,13 @@ app.post('/api/teacher-lesson-payment', serializeWalletRoute(async (req, res) =>
       ...occurrence, paidAt: wasPaid ? marks[markKey] : '',
     }).lessonPrice;
     if (paid && amount <= 0) return res.status(409).json({ error: 'Сначала укажите стоимость занятия у ученика' });
+    if (paid && !wasPaid && req.body?.paymentSource === 'receipt') {
+      const receipt = req.body?.receipt || {};
+      if (receipt.confirmed !== true || balanceCents(receipt.amount) !== balanceCents(amount)) {
+        throw balanceError('Подтвердите полученную оплату за это занятие. Для другой суммы нужен раздел «Финансы».', 'balance_invalid', 400);
+      }
+    }
+    if (paid && req.body?.paymentSource === 'balance') throw balanceError('Для ученика поурочный баланс пока не подключён.');
     if (wasPaid !== paid) {
       updateTeacherFinanceStudentPaidAmount(teacherEntry, student.id, dayKey.slice(0, 7), paid ? amount : -amount, nowIso);
       if (paid) {
