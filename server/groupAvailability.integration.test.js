@@ -70,7 +70,9 @@ test('full server: pupil choices become group lessons and teacher/student calend
   assert.equal(sharedGroup.memberCount,2);assert.equal(sharedGroup.answeredCount,2);
   assert.ok(sharedGroup.slots.some(slot=>slot.id===`${occupiedDay}-600` && slot.busy && slot.flexibleCount===2));
   assert.ok(sharedGroup.slots.some(slot=>slot.id===slots[0]));
-  assert.ok(!JSON.stringify(shareAnswers).includes('PRIVATE_ALIAS_') && !JSON.stringify(shareAnswers).includes('PRIVATE NAME'));
+  assert.equal(sharedGroup.members.find(member=>member.id==='b').name,'PRIVATE_ALIAS_b','Teacher sees their existing private labels for selection');
+  assert.ok(!JSON.stringify(shareAnswers).includes('PRIVATE NAME'));
+  assert.ok(!Object.hasOwn(sharedGroup,'answers'),'Raw responses remain in the existing availability API');
   assert.ok(teacherAnswers.blocked[`${occupiedDay}-600`]);
   assert.equal(teacherAnswers.poll.answers.a.choices[`${occupiedDay}-600`],'maybe');
   const notes = await req(notificationsPath, teacher);

@@ -25081,6 +25081,9 @@ registerGroupPlacement(app, {
 
 registerGroupAvailabilityShare(app, {
   groups:readLearningGroupsDb, polls:() => availabilityStore.all(), canManage:canManageLearningGroup,
+  getStudentName:(id,auth) => getStudentChatVisibleName(findStudentById(id,{allowDeleted:true}), {
+    exposeStudentNicknames:isAdminRole(auth) || isTeacherRole(auth),
+  }),
   getEntries:(teacherId, throughDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay),
 });
 
