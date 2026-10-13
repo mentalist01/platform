@@ -39,16 +39,16 @@ export async function renderGroupAvailabilitySharePng(data, mode='all') {
           const shift=partial?24:0;
           if(partial){ctx.font=`600 17px ${font}`;ctx.fillText(`Учитываем ${card.includedMemberCount} из ${card.memberCount} участников`,x+18,y+51);}
           ctx.fillStyle=card.busy?'#ffffff':'#172033';ctx.font=`700 24px ${font}`;
-          ctx.fillText(card.count===1?`${clockTime(card.firstStart)}–${clockTime(card.firstStart+card.durationMinutes)}`:`Старт ${clockTime(card.firstStart)}–${clockTime(card.lastStart)}`,x+18,y+66+shift);
+          ctx.fillText(`${clockTime(card.firstStart)}–${clockTime(card.firstStart+card.durationMinutes)}`,x+18,y+66+shift);
           ctx.font=`500 18px ${font}`;
-          ctx.fillText(card.count===1?`Занятие ${card.durationMinutes} мин`:`Шаг 30 мин · урок ${card.durationMinutes} мин`,x+18,y+95+shift);
+          ctx.fillText(`Занятие ${card.durationMinutes} мин`,x+18,y+95+shift);
           ctx.fillText(card.busy?'Занято у преподавателя':data.calendarError?'Занятость не проверена':'Можно заниматься',x+18,y+120+shift);
           ctx.font=`500 16px ${font}`;ctx.fillStyle=card.busy?'#dbeafe':'#64748b';ctx.fillText(`С ${dateLabel(card.startDate)} · ${card.weeks} недель`,x+18,y+143+shift);
         });
       }
       ctx.fillStyle='#64748b';ctx.font=`500 18px ${font}`;
       const footer=top+header+rows*row+38;
-      ctx.fillText('«Старт» — начало занятия каждые 30 минут внутри диапазона. Выберите два подходящих дня в одной группе.',margin,footer);
+      ctx.fillText('Каждая карточка — отдельный вариант времени занятия, от начала до конца. Выберите два дня в одной группе.',margin,footer);
       ctx.fillText(mode==='free'?'Занятое время исключено. Занятия самой группы не считаются конфликтом.':'Синий вариант потребует переноса других занятий преподавателя. Время ещё предстоит согласовать.',margin,footer+29);
       ctx.textAlign='right';ctx.fillText(`${page+1} / ${pageCount}`,width-margin,canvas.height-16);ctx.textAlign='left';
       const blob=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(Error('Не удалось сохранить PNG.')),'image/png'));

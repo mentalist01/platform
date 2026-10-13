@@ -15,13 +15,13 @@ test('archived choices, no, invalid slots and participants outside the group do 
   const changed={...poll,answers:{...poll.answers,c:answer({'0-600':'maybe','0-750':'yes'}),former:answer({'0-750':'yes'})}};
   assert.deepEqual(unanimousGroupSlots(group,changed).map(slot=>slot.id),['0-600']);
 });
-test('image cards merge only consecutive start times in the same group and conflict state',()=>{
+test('image cards show each full lesson choice without merging overlapping alternatives or gaps',()=>{
   const entries=[600,630,660,720].map((minutes,index)=>({day:0,minutes,durationMinutes:60,busy:index===2}));
   const groups=[{groupId:'g',groupName:'Группа 2',config:{startDate:'2026-10-14',weeks:8},slots:entries},{groupId:'other',groupName:'Группа 3',slots:[{...entries[0],busy:false}]}];
-  const cards=groupAvailabilityShareCards(groups);assert.equal(cards[0].length,4);
-  assert.equal(cards[0][0].count,2);assert.equal(cards[0][0].lastStart,630);assert.equal(cards[0][0].durationMinutes,60);
-  assert.equal(cards[0][1].groupId,'other');assert.equal(cards[0][2].busy,true);assert.equal(cards[0][3].firstStart,720);
-  const free=groupAvailabilityShareCards(groups,'free');assert.equal(free[0].length,3);assert.ok(free[0].every(card=>!card.busy));assert.equal(free[0].find(card=>card.firstStart===720).count,1,'Busy gaps are not filled by compression');
+  const cards=groupAvailabilityShareCards(groups);assert.equal(cards[0].length,5);
+  assert.deepEqual(cards[0].map(card=>[card.groupId,card.firstStart,card.firstStart+card.durationMinutes]),[['g',600,660],['other',600,660],['g',630,690],['g',660,720],['g',720,780]]);
+  assert.equal(cards[0][3].busy,true);
+  const free=groupAvailabilityShareCards(groups,'free');assert.equal(free[0].length,4);assert.ok(free[0].every(card=>!card.busy));assert.deepEqual(free[0].filter(card=>card.groupId==='g').map(card=>card.firstStart),[600,630,720]);
 });
 test('unknown teacher conflicts cannot be presented as free, while all matches remain available',()=>{
   const groups=[{groupId:'g',groupName:'Группа 2',slots:[{day:2,minutes:600,durationMinutes:45,busy:null}]}];
@@ -39,8 +39,8 @@ test('temporarily excluding a restrictive pupil reveals other matches, keeps may
   assert.deepEqual(partial.groups[0].slots.map(slot=>slot.id),['0-600','0-630','0-660']);
   assert.equal(partial.groups[0].includedMemberCount,2);assert.equal(partial.groups[0].excludedMemberCount,1);
   assert.equal(partial.groups[0].memberCount,3);assert.equal(partial.groups[0].slots[0].flexibleCount,1);
-  assert.equal(groupAvailabilityShareCards(partial.groups,'free')[0].length,1);
-  assert.equal(groupAvailabilityShareCards(partial.groups,'all')[0].length,2);
+  assert.equal(groupAvailabilityShareCards(partial.groups,'free')[0].length,2);
+  assert.equal(groupAvailabilityShareCards(partial.groups,'all')[0].length,3);
   assert.equal(groupAvailabilityShareCards(partial.groups,'all')[0][0].includedMemberCount,2);
   assert.equal(JSON.stringify(data),before,'Preview never mutates the source responses');
   assert.deepEqual(selectGroupAvailabilityParticipants(data,{}).groups[0].slots.map(slot=>slot.id),['0-600']);
