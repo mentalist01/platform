@@ -36,6 +36,10 @@ test('full server: pupil choices become group lessons and teacher/student calend
   await boot(); const teacher=(await req('/login','',{code:'110001'})).token;
   const tokens=await Promise.all(['110101','110102','110103'].map(async code=>(await req('/login','',{code})).token));
   const group=(await req('/learning-groups',teacher,{name:'Together',studentIds:['a','b'],plannedStartDate:startDate},201)).group;
+  const shareBefore=await req('/learning-groups/availability-share',teacher);
+  assert.equal(shareBefore.groups.find(item=>item.groupId===group.id).memberCount,2);
+  assert.deepEqual(shareBefore.groups.find(item=>item.groupId===group.id).slots,[]);
+  await req('/learning-groups/availability-share',tokens[0],undefined,403);
   const assertPublicNames = value => assert.ok(!JSON.stringify(value).includes('PRIVATE_ALIAS_'), 'Private teacher names must not reach a student response');
   assert.equal(group.members.find(m=>m.id==='b').name,'PRIVATE_ALIAS_b','Teachers retain their private labels');
   assert.equal(group.members.find(m=>m.id==='b').student.nickname,'PRIVATE_ALIAS_b');
@@ -61,6 +65,12 @@ test('full server: pupil choices become group lessons and teacher/student calend
   assert.deepEqual(await req(notificationsPath, teacher), []);
   for(const token of tokens.slice(0,2)) await req(`${base}/answer`,token,{roundId,version:0,choices:{...Object.fromEntries(slots.map(s=>[s,'yes'])),[`${occupiedDay}-600`]:'maybe','0-1320':'yes'}});
   const teacherAnswers=await req(base,teacher);
+  const shareAnswers=await req('/learning-groups/availability-share',teacher);
+  const sharedGroup=shareAnswers.groups.find(item=>item.groupId===group.id);
+  assert.equal(sharedGroup.memberCount,2);assert.equal(sharedGroup.answeredCount,2);
+  assert.ok(sharedGroup.slots.some(slot=>slot.id===`${occupiedDay}-600` && slot.busy && slot.flexibleCount===2));
+  assert.ok(sharedGroup.slots.some(slot=>slot.id===slots[0]));
+  assert.ok(!JSON.stringify(shareAnswers).includes('PRIVATE_ALIAS_') && !JSON.stringify(shareAnswers).includes('PRIVATE NAME'));
   assert.ok(teacherAnswers.blocked[`${occupiedDay}-600`]);
   assert.equal(teacherAnswers.poll.answers.a.choices[`${occupiedDay}-600`],'maybe');
   const notes = await req(notificationsPath, teacher);

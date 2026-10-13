@@ -26,6 +26,7 @@ import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } f
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
+import {registerGroupAvailabilityShare} from './groupAvailabilityShare.js';
 import { createStudentAvailabilityStore } from './studentAvailability.js';
 import { registerGroupPlacement } from './groupPlacement.js';
 import { withTeacherCalendarLock } from './calendarMutations.js';
@@ -25076,6 +25077,11 @@ registerGroupPlacement(app, {
   polls: () => availabilityStore.all(),
   getEntries: (teacherId, throughDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay),
   notify: student => notifyScheduleSyncUpdate({ scope: 'student-availability', action: 'answered', teacherId: student.teacherId, studentId: student.id }),
+});
+
+registerGroupAvailabilityShare(app, {
+  groups:readLearningGroupsDb, polls:() => availabilityStore.all(), canManage:canManageLearningGroup,
+  getEntries:(teacherId, throughDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay),
 });
 
 registerGroupAvailability(app, {

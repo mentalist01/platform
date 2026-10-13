@@ -32,6 +32,7 @@ import {
   RefreshCcw,
   Save,
   Send,
+  Share2,
   Trash2,
   Upload,
   UserCheck,
@@ -45,6 +46,7 @@ import { api, resolveAuthenticatedApiUrl, withStoredAuthToken } from '../service
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import LearningGroupChat from './LearningGroupChat';
 import GroupAvailability from './GroupAvailability';
+const GroupAvailabilityShare = React.lazy(() => import('./GroupAvailabilityShare'));
 import { PersonalGroupAvailability, TeacherGroupPlacement } from './GroupPlacement';
 import {
   LEARNING_GROUP_STATUS_ACTIVE,
@@ -482,6 +484,7 @@ const LearningGroupsSection = ({
 }) => {
   const isTeacher = role === 'teacher';
   const [groups, setGroups] = useState([]);
+  const [showAvailabilityShare,setShowAvailabilityShare] = useState(false);
   const groupsRef = useRef([]);
   const [selectedGroupId, setSelectedGroupId] = useState(scheduleGroupId);
   const homeworkRequestHandledRef = useRef('');
@@ -1591,6 +1594,7 @@ const LearningGroupsSection = ({
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-4 pb-4">
+      {isTeacher && showAvailabilityShare && <React.Suspense fallback={<p role="status">Готовим картинку времени групп…</p>}><GroupAvailabilityShare teacherId={userId} onClose={()=>setShowAvailabilityShare(false)}/></React.Suspense>}
       {replayLesson && <React.Suspense fallback={<p role="status">Загружаем запись занятия…</p>}>
         <LearningGroupLessonReplay key={`${replayLesson.groupId}:${replayLesson.lessonId}`} groupId={replayLesson.groupId} lessonId={replayLesson.lessonId} onClose={() => setReplayLesson(null)} />
       </React.Suspense>}
@@ -1609,6 +1613,7 @@ const LearningGroupsSection = ({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {isTeacher && <button type="button" onClick={()=>setShowAvailabilityShare(true)} className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-3.5 py-2.5 text-sm font-bold text-white transition hover:bg-white/20"><Share2 size={16}/>Поделиться временем групп</button>}
             <button
               type="button"
               onClick={() => void refreshGroups(selectedGroupId)}
