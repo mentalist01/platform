@@ -46,6 +46,8 @@ import {
   renderCalendarAvailabilityPng,
 } from '../utils/calendarAvailabilityShare';
 
+const LessonPaymentPanel = React.lazy(() => import('./LessonPaymentPanel.jsx'));
+
 const SCHEDULE_WEEKDAYS = [
   { key: 'monday', label: 'Понедельник', shortLabel: 'Пн', order: 1 },
   { key: 'tuesday', label: 'Вторник', shortLabel: 'Вт', order: 2 },
@@ -970,6 +972,7 @@ const TeacherCalendarSection = ({
   const [lessonPanelFinanceBusy, setLessonPanelFinanceBusy] = useState('');
   const [lessonPanelError, setLessonPanelError] = useState('');
   const [lessonPanelSuccess, setLessonPanelSuccess] = useState('');
+  const [lessonPaymentRequest, setLessonPaymentRequest] = useState(null);
   const [eventDetailsHomework, setEventDetailsHomework] = useState(null);
   const [eventDetailsHomeworkLoading, setEventDetailsHomeworkLoading] = useState(false);
   const [lessonInfoModalOpen, setLessonInfoModalOpen] = useState(false);
@@ -2682,6 +2685,13 @@ const TeacherCalendarSection = ({
     if (eventDetailsCancelled || !teacherId || !eventDetailsLessonInfo || lessonPanelFinanceBusy) return;
     const markKey = normalizedAction === 'paid' ? eventDetailsPaidMarkKey : eventDetailsCompletedMarkKey;
     const undo = Boolean(markKey && lessonPanelMarks[markKey]);
+
+    if (normalizedAction === 'paid' && !undo && eventDetailsStudentId) {
+      setLessonPanelError(''); setLessonPanelSuccess('');
+      setLessonPaymentRequest({ ...eventDetailsLessonInfo.event, dayKey: eventDetailsDayKey,
+        studentId: eventDetailsStudentId, time: eventDetailsLessonInfo.event.time || formatMinutesAsTime(eventDetailsLessonInfo.event.startMinutes) });
+      return;
+    }
 
     setLessonPanelFinanceBusy(undo ? `${normalizedAction}-undo` : normalizedAction);
     setLessonPanelError('');
@@ -6043,7 +6053,7 @@ const TeacherCalendarSection = ({
                     <Wallet size={12} />
                     {lessonPanelFinanceBusy === 'paid' || lessonPanelFinanceBusy === 'paid-undo'
                       ? '...'
-                      : (eventDetailsPaidMarked ? 'Отменить оплату' : '+ оплата')}
+                      : (eventDetailsPaidMarked ? 'Отменить оплату' : 'Учесть оплату')}
                   </button>
                     </>
                   )}
@@ -6052,6 +6062,19 @@ const TeacherCalendarSection = ({
                   <div className={`mt-2 text-xs ${lessonPanelError ? 'text-rose-600' : 'text-emerald-700'}`}>
                     {lessonPanelError || lessonPanelSuccess}
                   </div>
+                )}
+                {lessonPaymentRequest && lessonPaymentRequest.id === eventDetailsLessonInfo?.event?.id
+                  && lessonPaymentRequest.studentId === eventDetailsStudentId && lessonPaymentRequest.dayKey === eventDetailsDayKey && (
+                  <React.Suspense fallback={null}>
+                    <LessonPaymentPanel teacherId={teacherId} occurrence={lessonPaymentRequest} onClose={() => setLessonPaymentRequest(null)}
+                      onSaved={result => {
+                        const marks = normalizeLessonPanelMarks(result.marks);
+                        setLessonPanelMarks(marks); writeLessonPanelMarks(teacherId, marks);
+                        setLessonPanelSuccess(result.alreadyPaid ? 'Занятие уже было оплачено. Повторного начисления нет.'
+                          : `${result.receivedAmount ? 'Перевод учтён, занятие оплачено' : result.fromBalance ? 'Оплачено из баланса' : 'Оплата добавлена'}: ${result.amount.toLocaleString('ru-RU')} ₽.`);
+                        setLessonPaymentRequest(null);
+                      }} />
+                  </React.Suspense>
                 )}
               </div>
             )}

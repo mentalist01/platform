@@ -4,7 +4,7 @@ import {
   createBalanceAccount, addBalanceReceipt, availableCents, reconcileBalanceAccount,
   releaseBalanceAllocation, reserveBalanceAllocation, balancePaidByMonth,
   normalizeStudentBalances, possibleManualReceipts, confirmBalancePending,
-  adjustBalance, balanceSummary,
+  adjustBalance, balanceSummary, settleBalanceLesson,
 } from './studentPaymentBalances.js';
 
 const now = '2026-10-07T10:00:00.000Z';
@@ -12,6 +12,75 @@ const lesson = (key, date, extra = {}) => ({ markKey: key, dayKey: date, time: '
 const account = () => createBalanceAccount({ now });
 const receipt = (a, id, amount, extra = {}) => addBalanceReceipt(a, { id, amount, at: now, ...extra }, now);
 const income = a => Object.values(balancePaidByMonth(a)).reduce((sum, amount) => sum + amount, 0);
+
+test('automatic payments skip pre-tracking history without erasing confirmed old payments', () => {
+  const paidArchive = lesson('paid-archive', '2026-04-20', { autoEligible: false });
+  const untracked = lesson('untracked', '2026-03-02', { autoEligible: false });
+  const trackedDebt = lesson('tracked-debt', '2026-10-12', { autoEligible: true });
+  const future = lesson('next-week', '2026-10-19', { autoEligible: true });
+  const a = createBalanceAccount({ now, openingByMonth: { '2026-04': 2000 }, paid: [paidArchive] });
+  receipt(a, 'monday-payment', 2000);
+  reconcileBalanceAccount(a, [untracked, paidArchive, future, trackedDebt], now);
+  assert.deepEqual(Object.keys(a.allocations), ['paid-archive', 'tracked-debt']);
+  assert.equal(a.allocations['paid-archive'].imported, true);
+  assert.equal(availableCents(a), 0);
+  assert.equal(income(a), 4000);
+  const entries = a.entries.length;
+  reconcileBalanceAccount(a, [untracked, paidArchive, future, trackedDebt], now);
+  assert.equal(a.entries.length, entries);
+  normalizeStudentBalances({ version: 1, accounts: { student: a } });
+});
+
+test('the teacher can still explicitly pay an archived occurrence from an existing balance', () => {
+  const a = account();
+  const archived = lesson('explicit-archive', '2026-03-02', { autoEligible: false });
+  receipt(a, 'manual-confirmed', 2000);
+  reconcileBalanceAccount(a, [archived], now);
+  assert.equal(availableCents(a), 200000);
+  reserveBalanceAllocation(a, archived, now, { force: true });
+  assert.equal(availableCents(a), 0);
+  assert.equal(income(a), 2000);
+});
+
+test('a manual transfer pays the selected lesson first and cannot be credited twice', () => {
+  const a = account();
+  const selected = lesson('selected', '2026-10-13');
+  const receipt = { confirmed: true, idempotencyKey: 'selected-transfer-2000', amount: 2000, receivedAt: now };
+  const result = settleBalanceLesson(a, selected, { source: 'receipt', receipt }, now);
+  assert.equal(result.receivedAmount, 2000);
+  reconcileBalanceAccount(a, [lesson('older-debt', '2026-10-06'), selected], now);
+  assert.deepEqual(Object.keys(a.allocations), ['selected']);
+  assert.equal(settleBalanceLesson(a, selected, { source: 'receipt', receipt }, now).alreadyPaid, true);
+  assert.equal(balanceSummary(a).received, 2000);
+  assert.equal(availableCents(a), 0);
+  assert.equal(possibleManualReceipts(a, { amount: 2000, at: now, senderName: 'Payer' }).length, 1);
+  normalizeStudentBalances({ version: 1, accounts: { student: a } });
+});
+
+test('using a balance creates no receipt and an existing equal transfer requires review', () => {
+  const a = account();
+  receipt(a, 'bank-transfer', 2000);
+  const selected = lesson('selected', '2026-10-13');
+  const before = structuredClone(a);
+  assert.throws(() => settleBalanceLesson(a, selected, { source: 'receipt', receipt: {
+    confirmed: true, idempotencyKey: 'new-but-similar-transfer', amount: 2000, receivedAt: now,
+  } }, now), error => error.code === 'balance_existing_receipt');
+  assert.deepEqual(a, before);
+  settleBalanceLesson(a, selected, { source: 'balance' }, now);
+  assert.equal(a.entries.filter(e => e.type === 'receipt').length, 1);
+  assert.equal(income(a), 2000);
+});
+
+test('invalid, partial and unconfirmed manual receipts never change the journal', () => {
+  for (const fields of [{ confirmed: false }, { amount: 1000 }, { receivedAt: 'invalid' }, { idempotencyKey: '' }]) {
+    const a = account();
+    const before = structuredClone(a);
+    assert.throws(() => settleBalanceLesson(a, lesson('selected', '2026-10-13'), { source: 'receipt', receipt: {
+      confirmed: true, idempotencyKey: 'valid-manual-operation', amount: 2000, receivedAt: now, ...fields,
+    } }, now));
+    assert.deepEqual(a, before);
+  }
+});
 
 test('annual prepayment is retained, only scheduled lessons are allocated, retries cannot create money', () => {
   const a = account();
