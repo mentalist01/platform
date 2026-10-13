@@ -17,8 +17,9 @@ import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
 import { RecorderEngine } from './engine.mjs';
 import { startPythonTheory, continuePythonTheory, publishPythonTheory } from './python-theory.mjs';
-import { editTimeline, approveTimeline, finalizeTimeline, timelineDuration } from './python-timeline.mjs';
+import { editTimeline, approveTimeline, finalizeTimeline } from './python-timeline.mjs';
 import { PythonEditMedia, sendPreview } from './python-edit-media.mjs';
+import {pythonExportDuration} from './python-speed.mjs';
 import { startMockReview, publishMockReview } from './mock-review.mjs';
 import { enterFallback } from './fallback.mjs';
 import { importRecoveredRecordings } from './recovery-inbox.mjs';
@@ -110,7 +111,7 @@ async function prepare(job) {
     if (job.mp4 && job.renderedRevision === job.pythonTimeline.revision && fs.existsSync(job.mp4)) return;
     const output = path.join(path.dirname(job.file), `python-edit-${job.id}-r${job.pythonTimeline.revision}.mp4`);
     await editMedia.exclusive(job, () => editMedia.render(job, job.pythonTimeline.clips, path.dirname(job.file), output));
-    job.mp4 = output; job.renderedRevision = job.pythonTimeline.revision; job.durationMs = Math.round(timelineDuration(job.pythonTimeline) * 1000); save(); return;
+    job.mp4 = output; job.renderedRevision = job.pythonTimeline.revision; job.durationMs = Math.round(pythonExportDuration(job.pythonTimeline) * 1000); save(); return;
   }
   if (job.mp4 && fs.existsSync(job.mp4)) return;
   if (!job.file || !fs.existsSync(job.file)) throw new Error('Файл записи не найден');
@@ -306,7 +307,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method !== 'POST') return json(res, 405, {});
       await shareBridge.receive(await body(req)); return json(res, 200, {});
     }
-    if (req.method === 'GET' && ['/python-editor.mjs','/python-editor-time.mjs','/python-playback.mjs','/python-source-map.mjs'].includes(pathname)) {
+    if (req.method === 'GET' && ['/python-editor.mjs','/python-editor-time.mjs','/python-playback.mjs','/python-source-map.mjs','/python-speed.mjs'].includes(pathname)) {
       res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
       return res.end(fs.readFileSync(path.join(here, pathname.slice(1)), 'utf8'));
     }
@@ -387,7 +388,7 @@ const server = http.createServer(async (req, res) => {
         job = { ...job, file: job.file || ownedRecording(recordDirectory, job.id), pythonTimeline: structuredClone(job.pythonTimeline) };
       });
       const previewId = await editMedia.preview(job, clips, path.dirname(job.file));
-      return json(res, 200, { previewId, videoUrl: `/python/editor/video/${previewId}?access=${editMedia.previews.get(previewId).access}`, revision: job.pythonTimeline.revision, duration: timelineDuration({ clips }) });
+      return json(res, 200, { previewId, videoUrl: `/python/editor/video/${previewId}?access=${editMedia.previews.get(previewId).access}`, revision: job.pythonTimeline.revision, duration: pythonExportDuration({...job.pythonTimeline,clips}) });
     }
     if (req.url === '/python/pause' || req.url === '/material/pause') {
       // Keep this local control out of the platform synchronization queue.
@@ -443,7 +444,10 @@ const server = http.createServer(async (req, res) => {
         if (req.url.endsWith('/publish')) {
           if (!job.file || engine.active() || (await obs.status()).outputActive) throw new Error('Сначала завершите запись');
           await finalizePython(job);
+          const draft=structuredClone(job);
           approveTimeline(job.pythonTimeline, payload.revision);
+          try { atomicJson(path.join(directory,'python-drafts',`${job.id}-r${payload.revision}.json`),draft); }
+          catch(failure){job.pythonTimeline=draft.pythonTimeline;throw failure;}
           job.status = 'saved'; job.error = ''; save(); return;
         }
         if (job.status === 'recording' && engine.active()?.id !== job.id) throw new Error('Запись уже изменилась');

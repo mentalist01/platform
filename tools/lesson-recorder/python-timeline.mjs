@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {pythonExportSpeed} from './python-speed.mjs';
 
 export const MIN_CLIP = 0.04;
 const time = value => Math.round(Number(value) * 1000) / 1000;
@@ -8,9 +9,9 @@ export function recordingSeconds(status) {
   return time(parts[0] * 3600 + parts[1] * 60 + parts[2]);
 }
 export const createTimeline = () => ({ version: 1, revision: 0, clips: [], history: [], future: [], openStart: 0, sourceEnd: 0, takeCount: 0, approved: false });
-const snapshot = (clips, related) => ({ clips: structuredClone(clips), knownIds: [...new Set([...clips, ...related].map(clip => clip.id))] });
+const snapshot = (clips, related, speed) => ({ clips: structuredClone(clips), knownIds: [...new Set([...clips, ...related].map(clip => clip.id))], speed });
 const remember = (timeline, next) => {
-  timeline.history.push(snapshot(timeline.clips, next));
+  timeline.history.push(snapshot(timeline.clips, next, timeline.speed));
   timeline.history = timeline.history.slice(-30);
   timeline.future = [];
 };
@@ -51,9 +52,14 @@ export function finalizeTimeline(timeline, duration) {
   }
   timeline.sourceEnd = time(duration); timeline.finalized = true; delete timeline.pendingTailStart; timeline.revision++;
 }
-export function editTimeline(timeline, { revision, action, clipId, at, start, end, direction, beforeId }) {
+export function editTimeline(timeline, { revision, action, clipId, at, start, end, direction, beforeId, speed }) {
   if (!timeline || timeline.version !== 1 || timeline.approved) throw Error('Этот монтаж уже отправлен или недоступен');
   if (revision !== timeline.revision) throw Error('Монтаж изменился. Обновите ленту и повторите действие.');
+  if(action==='set-speed'){
+    if(!timeline.finalized || timeline.openStart!==null)throw Error('Сначала завершите запись');
+    const nextSpeed=pythonExportSpeed(speed);if(nextSpeed===pythonExportSpeed(timeline.speed))return;
+    remember(timeline,timeline.clips);timeline.speed=nextSpeed;timeline.revision++;return;
+  }
   if (action === 'restore-source') {
     if (!timeline.finalized || timeline.openStart !== null || !Number.isFinite(timeline.sourceEnd) || timeline.sourceEnd < MIN_CLIP) throw Error('Сначала завершите запись');
     const next = [{ id: crypto.randomUUID(), start: 0, end: timeline.sourceEnd }];
@@ -65,11 +71,14 @@ export function editTimeline(timeline, { revision, action, clipId, at, start, en
     if (!previous) throw Error(action === 'undo' ? 'Нет действий для отмены' : 'Нет действий для возврата');
     const newlyRecorded = timeline.clips.filter(clip => !previous.knownIds.includes(clip.id));
     const next = [...structuredClone(previous.clips), ...newlyRecorded];
+    const restoredSpeed=previous.speed===undefined?undefined:pythonExportSpeed(previous.speed);
     if (next.length > 300) throw Error('В ленте уже 300 фрагментов');
     const opposite = action === 'undo' ? (timeline.future ||= []) : timeline.history;
-    opposite.push(snapshot(timeline.clips, next));
+    opposite.push(snapshot(timeline.clips, next, timeline.speed));
     if (opposite.length > 30) opposite.shift();
-    from.pop(); timeline.clips = next; timeline.revision++; return;
+    from.pop(); timeline.clips = next;
+    if(restoredSpeed===undefined)delete timeline.speed;else timeline.speed=restoredSpeed;
+    timeline.revision++; return;
   }
   const index = timeline.clips.findIndex(clip => clip.id === clipId);
   const clip = timeline.clips[index];
@@ -110,6 +119,7 @@ export function editTimeline(timeline, { revision, action, clipId, at, start, en
 export function approveTimeline(timeline, revision) {
   if (!timeline || timeline.approved || revision !== timeline.revision || timeline.openStart !== null) throw Error('Завершите запись и обновите монтаж');
   if (!timeline.clips.length) throw Error('В итоговом видео должен остаться хотя бы один фрагмент');
+  pythonExportSpeed(timeline.speed);
   for (const clip of timeline.clips) {
     if (![clip.start, clip.end].every(Number.isFinite) || clip.start < 0 || clip.end > timeline.sourceEnd + .01 || clip.end - clip.start < MIN_CLIP) throw Error('Некорректная граница фрагмента');
   }

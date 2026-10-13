@@ -11,6 +11,26 @@ const ffmpeg = process.env.FFMPEG_PATH || (process.platform === 'win32' ? 'C:/Pr
 let available = true; try { execFileSync(ffmpeg, ['-version'], { windowsHide: true, stdio: 'ignore' }); } catch { available = false; }
 const run = args => execFileSync(ffmpeg, ['-hide_banner','-loglevel','error', ...args], { windowsHide: true, maxBuffer: 10 * 1024 * 1024 });
 
+test('fractional export accelerates exact edited ranges, keeps audio pitch and sync, and leaves the draft and original intact', {timeout:60000,skip:!available&&'ffmpeg unavailable'},async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'python-speed-export-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const id=crypto.randomUUID(),file=path.join(root,`lesson-${id}.mkv`);
+ run(['-y','-f','lavfi','-i','color=red:s=320x180:r=30:d=6','-f','lavfi','-i','color=blue:s=320x180:r=30:d=6','-f','lavfi','-i','sine=frequency=880:sample_rate=48000:duration=12',
+ '-filter_complex','[0:v][1:v]concat=n=2:v=1:a=0[v]','-map','[v]','-map','2:a','-c:v','libx264','-g','30','-c:a','aac',file]);
+ const beforeHash=crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+ const job={id,file,pythonTimeline:{revision:7,speed:1.35,sourceEnd:12,clips:[{id:'red',start:2,end:4},{id:'blue',start:7,end:9}]}};
+ const original=JSON.stringify(job),media=new PythonEditMedia({ffmpeg,root:path.join(root,'cache')}),probe=ffmpeg.replace(/ffmpeg(\.exe)?$/i,'ffprobe$1');
+ for(const speed of [1.35,3.6]){
+  job.pythonTimeline.speed=speed;const output=path.join(root,`export-${speed}.mp4`);await media.render(job,job.pythonTimeline.clips,root,output);
+  const metadata=JSON.parse(execFileSync(probe,['-v','error','-show_entries','format=duration:stream=codec_type,duration,width,height','-of','json',output],{encoding:'utf8',windowsHide:true}));
+  assert.ok(Math.abs(+metadata.format.duration-4/speed)<.15,metadata.format.duration);
+  const video=metadata.streams.find(s=>s.codec_type==='video'),audio=metadata.streams.find(s=>s.codec_type==='audio');assert.equal(video.width,320);assert.equal(video.height,180);assert.ok(Math.abs(+video.duration-+audio.duration)<.15);
+  for(const [at,channel]of [[.7/speed,0],[2.7/speed,2]]){const pixel=[...run(['-ss',String(at),'-i',output,'-frames:v','1','-vf','scale=1:1','-f','rawvideo','-pix_fmt','rgb24','pipe:1'])];assert.ok(pixel[channel]>150&&pixel.every((v,i)=>i===channel||v<50),`${speed}: ${pixel}`);}
+  const pcm=run(['-ss','0.1','-i',output,'-t','0.25','-vn','-f','s16le','-ac','1','-ar','48000','pipe:1']);let changes=0;for(let i=1;i<pcm.length/2;i++)if((pcm.readInt16LE(i*2)>=0)!==(pcm.readInt16LE((i-1)*2)>=0))changes++;
+  const frequency=changes/2/(pcm.length/2/48000);assert.ok(Math.abs(frequency-880)<30,`${speed}: pitch ${frequency}`);
+ }
+ job.pythonTimeline.speed=1.35;assert.equal(JSON.stringify(job),original);assert.equal(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),beforeHash);
+});
+
 test('continued draft plays and renders both originals, including cuts across the file boundary and a second continuation', {timeout:60000,skip:!available&&'ffmpeg unavailable'},async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'python-continued-media-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
  const ids=[crypto.randomUUID(),crypto.randomUUID(),crypto.randomUUID()],files=ids.map(id=>path.join(root,`lesson-${id}.mkv`));

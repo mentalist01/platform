@@ -4,6 +4,17 @@ import { createTimeline, recordingSeconds, observeTimeline, closeTimelineClip, r
 const draft = () => { const timeline = createTimeline(); closeTimelineClip(timeline, 10); resumeTimeline(timeline, 10); closeTimelineClip(timeline, 20); return timeline; };
 const apply = (timeline, action, extra = {}) => editTimeline(timeline, { revision: timeline.revision, action, clipId: timeline.clips[0]?.id, ...extra });
 
+test('whole-video speed is saved separately from cuts, supports undo and redo after reload and preserves new takes',()=>{
+ let t=draft();finishTimeline(t,20);finalizeTimeline(t,20);const clips=structuredClone(t.clips);
+ apply(t,'set-speed',{speed:'1,35'});assert.equal(t.speed,1.35);assert.deepEqual(t.clips,clips);assert.equal(timelineDuration(t),20);
+ apply(t,'trim',{start:1,end:9});apply(t,'undo');assert.equal(t.speed,1.35);assert.deepEqual(t.clips,clips);
+ t=JSON.parse(JSON.stringify(t));apply(t,'undo');assert.equal(t.speed,undefined);apply(t,'redo');assert.equal(t.speed,1.35);
+ const before=structuredClone(t);for(const speed of [0,-1,NaN,Infinity,'abc']){assert.throws(()=>apply(t,'set-speed',{speed}));assert.deepEqual(t,before);}
+ assert.throws(()=>editTimeline(t,{revision:t.revision-1,action:'set-speed',speed:1.5}),/изменился/);
+ approveTimeline(t,t.revision);assert.throws(()=>apply(t,'set-speed',{speed:1.5}),/отправлен/);
+ const live=draft();assert.throws(()=>apply(live,'set-speed',{speed:1.2}),/завершите/);
+});
+
 test('explicit source restoration recovers an empty saved project and remains undoable across reload', () => {
   let t = draft(); finishTimeline(t,20); finalizeTimeline(t,20); apply(t,'delete'); apply(t,'delete');
   apply(t,'restore-source'); assert.deepEqual(t.clips.map(c=>[c.start,c.end]),[[0,20]]);

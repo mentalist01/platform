@@ -167,6 +167,24 @@ if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('saved draft accepts whole-video decimal speed, persists through continuation, rejects live changes and keeps original edits',async t=>{
+    const f=await fixture({mediaFixture:true});t.after(f.close);await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});
+    await f.request('/python/start',{taskNumber:101,subsectionId:'__default__',expectedUrl:'',title:'Ускоренный урок'});
+    const id=(await f.request('/state')).value.jobs.find(j=>j.status==='recording').id;
+    let job=(await f.request('/state')).value.jobs.find(j=>j.id===id);assert.equal((await f.request('/python/editor/edit',{id,revision:job.pythonTimeline.revision,action:'set-speed',speed:1.2})).status,400);
+    await f.request('/material/stop',{id});job=(await f.request('/state')).value.jobs.find(j=>j.id===id);const before=structuredClone(job.pythonTimeline.clips),source=fs.readFileSync(job.file);
+    assert.equal((await f.request('/python/editor/edit',{id,revision:job.pythonTimeline.revision,action:'set-speed',speed:'1,35'})).status,200);
+    job=(await f.request('/state')).value.jobs.find(j=>j.id===id);assert.equal(job.pythonTimeline.speed,1.35);assert.deepEqual(job.pythonTimeline.clips,before);
+    assert.equal((await fetch(f.base+'/python-speed.mjs')).status,200);
+    for(const speed of [0,'bad'])assert.equal((await f.request('/python/editor/edit',{id,revision:job.pythonTimeline.revision,action:'set-speed',speed})).status,400);
+    await f.request('/qa/time',{seconds:0});assert.equal((await f.request('/python/continue',{id,revision:job.pythonTimeline.revision})).status,200);
+    const next=(await f.request('/state')).value.jobs.find(j=>j.status==='recording');assert.equal(next.pythonTimeline.speed,1.35);assert.deepEqual(fs.readFileSync(job.file),source);
+    await f.request('/material/stop',{id:next.id});const saved=(await f.request('/state')).value.jobs.find(j=>j.id===next.id);
+    assert.equal((await f.request('/python/editor/publish',{id:saved.id,revision:saved.pythonTimeline.revision})).status,200);
+    const draft=JSON.parse(fs.readFileSync(path.join(f.root,'python-drafts',`${saved.id}-r${saved.pythonTimeline.revision}.json`),'utf8'));
+    assert.equal(draft.pythonTimeline.approved,false);assert.equal(draft.pythonTimeline.speed,1.35);assert.deepEqual(draft.pythonTimeline.clips,saved.pythonTimeline.clips);assert.equal(draft.pythonPreviousSources.length,1);
+    assert.deepEqual(fs.readFileSync(job.file),source);
+  });
   test('saved Python draft continues with previous edits, plays both sources and resumes again after saving', {timeout:60000}, async t=>{
     const f=await fixture({mediaFixture:true});t.after(f.close);
     await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});

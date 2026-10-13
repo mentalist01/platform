@@ -1,6 +1,7 @@
 import { clamp, timelineLayout, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit } from './python-editor-time.mjs';
 import { SourceTimelinePlayer } from './python-playback.mjs';
 import {pythonSourceAt} from './python-source-map.mjs';
+import {pythonExportSpeed,pythonExportDuration,pythonPreviewSpeed} from './python-speed.mjs';
 const context = window.recorderEditorContext;
 const style = document.createElement('style');
 style.textContent = `
@@ -84,6 +85,12 @@ for (let node = firstLabel; node;) { const next = node.nextSibling; precision.ap
 const restoreButton = document.createElement('button'); restoreButton.type = 'button'; restoreButton.dataset.op = 'restore-source'; restoreButton.textContent = 'Добавить исходную запись в ленту'; restoreButton.hidden = true; editor.querySelector('.pe-play-tools').append(restoreButton);
 const retryButton = document.createElement('button'); retryButton.type = 'button'; retryButton.dataset.op = 'retry-upload'; retryButton.textContent = 'Повторить загрузку'; retryButton.hidden = true; editor.querySelector('.pe-footer').append(retryButton);
 editor.querySelector('.pe-footer p').innerHTML = '<strong class="pe-publish-target"></strong><span class="pe-publish-summary"></span><span class="pe-publish-state" role="status"></span>';
+const speedControls=document.createElement('section');speedControls.className='pe-speed-settings';speedControls.setAttribute('aria-label','Скорость готового видео');
+speedControls.innerHTML='<label>Скорость готового видео <input type="text" inputmode="decimal" value="1" aria-label="Ускорить всё видео в раз"></label><span>×</span><button type="button">Применить</button><button type="button">Вернуть 1×</button><p role="status"></p>';
+editor.querySelector('.pe-footer').before(speedControls);
+const speedInput=speedControls.querySelector('input'),speedApply=speedControls.querySelectorAll('button')[0],speedReset=speedControls.querySelectorAll('button')[1];
+let speedProject='',speedDirty=false;
+style.textContent+='.pe-speed-settings{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 22px;border-top:1px solid #ffffff18;background:#ffffff03;flex:none}.pe-speed-settings label{font-size:13px;font-weight:600;display:flex;gap:10px;align-items:center}.pe-speed-settings input{width:72px;padding:8px}.pe-speed-settings button{padding:8px 11px}.pe-speed-settings p{margin:0;color:#aab4ca;font-size:12px;line-height:1.5;flex:1;min-width:230px}';
 editor.querySelector('.pe-save-note').textContent = 'Автосохранение · F8 — завершить дубль / следующий, F9 — переснять. Двойной клик — просмотр, пробел — воспроизведение. S — разрез, Q / W — убрать до / после курсора. Ctrl+Z — отмена. Клавиши работают в этом редакторе.';
 style.textContent += '.pe-quick-tools{margin:12px 0;display:grid;grid-template-columns:1fr}.pe-quick-tools button{white-space:normal}.pe-publish-target,.pe-publish-summary,.pe-publish-state{display:block;line-height:1.5}.pe-publish-target{color:#eadbff}.pe-publish-summary{color:#aab4ca}.pe-publish-state{color:#93d7bc}.pe-publish-state[data-error=true]{color:#ffb3c5}.pe-track>button:hover{border-color:#c6a3f7}.pe-footer p{min-width:170px}.pe-precision{margin-top:16px;border-top:1px solid #ffffff18;padding-top:12px}.pe-precision summary{font-size:12px;color:#b7a4d7;cursor:pointer}.pe-inspector--empty .pe-precision{display:none}';
 style.textContent += `
@@ -176,6 +183,7 @@ inspectorTabs.children[0].onclick = () => { showSettings(true); if (!context.sta
 inspectorTabs.children[1].onclick = () => { preparing = false; showSettings(false); render(); };
 function renderPreparation(state) {
   const capture = state.jobs.some(item => ['starting','recording','stopping'].includes(item.status)) || state.obs?.outputActive;
+  speedControls.hidden=preparing||!job();
   const waiting = busy || preparingBusy || startPending || context.panelBusy?.() || state.materialControlBusy || state.editorBusy || state.updater?.busy || state.uploadingId || state.preparingUpload;
   startButton.hidden = Boolean(capture);
   startButton.textContent = startPending ? 'Запускаем запись…' : preparing ? '● Начать запись' : '● Новая запись';
@@ -302,6 +310,26 @@ async function edit(action, extra = {}) {
   const current = job(); await context.request('/python/editor/edit', { id: current.id, revision: current.pythonTimeline.revision, action, clipId: selectedId, ...extra });
   discardPreview(); signature = ''; await context.refresh(); render(); notify('Монтаж сохранён. Исходник не изменён.');
 }
+function renderSpeed(current,locked,active){
+  speedControls.hidden=preparing||!current;if(!current)return;
+  if(speedProject!==current.id){speedProject=current.id;speedDirty=false;}
+  const speed=pythonExportSpeed(current.pythonTimeline.speed);
+  if(!speedDirty&&document.activeElement!==speedInput)speedInput.value=String(speed).replace('.',',');
+  const unavailable=locked||active||!current.pythonTimeline.finalized||!current.file;
+  speedInput.disabled=unavailable;speedApply.disabled=unavailable||!speedDirty;speedReset.disabled=unavailable||speed===1&&!speedDirty;
+  speedControls.querySelector('p').textContent=active?'Ускорение можно выбрать после завершения записи.':speedDirty?'Нажмите «Применить», чтобы сохранить скорость перед публикацией.':`Готовое видео: ${clock(pythonExportDuration(current.pythonTimeline))} при ${String(speed).replace('.',',')}×. Исходники и монтаж сохраняются.`;
+}
+async function applySpeed(value){await edit('set-speed',{speed:value});speedDirty=false;render();notify(`Скорость готового видео: ${String(pythonExportSpeed(job().pythonTimeline.speed)).replace('.',',')}×. Исходники и монтаж сохранены.`);}
+speedInput.oninput=()=>{speedDirty=true;render();};
+speedInput.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();void act(()=>applySpeed(speedInput.value));}};
+speedApply.onclick=()=>{void act(()=>applySpeed(speedInput.value));};speedReset.onclick=()=>{void act(()=>applySpeed(1));};
+function setExportPreviewSpeed(current){
+  const rate=pythonPreviewSpeed(current.pythonTimeline),select=playbackTools.children[2];
+  const old=select.querySelector('[data-export-speed]');old?.remove();
+  if(![...select.options].some(option=>Number(option.value)===rate)){const option=new Option(`${String(rate).replace('.',',')}× · готовое видео`,String(rate));option.dataset.exportSpeed='true';select.add(option);}
+  select.value=String(rate);
+  for(const video of player.videos){video.preservesPitch=true;video.defaultPlaybackRate=video.playbackRate=rate;}
+}
 function select(id) { selectedId = id; preparing = false; showSettings(false); if (previewClip && previewClip !== id) discardPreview(); render(); find('.pe-track button[aria-selected="true"]')?.focus({preventScroll:true}); }
 const seek = document.createElement('div'); seek.className = 'pe-seek';
 seek.innerHTML = '<input type="range" min="0" max="0" value="0" step="0.01" aria-label="Курсор монтажа"><output aria-live="off">0:00.0 / 0:00.0</output>';
@@ -335,6 +363,7 @@ async function preview(all = false, play = true) {
   notify('Открываем исходную запись…');
   const generation = ++previewGeneration;
   player.configure(all?requestedClips:[requested]); videoUrl='source';
+  setExportPreviewSpeed(current);
   liveWanted = false;
   previewClip = all ? '' : requested.id; previewRevision = current.pythonTimeline.revision;
   renderMonitor(current, context.state());
@@ -343,7 +372,8 @@ async function preview(all = false, play = true) {
   videoUrl=player.source.videoUrl; if(all)reviewedRevision=previewRevision;
   renderMonitor(current,context.state());
   editor.dataset.playbackStartMs=(performance.now()-startedAt).toFixed(1);
-  notify(all ? 'Предпросмотр всего монтажа. Проверьте звук и стыки.' : 'Фрагмент готов к просмотру. Остановите воспроизведение в месте разреза.');
+  const speed=pythonExportSpeed(current.pythonTimeline.speed),rate=pythonPreviewSpeed(current.pythonTimeline);
+  notify((all ? 'Предпросмотр всего монтажа. Проверьте звук и стыки.' : 'Фрагмент готов к просмотру. Остановите воспроизведение в месте разреза.')+(speed!==rate?` Просмотр при ${rate}×; готовое видео будет при ${speed}×.`:''));
   playbackTools.hidden=false;
   void makeThumbnails(videoUrl,(all?requestedClips:[requested]).filter(clip=>clip.start>=player.source.sourceStart&&clip.start<player.source.sourceEnd),player.source.offset,previewGeneration);
 }
@@ -361,6 +391,7 @@ function render() {
   find('[aria-label="Масштаб ленты"]').disabled = !projects.length;
   find('.pe-project').disabled = !projects.length;
   if (!projects.length) {
+    speedControls.hidden=true;
     if (projectId || videoUrl) discardPreview();
     projectId = ''; selectedId = ''; signature = ''; inspectorSignature = ''; layout = []; playhead = 0;
     find('.pe-project').dataset.options = '';
@@ -441,7 +472,8 @@ function render() {
   find('[data-op=retake]').title = 'Убрать последний записанный дубль из монтажа и начать его заново. Исходник сохранится; Ctrl+Z вернёт дубль.';
   find('[data-op=stop]').disabled = locked || !isActive || !state.obs?.outputActive;
   find('[data-op=live]').disabled = waiting || !isActive;
-  find('[data-op=publish]').disabled = locked || anyActive || !current.file || !timeline.clips.length || !timeline.finalized;
+  find('[data-op=publish]').disabled = locked || anyActive || !current.file || !timeline.clips.length || !timeline.finalized || speedDirty;
+  renderSpeed(current,locked,anyActive);
   find('[data-op=preview-all]').disabled = waiting || !timeline.clips.length || isActive && !state.obs?.outputPaused;
   find('[data-op=preview]').disabled = waiting || !selected || isActive && !state.obs?.outputPaused;
   for (const [op, action] of [['cut-cursor', 'split'], ['trim-start', 'trim-start'], ['trim-end', 'trim-end']]) find(`[data-op=${op}]`).disabled = locked || !cursorEdit(layout, playhead, action);
@@ -451,7 +483,7 @@ function render() {
   retryButton.disabled = waiting || anyActive;
   const target = current.pythonTheory;
   find('.pe-publish-target').textContent = target ? `Изучение Python → ${target.taskTitle || current.title} → ${target.subsectionTitle || 'Вся тема'}` : current.title;
-  find('.pe-publish-summary').textContent = `${timeline.clips.length} фрагм. · Итог ${clock(totalTime())} · Исходник ${clock(timeline.sourceEnd)}`;
+  find('.pe-publish-summary').textContent = `${timeline.clips.length} фрагм. · Готовое видео ${clock(pythonExportDuration(timeline))} · ${String(pythonExportSpeed(timeline.speed)).replace('.',',')}× · Исходник ${clock(timeline.sourceEnd)}`;
   const published = current.status === 'ready';
   const failed = timeline.approved && current.status === 'error';
   const uploading = timeline.approved && !published && !failed;

@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { ownedRecording } from './storage.mjs';
 import { concatList } from './segments.mjs';
 import {pythonSourceAt,pythonSourceRanges} from './python-source-map.mjs';
+import {pythonExportSpeed,pythonTempoFilters} from './python-speed.mjs';
 
 // Native video playback uses byte ranges; it must not buffer an entire lesson
 // as a Blob in the renderer. Each capability grants access to one preview only.
@@ -64,7 +65,7 @@ export class PythonEditMedia {
   }
   async preview(job, clips, recordDirectory) {
     const source = this.source(job, recordDirectory);
-    const key = JSON.stringify([job.id, source, clips.map(({ start, end }) => [start, end])]);
+    const key = JSON.stringify([job.id, source, clips.map(({ start, end }) => [start, end]),pythonExportSpeed(job.pythonTimeline.speed)]);
     const cached = [...this.previews].find(([, item]) => item.key === key && fs.existsSync(item.file));
     if (cached) {
       const [id, item] = cached; this.previews.delete(id); this.previews.set(id, item);
@@ -138,6 +139,7 @@ export class PythonEditMedia {
   async render(job, clips, recordDirectory, output, preview = false) {
     if (!Array.isArray(clips) || !clips.length || clips.length > 300) throw Error('Выберите фрагменты для монтажа');
     const folder = path.join(this.root, job.id, crypto.randomUUID());
+    const speed=pythonExportSpeed(job.pythonTimeline.speed);
     fs.mkdirSync(folder, { recursive: true });
     const parts = [];
     try {
@@ -147,8 +149,10 @@ export class PythonEditMedia {
         for (const range of pythonSourceRanges(job,clip)) {
         const input=ownedRecording(range.file ? path.dirname(range.file) : recordDirectory,range.id,range.file);
         const part = path.join(folder, `${index++}.mkv`);
-        await command(this.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(range.startInFile), '-i', input, '-t', String(range.endInFile-range.startInFile),
-          '-map', '0:v:0', '-map', '0:a:0?', ...(preview ? ['-vf', "scale='min(960,iw)':-2"] : []),
+        const videoFilters=[...(speed!==1?[`setpts=(PTS-STARTPTS)/${speed}`]:[]),...(preview?["scale='min(960,iw)':-2"]:[])];
+        await command(this.ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(range.startInFile), '-t', String(range.endInFile-range.startInFile), '-i', input,
+          '-map', '0:v:0', '-map', '0:a:0?', ...(videoFilters.length?['-vf',videoFilters.join(',')]:[]),
+          ...(speed!==1?['-af',`asetpts=PTS-STARTPTS,${pythonTempoFilters(speed)}`]:[]),
           '-c:v', 'libx264', '-threads', '2', '-bf', '0', '-preset', preview ? 'ultrafast' : 'veryfast', '-crf', preview ? '28' : '18', '-pix_fmt', 'yuv420p',
           '-c:a', 'pcm_s16le', '-ar', '48000', '-avoid_negative_ts', 'make_zero', part]);
         parts.push(part);
