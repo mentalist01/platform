@@ -5,6 +5,7 @@ namespace IvanEge.WorkbookHelper;
 internal static class AppPaths
 {
     public const long MaxWorkbookBytes = 64L * 1024L * 1024L;
+    public const long MaxFlatWorkbookBytes = 512L * 1024L * 1024L;
     public const long MaxSourceTextBytes = 16L * 1024L * 1024L;
 
     public static string InstallDirectory => Path.Combine(
@@ -214,7 +215,9 @@ internal static class LocalWorkbookFiles
             {
                 return false;
             }
-            return string.Equals(
+            return (string.Equals(Path.GetExtension(current), ".fods", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(Path.GetExtension(candidate), ".ods", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(
                 Path.GetExtension(current),
                 Path.GetExtension(candidate),
                 StringComparison.OrdinalIgnoreCase);

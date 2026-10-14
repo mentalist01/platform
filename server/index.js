@@ -42,6 +42,7 @@ import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
+import { BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed } from './blankWorkbook.js';
 import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
@@ -20701,8 +20702,6 @@ const createWorkbookHttpError = (statusCode, message, details = {}) => {
 const WORKBOOK_QUESTION_CATEGORY = 'testing';
 const WORKBOOK_QUESTION_TEXT_EXTENSIONS = new Set(['.txt', '.csv', '.tsv']);
 const WORKBOOK_HELPER_SOURCE_TEXT_MAX_BYTES = 16 * 1024 * 1024;
-const BLANK_QUESTION_FODS = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:mimetype="application/vnd.oasis.opendocument.spreadsheet" office:version="1.3"><office:body><office:spreadsheet><table:table table:name="Лист1"><table:table-row><table:table-cell office:value-type="string"><text:p/></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document>`;
 
 const normalizeWorkbookQuestionValue = (value, maxLength = 240) => (
   String(value ?? '').replace(/\0/g, '').trim().slice(0, maxLength)
@@ -20817,10 +20816,10 @@ const ensureWorkbookQuestionSource = ({ student, target, teacherId = '' }) => {
     if (existingPath && fs.existsSync(existingPath)) {
       sourceStorageName = existingStorageName;
     } else {
-      sourceStorageName = `${crypto.randomUUID()}-task-${context.taskNumber}-${context.questionNumber || 'question'}.fods`;
-      fs.writeFileSync(path.join(uploadsDir, sourceStorageName), BLANK_QUESTION_FODS, 'utf8');
+      sourceStorageName = `${crypto.randomUUID()}-task-${context.taskNumber}-${context.questionNumber || 'question'}.ods`;
+      fs.writeFileSync(path.join(uploadsDir, sourceStorageName), BLANK_WORKBOOK_ODS);
     }
-    sourceName = `Задание ${context.taskNumber}${context.questionNumber ? ` №${context.questionNumber}` : ''} — таблица.fods`;
+    sourceName = `Задание ${context.taskNumber}${context.questionNumber ? ` №${context.questionNumber}` : ''} — таблица${path.extname(sourceStorageName)}`;
   }
   const nowIso = new Date().toISOString();
   const source = {
@@ -20832,7 +20831,7 @@ const ensureWorkbookQuestionSource = ({ student, target, teacherId = '' }) => {
     folderId: null,
     folderName: null,
     name: sourceName,
-    size: target.blankForTextTask ? formatSize(Buffer.byteLength(BLANK_QUESTION_FODS)) : String(target.attachment?.size || ''),
+    size: target.blankForTextTask ? formatSize(fs.statSync(path.join(uploadsDir, sourceStorageName)).size) : String(target.attachment?.size || ''),
     sizeBytes: 0,
     originalSizeBytes: Math.max(0, Number(target.attachment?.sizeBytes) || 0),
     date: existing?.date || new Date(nowIso).toLocaleDateString('ru-RU'),
@@ -20869,12 +20868,13 @@ const ensureWorkbookTextMaterialSource = ({ student, textFile, files: filesOverr
     String(entry?.workbookTextSourceFileId || entry?.workbookTask26TextSourceFileId || '').trim() === sourceMarker
     && String(entry?.studentId || '').trim() === String(student?.id || '').trim()
   ));
-  const storageName = path.basename(String(source?.workbookQuestionStorageName || '').trim())
-    || `workbook-text-${crypto.randomUUID()}.fods`;
+  const previousStorageName = path.basename(String(source?.workbookQuestionStorageName || '').trim());
+  const storageName = previousStorageName && fs.existsSync(path.join(uploadsDir, previousStorageName))
+    ? previousStorageName : `workbook-text-${crypto.randomUUID()}.ods`;
   const storagePath = path.join(uploadsDir, storageName);
-  if (!fs.existsSync(storagePath)) fs.writeFileSync(storagePath, BLANK_QUESTION_FODS, 'utf8');
+  if (!fs.existsSync(storagePath)) fs.writeFileSync(storagePath, BLANK_WORKBOOK_ODS);
   const nowIso = new Date().toISOString();
-  const sourceName = `${path.basename(String(textFile?.name || 'Задание'), path.extname(String(textFile?.name || '')))} — таблица.fods`;
+  const sourceName = `${path.basename(String(textFile?.name || 'Задание'), path.extname(String(textFile?.name || '')))} — таблица${path.extname(storageName)}`;
   source = {
     ...(source || {}),
     id: source?.id || crypto.randomUUID(),
@@ -20884,15 +20884,15 @@ const ensureWorkbookTextMaterialSource = ({ student, textFile, files: filesOverr
     folderId: textFile?.folderId || null,
     folderName: textFile?.folderName || null,
     name: sourceName,
-    size: formatSize(Buffer.byteLength(BLANK_QUESTION_FODS)),
-    sizeBytes: Buffer.byteLength(BLANK_QUESTION_FODS),
+    size: formatSize(fs.statSync(storagePath).size),
+    sizeBytes: fs.statSync(storagePath).size,
     date: source?.date || new Date(nowIso).toLocaleDateString('ru-RU'),
     createdAt: source?.createdAt || nowIso,
     updatedAt: nowIso,
     workbookQuestionVirtualSource: true,
     workbookQuestionStorageName: storageName,
     workbookTextSourceFileId: sourceMarker,
-    workbookContentHash: crypto.createHash('sha256').update(BLANK_QUESTION_FODS).digest('hex'),
+    workbookContentHash: crypto.createHash('sha256').update(fs.readFileSync(storagePath)).digest('hex'),
   };
   const sourceIndex = files.findIndex((entry) => entry?.id === source.id);
   if (sourceIndex >= 0) files[sourceIndex] = source;
@@ -21124,7 +21124,7 @@ const upsertWorkbookSolutionContent = ({
       }
       const sourceExtension = getWorkbookExtension(sourceFile.name);
       const uploadedExtension = getWorkbookExtension(normalizeFileName(uploadedFile.originalname));
-      if (!sourceExtension || uploadedExtension !== sourceExtension) {
+      if (!sourceExtension || !workbookSolutionFormatAllowed(sourceExtension, uploadedExtension)) {
         throw createWorkbookHttpError(415, 'Формат решения должен совпадать с исходной таблицей');
       }
       const incomingContentHash = crypto
@@ -21198,10 +21198,14 @@ const upsertWorkbookSolutionContent = ({
       }
 
       const rawSolutionName = String(requestedSolutionName || '').trim();
+      const solutionSourceName = sourceFile.name.slice(0, -sourceExtension.length) + uploadedExtension;
       const namedSolution = rawSolutionName
-        ? buildNamedWorkbookSolutionName(rawSolutionName, sourceFile.name)
+        ? buildNamedWorkbookSolutionName(rawSolutionName, solutionSourceName)
         : '';
       let entryName = String(existing?.name || '').trim();
+      if (entryName && sourceExtension === '.fods' && uploadedExtension === '.ods') {
+        entryName = entryName.slice(0, -getWorkbookExtension(entryName).length) + uploadedExtension;
+      }
       if (existing) {
         if (rawSolutionName && !namedSolution) {
           throw createWorkbookHttpError(400, 'Некорректное имя решения');
@@ -21209,9 +21213,9 @@ const upsertWorkbookSolutionContent = ({
         if (namedSolution && namedSolution.toLocaleLowerCase('ru-RU') !== entryName.toLocaleLowerCase('ru-RU')) {
           throw createWorkbookHttpError(409, 'Имя сохранённого решения нельзя изменить');
         }
-        entryName ||= buildWorkbookSolutionName(sourceFile.name);
+        entryName ||= buildWorkbookSolutionName(solutionSourceName);
       } else if (questionSolutionSlot) {
-        entryName = buildWorkbookQuestionSolutionName(sourceFile.name, questionSolutionSlot);
+        entryName = buildWorkbookQuestionSolutionName(solutionSourceName, questionSolutionSlot);
         if (sourceFile.workbookQuestionTeacherId) {
           entryName = `Преподаватель — ${entryName}`;
         }
@@ -21221,7 +21225,7 @@ const upsertWorkbookSolutionContent = ({
         }
         entryName = namedSolution;
       } else {
-        entryName = buildWorkbookSolutionName(sourceFile.name);
+        entryName = buildWorkbookSolutionName(solutionSourceName);
       }
       if (!existing && files.some((entry) => (
         String(entry?.studentId || '').trim() === String(student.id || '').trim()

@@ -2,6 +2,8 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.IO.Compression;
+using System.Xml.Linq;
 
 namespace IvanEge.WorkbookHelper;
 
@@ -27,6 +29,7 @@ internal static class SelfTest
             TestSessionKeys();
             TestSolutionNamingContract();
             TestStableSnapshot(temporaryDirectory).GetAwaiter().GetResult();
+            TestFlatWorkbookSnapshot(temporaryDirectory).GetAwaiter().GetResult();
             TestHashValidation();
             TryDelete(ReportPath);
             return 0;
@@ -164,6 +167,57 @@ internal static class SelfTest
         var valid = new string('a', 64);
         Assert(HelperApiClient.NormalizeHash(valid.ToUpperInvariant()) == valid, "SHA-256 normalization failed");
         Assert(HelperApiClient.NormalizeHash("not-a-hash") is null, "Invalid hash was accepted");
+    }
+
+    private static async Task TestFlatWorkbookSnapshot(string directory)
+    {
+        const string office = "urn:oasis:names:tc:opendocument:xmlns:office:1.0";
+        const string table = "urn:oasis:names:tc:opendocument:xmlns:table:1.0";
+        var source = Path.Combine(directory, "formula.fods");
+        var xml = "<office:document xmlns:office=\""+office+"\" xmlns:table=\""+table+"\" xmlns:of=\"urn:oasis:names:tc:opendocument:xmlns:of:1.2\" xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\" office:mimetype=\""+FlatWorkbookPackage.Mime+"\" office:version=\"1.3\"><office:meta/><office:settings/><office:automatic-styles/><office:body><office:spreadsheet><table:table table:name=\"Лист1\"><table:table-row><table:table-cell table:formula=\"of:=SUM([.A1:.A3])\" office:value-type=\"float\" office:value=\"6\"><text:p>6</text:p></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document>";
+        xml = xml.Replace("<table:table-row><table:table-cell table:formula=", "<table:table-row><table:table-cell office:value-type=\"float\" office:value=\"1\"><text:p>1</text:p></table:table-cell><table:table-cell table:formula=")
+            .Replace("</table:table-row></table:table>", "</table:table-row><table:table-row><table:table-cell office:value-type=\"float\" office:value=\"2\"><text:p>2</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell office:value-type=\"float\" office:value=\"3\"><text:p>3</text:p></table:table-cell></table:table-row></table:table>");
+        await File.WriteAllTextAsync(source, xml, new UTF8Encoding(false));
+        var sourceHash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source))).ToLowerInvariant();
+        using (var snapshot = await StableFileSnapshot.CaptureAsync(source, TimeSpan.FromSeconds(4), CancellationToken.None, directory))
+        {
+            Assert(snapshot.ContentHash == sourceHash, "Source hash must remain the duplicate-upload guard");
+            Assert(snapshot.UploadExtension == ".ods", "FODS must upload as compressed ODS");
+            Assert(snapshot.UploadContentHash != sourceHash, "Upload hash must describe the packaged bytes");
+            using var archive = ZipFile.OpenRead(snapshot.Path);
+            Assert(archive.Entries[0].FullName == "mimetype", "ODF MIME must be the first entry");
+            using var stream = archive.GetEntry("content.xml")!.Open();
+            var content = XDocument.Load(stream);
+            var cell = content.Descendants(XName.Get("table-cell", table)).Single(c => c.Attribute(XName.Get("formula", table)) != null);
+            Assert((string?)cell.Attribute(XName.Get("formula", table)) == "of:=SUM([.A1:.A3])", "Formula changed during packaging");
+            Assert((string?)cell.Attribute(XName.Get("value", office)) == "6", "Cached value changed during packaging");
+            Assert(cell.GetNamespaceOfPrefix("of")?.NamespaceName == "urn:oasis:names:tc:opendocument:xmlns:of:1.2", "Formula namespace lost");
+            foreach(var name in new[]{"styles.xml","settings.xml","meta.xml","META-INF/manifest.xml"}) Assert(archive.GetEntry(name) != null, "Missing ODF part: "+name);
+            var proof = Environment.GetEnvironmentVariable("IVAN_WORKBOOK_PACKAGE_PROOF");
+            if (!string.IsNullOrWhiteSpace(proof)) File.Copy(snapshot.Path, proof, true);
+        }
+        Assert(await File.ReadAllTextAsync(source) == xml, "Packaging modified the user's open file");
+        var huge = Path.Combine(directory, "large.fods");
+        await using (var output = new StreamWriter(huge, false, new UTF8Encoding(false)))
+        {
+            var split = xml.IndexOf("<office:body>", StringComparison.Ordinal) + "<office:body>".Length;
+            await output.WriteAsync(xml[..split]);
+            var block = "<!--" + new string('x', 4096) + "-->";
+            for(var i = 0; i < 16400; i++) await output.WriteAsync(block);
+            await output.WriteAsync(xml[split..]);
+        }
+        Assert(new FileInfo(huge).Length > AppPaths.MaxWorkbookBytes, "Large fixture must exceed 64 MiB");
+        using var packed = await StableFileSnapshot.CaptureAsync(huge, TimeSpan.FromSeconds(30), CancellationToken.None, directory);
+        Assert(packed.SizeBytes < 1024*1024, "Repetitive flat XML was not compressed");
+        var invalid = Path.Combine(directory, "invalid.fods");
+        await File.WriteAllTextAsync(invalid, "<!DOCTYPE x [<!ENTITY test SYSTEM 'file:///private'>]><x>&test;</x>");
+        await AssertThrowsAsync<HelperApiException>(() => StableFileSnapshot.CaptureAsync(invalid, TimeSpan.FromSeconds(4), CancellationToken.None, directory));
+    }
+
+    private static async Task AssertThrowsAsync<T>(Func<Task<StableFileSnapshot>> action) where T : Exception
+    {
+        try { using var value = await action(); } catch(T) { return; }
+        throw new InvalidOperationException("Expected "+typeof(T).Name);
     }
 
     private static void TestMarkOfTheWeb(string directory)

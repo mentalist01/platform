@@ -17,6 +17,8 @@ internal sealed class StableFileSnapshot : IDisposable
     public string Path { get; }
     public string ContentHash { get; }
     public long SizeBytes { get; }
+    public string UploadContentHash { get; private set; } = "";
+    public string? UploadExtension { get; private set; }
 
     public static async Task<StableFileSnapshot> CaptureAsync(
         string sourcePath,
@@ -44,25 +46,53 @@ internal sealed class StableFileSnapshot : IDisposable
             try
             {
                 var first = ReadStamp(sourcePath);
-                if (first.SizeBytes > AppPaths.MaxWorkbookBytes)
+                var flat = string.Equals(System.IO.Path.GetExtension(sourcePath), ".fods", StringComparison.OrdinalIgnoreCase);
+                var maximum = flat ? AppPaths.MaxFlatWorkbookBytes : AppPaths.MaxWorkbookBytes;
+                if (first.SizeBytes > maximum)
                 {
-                    throw new HelperApiException("Файл больше допустимых 64 МБ.");
+                    throw new HelperApiException(flat
+                        ? "Несжатая таблица больше 512 МБ. Сохраните её как .ods; локальный файл сохранён."
+                        : "Файл больше допустимых 64 МБ.");
                 }
                 await Task.Delay(650, cancellationToken).ConfigureAwait(false);
                 var second = ReadStamp(sourcePath);
                 if (first != second) continue;
 
                 temporaryPath = System.IO.Path.Combine(snapshotDirectory, $"snapshot-{Guid.NewGuid():N}.tmp");
-                var copied = await CopyAndHashAsync(sourcePath, temporaryPath, cancellationToken).ConfigureAwait(false);
+                var copied = await CopyAndHashAsync(sourcePath, temporaryPath, maximum, cancellationToken).ConfigureAwait(false);
                 var after = ReadStamp(sourcePath);
                 if (second != after)
                 {
                     TryDelete(temporaryPath);
                     continue;
                 }
-                return new StableFileSnapshot(temporaryPath, copied.ContentHash, copied.SizeBytes);
+                if (!flat) return new StableFileSnapshot(temporaryPath, copied.ContentHash, copied.SizeBytes)
+                    { UploadContentHash = copied.ContentHash };
+                var packagePath = temporaryPath + ".ods";
+                try
+                {
+                    await Task.Run(() => FlatWorkbookPackage.Create(temporaryPath, packagePath, cancellationToken), cancellationToken).ConfigureAwait(false);
+                    var info = new FileInfo(packagePath);
+                    if (info.Length > AppPaths.MaxWorkbookBytes) throw new HelperApiException("Сжатая таблица больше 64 МБ. Локальный файл сохранён.");
+                    using var packaged = File.OpenRead(packagePath);
+                    var uploadHash = Convert.ToHexString(await SHA256.HashDataAsync(packaged, cancellationToken)).ToLowerInvariant();
+                    TryDelete(temporaryPath);
+                    return new StableFileSnapshot(packagePath, copied.ContentHash, info.Length)
+                        { UploadContentHash = uploadHash, UploadExtension = ".ods" };
+                }
+                catch { TryDelete(packagePath); throw; }
             }
             catch (HelperApiException)
+            {
+                TryDelete(temporaryPath);
+                throw;
+            }
+            catch (System.Xml.XmlException error)
+            {
+                TryDelete(temporaryPath);
+                throw new HelperApiException("Не удалось прочитать таблицу .fods. Сохраните её как .ods в LibreOffice; локальный файл сохранён.", innerException: error);
+            }
+            catch (OperationCanceledException)
             {
                 TryDelete(temporaryPath);
                 throw;
@@ -92,6 +122,7 @@ internal sealed class StableFileSnapshot : IDisposable
     private static async Task<SnapshotCopyReceipt> CopyAndHashAsync(
         string sourcePath,
         string destinationPath,
+        long maximumBytes,
         CancellationToken cancellationToken)
     {
         await using var source = new FileStream(
@@ -118,7 +149,7 @@ internal sealed class StableFileSnapshot : IDisposable
                 var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
                 if (read == 0) break;
                 total += read;
-                if (total > AppPaths.MaxWorkbookBytes)
+                if (total > maximumBytes)
                 {
                     throw new HelperApiException("Файл больше допустимых 64 МБ.");
                 }

@@ -6,6 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { readOdsPart } from './blankWorkbook.fixture.js';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -220,7 +221,7 @@ test('teacher question solutions are immediately readable and isolated from stud
       const session = await exchangeLaunch(baseUrl, grant);
       assert.equal(session.exchange.sourceText.fileName, 'source.txt');
       const res = await fetch(`${baseUrl}/workbook-helper/v1/content`, { headers: { Authorization: session.authorization } });
-      await assertStatus(res, 200); assert.match(await res.text(), /office:spreadsheet/);
+      await assertStatus(res, 200); assert.match(readOdsPart(Buffer.from(await res.arrayBuffer()), 'content.xml'), /office:spreadsheet/);
       assert.deepEqual(progressSnapshot(), beforeProgress);
     });
   } finally {
@@ -578,7 +579,7 @@ test('question workbook helper binds exact attachments and creates blank task 26
     const task26Launch = await task26LaunchResponse.json();
     assert.equal(task26Launch.opensSourceText, true);
     assert.equal(task26Launch.nameRequired, false);
-    assert.match(task26Launch.fileName, /\.fods$/i);
+    assert.match(task26Launch.fileName, /\.ods$/i);
     const task26Session = await exchangeLaunch(baseUrl, task26Launch);
     assert.deepEqual(task26Session.exchange.sourceText, {
       fileName: 'source.txt',
@@ -597,13 +598,13 @@ test('question workbook helper binds exact attachments and creates blank task 26
       headers: { Authorization: task26Session.authorization },
     });
     await assertStatus(task26ContentResponse, 200);
-    const fodsBytes = Buffer.from(await task26ContentResponse.arrayBuffer());
-    const fodsText = fodsBytes.toString('utf8');
-    assert.equal(sha256(fodsBytes), task26Launch.contentHash);
-    assert.match(fodsText, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
-    assert.match(fodsText, /office:mimetype="application\/vnd\.oasis\.opendocument\.spreadsheet"/);
-    assert.match(fodsText, /<office:spreadsheet>/);
-    assert.match(fodsText, /<table:table table:name="Лист1">/);
+    const odsBytes = Buffer.from(await task26ContentResponse.arrayBuffer());
+    const odsText = readOdsPart(odsBytes, 'content.xml');
+    assert.equal(sha256(odsBytes), task26Launch.contentHash);
+    assert.equal(readOdsPart(odsBytes, 'mimetype'), 'application/vnd.oasis.opendocument.spreadsheet');
+    assert.match(odsText, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
+    assert.match(odsText, /<office:spreadsheet>/);
+    assert.match(odsText, /<table:table table:name="Лист1">/);
 
     const task27LaunchResponse = await launchQuestion({
       taskNumber: 27,
@@ -614,7 +615,7 @@ test('question workbook helper binds exact attachments and creates blank task 26
     await assertStatus(task27LaunchResponse, 201);
     const task27Launch = await task27LaunchResponse.json();
     assert.equal(task27Launch.opensSourceText, true);
-    assert.match(task27Launch.fileName, /Задание 27.*\.fods$/i);
+    assert.match(task27Launch.fileName, /Задание 27.*\.ods$/i);
     const task27Session = await exchangeLaunch(baseUrl, task27Launch);
     assert.equal(task27Session.exchange.sourceText.fileName, 'source-27.csv');
     assert.equal(task27Session.exchange.sourceText.contentHash, sha256(task27TextBytes));

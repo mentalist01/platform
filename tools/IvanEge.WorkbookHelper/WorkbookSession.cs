@@ -348,9 +348,9 @@ internal sealed class WorkbookSession : IDisposable
                     WorkbookStatusKind.Uploading,
                     attempt == 0 ? "Отправляю в конспекты…" : $"Повторяю отправку · попытка {attempt + 1}"));
                 return await _api.UploadAsync(
-                    _grant,
+                    _grant with { FileName = Path.ChangeExtension(_grant.FileName, snapshot.UploadExtension ?? Path.GetExtension(LocalPath)) },
                     snapshot.Path,
-                    snapshot.ContentHash,
+                    snapshot.UploadContentHash,
                     _revision,
                     solutionName,
                     cancellationToken).ConfigureAwait(false);

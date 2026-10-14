@@ -6,6 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { readOdsPart } from './blankWorkbook.fixture.js';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -220,7 +221,7 @@ test('workbook helper keeps multiple named solutions bound to their exact result
     await assertStatus(task26LaunchResponse, 201);
     const task26Launch = await task26LaunchResponse.json();
     assert.equal(task26Launch.opensSourceText, true);
-    assert.match(task26Launch.fileName, /\.fods$/i);
+    assert.match(task26Launch.fileName, /\.ods$/i);
     const outdatedTask26ExchangeResponse = await fetch(`${baseUrl}/workbook-helper/v1/exchange`, {
       method: 'POST',
       headers: {
@@ -266,7 +267,7 @@ test('workbook helper keeps multiple named solutions bound to their exact result
       headers: { Authorization: `Workbook ${task26Exchange.token}` },
     });
     await assertStatus(task26ContentResponse, 200);
-    assert.match(Buffer.from(await task26ContentResponse.arrayBuffer()).toString('utf8'), /office:spreadsheet/);
+    assert.match(readOdsPart(Buffer.from(await task26ContentResponse.arrayBuffer()), 'content.xml'), /office:spreadsheet/);
 
     const task27LaunchResponse = await fetch(`${baseUrl}/api/workbook-helper/launch`, {
       method: 'POST',

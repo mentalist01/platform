@@ -6706,7 +6706,7 @@ const CallSection = ({
                             isSpeaking={peer.isSpeaking}
                             muted
                             isDarkTheme={isDarkTheme}
-                            fullscreenVoiceParticipants={overlayVoiceParticipants}
+                            fullscreenVoiceParticipants={floatingCameraParticipants}
                             smallPreview={mediaPreferences.smallCameraPreview}
                             onTogglePreviewSize={peer.videoKind === 'camera' ? () => setSmallCameraPreview(!mediaPreferences.smallCameraPreview) : undefined}
                           />
@@ -6733,7 +6733,7 @@ const CallSection = ({
                             className="call-media-tile--stage"
                             isSpeaking={peer.isSpeaking}
                             isDarkTheme={isDarkTheme}
-                            fullscreenVoiceParticipants={overlayVoiceParticipants}
+                            fullscreenVoiceParticipants={floatingCameraParticipants}
                             onContextMenu={(event) => openVolumePopupForParticipant(event, peer)}
                           />
                         </div>
