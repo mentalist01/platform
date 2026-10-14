@@ -1638,7 +1638,7 @@ const LearningGroupsSection = ({
       </header>
 
       {!scheduleGroupId && isTeacher && <details className="rounded-3xl border border-violet-200 bg-white">
-        <summary className="cursor-pointer px-5 py-4 font-bold text-violet-700">Подобрать группу новому ученику по свободному времени</summary>
+        <summary className="cursor-pointer px-5 py-4 font-bold text-violet-700">Подбор группы по свободному времени</summary>
         <TeacherGroupPlacement students={students} onChoose={(groupId, studentId) => {
           placementChoice.current = { groupId, studentId };
           setSelectedGroupId(groupId); setTab('overview'); setAddStudentId(studentId);

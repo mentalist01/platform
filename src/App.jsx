@@ -6,6 +6,7 @@ import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, 
 import { GROUP_SHARED_CODE_ID, groupCodeTabs, groupCodeRoom } from './utils/groupCodeRooms.js';
 import useGroupCodePresence from './hooks/useGroupCodePresence.js';
 import { partitionConcurrentHomeworks } from './utils/concurrentHomework.js';
+import { hasHomeworkResources } from './utils/homeworkResourcePresence.js';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
 import { createPortal } from 'react-dom';
@@ -246,6 +247,8 @@ const loadStudentLeaderboardSection = () => import('./components/StudentLeaderbo
 const loadSignupGuestChat = () => import('./components/SignupGuestChat');
 const loadLearningGroupsSection = () => import('./components/LearningGroupsSection');
 const StudentGroupLibrary = React.lazy(() => import('./components/StudentGroupLibrary'));
+const StudentAvailabilityPrompt = React.lazy(() => import('./components/StudentAvailabilityPrompt.jsx'));
+const StudentHomeworkResources = React.lazy(() => import('./components/StudentHomeworkResources.jsx'));
 const loadGroupTelemostSection = () => import('./components/GroupTelemostSection');
 const GroupVoiceChannels = React.lazy(() => import('./components/GroupVoiceChannels'));
 const loadTeacherCalendarSection = () => import('./components/TeacherCalendarSection');
@@ -24306,6 +24309,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       const completed = filteredGoals.length > 0 && (requiredGoals.length === 0 || requiredGoals.every((goal) => goal.completed));
       return {
         entry,
+        resourceEntries: entries,
         goals: filteredGoals,
         completed,
       };
@@ -24714,8 +24718,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     && view !== 'call'
     && view !== 'chat'
     && goalState?.entry
-    && !goalState.completed
-    && goalGoals.length > 0;
+    && ((!goalState.completed && goalGoals.length > 0) || hasHomeworkResources(goalState.resourceEntries));
   const shouldShowQuickHomeworkCelebration = user.role === 'student'
     && !['review', 'collab', 'board', 'call', 'chat'].includes(view)
     && (
@@ -26350,7 +26353,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                       <div className="student-goal-summary__eyebrow">Домашка</div>
                       <strong className="student-goal-summary__collapsed-title">Цели к следующему уроку</strong>
                       <span className="student-goal-summary__collapsed-meta">
-                        {`${goalDeadlineLabel} · ${goalCompletedCount} из ${progressGoalGoals.length}`}
+                        {`${goalDeadlineLabel} · ${goalCompletedCount} из ${progressGoalGoals.length}${hasHomeworkResources(goalState.resourceEntries) ? ' · Есть материал для просмотра' : ''}`}
                       </span>
                     </div>
                   </div>
@@ -26431,6 +26434,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                   </div>
 
+                  <StudentHomeworkResources entries={goalState.resourceEntries} tests={goalTestsDb} onOpenHomework={() => navigateToView('schedule')} />
                   <div className="student-goal-summary__list">
                     {orderedGoalGoals.map((goal, index) => {
                       if (goal.type === GOAL_TYPE_MOCK) {
@@ -26602,22 +26606,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             />
             </StudentGroupLibrary>
           )}
-          {view === 'schedule' && user.role === 'student' && studentLessonWorkspace.group && (
-            <button type="button" onClick={() => navigateToView('groups')}
-              className="mb-4 flex w-full items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left text-violet-900">
-              <Users size={24} className="shrink-0 text-violet-600" />
-              <span className="flex-1"><strong className="block">Выберите время занятий с группой</strong><span className="text-sm">Отметьте удобные часы и ответьте на предложение преподавателя.</span></span>
-              <ChevronRight size={20} />
-            </button>
-          )}
-          {view === 'schedule' && user.role === 'student' && studentLessonWorkspace.status === 'individual' && (
-            <button type="button" onClick={() => navigateToView('groups')}
-              className="mb-4 flex w-full items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left text-violet-900">
-              <Calendar size={24} className="shrink-0 text-violet-600" />
-              <span className="flex-1"><strong className="block">Свободное время для будущей группы</strong><span className="text-sm">Заполните анкету. Пока подбираем группу, индивидуальные занятия продолжаются.</span></span>
-              <ChevronRight size={20} />
-            </button>
-          )}
+          {view === 'schedule' && user.role === 'student' && <StudentAvailabilityPrompt userId={user.id} onOpen={prompt => {
+            if (prompt.groupId) setPendingGroupAvailabilityRequest({ id: `availability:${Date.now()}`, groupId: prompt.groupId });
+            navigateToView('groups');
+          }} />}
           {view === 'schedule' && user.role === 'student' && (
             <StudentTodayOverview
               studentName={user.name}

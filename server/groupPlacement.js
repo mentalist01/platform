@@ -73,6 +73,21 @@ export function rankPlacementGroups({ groups, polls, records, studentId, entries
   return result.sort((a, b) => score[a.fit] - score[b.fit] || b.matchedCount - a.matchedCount || b.availableDays - a.availableDays || a.memberCount - b.memberCount || a.name.localeCompare(b.name, 'ru'));
 }
 
+export function studentAvailabilityPrompt({ student, groups = [], polls = {}, seekingGroup = false }) {
+  const memberships = groups.filter(group => group.teacherId === student.teacherId && !group.deletedAt && group.status !== 'completed'
+    && group.members?.some(member => member.studentId === student.id && member.status === 'active'));
+  const group = memberships.find(group => {
+    const poll = polls[group.id];
+    return poll?.status === 'open' && (!poll.answers?.[student.id] || (poll.proposal && !poll.proposal.votes?.[student.id]));
+  });
+  if (group) {
+    const poll = polls[group.id];
+    return { kind: 'group', groupId: group.id, groupName: group.name, answered: Boolean(poll.answers?.[student.id]),
+      needsVote: Boolean(poll.proposal && !poll.proposal.votes?.[student.id]) };
+  }
+  return seekingGroup && !memberships.length ? { kind: 'personal' } : null;
+}
+
 export function registerGroupPlacement(app, deps) {
   const { store, getStudent, groups, polls, getEntries } = deps;
   const access = (auth, id, teacherOnly = false) => {
@@ -100,6 +115,18 @@ export function registerGroupPlacement(app, deps) {
   app.get('/api/student-availability', route(req => {
     if (req.auth?.role !== 'student') fail('Нет доступа', 403);
     return snapshot(access(req.auth, req.auth.id), req.query.durationMinutes || 60);
+  }));
+  app.get('/api/student-availability/prompt', route(req => {
+    if (req.auth?.role !== 'student') fail('Нет доступа', 403);
+    const student = access(req.auth, req.auth.id);
+    return { prompt: studentAvailabilityPrompt({ student, groups: groups(), polls: polls(), seekingGroup: store.seekingGroup({ teacherId: student.teacherId, studentId: student.id }) }) };
+  }));
+  app.post('/api/students/:studentId/group-placement/settings', route(req => {
+    const student = access(req.auth, req.params.studentId, true);
+    if (typeof req.body?.seekingGroup !== 'boolean') fail('Проверьте отметку подбора группы');
+    const seekingGroup = store.setSeekingGroup({ teacherId: student.teacherId, studentId: student.id, enabled: req.body.seekingGroup });
+    deps.notify?.(student);
+    return { seekingGroup };
   }));
   app.post('/api/student-availability/answer', route(req => {
     if (req.auth?.role !== 'student') fail('Только ученик может изменить свои отметки', 403);
@@ -129,7 +156,7 @@ export function registerGroupPlacement(app, deps) {
     const records = Object.fromEntries(durations.map(durationMinutes => [durationMinutes,
       store.record({ teacherId: fresh.teacherId, studentId: fresh.id, durationMinutes })]));
     const answers = durations.map(duration => ({ durationMinutes: duration, ...snapshot(fresh, duration) }));
-    return { student: { id: fresh.id, name: fresh.name, nickname: fresh.nickname || '' }, answers, calendarError,
+    return { student: { id: fresh.id, name: fresh.name, nickname: fresh.nickname || '' }, seekingGroup: store.seekingGroup({ teacherId: fresh.teacherId, studentId: fresh.id }), answers, calendarError,
       groups: rankPlacementGroups({ groups: groups().filter(group => group.teacherId === fresh.teacherId), polls: polls(), records, studentId: fresh.id, entries, calendarError }) };
   }));
 }

@@ -117,6 +117,45 @@ test('access is limited to the pupil and their own teacher, and invalid/stale wr
   assert.equal((await f.request('/api/student-availability')).answer,null);
 });
 
+test('placement invitations are opt-in, durable, teacher-owned and never change saved availability', async t => {
+  const f = await fixture(t);
+  const initial = await f.request('/api/student-availability');
+  await f.request('/api/student-availability/answer', 'student:new', { durationMinutes: 60, revision: initial.revision, choices: { '0-600': 'yes' } });
+  const preferences = f.store.record({ teacherId: 'teacher', studentId: 'new', durationMinutes: 60 });
+  assert.equal((await f.request('/api/student-availability/prompt')).prompt, null);
+  await f.request('/api/students/new/group-placement/settings', 'teacher:foreign', { seekingGroup: true }, 403);
+  await f.request('/api/students/new/group-placement/settings', 'student:new', { seekingGroup: true }, 403);
+  await f.request('/api/students/new/group-placement/settings', 'teacher:teacher', { seekingGroup: 'yes' }, 400);
+  await f.request('/api/students/new/group-placement/settings', 'teacher:teacher', { seekingGroup: true });
+  assert.deepEqual((await f.request('/api/student-availability/prompt')).prompt, { kind: 'personal' });
+  assert.equal((await f.request('/api/students/new/group-placement', 'teacher:teacher')).seekingGroup, true);
+  await f.request('/api/students/new/group-placement/settings', 'teacher:teacher', { seekingGroup: false });
+  assert.equal((await f.request('/api/student-availability/prompt')).prompt, null);
+  assert.deepEqual(f.store.record({ teacherId: 'teacher', studentId: 'new', durationMinutes: 60 }), preferences);
+});
+
+test('scheduled group pupils only see an invitation for an open poll in an active own membership', async t => {
+  const f = await fixture(t);
+  f.groups[0].members.push({ studentId: 'new', status: 'active' });
+  await f.request('/api/students/new/group-placement/settings', 'teacher:teacher', { seekingGroup: true });
+  for (const status of [undefined, 'approved', 'closed']) {
+    f.polls.exact = status ? { status } : undefined;
+    assert.equal((await f.request('/api/student-availability/prompt')).prompt, null);
+  }
+  f.polls.exact = { status: 'open', answers: { new: { choices: { '0-600': 'yes' } } }, proposal: { votes: {} } };
+  assert.deepEqual((await f.request('/api/student-availability/prompt')).prompt, { kind: 'group', groupId: 'exact', groupName: 'exact', answered: true, needsVote: true });
+  f.polls.exact.proposal.votes.new = { choice: 'yes' };
+  assert.equal((await f.request('/api/student-availability/prompt')).prompt, null, 'an open poll with no outstanding pupil action is silent');
+  f.polls.exact.proposal = null;
+  f.polls.exact.plan = { approvedAt: now };
+  assert.equal((await f.request('/api/student-availability/prompt')).prompt, null, 'reopened polls kept for teacher comparison do not ask answered pupils again');
+  f.groups[0].status = 'completed';
+  f.groups[1].members.push({ studentId: 'new', status: 'active' });
+  f.polls.foreign = { status: 'open' };
+  assert.deepEqual((await f.request('/api/student-availability/prompt')).prompt, { kind: 'personal' });
+  assert.equal(f.entriesCalls(), 0, 'the banner does not read the calendar or calculate matches');
+});
+
 test('historical midnight slots outside the questionnaire are preserved without preventing a new save', async t=>{
   const f=await fixture(t);
   f.store.remember({teacherId:'teacher',studentId:'new',config:{...placementConfig(60),endMinute:1440},answer:{choices:{'0-1380':'yes'},updatedAt:now},sourceRoundId:'historical'});

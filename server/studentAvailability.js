@@ -31,6 +31,7 @@ function validateStore(value) {
     if (!identifier(teacherId) || !object(students)) throw new Error('Invalid student availability teacher');
     for (const [studentId, student] of Object.entries(students)) {
       if (!identifier(studentId) || !object(student) || !object(student.durations)) throw new Error('Invalid student availability student');
+      if (student.seekingGroup !== undefined && typeof student.seekingGroup !== 'boolean') throw new Error('Invalid group placement preference');
       for (const [duration, record] of Object.entries(student.durations)) {
         if (!DURATIONS.has(Number(duration)) || !object(record) || !object(record.slots)) throw new Error('Invalid student availability duration');
         for (const [slotId, slot] of Object.entries(record.slots)) {
@@ -115,6 +116,19 @@ export function createStudentAvailabilityStore(file) {
     : { version: 1, migrationVersion: 0, teachers: {} };
   const commit = next => { validateStore(next); writeDurable(file, next); db = next; };
   return {
+    seekingGroup({ teacherId, studentId }) {
+      if (!identifier(teacherId) || !identifier(studentId)) throw new Error('Invalid student availability owner');
+      return db.teachers[teacherId]?.[studentId]?.seekingGroup === true;
+    },
+    setSeekingGroup({ teacherId, studentId, enabled }) {
+      if (!identifier(teacherId) || !identifier(studentId) || typeof enabled !== 'boolean') throw new Error('Invalid group placement preference');
+      const next = structuredClone(db);
+      next.teachers[teacherId] ||= {};
+      next.teachers[teacherId][studentId] ||= { durations: {} };
+      next.teachers[teacherId][studentId].seekingGroup = enabled;
+      commit(next);
+      return enabled;
+    },
     record({ teacherId, studentId, durationMinutes }) {
       if (!identifier(teacherId) || !identifier(studentId) || !DURATIONS.has(Number(durationMinutes))) throw new Error('Invalid student availability owner');
       return structuredClone(db.teachers[teacherId]?.[studentId]?.durations?.[String(durationMinutes)] || { slots: {} });

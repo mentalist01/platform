@@ -34,6 +34,20 @@ test('personal choices survive reload, project only matching intervals, and are 
   assert.deepEqual(seed(store, { config: config({ days: [1], startMinute: 630 }) }).choices, { '1-630': 'maybe' });
 });
 
+test('teacher placement marker survives reload without erasing pupil marks', t => {
+  const { file, store } = fixture(t);
+  remember(store, { '0-600': 'yes' });
+  assert.equal(store.seekingGroup(owner), false);
+  store.setSeekingGroup({ ...owner, enabled: true });
+  const restored = createStudentAvailabilityStore(file);
+  assert.equal(restored.seekingGroup(owner), true);
+  assert.equal(restored.seekingGroup({ ...owner, teacherId: 'another' }), false);
+  remember(restored, { '1-600': 'maybe' }, { answer: answer({ '1-600': 'maybe' }, later) });
+  assert.equal(createStudentAvailabilityStore(file).seekingGroup(owner), true);
+  restored.setSeekingGroup({ ...owner, enabled: false });
+  assert.deepEqual(seed(createStudentAvailabilityStore(file)).choices, { '1-600': 'maybe' });
+});
+
 test('removing a choice stores an explicit refusal and narrow grids do not erase other saved intervals', t => {
   const { store } = fixture(t);
   remember(store, { '0-600': 'yes', '1-600': 'maybe' });

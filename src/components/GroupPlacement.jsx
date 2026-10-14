@@ -97,12 +97,24 @@ export function TeacherGroupPlacement({ students = [], onChoose, transport = api
   }, [studentId, transport]);
   const answered = data?.answers.filter(answer => answer.answer) || [];
   const currentGroup = data?.groups.find(group => group.alreadyMember);
+  const setSeekingGroup = async enabled => {
+    const token = ++generation.current; setBusy(true); setError('');
+    try {
+      const result = await transport.setStudentGroupPlacement(studentId, enabled);
+      if (token === generation.current) setData(previous => ({ ...previous, seekingGroup: result.seekingGroup }));
+    } catch (error) { if (token === generation.current) setError(error.message); }
+    finally { if (token === generation.current) setBusy(false); }
+  };
   const link = `${window.location.origin}/?view=groups`;
   return <section className="placement-teacher" aria-label="Подобрать группу ученику"><header><Users size={24} /><div><h2>Подобрать группу ученику</h2><p>Сначала свободное время, потом группа. До вступления ученик остаётся индивидуальным.</p></div></header>
     <div className="placement-toolbar"><label>Ученик<select value={studentId} onChange={event => setStudentId(event.target.value)}><option value="">Выберите ученика</option>{students.filter(student => !student.deletedAt).map(student => <option key={student.id} value={student.id}>{student.name}{student.nickname && student.nickname !== student.name ? ` · ${student.nickname}` : ''}</option>)}</select></label><button type="button" disabled={!studentId || busy} onClick={load}><RefreshCw size={16} />{busy ? 'Проверяем…' : 'Обновить подбор'}</button></div>
     {error && <p className="ga-alert" role="alert">{error}</p>}
     {studentId && <div className="placement-invite"><div><strong>Попросите ученика отметить время</strong><p>В его кабинете: «Подбор группы» → «Мои группы» → анкета свободного времени. Если он уже состоит в группе, раздел называется «Группы и записи». Регистрация в группе для анкеты не нужна.</p></div><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); } catch { setError('Не удалось скопировать ссылку. Откройте адрес ниже.'); } }}><Copy size={16} />{copied ? 'Ссылка скопирована' : 'Скопировать ссылку ученику'}</button><a href={link} target="_blank" rel="noreferrer">{link}</a></div>}
     {data && <>
+      <label className="placement-answer flex items-start gap-3">
+        <input type="checkbox" checked={data.seekingGroup === true} disabled={busy} onChange={event => void setSeekingGroup(event.target.checked)} className="mt-1 h-4 w-4 accent-violet-600" />
+        <span><strong className="block">Подбираем группу</strong>Включите для ученика, которому ищете группу. На странице «Сегодня» появится приглашение заполнить анкету. Индивидуальные занятия продолжаются; после вступления в группу приглашение скрывается.</span>
+      </label>
       {!answered.length ? <p className="placement-empty">Ученик ещё не сохранил свободное время. Его индивидуальные занятия продолжаются; после заполнения анкеты нажмите «Обновить подбор».</p> : <>
         <p className="placement-answer">Анкета сохранена {dateLabel(Math.max(...answered.map(answer => answer.answer.updatedAt)))}. Длительность: {answered.map(answer => `${answer.durationMinutes} мин`).join(', ')}. Подбор учитывает только время; уровень и состав группы выберите сами.</p>
         {currentGroup && <p className="placement-answer">Ученик уже состоит в группе «{currentGroup.name}». Для перехода используйте «Перенести» в составе этой группы.</p>}
