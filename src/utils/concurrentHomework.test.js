@@ -50,6 +50,17 @@ test('a stale open group projection expires exactly on time; undated work stays 
   assert.deepEqual(partitionConcurrentHomeworks(entries, now).active.map(x => x.id), ['undated']);
   assert.deepEqual(partitionConcurrentHomeworks(entries, now).history.map(x => x.id), ['expires']);
 });
+
+test('former group assignments remain in history even with a stale assigned status and a future deadline', () => {
+  const entries = [
+    { id: 'former', source: 'learning-group', learningAssignmentStatus: 'assigned', learningMembershipEndedAt: '2026-10-14T12:00Z', dueAt: '2026-10-14T17:00Z' },
+    { id: 'withdrawn', source: 'learning-group', learningHomeworkCancelledAt: '2026-10-14T12:00Z', dueAt: '2026-10-16T17:00Z' },
+    { id: 'new-group', source: 'learning-group', dueAt: '2026-10-16T17:00Z' },
+  ];
+  const result = partitionConcurrentHomeworks(entries, Date.parse('2026-10-14T14:00Z'));
+  assert.deepEqual(result.active.map(x => x.id), ['new-group']);
+  assert.deepEqual(result.history.map(x => x.id), ['former', 'withdrawn']);
+});
 test('only the latest individual homework stays current even when earlier deadlines are still ahead', () => {
   const entries = [{ id: 'a', dueAt: '2026-10-14T00:00Z' }, { id: 'b', dueAt: '2026-10-16T00:00Z' }, { id: 'old', dueAt: '2026-09-10T00:00Z' }];
   const result = partitionConcurrentHomeworks(entries, Date.parse('2026-10-10T00:00Z'));

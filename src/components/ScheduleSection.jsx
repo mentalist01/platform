@@ -3258,7 +3258,10 @@ const ScheduleSection = ({
     }, homeworkClock).status === 'closed';
     const learningGroupName = String(entry?.learningGroupName || '').trim();
     const learningAssignmentTitle = String(entry?.learningAssignmentTitle || '').trim();
-    const deadlineMeta = getHomeworkDeadlineMeta(entry, homeworkClock);
+    const withdrawnFromGroup = isLearningGroupHomework && Boolean(entry.learningHomeworkCancelledAt);
+    const deadlineMeta = withdrawnFromGroup
+      ? { label: 'Отменено при выходе из группы', relativeLabel: '', tone: 'border-slate-200 bg-slate-50 text-slate-600' }
+      : getHomeworkDeadlineMeta(entry, homeworkClock);
     const isEditing = editingId && entry?.id === editingId;
     const entryGoals = normalizeEntryGoals(entry);
     const goalViews = entryGoals
@@ -4016,7 +4019,9 @@ const ScheduleSection = ({
       <div key={key} className={`rounded-2xl border p-3.5 md:p-5 space-y-3 md:space-y-4 ${cardTone}`}>
         {groupAcceptanceClosed && (
           <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
-            Приём домашки закрыт. Ваши прежние отметки и решения сохранены.
+            {withdrawnFromGroup
+              ? 'Вы вышли из этой группы до срока сдачи. Выполнять это задание не нужно, жизни за него не списываются. Прежние решения сохранены.'
+              : 'Приём домашки закрыт. Ваши прежние отметки и решения сохранены.'}
           </p>
         )}
         <div className="flex flex-wrap items-start justify-between gap-2.5 md:gap-3">

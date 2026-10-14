@@ -152,6 +152,19 @@ export class HomeworkLivesStore {
     let changed = false;
     for (const homework of (context.homeworks || []).slice().sort((a, b) => time(a.dueAt) - time(b.dueAt))) {
       const issued = time(homework.issuedAt), due = time(homework.dueAt), id = text(homework.id);
+      if (context.isHomeworkRequired?.(homework) === false) {
+        // Correct a stale post-transfer check as well as preventing a new one.
+        // Use current membership, even if the personal homework projection
+        // has not been refreshed yet. Keep the event for the audit history.
+        const period = Object.values(row.months).find(period => period.events[id]);
+        if (period && !period.events[id].waivedAt) {
+          Object.assign(period.events[id], { waivedAt: new Date(now).toISOString(),
+            waiverReason: 'Задание прежней группы отменено при выходе до срока сдачи', waivedById: 'group-membership' });
+          if (period.review && this.balance(period) > 1e-5) period.review.cancelledAt = new Date(now).toISOString();
+          changed = true;
+        }
+        continue;
+      }
       if (!id || !Number.isFinite(issued) || issued < since || !Number.isFinite(due) || due < since || due > now
         || homework.deletedAt || ['draft', 'cancelled', 'voided'].includes(homework.status) || homework.assignmentTier === 'optional') continue;
       const month = livesMonth(due);

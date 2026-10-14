@@ -41,6 +41,7 @@ import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifi
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
+import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
@@ -22710,6 +22711,9 @@ registerHomeworkLives(app, homeworkLives, {
     const schedule = [...(data.schedule || []).filter(entry => !entry.groupId && !entry.isLearningGroupEvent), ...groupEntries];
     return {
       homeworks: data.homeworks || [],
+      isHomeworkRequired: homework => isGroupHomeworkRequired(
+        homework, groups.find(group => group.id === homework.learningGroupId), student.id
+      ),
       estimatePlan: month => estimateHomeworkPlan(schedule, month),
       evaluate: homework => {
         const testsDb = batch.testsDb ||= getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
@@ -24473,7 +24477,10 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       learningAssignmentId: assignment.id,
       learningAssignmentTitle: assignment.title || '',
       studyTrack: homeworkTemplate.studyTrack || '',
-      learningAssignmentStatus: getLearningAssignmentState(assignment).status,
+      ...groupHomeworkMembershipProjection(
+        { ...existing, source: LEARNING_GROUP_HOMEWORK_SOURCE, issuedAt, dueAt },
+        group, studentId, getLearningAssignmentState(assignment).status
+      ),
       learningAssignmentUpdatedAt: assignment.updatedAt || '',
       teacherId: assignment.teacherId,
       issuedAt,
@@ -25816,7 +25823,8 @@ app.put('/api/learning-groups/:groupId/assignments/:assignmentId/submission', ha
   if (!canStudentReadLearningGroupAssignment(group, req.auth.id, assignment)) {
     return forbid(res);
   }
-  if (getLearningAssignmentState(assignment).status !== 'assigned') {
+  if (getLearningAssignmentState(assignment).status !== 'assigned'
+    || !isLearningGroupMember(group, req.auth.id, { activeOnly: true })) {
     failLearningRequest('Задание сейчас недоступно для отправки', 'assignment_not_open', 409);
   }
   const submissions = readLearningSubmissionsDb();
@@ -41022,7 +41030,9 @@ app.patch('/api/student-next-lesson/:id/checklist', (req, res) => {
       existing.learningGroupId,
       existing.learningAssignmentId
     );
-    if (!assignment || getLearningAssignmentState(assignment).status !== 'assigned') {
+    if (!assignment || getLearningAssignmentState(assignment).status !== 'assigned'
+      || existing.learningHomeworkCancelledAt
+      || !isLearningGroupMember(readLearningGroupsDb().find(group => group.id === existing.learningGroupId), student.id, { activeOnly: true })) {
       return res.status(409).json({
         error: 'Приём этой групповой домашки уже закрыт',
         code: 'learning_group_homework_closed',
@@ -41085,7 +41095,9 @@ app.patch('/api/student-next-lesson/:id/video-quiz', (req, res) => {
   const isGroupHomework = String(existing.source || '').trim() === LEARNING_GROUP_HOMEWORK_SOURCE;
   if (isGroupHomework) {
     const assignment = getLearningAssignmentById(existing.learningGroupId, existing.learningAssignmentId);
-    if (!assignment || getLearningAssignmentState(assignment).status !== 'assigned' || !assignment.materialIds.includes(materialId)) {
+    if (!assignment || getLearningAssignmentState(assignment).status !== 'assigned' || !assignment.materialIds.includes(materialId)
+      || existing.learningHomeworkCancelledAt
+      || !isLearningGroupMember(readLearningGroupsDb().find(group => group.id === existing.learningGroupId), student.id, { activeOnly: true })) {
       return res.status(409).json({ error: 'Этот мини-тест уже недоступен' });
     }
   } else if (!normalizeHomeworkMaterialIds(existing.materialIds).includes(materialId)) {

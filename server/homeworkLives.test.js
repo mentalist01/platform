@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { HomeworkLivesStore, homeworkDeadlineResult, estimateHomeworkPlan } from './homeworkLives.js';
+import { isGroupHomeworkRequired } from './groupHomeworkMembership.js';
 
 const instant = value => Date.parse(`2026-${value}`);
 const student={id:'pupil',teacherId:'teacher',createdAt:'2026-09-01T10:00:00Z'};
@@ -50,6 +51,35 @@ test('no deduction before deadline and no retroactive punishment after activatio
   const future=assigned('future',0,'2026-10-14T12:00:00Z');
   assert.equal(store.status(student,context([old,future])).remaining,3);
   clock('10-14T12:00:00Z');assert.equal(store.status(student,context([old,future])).remaining,1);
+});
+test('leaving a group before the deadline prevents damage even before its homework projection refreshes',t=>{
+  const {store,context}=fixture(t);
+  const old={...assigned('old-group',0),source:'learning-group'};
+  const group={members:[{studentId:student.id,status:'removed',leftAt:'2026-10-10T16:00Z'}]};
+  const c=context([old]);c.isHomeworkRequired=h=>isGroupHomeworkRequired(h,group,student.id);
+  c.evaluate=()=>assert.fail('Withdrawn homework must not be graded');
+  assert.equal(store.status(student,c).remaining,3);
+  assert.deepEqual(store.status(student,c).history,[]);
+});
+test('membership correction waives only erroneous group damage and cancels a false review',t=>{
+  const {store,context}=fixture(t);
+  const groupWork={...assigned('old-group',0),source:'learning-group'};
+  const c=context([groupWork,assigned('individual',50)]);
+  assert.equal(store.status(student,c).remaining,0);
+  c.isHomeworkRequired=h=>isGroupHomeworkRequired(h,{members:[{studentId:student.id,status:'removed',leftAt:'2026-10-10T16:00Z'}]},student.id);
+  const corrected=store.status(student,c);
+  assert.equal(corrected.remaining,2);
+  assert.deepEqual(corrected.pendingReviews,[]);
+  assert.equal(corrected.history.find(e=>e.id==='old-group').waivedById,'group-membership');
+  assert.equal(corrected.history.find(e=>e.id==='individual').deducted,1);
+  assert.equal(store.status(student,c).remaining,2);
+});
+test('departure after the due date preserves an existing group homework deduction',t=>{
+  const {store,context}=fixture(t);
+  const c=context([{...assigned('old-group',50),source:'learning-group'}]);
+  c.isHomeworkRequired=h=>isGroupHomeworkRequired(h,{members:[{studentId:student.id,status:'removed',leftAt:'2026-10-11T16:00Z'}]},student.id);
+  assert.equal(store.status(student,c).remaining,2);
+  assert.equal(store.status(student,c).history[0].waivedAt,undefined);
 });
 test('new pupil has an adaptation month and first eligible work is issued in the next month',t=>{
   const{store,context,clock}=fixture(t),newStudent={...student,id:'new',createdAt:'2026-10-02T10:00:00Z'};
