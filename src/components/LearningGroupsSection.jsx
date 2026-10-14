@@ -535,6 +535,8 @@ const LearningGroupsSection = ({
   const [assignmentComposerSaving, setAssignmentComposerSaving] = useState(false);
   const [assignmentComposerDraftSaving, setAssignmentComposerDraftSaving] = useState(false);
   const [assignmentComposerLoading, setAssignmentComposerLoading] = useState(false);
+  const [assignmentHistoryLoading, setAssignmentHistoryLoading] = useState(false);
+  const [assignmentHistoryError, setAssignmentHistoryError] = useState('');
   const [assignmentComposerError, setAssignmentComposerError] = useState('');
   const [assignmentTestsDb, setAssignmentTestsDb] = useState({});
   const [assignmentMockExams, setAssignmentMockExams] = useState([]);
@@ -914,6 +916,20 @@ const LearningGroupsSection = ({
     normalizeTaskNumber,
   ]);
 
+  const loadAssignmentHistory = async (groupId) => {
+    setAssignmentHistoryLoading(true);
+    setAssignmentHistoryError('');
+    try {
+      const payload = await api.getLearningGroupAssignments(groupId);
+      setGroups(current => current.map(group => group.id === groupId
+        ? { ...group, assignments: parseAssignmentsPayload(payload) } : group));
+    } catch (requestError) {
+      setAssignmentHistoryError(requestError?.message || 'Не удалось загрузить историю домашки');
+    } finally {
+      setAssignmentHistoryLoading(false);
+    }
+  };
+
   const openAssignmentComposer = async (assignment = null) => {
     if (!selectedGroup) return;
     setAssignmentComposerEditing(assignment);
@@ -921,10 +937,14 @@ const LearningGroupsSection = ({
     setAssignmentComposerError('');
     setAssignmentComposerOpen(true);
     setAssignmentComposerLoading(true);
+    setAssignmentHistoryLoading(true);
+    setAssignmentHistoryError('');
     setAssignmentMockExamsLoading(true);
+    const historyGroupId = selectedGroup.id;
     const [testsResult, mocksResult] = await Promise.allSettled([
       api.getTests(),
       api.getMockExams(),
+      loadAssignmentHistory(historyGroupId),
     ]);
     if (testsResult.status === 'fulfilled') {
       setAssignmentTestsDb(asObject(testsResult.value));
@@ -3154,6 +3174,12 @@ const LearningGroupsSection = ({
           teacherId={selectedGroup?.teacherId}
           studentLabel={selectedGroup?.name || 'Мини-группа'}
           targetType="group"
+          groupId={selectedGroup?.id}
+          groupAssignments={assignments}
+          groupHistoryLoading={assignmentHistoryLoading}
+          groupHistoryError={assignmentHistoryError}
+          onRetryGroupHistory={() => void loadAssignmentHistory(selectedGroup.id)}
+          editingAssignmentId={assignmentComposerEditing?.id || ''}
           groupRecipients={selectedGroup?.members || []}
           recipientsReadOnly={selectedGroup?.status === LEARNING_GROUP_STATUS_COMPLETED}
           form={assignmentComposerForm}

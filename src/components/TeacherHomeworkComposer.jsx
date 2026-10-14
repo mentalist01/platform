@@ -29,6 +29,7 @@ import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import PythonVideoHomeworkPicker from './PythonVideoHomeworkPicker';
 import LessonRecordingHomeworkPicker from './LessonRecordingHomeworkPicker';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
+import { buildGroupHomeworkQuestionHistory, describeGroupHomeworkQuestionHistory } from '../utils/groupHomeworkQuestionHistory';
 import {
   HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
   normalizeHomeworkAssignmentTier,
@@ -195,6 +196,12 @@ const TeacherHomeworkComposer = ({
   studentLabel = '',
   assignmentSettings = null,
   targetType = 'student',
+  groupId = '',
+  groupAssignments = EMPTY_GOALS,
+  groupHistoryLoading = false,
+  groupHistoryError = '',
+  onRetryGroupHistory,
+  editingAssignmentId = '',
   groupRecipients = [],
   recipientsReadOnly = false,
   groupMaterials = [],
@@ -389,6 +396,14 @@ const TeacherHomeworkComposer = ({
     && activeLevelId
   );
   const visibleSolvedQuestionIds = canLoadSolvedQuestions ? solvedQuestionIds : new Set();
+  const previousGroupQuestions = isGroupTarget ? buildGroupHomeworkQuestionHistory({
+      assignments: groupAssignments, groupId, goal: activeGoal,
+      questions: activeQuestions, mockTaskKeys: activeMockQuestions.map(item => item.taskKey),
+      excludeAssignmentId: editingAssignmentId,
+    }) : new Map();
+  const previewHistory = describeGroupHomeworkQuestionHistory(previousGroupQuestions.get(
+    activeGoalType === goalTypeMock ? String(previewItem?.key) : String(previewQuestionNumber)
+  ));
 
   useEffect(() => {
     if (!canLoadSolvedQuestions) return undefined;
@@ -1804,6 +1819,23 @@ const TeacherHomeworkComposer = ({
                   )}
                 </div>
 
+                {isGroupTarget && (
+                  <div className="mt-2 text-[11px] font-semibold" aria-live="polite">
+                    {groupHistoryLoading ? (
+                      <span className="inline-flex items-center gap-1.5 text-slate-500"><Loader2 size={12} className="animate-spin" /> Проверяем прошлые домашки группы…</span>
+                    ) : groupHistoryError ? (
+                      <span className="inline-flex flex-wrap items-center gap-2 text-amber-700">История домашки недоступна.
+                        <button type="button" onClick={onRetryGroupHistory} className="font-bold underline">Повторить проверку</button>
+                      </span>
+                    ) : (
+                      <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="inline-flex items-center gap-1.5 text-emerald-700"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-200" /> Зелёным — уже задавалось в этой группе{previousGroupQuestions.size ? `: ${previousGroupQuestions.size}` : ''}</span>
+                        <span className="inline-flex items-center gap-1 text-purple-600"><Check size={12} /> Выбрано в новую ДЗ</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {previewItems.length > 0 && (
                   <div
                     className={`teacher-homework-question-selector mt-3 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1 ${questionSelectionDragging ? 'is-dragging' : ''}`}
@@ -1814,6 +1846,8 @@ const TeacherHomeworkComposer = ({
                       const number = activeGoalType === goalTypeTask ? index + 1 : item.label;
                       const solved = activeGoalType === goalTypeTask
                         && visibleSolvedQuestionIds.has(String(item.question?.id ?? index));
+                      const previousHistory = describeGroupHomeworkQuestionHistory(previousGroupQuestions.get(String(number)));
+                      const previouslyAssigned = isGroupTarget && Boolean(previousHistory) && !groupHistoryLoading && !groupHistoryError;
                       const selected = activeGoalType === goalTypeMock
                         ? selectedMockTargetSet.has(String(item.key))
                         : selectedTargetSet.has(Number(number));
@@ -1831,18 +1865,20 @@ const TeacherHomeworkComposer = ({
                           className={`teacher-homework-question-selector__item inline-flex overflow-hidden rounded-lg border transition ${
                             current
                               ? 'border-purple-500 ring-2 ring-purple-200'
-                              : (selected ? 'border-purple-200' : 'border-slate-200')
+                              : (selected ? 'border-purple-400' : (previouslyAssigned ? 'border-emerald-200' : 'border-slate-200'))
                           }`}
                         >
                           <button
                             type="button"
                             onClick={() => setPreviewIndex(index)}
                             className={`min-w-9 px-2 py-1.5 text-[11px] font-black ${
-                              solved
+                              solved || previouslyAssigned
                                 ? 'bg-emerald-100 text-emerald-700'
                                 : (selected ? 'bg-purple-600 text-white' : 'bg-[rgb(var(--surface))] text-[rgb(var(--ink-soft))]')
                             }`}
-                            title={solved ? `Задание №${item.label} уже решено учеником` : `Показать задание №${item.label}`}
+                            data-previously-assigned={previouslyAssigned || undefined}
+                            title={previouslyAssigned ? previousHistory : solved ? `Задание №${item.label} уже решено учеником` : `Показать задание №${item.label}`}
+                            aria-label={`Показать задание №${item.label}${previouslyAssigned ? ` · ${previousHistory}` : ''}`}
                           >
                             {item.label}
                           </button>
@@ -1902,6 +1938,12 @@ const TeacherHomeworkComposer = ({
                       </button>
                     )}
                   </div>
+
+                  {isGroupTarget && previewHistory && !groupHistoryLoading && !groupHistoryError && (
+                    <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                      <CheckCircle2 size={15} className="shrink-0" /> {previewHistory}
+                    </div>
+                  )}
 
                   <QuestionCondition
                     question={previewItem.question}
