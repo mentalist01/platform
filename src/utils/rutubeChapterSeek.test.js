@@ -43,3 +43,42 @@ test('a slow or blocked player receives a bounded number of play commands instea
   for (let n = 0; n < 20; n++) seek.receive({ type: 'player:canPlay' });
   assert.equal(sent.filter(message => message.type === 'player:play').length, 2);
 });
+
+function timerFixture() {
+  let next = 0; const timers = new Map();
+  return { clock: { schedule: fn => { const id = ++next; timers.set(id, fn); return id; }, cancel: id => timers.delete(id) },
+    flush: () => { const batch = [...timers.values()]; timers.clear(); batch.forEach(fn => fn()); }, count: () => timers.size };
+}
+
+test('a ready player that ignores seek commands falls back to a direct chapter exactly once', () => {
+  const timers = timerFixture(), opened = [], seek = createChapterSeek(() => {}, () => {}, time => opened.push(time), timers.clock);
+  seek.receive({ type: 'player:ready' });seek.select(30);
+  seek.receive({ type: 'player:currentTime', data: { time: 5 } });
+  timers.flush();assert.deepEqual(opened, [30]);
+  seek.receive({ type: 'player:ready' });seek.receive({ type: 'player:currentTime', data: { time: 6 } });
+  timers.flush();assert.deepEqual(opened, [30], 'no automatic reload loop');
+  seek.select(30);timers.flush();assert.deepEqual(opened, [30, 30], 'the same chapter can be requested again');
+});
+
+test('successful seek acknowledgement, video cleanup and a newer chapter cancel stale reloads', () => {
+  const timers = timerFixture(), opened = [], seek = createChapterSeek(() => {}, () => {}, time => opened.push(time), timers.clock);
+  seek.receive({ type: 'player:ready' });seek.select(30);seek.receive({ type: 'player:currentTime', data: { time: 30 } });
+  timers.flush();assert.deepEqual(opened, []);
+  seek.select(59);seek.select(112);timers.flush();assert.deepEqual(opened, [112]);
+  seek.receive({ type: 'player:ready' });seek.select(59);seek.dispose();timers.flush();assert.deepEqual(opened, [112]);
+});
+
+test('known advertisements defer fallback until their end, while cold players use the initial timestamp URL', () => {
+  const timers = timerFixture(), opened = [], seek = createChapterSeek(() => {}, () => {}, time => opened.push(time), timers.clock);
+  seek.select(30);assert.equal(timers.count(), 0);
+  seek.receive({ type: 'player:ready' });seek.select(30);seek.receive({ type: 'player:adStart' });
+  timers.flush();assert.deepEqual(opened, []);
+  seek.receive({ type: 'player:adEnd' });timers.flush();assert.deepEqual(opened, [30]);
+});
+
+test('content playback clears a stale advertisement flag if an extension dropped adEnd', () => {
+  const timers = timerFixture(), opened = [], seek = createChapterSeek(() => {}, () => {}, time => opened.push(time), timers.clock);
+  seek.receive({ type: 'player:ready' });seek.receive({ type: 'player:adStart' });seek.select(30);
+  seek.receive({ type: 'player:playStart' });seek.receive({ type: 'player:currentTime', data: { time: 5 } });
+  timers.flush();assert.deepEqual(opened, [30]);
+});
