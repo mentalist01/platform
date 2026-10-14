@@ -41,6 +41,7 @@ export const partitionConcurrentHomeworks = (entries = [], now = Date.now()) => 
     const due = Date.parse(entry.dueAt);
     const open = group
       ? entry.learningAssignmentStatus !== 'closed' && !entry.learningMembershipEndedAt
+        && !entry.learningCarryoverSupersededBy
         && !entry.learningHomeworkCancelledAt && (!Number.isFinite(due) || due > now)
       : entry === latestIndividual;
     (open ? active : history).push(entry);

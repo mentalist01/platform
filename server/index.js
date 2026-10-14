@@ -42,6 +42,7 @@ import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
+import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
 import { BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed } from './blankWorkbook.js';
 import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
@@ -15668,6 +15669,7 @@ const getRequiredHomeworkProgressSnapshot = (
   testsDb,
   mockExamById = {}
 ) => {
+  if (homework?.learningEgeCarryover) return { requiredGoalCount: 0, measurable: false, totalCount: 0, pendingCount: 0 };
   const requiredGoals = getNormalizedHomeworkGoals(homework, testsDb)
     .filter((goal) => !isOptionalHomeworkGoal(goal));
   const snapshots = requiredGoals.map((goal) => (
@@ -24481,6 +24483,7 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       learningAssignmentId: assignment.id,
       learningAssignmentTitle: assignment.title || '',
       studyTrack: homeworkTemplate.studyTrack || '',
+      carryoverEge: homeworkTemplate.studyTrack !== 'python' && homeworkTemplate.carryoverEge === true,
       ...groupHomeworkMembershipProjection(
         { ...existing, source: LEARNING_GROUP_HOMEWORK_SOURCE, issuedAt, dueAt },
         group, studentId, getLearningAssignmentState(assignment).status
@@ -24516,15 +24519,16 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
     }
   });
 
-  nextHomeworks.sort((left, right) => (
+  const projectedHomeworks = projectGroupEgeCarryover(nextHomeworks, data, readTestsDbForTeacher(student.teacherId));
+  projectedHomeworks.sort((left, right) => (
     Date.parse(right?.issuedAt || 0) - Date.parse(left?.issuedAt || 0)
   ));
-  const changed = JSON.stringify(existingHomeworks) !== JSON.stringify(nextHomeworks);
+  const changed = JSON.stringify(existingHomeworks) !== JSON.stringify(projectedHomeworks);
   if (changed) {
     setStudentData(studentId, {
       ...data,
-      homeworks: nextHomeworks,
-      nextLesson: buildNextLessonFromHomeworkEntry(nextHomeworks[0]),
+      homeworks: projectedHomeworks,
+      nextLesson: buildNextLessonFromHomeworkEntry(projectedHomeworks[0]),
     });
   }
   return { changed, createdEntries, removedEntryIds };
@@ -26454,6 +26458,7 @@ app.get('/api/learning-groups/:groupId/progress', handleLearningRoute((req, res)
     const studentData = getStudentData(studentId);
     const studentHomeworkByAssignment = new Map(
       (Array.isArray(studentData?.homeworks) ? studentData.homeworks : [])
+        .filter(entry => !entry.learningEgeCarryover)
         .map((entry) => [String(entry?.learningAssignmentId || '').trim(), entry])
         .filter(([assignmentId]) => assignmentId)
     );

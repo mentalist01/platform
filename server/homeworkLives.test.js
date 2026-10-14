@@ -9,6 +9,14 @@ import { isGroupHomeworkRequired } from './groupHomeworkMembership.js';
 const instant = value => Date.parse(`2026-${value}`);
 const student={id:'pupil',teacherId:'teacher',createdAt:'2026-09-01T10:00:00Z'};
 const assigned=(id,percent=50,dueAt='2026-10-10T17:00:00Z')=>({id,issuedAt:'2026-10-02T17:00:00Z',dueAt,homeWork:id,percent});
+test('EGE carryover does not create another deduction for the original missed homework',t=>{
+  const {store,context}=fixture(t);
+  const original=assigned('original',50), supplement={...assigned('supplement',0),learningEgeCarryover:true};
+  const status=store.status(student,context([original,supplement]));
+  assert.equal(status.remaining,2);
+  assert.deepEqual(status.history.map(e=>e.id),['original']);
+  assert.equal(homeworkDeadlineResult(supplement,{}, {}, [],Date.now()),null);
+});
 function fixture(t){
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'ivan-homework-lives-'));
   t.after(()=>{if(path.resolve(directory).startsWith(path.resolve(os.tmpdir())+path.sep))fs.rmSync(directory,{recursive:true,force:true});});

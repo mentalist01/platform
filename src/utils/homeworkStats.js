@@ -518,8 +518,8 @@ export const buildHomeworkStatistics = ({
   return sorted.map((prepared, chronologicalIndex) => {
     const { entry, issuedAtMs } = prepared;
     const nextIssuedAtMs = sorted[chronologicalIndex + 1]?.issuedAtMs ?? null;
-    const windowStartMs = issuedAtMs;
-    const windowEndMs = nextIssuedAtMs != null && nextIssuedAtMs > (issuedAtMs ?? Number.NEGATIVE_INFINITY)
+    const windowStartMs = entry.learningEgeCarryover ? asTimestamp(entry.carryoverOriginalIssuedAt) ?? issuedAtMs : issuedAtMs;
+    const windowEndMs = !entry.learningEgeCarryover && nextIssuedAtMs != null && nextIssuedAtMs > (issuedAtMs ?? Number.NEGATIVE_INFINITY)
       ? nextIssuedAtMs
       : safeNowMs + 1;
     const dueAtMs = resolveHomeworkDueAtMs(entry, issuedAtMs);

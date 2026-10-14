@@ -174,6 +174,7 @@ const normalizeLearningHomeworkTemplate = (value) => {
   return {
     homeWork: cleanText(value.homeWork ?? value.content, 50000),
     studyTrack: ['ege', 'python'].includes(value.studyTrack) ? value.studyTrack : '',
+    carryoverEge: value.studyTrack !== 'python' && value.carryoverEge === true,
     lessonLink: cleanText(value.lessonLink, 2000),
     boardLink: cleanText(value.boardLink, 2000),
     dueAt: normalizeIsoTimestamp(value.dueAt),

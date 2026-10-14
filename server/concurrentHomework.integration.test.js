@@ -33,17 +33,19 @@ test('two group assignments have independent deadlines and per-pupil progress th
   const f = await createGroupHomeworkFixture();
   const path = `/api/learning-groups/${f.groupId}/assignments`, teacher = f.tokens['teacher-a'];
   try {
-    const ege = (await f.request(path, teacher, { title: 'ЕГЭ до среды', dueAt: '2026-10-14T17:00:00Z', homework: { studyTrack: 'ege', homeWork: 'ЕГЭ: решить задания', dueAt: '2026-10-14T17:00:00Z', dueAtMode: 'manual' } }, 'POST', 201)).assignment;
+    const egeDueAt = new Date(Date.now() + 7 * 86400000).toISOString();
+    const pythonDueAt = new Date(Date.now() + 9 * 86400000).toISOString();
+    const ege = (await f.request(path, teacher, { title: 'ЕГЭ до среды', dueAt: egeDueAt, homework: { studyTrack: 'ege', homeWork: 'ЕГЭ: решить задания', dueAt: egeDueAt, dueAtMode: 'manual' } }, 'POST', 201)).assignment;
     let a = await f.request('/api/student-next-lesson', f.tokens['student-a']);
     const first = a.homeworks.find(x => x.learningAssignmentId === ege.id);
     assert.equal(first.studyTrack, 'ege');
     await f.request(`/api/student-next-lesson/${first.id}/checklist`, f.tokens['student-a'], { itemId: first.checklistItems[0].id, completed: true }, 'PATCH');
-    const python = (await f.request(path, teacher, { title: 'Python до пятницы', dueAt: '2026-10-16T17:00:00Z', homework: { studyTrack: 'python', homeWork: 'Python: цикл for', dueAt: '2026-10-16T17:00:00Z', dueAtMode: 'manual' } }, 'POST', 201)).assignment;
+    const python = (await f.request(path, teacher, { title: 'Python до пятницы', dueAt: pythonDueAt, homework: { studyTrack: 'python', homeWork: 'Python: цикл for', dueAt: pythonDueAt, dueAtMode: 'manual' } }, 'POST', 201)).assignment;
     a = await f.request('/api/student-next-lesson', f.tokens['student-a']);
     const b = await f.request('/api/student-next-lesson', f.tokens['student-b']);
     assert.equal(a.homeworks.length, 2); assert.equal(b.homeworks.length, 2);
     const old = a.homeworks.find(x => x.learningAssignmentId === ege.id), newer = a.homeworks.find(x => x.learningAssignmentId === python.id);
-    assert.equal(old.dueAt, '2026-10-14T17:00:00.000Z'); assert.equal(newer.dueAt, '2026-10-16T17:00:00.000Z');
+    assert.equal(old.dueAt, egeDueAt); assert.equal(newer.dueAt, pythonDueAt);
     assert.ok(old.checklistItems[0].completedAt); assert.ok(!b.homeworks.find(x => x.learningAssignmentId === ege.id).checklistItems[0].completedAt);
     assert.equal(newer.studyTrack, 'python');
     await f.request(`${path}/${python.id}`, teacher, { dueAt: '2026-10-23T17:00:00Z', homework: { ...python.homework, dueAt: '2026-10-23T17:00:00Z' } }, 'PATCH');

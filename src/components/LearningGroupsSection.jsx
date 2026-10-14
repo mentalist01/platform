@@ -887,6 +887,7 @@ const LearningGroupsSection = ({
     return {
       homeWork: template.homeWork ?? assignment?.content ?? assignment?.instructions ?? '',
       studyTrack: template.studyTrack || 'ege',
+      carryoverEge: assignment ? template.carryoverEge === true : true,
       title: assignment?.title || 'Домашняя работа · ЕГЭ',
       lessonLink: template.lessonLink || '',
       boardLink: template.boardLink || '',
@@ -1110,6 +1111,7 @@ const LearningGroupsSection = ({
       homework: {
         homeWork,
         studyTrack: assignmentComposerForm.studyTrack,
+        carryoverEge: assignmentComposerForm.studyTrack !== 'python' && assignmentComposerForm.carryoverEge !== false,
         lessonLink: cleanString(assignmentComposerForm.lessonLink),
         boardLink: cleanString(assignmentComposerForm.boardLink),
         dueAt,
@@ -3199,6 +3201,15 @@ const LearningGroupsSection = ({
                   onChange={event => setAssignmentComposerForm(current => ({ ...current, title: event.target.value }))} />
               </Field>
               <p className="text-xs text-[rgb(var(--ink-soft))]">ЕГЭ и Python выдаются отдельно. Новая домашка сохраняет предыдущую и её срок.</p>
+              {assignmentComposerForm.studyTrack !== 'python' && (
+                <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                  <input type="checkbox" className="mt-1 accent-violet-600" checked={assignmentComposerForm.carryoverEge !== false}
+                    onChange={event => setAssignmentComposerForm(current => ({ ...current, carryoverEge: event.target.checked }))} />
+                  <span><strong>Добавить каждому его недоделанные задания ЕГЭ</strong>
+                    <span className="mt-1 block text-xs leading-relaxed">Только обязательные номера этой группы. У каждого ученика свой остаток рядом с новой домашкой. За перенос повторно жизни не списываются.</span>
+                  </span>
+                </label>
+              )}
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700"
                   onClick={() => setAssignmentComposerForm(current => ({ ...current,

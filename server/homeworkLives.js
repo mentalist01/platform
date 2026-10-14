@@ -42,6 +42,7 @@ export function estimateHomeworkPlan(schedule = [], month, isAssigned = () => tr
 // truncate its completion window. Untimestamped legacy successes need a human
 // check rather than inventing a deadline result.
 export function homeworkDeadlineResult(homework, data, testsDb, mockExams, nowMs) {
+  if (homework.learningEgeCarryover === true) return null;
   const allGoals = Array.isArray(homework.goals) ? homework.goals : [];
   const goals = allGoals.filter(goal => !isOptionalHomeworkGoal(goal));
   if (allGoals.length && !goals.length) return null;
@@ -151,6 +152,7 @@ export class HomeworkLivesStore {
     const now = this.now(), since = this.effectiveSince(student), row = this.record(student);
     let changed = false;
     for (const homework of (context.homeworks || []).slice().sort((a, b) => time(a.dueAt) - time(b.dueAt))) {
+      if (homework.learningEgeCarryover === true) continue;
       const issued = time(homework.issuedAt), due = time(homework.dueAt), id = text(homework.id);
       if (context.isHomeworkRequired?.(homework) === false) {
         // Correct a stale post-transfer check as well as preventing a new one.
