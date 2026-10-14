@@ -3,6 +3,11 @@ export const LEARNING_GROUP_STATUS_READY = 'ready';
 export const LEARNING_GROUP_STATUS_ACTIVE = 'active';
 export const LEARNING_GROUP_STATUS_COMPLETED = 'completed';
 
+export const getStudentGroupNavigationAccess = (userId, groups = {}, availability = {}) => ({
+  hasGroups: Boolean(userId && groups.userId === userId && groups.hasGroups === true),
+  seekingGroup: Boolean(userId && availability.userId === userId && availability.prompt?.kind === 'personal'),
+});
+
 export const LEARNING_GROUP_STATUS_META = {
   [LEARNING_GROUP_STATUS_FORMING]: {
     label: 'Формируется',

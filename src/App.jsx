@@ -123,6 +123,7 @@ import {
 import { normalizeTelemostUrl } from './utils/telemost';
 import {
   getLearningGroupStatusMeta,
+  getStudentGroupNavigationAccess,
   normalizeLearningGroupLesson,
   normalizeLearningGroupList,
 } from './utils/learningGroups';
@@ -19224,7 +19225,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   ));
   const [activeLearningLesson, setActiveLearningLesson] = useState(null);
   const [studentGroupAccess, setStudentGroupAccess] = useState({ userId: '', hasGroups: false, loaded: false });
-  const studentHasGroups = studentGroupAccess.userId === user.id && studentGroupAccess.hasGroups;
+  const [studentAvailabilityState, setStudentAvailabilityState] = useState({ userId: '', prompt: null });
+  const { hasGroups: studentHasGroups, seekingGroup: studentSeekingGroup } = getStudentGroupNavigationAccess(user.id, studentGroupAccess, studentAvailabilityState);
   const [studentLessonWorkspace, setStudentLessonWorkspace] = useState(() => ({
     status: user.role === 'student' ? 'loading' : 'individual',
     group: null,
@@ -20397,7 +20399,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Сегодня', icon: Calendar },
-        { id: 'groups', label: studentHasGroups ? 'Группы и записи' : 'Подбор группы', icon: Users },
+        ...(studentHasGroups || studentSeekingGroup ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : 'Подбор группы', icon: Users }] : []),
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -20415,7 +20417,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
-        'groups',
+        ...(studentHasGroups || studentSeekingGroup ? ['groups'] : []),
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -20427,7 +20429,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'lesson',
       ]
       : []
-  ), [studentCanSeeReview, studentHasGroups, user.role]);
+  ), [studentCanSeeReview, studentHasGroups, studentSeekingGroup, user.role]);
   const studentLessonNavIds = STUDENT_CALL_SECTION_ENABLED
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
@@ -26580,6 +26582,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               role={user.role}
               userId={user.id}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
+              allowPersonalGroupPlacement={studentSeekingGroup}
               students={currentStudentsWithNicknames}
               studentsLoading={studentsLoading}
               activeLearningLesson={activeLearningLesson}
@@ -26606,10 +26609,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             />
             </StudentGroupLibrary>
           )}
-          {view === 'schedule' && user.role === 'student' && <StudentAvailabilityPrompt userId={user.id} onOpen={prompt => {
+          {user.role === 'student' && <React.Suspense fallback={null}><StudentAvailabilityPrompt userId={user.id} visible={view === 'schedule'} onPromptChange={setStudentAvailabilityState} onOpen={prompt => {
             if (prompt.groupId) setPendingGroupAvailabilityRequest({ id: `availability:${Date.now()}`, groupId: prompt.groupId });
             navigateToView('groups');
-          }} />}
+          }} /></React.Suspense>}
           {view === 'schedule' && user.role === 'student' && (
             <StudentTodayOverview
               studentName={user.name}

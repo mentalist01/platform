@@ -4,10 +4,22 @@ import assert from 'node:assert/strict';
 import {
   getRutubeEmbedUrl,
   getRutubeWatchUrl,
+  getStudentGroupNavigationAccess,
   normalizeLearningGroup,
   normalizeLearningGroupAttendance,
   normalizeLearningGroupList,
 } from './learningGroups.js';
+
+test('individual navigation requires an explicit placement invitation; archives and account changes retain correct access', () => {
+  const groups = { userId: 'stepan', hasGroups: false };
+  const availability = { userId: 'stepan', prompt: null };
+  assert.deepEqual(getStudentGroupNavigationAccess('stepan', groups, availability), { hasGroups: false, seekingGroup: false });
+  assert.equal(getStudentGroupNavigationAccess('stepan', groups, { ...availability, prompt: { kind: 'personal' } }).seekingGroup, true);
+  assert.equal(getStudentGroupNavigationAccess('stepan', groups, { ...availability, prompt: { kind: 'group' } }).seekingGroup, false);
+  assert.equal(getStudentGroupNavigationAccess('stepan', { ...groups, hasGroups: true }, availability).hasGroups, true, 'accessible group archives keep their navigation entry');
+  assert.deepEqual(getStudentGroupNavigationAccess('other', { ...groups, hasGroups: true }, { ...availability, prompt: { kind: 'personal' } }), { hasGroups: false, seekingGroup: false });
+  assert.deepEqual(getStudentGroupNavigationAccess('stepan'), { hasGroups: false, seekingGroup: false }, 'loading cannot flash an unsolicited questionnaire');
+});
 
 test('builds a safe RuTube embed URL from video and shorts links', () => {
   assert.equal(

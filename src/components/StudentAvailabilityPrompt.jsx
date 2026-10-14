@@ -3,16 +3,17 @@ import { CalendarDays, ChevronRight } from 'lucide-react';
 import { api } from '../services/api';
 import { subscribeScheduleSync } from '../services/scheduleSync.js';
 
-export default function StudentAvailabilityPrompt({ userId, onOpen, transport = api.studentAvailabilityPrompt }) {
+export default function StudentAvailabilityPrompt({ userId, onOpen, visible = true, onPromptChange, transport = api.studentAvailabilityPrompt }) {
   const [prompt, setPrompt] = useState(null);
   useEffect(() => {
     let alive = true, loading = false;
-    setPrompt(null);
+    const install = value => { setPrompt(value); onPromptChange?.({ userId, prompt: value }); };
+    install(null);
     const refresh = async () => {
       if (loading || document.hidden) return;
       loading = true;
-      try { const result = await transport(); if (alive) setPrompt(result.prompt || null); }
-      catch { if (alive) setPrompt(null); }
+      try { const result = await transport(); if (alive) install(result.prompt || null); }
+      catch { if (alive) install(null); }
       finally { loading = false; }
     };
     void refresh();
@@ -24,8 +25,8 @@ export default function StudentAvailabilityPrompt({ userId, onOpen, transport = 
       try { if (['student-availability', 'group-availability', 'learning-group'].includes(JSON.parse(event.data)?.scope)) void refresh(); } catch { /* Malformed stream message. */ }
     });
     return () => { alive = false; clearInterval(timer); unsubscribe(); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('learning-groups-changed', refresh); };
-  }, [userId, transport]);
-  if (!prompt) return null;
+  }, [userId, transport, onPromptChange]);
+  if (!visible || !prompt) return null;
   const title = prompt.kind === 'personal' ? 'Свободное время для будущей группы'
     : prompt.needsVote ? 'Ответьте на предложение времени занятий'
       : prompt.answered ? 'В группе открыт подбор времени' : 'Выберите время занятий с группой';

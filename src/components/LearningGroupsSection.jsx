@@ -463,6 +463,7 @@ const LearningGroupsSection = ({
   openAvailabilityRequest = null,
   openHomeworkRequest = null,
   scheduleGroupId = '',
+  allowPersonalGroupPlacement = false,
   onHomeworkRequestHandled = null,
   onAvailabilityRequestHandled = null,
   onOpenLessonRoom,
@@ -1645,7 +1646,7 @@ const LearningGroupsSection = ({
           setNotice('Группа выбрана. Проверьте состав и подтвердите добавление ученика. Пока он продолжает заниматься индивидуально.');
         }} />
       </details>}
-      {!scheduleGroupId && !isTeacher && <details className="rounded-3xl border border-violet-200 bg-white" open={groups.length === 0 ? true : undefined}>
+      {!scheduleGroupId && !isTeacher && allowPersonalGroupPlacement && <details className="rounded-3xl border border-violet-200 bg-white" open={groups.length === 0 ? true : undefined}>
         <summary className="cursor-pointer px-5 py-4 font-bold text-violet-700">Свободное время для подбора будущей группы</summary>
         <PersonalGroupAvailability individual={!groups.some(group => group.status !== LEARNING_GROUP_STATUS_COMPLETED
           && group.members?.some(member => member.studentId === userId && member.status === 'active'))} />
