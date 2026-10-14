@@ -58,6 +58,24 @@ export async function isCurrentUploadEditor(editor, job, title) {
   return currentTitle === title || currentTitle === path.basename(job.mp4, '.mp4').slice(0, 100);
 }
 
+export async function ensurePrivateAccess(page, editor) {
+  const access = editor.getByRole('combobox', { name: 'Доступ', exact: true });
+  const selected = async () => (await access.innerText()).trim() === 'Только по ссылке';
+  if (await selected()) return;
+  await access.click();
+  try {
+    // Cards behind the editor contain the same text. Only the actual option
+    // in the open access menu is a selectable privacy choice.
+    await page.getByRole('option', { name: 'Только по ссылке', exact: true }).filter({ visible: true }).click();
+  } catch (error) {
+    // Channel defaults can finish loading after the click and close the menu.
+    // Accept that race only when the field itself confirms private access.
+    if (!await selected()) throw error;
+    await access.press('Escape');
+  }
+  if (!await selected()) throw new Error('Не удалось установить доступ «только по ссылке». Видео не опубликовано.');
+}
+
 // Uses a separate browser profile. No passwords or browser cookies are copied from other apps.
 // On uncertain upload outcomes the queue stops for review instead of uploading a second copy.
 export class RutubeUploader {
@@ -124,15 +142,7 @@ export class RutubeUploader {
     }
     await editor.getByRole('textbox', { name: 'Название', exact: true }).fill(title);
     // The UI defaults can change. Require explicit private selection before saving.
-    const access = editor.getByRole('combobox', { name: 'Доступ', exact: true });
-    if ((await access.innerText()).trim() !== 'Только по ссылке') {
-      await access.click();
-      // Video cards behind the editor also carry this label. Prefer the open
-      // access menu; older layouts without a list role must have one unique choice.
-      const menuOption = page.getByRole('listbox').getByText('Только по ссылке', { exact: true }).filter({ visible: true });
-      if (await menuOption.count() === 1) await menuOption.click();
-      else await page.getByText('Только по ссылке', { exact: true }).filter({ visible: true }).click();
-    }
+    await ensurePrivateAccess(page, editor);
     return completePrivateVideo(editor, job, persist);
   }
 }

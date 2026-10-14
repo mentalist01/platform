@@ -1,8 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { completePrivateVideo, isCurrentUploadEditor, RUTUBE_UPLOAD_WAIT_MS } from './rutube.mjs';
+import { completePrivateVideo, ensurePrivateAccess, isCurrentUploadEditor, RUTUBE_UPLOAD_WAIT_MS } from './rutube.mjs';
 
 const url = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Test_Key';
+
+test('private access selects an actual menu option instead of duplicate card labels and confirms the result', async () => {
+  let mode='Для всех',clicked=0;
+  const access={innerText:async()=>mode,click:async()=>{},press:async()=>{}};
+  const page={getByRole:(role,options)=>{assert.equal(role,'option');assert.equal(options.name,'Только по ссылке');assert.equal(options.exact,true);
+    return{filter:()=>({click:async()=>{clicked++;mode='Только по ссылке';}})};}};
+  const editor={getByRole:()=>access};await ensurePrivateAccess(page,editor);await ensurePrivateAccess(page,editor);assert.equal(clicked,1);
+  mode='Для всех';page.getByRole=()=>({filter:()=>({click:async()=>{}})});
+  await assert.rejects(ensurePrivateAccess(page,editor),/Видео не опубликовано/);
+});
+test('late private defaults can close the menu, but an unresolved public default still stops publication', async () => {
+  let mode='Для всех',escaped=false;
+  const access={innerText:async()=>mode,click:async()=>{mode='Только по ссылке';},press:async key=>{assert.equal(key,'Escape');escaped=true;}};
+  const page={getByRole:()=>({filter:()=>({click:async()=>{throw Error('Menu closed');}})})};
+  await ensurePrivateAccess(page,{getByRole:()=>access});assert.equal(escaped,true);
+  mode='Для всех';access.click=async()=>{};await assert.rejects(ensurePrivateAccess(page,{getByRole:()=>access}),/Menu closed/);
+});
 
 test('theory publishes the exact user title only after retaining its private recovery link', async () => {
   const f = editorFixture(); f.job.autoPublish = true; f.job.title = 'Задание 7: звук';
