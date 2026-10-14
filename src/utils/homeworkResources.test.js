@@ -36,3 +36,14 @@ test('selected Python theory and chapters survive summary projection and missing
   assert.equal(homeworkResources([homework], {}, now)[0].available, false);
   assert.equal(hasHomeworkResources([{ ...entry, learningMaterials: [], goals: [{ taskNumber: 7 }] }], now), false, 'do not invent unassigned videos');
 });
+
+test('the reduced question index requires theory content; full data restores video and descriptive topic titles without duplicates', () => {
+  const goal = { taskNumber: 105, pythonTheorySubsectionId: '__default__', pythonTheoryType: 'rutube' };
+  const homework = { ...entry, learningMaterials: [], goals: [goal] };
+  const index = { __pythonTaskCatalog: [{ number: 105, title: 'Цикл for' }], 105: { python: [{ id: 'q' }] } };
+  const pending = homeworkResources([homework], index, now)[0];
+  assert.equal(pending.source, 'theory');assert.equal(pending.title, 'Python · Цикл for');assert.equal(pending.available, false);
+  const full = { ...index, 105: { ...index[105], pythonTheory: { type: 'rutube', content: video.url } } };
+  const restored = homeworkResources([homework, { ...homework, id: 'duplicate' }], full, now);
+  assert.equal(restored.length, 1);assert.equal(restored[0].available, true);assert.equal(restored[0].title, 'Python · Цикл for');
+});
