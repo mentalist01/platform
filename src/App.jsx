@@ -24174,8 +24174,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         return [];
       };
 
-      const currentEntries = partitionConcurrentHomeworks(sorted).active;
-      const entries = currentEntries.length ? currentEntries : sorted.slice(0, 1);
+      const entries = partitionConcurrentHomeworks(sorted).active;
       if (!entries.length) {
         setGoalState(null);
         return;
