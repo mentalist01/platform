@@ -7,9 +7,11 @@ test('leaving or switching call transport does not immediately finish a lesson r
     assert.equal(shouldEndRecordingOnCallExit({ action, role, isGroupLesson: false, meetingId: '' }), false);
   }
 });
-test('only an explicit individual lesson finish by its teacher requests an immediate recorder stop', () => {
+test('teacher finishes stop individual and group recordings; pupils and guest meetings cannot', () => {
   assert.equal(shouldEndRecordingOnCallExit({ action: 'finish-lesson', role: 'teacher' }), true);
-  for (const scope of [{ role: 'student' }, { role: 'teacher', isGroupLesson: true }, { role: 'teacher', meetingId: 'meeting' }]) {
+  assert.equal(shouldEndRecordingOnCallExit({ action: 'finish-lesson', role: 'teacher', isGroupLesson: true }), true);
+  assert.equal(shouldEndRecordingOnCallExit({ action: 'leave', role: 'teacher', isGroupLesson: true }), true);
+  for (const scope of [{ role: 'student' }, { role: 'teacher', meetingId: 'meeting' }]) {
     assert.equal(shouldEndRecordingOnCallExit({ action: 'finish-lesson', ...scope }), false);
   }
 });

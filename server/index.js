@@ -22544,6 +22544,13 @@ const receivePaymentNotification = async (req, res) => {
 app.post('/api/payment-notifications/tbank', receivePaymentNotification);
 app.post('/api/payment-notifications/macrodroid', receivePaymentNotification);
 
+const hasGroupRecordingTeacher = (teacherId, lessonId) => {
+  for (const [roomId, clients] of rtcRooms) {
+    if (parseLearningLessonRoomTarget(roomId)?.sessionId !== lessonId) continue;
+    if (Array.from(clients.values()).some(client => client.auth?.role === 'teacher' && client.auth.id === teacherId)) return true;
+  }
+  return false;
+};
 registerDesktopDeviceRoutes(app, desktopRecordings, {
   lessonTopic: (teacherId,payload) => {
     const teacher=readTeachersDb().find(t=>t.id===teacherId);
@@ -22594,14 +22601,17 @@ registerDesktopDeviceRoutes(app, desktopRecordings, {
     return addRecorderMaterial(teacherId, payload, { read: readLearningMaterialsDb, write: writeLearningMaterialsDb });
   },
   isActive: (job) => {
-    if (job.occurrence.lessonId) return getLearningGroupReplayContext(job.occurrence.lessonId)?.lesson.status === 'active';
+    if (job.occurrence.lessonId) return getLearningGroupReplayContext(job.occurrence.lessonId)?.lesson.status === 'active'
+      && (job.audioMode !== 'platform' || hasGroupRecordingTeacher(job.teacherId, job.occurrence.lessonId));
     const student = findStudentById(job.occurrence.studentId);
     return Boolean(student && (hasActivePlatformLessonCall(student) || getTelemostLessonReplayEntry(student.id)));
   },
   isEnded: (job) => {
     if (!job.occurrence.lessonId) return false;
     const context = getLearningGroupReplayContext(job.occurrence.lessonId);
-    return !context || ['completed', 'cancelled'].includes(context.lesson.status);
+    return !context || ['completed', 'cancelled'].includes(context.lesson.status)
+      || (job.audioMode === 'platform' && Date.now() >= job.occurrence.endMs
+        && !hasGroupRecordingTeacher(job.teacherId, job.occurrence.lessonId));
   },
 });
 
@@ -22755,6 +22765,9 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
       if (context.lesson.status !== 'active') { res.status(409).json({ error: 'Сначала начните занятие' }); return null; }
       occurrence = buildLearningGroupReplayOccurrence(context);
       audioMode = req.body.audioMode === 'platform' ? 'platform' : 'telemost';
+      if (audioMode === 'platform' && !hasGroupRecordingTeacher(req.auth.id, context.lesson.id)) {
+        res.status(409).json({ error: 'Сначала войдите в голосовой канал занятия' }); return null;
+      }
       cutoffAt = occurrence.endMs + LEARNING_LESSON_OVERRUN_GRACE_MS;
     } else {
       const student = ensureStudentAccess(req, res, req.body?.studentId);
@@ -22779,6 +22792,7 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
       const previousStudent = findStudentById(previous.occurrence.studentId);
       const stillActive = previous.occurrence.lessonId
         ? getLearningGroupReplayContext(previous.occurrence.lessonId)?.lesson.status === 'active'
+          && (previous.audioMode !== 'platform' || hasGroupRecordingTeacher(req.auth.id, previous.occurrence.lessonId))
         : previousStudent && (hasActivePlatformLessonCall(previousStudent) || getTelemostLessonReplayEntry(previousStudent.id));
       if (!stillActive) desktopRecordings.stop(previous.occurrence.key);
     }
@@ -43922,6 +43936,21 @@ const observeHomeworkRtcLesson = async (roomMeta) => {
 const joinRtcRoom = (client, roomMeta) => {
   if (!client || !roomMeta) return;
   const { roomId } = roomMeta;
+  if (client.auth.role === 'teacher' && ['student', 'lesson'].includes(roomMeta.targetType)) {
+    // Joining a different lesson is authoritative even if a stale old tab still
+    // reports its session as active. Channel changes within one lesson keep capture.
+    desktopRecordings.transitionPlatformCall(client.auth.id, { studentId: roomMeta.studentId, lessonId: roomMeta.sessionId });
+    rtcClientsBySocket.forEach(other => {
+      if (other === client || other.auth.role !== 'teacher' || other.auth.id !== client.auth.id) return;
+      const previous = parseRtcRoomId(other.roomId);
+      if (!previous || !['student', 'lesson'].includes(previous.targetType)) return;
+      const sameLesson = roomMeta.targetType === 'lesson' ? previous.sessionId === roomMeta.sessionId
+        : previous.targetType === 'student' && previous.studentId === roomMeta.studentId;
+      if (sameLesson) return;
+      leaveRtcRoom(other);
+      sendRtcPayload(other.ws, { type: 'session-ended', error: 'Вы вошли в другой урок. Предыдущая запись завершена.' });
+    });
+  }
   if (roomMeta.targetType === 'meeting') {
     const existing = rtcRooms.get(roomId);
     const otherGuests = Array.from(existing?.values() || []).filter((other) => other.auth.role === 'guest' && other.auth.id !== client.auth.id);
@@ -44169,6 +44198,9 @@ const handleRtcMessage = (client, rawData, isBinary) => {
     // Use the authenticated socket's actual room, not a client-supplied target.
     const departingRoom = parseRtcRoomId(client.roomId);
     leaveRtcRoom(client);
+    if (payload?.endRecording === true && client.auth.role === 'teacher' && departingRoom?.targetType === 'lesson') {
+      if (!hasGroupRecordingTeacher(client.auth.id, departingRoom.sessionId)) desktopRecordings.stopGroupCall(client.auth.id, departingRoom.sessionId);
+    }
     if (payload?.endRecording === true && client.auth.role === 'teacher' && departingRoom?.targetType === 'student') {
       const remaining = rtcRooms.get(departingRoom.roomId);
       const teacherStillPresent = Array.from(remaining?.values() || []).some(peer =>

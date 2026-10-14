@@ -7,6 +7,38 @@ import { createDesktopRecordingStore, privateRutubeVideo, RECORDING_RECONNECT_GR
 import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordinator.js';
 
 const video = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Secret_Key-123';
+test('group hangup is immediate, channel changes keep one file, and rejoining creates a bound continuation', t => {
+  const f=fixture(t); const {device}=f.connect('teacher');f.connect('other');
+  const occurrence={key:'group',lessonId:'group1'};
+  const job=f.store.start('teacher',occurrence,'Group',f.now()+3600000,{audioMode:'platform'});
+  f.store.report(device,job.id,{status:'recording'});
+  f.store.transitionPlatformCall('teacher',{lessonId:'group1'});
+  f.store.stopGroupCall('other','group1');f.store.stopGroupCall('teacher','another');
+  assert.equal(f.store.settings('teacher').jobs[0].desired,'record');
+  f.store.stopGroupCall('teacher','group1');
+  assert.equal(f.store.settings('teacher').jobs[0].desired,'stop');
+  assert.equal(JSON.parse(fs.readFileSync(f.file)).jobs[job.id].stopReason,'explicit-group-hangup');
+  f.store.report(device,job.id,{status:'saved'});
+  const part=f.store.start('teacher',occurrence,'Group',f.now()+3600000,{audioMode:'platform'});
+  assert.notEqual(part.id,job.id);assert.equal(part.previousJobId,job.id);
+  f.store.transitionPlatformCall('other',{studentId:'pupil'});
+  assert.equal(f.store.settings('teacher').jobs.find(j=>j.id===part.id).desired,'record');
+  f.store.transitionPlatformCall('teacher',{studentId:'pupil'});
+  assert.equal(f.store.settings('teacher').jobs.find(j=>j.id===part.id).desired,'stop');
+  assert.equal(f.store.start('teacher',{key:'individual',studentId:'pupil'},'Next',f.now()+3600000,{audioMode:'platform'}).desired,'record');
+});
+test('quarantined source cannot be republished; a distinct repaired recovery keeps the original hidden', t => {
+  const f=fixture(t);const {device}=f.connect('teacher');
+  const job=f.store.start('teacher',{key:'group',lessonId:'group1'},'Group',f.now()+3600000);
+  f.store.report(device,job.id,{status:'saved'});
+  const db=JSON.parse(fs.readFileSync(f.file));db.jobs[job.id].quarantinedAt=new Date(f.now()).toISOString();db.jobs[job.id].status='error';
+  fs.writeFileSync(f.file,JSON.stringify(db));const restored=createDesktopRecordingStore(f.file,{now:f.now});
+  assert.throws(()=>restored.report(device,job.id,{status:'ready',url:video}),/скрыта/);
+  const recovered=restored.recoverFile(device,job.id,'12345678-1234-1234-1234-123456789012');
+  restored.report(device,recovered.id,{status:'ready',url:video});
+  assert.equal(restored.replay('group').available,true);
+  assert.equal(restored.settings('teacher').jobs.find(j=>j.id===job.id).video,null);
+});
 function fixture(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-recorder-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

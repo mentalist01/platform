@@ -155,6 +155,10 @@ export class RecorderEngine {
     // Complete the old file before considering the next lesson, regardless of
     // server ordering. Uploading that file is independent of the next capture.
     this.currentLesson = remote.currentLesson || null;
+    const active = this.active();
+    if (active && !active.local && !active.manual && !active.fallbackMode && !active.pythonTheory && !active.mockReview
+      && active.occurrence?.key && remote.currentLesson?.occurrence?.key
+      && active.occurrence.key !== remote.currentLesson.occurrence.key) await this.stop(active);
     for (const job of Object.values(this.state.jobs)) {
       if (!job.resumeAfterRestart) continue;
       if (job.cutoffAt <= this.now() || (remote.currentLesson && remote.currentLesson.occurrence?.key !== job.occurrence?.key)) {

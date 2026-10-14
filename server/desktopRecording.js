@@ -86,6 +86,19 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
         }
       }
     },
+    stopGroupCall(teacherId, lessonId) {
+      for (const job of jobs(teacherId)) {
+        if (job.audioMode === 'platform' && job.occurrence.lessonId === lessonId) stop(job.occurrence.key, 'explicit-group-hangup');
+      }
+    },
+    transitionPlatformCall(teacherId, target) {
+      for (const job of jobs(teacherId)) {
+        if (job.audioMode !== 'platform' || job.desired !== 'record') continue;
+        const same = target.lessonId ? job.occurrence.lessonId === target.lessonId
+          : !job.occurrence.lessonId && job.occurrence.studentId === target.studentId;
+        if (!same) stop(job.occurrence.key, 'next-platform-lesson');
+      }
+    },
     requestStop(occurrenceKey) {
       for (const job of Object.values(db.jobs)) {
         if (job.occurrence.key !== occurrenceKey || job.desired !== 'record') continue;
@@ -133,7 +146,10 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       const departing = db.jobs[transitionFrom];
       if (departing?.teacherId === teacherId && departing.occurrence.key !== occurrence.key) stop(departing.occurrence.key);
       const previous = jobs(teacherId).filter((job) => job.occurrence.key === occurrence.key).at(-1);
-      if (previous) {
+      const newGroupPart = previous?.desired === 'stop' && previous.occurrence.lessonId
+        && !previous.quarantinedAt && ['explicit-group-hangup', 'lesson-ended', 'reconnect-timeout', 'next-platform-lesson'].includes(previous.stopReason)
+        && audioMode === 'platform';
+      if (previous && !newGroupPart) {
         if (previous.desired === 'record') {
           previous.lastActiveAt = now(); previous.stopRequestedAt = 0;
           if (['platform', 'telemost'].includes(audioMode)) previous.audioMode = audioMode;
@@ -152,6 +168,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       if (jobs(teacherId).some((job) => job.desired === 'record' && job.cutoffAt > now())) fail('Сначала завершите предыдущий урок', 409);
       const id = crypto.randomUUID();
       db.jobs[id] = { id, teacherId, occurrence, title: String(title || 'Запись урока').slice(0, 150),
+        ...(newGroupPart ? { previousJobId: previous.id } : {}),
         status: 'waiting', desired: 'record', audioMode, cutoffAt: Math.min(cutoffAt, now() + 5 * 3600_000), startedAt: now(), lastActiveAt: now(), updatedAt: now() };
       save(); return publicJob(db.jobs[id]);
     },
@@ -166,7 +183,8 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       }
       const latest = jobs(device.teacherId).filter((job) => job.occurrence.key === previous.occurrence.key).at(-1);
       if (latest.id !== id) fail('У урока уже есть более новая запись', 409);
-      db.jobs[recoveryId] = { ...previous, id: recoveryId, recoveredFrom: id, previousJobId: '', status: 'saved', video: null, error: '', updatedAt: now() };
+      db.jobs[recoveryId] = { ...previous, id: recoveryId, recoveredFrom: id, previousJobId: '', status: 'saved', video: null, error: '',
+        quarantinedAt: '', quarantineReason: '', updatedAt: now() };
       save(); return publicJob(db.jobs[recoveryId]);
     },
     resume(device, id, isActive) {
@@ -200,6 +218,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       const job = db.jobs[id];
       if (!job || job.teacherId !== device.teacherId) fail('Запись не найдена', 404);
       if (job.deviceId && job.deviceId !== device.id) fail('Запись принадлежит другому компьютеру', 409);
+      if (job.quarantinedAt) fail('Эта запись скрыта. Подготовьте отдельную исправленную копию.', 409);
       const status = payload?.status;
       if (!['recording', 'saved', 'uploading', 'processing', 'ready', 'error'].includes(status)) fail('Некорректный статус');
       if (job.status === 'ready') return publicJob(job);
@@ -309,6 +328,8 @@ export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolve
   app.post('/api/desktop-recording/stop', handle((req, res) => {
     const job = store.settings(req.auth.id).jobs.find((item) => item.id === req.body?.id);
     if (!job) return res.status(404).json({ error: 'Запись не найдена' });
-    store.requestStop(job.occurrence.key); res.json({ ok: true });
+    if (req.body?.endRecording === true) store.stop(job.occurrence.key, job.occurrence.lessonId ? 'explicit-group-hangup' : 'explicit-hangup');
+    else store.requestStop(job.occurrence.key);
+    res.json({ ok: true });
   }));
 }

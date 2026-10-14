@@ -27,7 +27,9 @@ test('real platform routes isolate devices and expose one group recording to its
   write('learning-lesson-sessions', [{ id: 'legacy', groupId: 'g1', teacherId: 't1', participantIds: participants,
     startAt: new Date(now - 121 * 60000).toISOString(), durationMinutes: 120, status: 'active', createdAt: old },
     { id: 'lesson1', groupId: 'g1', teacherId: 't1', participantIds: participants,
-    startAt: new Date(now - 61 * 60000).toISOString(), durationMinutes: 60, status: 'active', createdAt: old }]);
+    startAt: new Date(now - 61 * 60000).toISOString(), durationMinutes: 60, status: 'active', createdAt: old },
+    {id:'boundary-group',groupId:'g1',teacherId:'t1',participantIds:participants,
+      startAt:new Date(now-60000).toISOString(),durationMinutes:60,status:'active',createdAt:old}]);
   const reserve = net.createServer(); reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
   const port = reserve.address().port; await new Promise(resolve => reserve.close(resolve));
   const child = spawn(process.execPath, ['server/index.js'], {
@@ -104,6 +106,14 @@ test('real platform routes isolate devices and expose one group recording to its
   const legacy = await request('/lesson-replay/session', { actor: 's1', body: { learningLessonId: 'lesson1' }, status: 409 });
   assert.equal(legacy.code, 'DESKTOP_RECORDING_ENABLED');
   await request('/desktop-recording/start', { actor: 't2', body: { learningLessonId: 'lesson1' }, status: 403 });
+  const initialVoice=await request('/learning-groups/g1/lessons/lesson1/voice-channels');
+  const initialGroupRtc=new WebSocket(`ws://127.0.0.1:${port}/rtc?_auth=fixture-t1`);
+  t.after(()=>initialGroupRtc.terminate());await once(initialGroupRtc,'open');
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(Error('Initial group join timed out')),4000);
+    initialGroupRtc.on('message',raw=>{const result=JSON.parse(String(raw));if(result.type==='joined'){clearTimeout(timer);resolve();}});
+    initialGroupRtc.send(JSON.stringify({type:'join',roomId:initialVoice.channels.find(c=>c.id==='general').roomId}));
+  });
   const job = await request('/desktop-recording/start', { body: { learningLessonId: 'lesson1', audioMode: 'platform' } });
   assert.equal(job.audioMode, 'platform', 'Voice channels record platform audio rather than the Telemost window');
   assert.equal((await request('/desktop-recording/start', { body: { learningLessonId: 'lesson1' } })).id, job.id);
@@ -206,5 +216,35 @@ test('real platform routes isolate devices and expose one group recording to its
   await sendRtc(teacherOtherTab, {type:'leave',roomId,endRecording:true}, 'left');
   assert.equal(await desired(), 'stop', 'Intentional final teacher hangup stops immediately');
   assert.equal(JSON.parse(fs.readFileSync(path.join(data,'desktop-recordings.json'))).jobs[individual.id].stopReason,'explicit-hangup');
+
+  await request('/desktop-recording/start',{body:{learningLessonId:'boundary-group',audioMode:'platform'},status:409});
+  const voice=await request('/learning-groups/g1/lessons/boundary-group/voice-channels');
+  const general=voice.channels.find(c=>c.id==='general').roomId, separate=voice.channels.find(c=>c.id!=='general').roomId;
+  await sendRtc(teacherRtc,{type:'join',roomId:general},'joined');
+  const groupJob=await request('/desktop-recording/start',{body:{learningLessonId:'boundary-group',audioMode:'platform'}});
+  await request(`/desktop-recorder/jobs/${groupJob.id}`,{token,body:{status:'recording'}});
+  await sendRtc(teacherRtc,{type:'join',roomId:separate},'joined');
+  let polled=await request('/desktop-recorder/poll',{token,body:{ready:true}});
+  assert.equal(polled.jobs.find(j=>j.id===groupJob.id).desired,'record','Changing group channel preserves capture');
+  await sendRtc(pupilRtc,{type:'leave',roomId:separate,endRecording:true},'left');
+  assert.equal((await request('/desktop-recorder/poll',{token,body:{ready:true}})).jobs.find(j=>j.id===groupJob.id).desired,'record');
+  await sendRtc(teacherRtc,{type:'leave',roomId:separate,endRecording:true},'left');
+  polled=await request('/desktop-recorder/poll',{token,body:{ready:true}});
+  assert.equal(polled.jobs.find(j=>j.id===groupJob.id).desired,'stop','Intentional group exit stops without waiting for the schedule cutoff');
+  assert.equal(polled.currentLesson,undefined,'An active group session without a teacher is not an active call');
+  await request(`/desktop-recorder/jobs/${groupJob.id}`,{token,body:{status:'saved'}});
+  await sendRtc(teacherRtc,{type:'join',roomId:general},'joined');
+  const continued=await request('/desktop-recording/start',{body:{learningLessonId:'boundary-group',audioMode:'platform'}});
+  assert.equal(continued.previousJobId,groupJob.id);
+  const nextTeacher=await connectRtc('t1');
+  const nextRoom='rtc:t1:outside',nextPupil=await connectRtc('outside');
+  await sendRtc(nextTeacher,{type:'join',roomId:nextRoom},'joined');
+  await sendRtc(nextPupil,{type:'join',roomId:nextRoom},'joined');
+  assert.equal((await request('/desktop-recorder/poll',{token,body:{ready:true}})).jobs.find(j=>j.id===continued.id).desired,'stop','A new individual lesson stops the group even when its old tab was connected');
+  const next=await request('/desktop-recording/start',{body:{studentId:'outside'}});
+  assert.equal(next.desired,'record');
+  await request('/desktop-recording/stop',{actor:'t2',body:{id:next.id,endRecording:true},status:404});
+  await request('/desktop-recording/stop',{body:{id:next.id,endRecording:true}});
+  assert.equal((await request('/desktop-recorder/poll',{token,body:{ready:true}})).jobs.find(j=>j.id===next.id).desired,'stop');
 
 });

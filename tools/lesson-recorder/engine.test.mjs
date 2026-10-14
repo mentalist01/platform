@@ -28,6 +28,14 @@ function fixture(t) {
   return { engine, obs, state, root, job, reports, remote: (value) => { remote = value; }, offline: () => { offline = true; }, online: () => { offline = false; }, advance: (ms) => { now += ms; }, counts: () => [startCount, stopCount], foreign: () => { recording = true; name = 'foreign-output'; } };
 }
 
+test('a different current lesson closes the old OBS output even when its stop command is absent', async t => {
+  const f=fixture(t);await f.engine.start({...f.job,occurrence:{key:'group'},audioMode:'platform'});
+  const next={...f.job,id:'next',occurrence:{key:'individual'},audioMode:'platform'};
+  f.remote({enabled:true,currentLesson:next,jobs:[next]});await f.engine.tick();
+  assert.equal(f.state.jobs.one.status,'saved');assert.equal(f.engine.active().id,'next');
+  assert.deepEqual(f.counts(),[2,1]);
+});
+
 test('a server transport handoff updates live conversation mode while keeping the same OBS output and recording ID', async t => {
   const f=fixture(t);await f.engine.start({...f.job,audioMode:'platform'});
   const capture=f.engine.active();f.remote({enabled:true,jobs:[{...f.job,audioMode:'telemost'}]});await f.engine.tick();

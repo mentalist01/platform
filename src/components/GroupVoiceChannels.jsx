@@ -107,11 +107,14 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   }, [callStatus, groupId, isTeacher, lessonId, snapshot?.canStartLesson]);
 
   const leave = useCallback(() => {
+    setRecordingRequested(false);
+    if (isTeacher && recorder.jobId) void api.desktopRecording('stop', { id: recorder.jobId, endRecording: true })
+      .catch(error => setActionError(error?.message || 'Не удалось завершить запись. Нажмите «Остановить» в пульте.'));
     setSelectedId('');
     setCallStatus('idle');
-    setNotice('Вы вышли из голосового канала.');
+    setNotice(isTeacher ? 'Вы вышли из голосового канала. Запись занятия завершается.' : 'Вы вышли из голосового канала.');
     void refreshRef.current?.();
-  }, []);
+  }, [isTeacher, recorder.jobId]);
 
   const join = (channelId) => {
     if (!snapshot?.canJoin) return;
@@ -281,6 +284,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 students={students} lessonId={lessonId} groupId={groupId} channelId={selected.id}
                 participantIds={lesson.participantIds} hideStudentPicker channelSelectionMode theme={theme}
                 autoStartToken={1} onStatusChange={onCallStatusChange} onChannelPresence={onChannelPresence}
+                onRecordingEnd={leave}
                 onDesktopShare={setDesktopShareTrack}
                 initialMicEnabled={micPreferenceRef.current} onMicStateChange={rememberMic} onChannelMove={onChannelMove}
                 uiMode={visible ? 'full' : 'collapsed'} onRequestOpenCall={onOpenCall}

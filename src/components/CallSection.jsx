@@ -1334,6 +1334,7 @@ const CallSection = ({
   onRequestCollapse,
   onRequestOpenCall,
   onStatusChange,
+  onRecordingEnd,
   onChannelMove,
   onChannelPresence,
   onMicStateChange,
@@ -4186,7 +4187,10 @@ const CallSection = ({
     }
   }, [isGroupLesson, meetingId, onMeetingEnded, onMeetingNotice, onChannelMove, onChannelPresence, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers, listenOnly, sendWs]);
 
+  const recordingEndRef = useRef(onRecordingEnd);
+  useEffect(() => { recordingEndRef.current = onRecordingEnd; }, [onRecordingEnd]);
   const stopCall = useCallback(({ endRecording = false } = {}) => {
+    if (endRecording) recordingEndRef.current?.();
     callAttemptRef.current += 1;
     clearCallResume();
     callJoinedRef.current = false;
