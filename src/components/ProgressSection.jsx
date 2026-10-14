@@ -67,6 +67,7 @@ import {
   getWeeklyTaskPracticeStats,
 } from '../utils/weeklyTaskPractice';
 import CoinGuideIcon from './CoinGuideTooltip';
+const TeacherHomeworkLivesPanel = React.lazy(() => import('./HomeworkLives').then(module => ({ default: module.TeacherHomeworkLivesPanel })));
 
 const compareMockTaskKeys = (left, right) => {
   const leftNumber = Number(left);
@@ -4268,6 +4269,8 @@ const ProgressSection = ({
   ];
   return (
     <div className={`progress-section progress-section--${section} ${isStudentProgressSection ? 'progress-section--student' : ''} ${isStudentProgressSection ? 'space-y-3 md:space-y-4' : 'space-y-4 md:space-y-6'} animate-fadeIn`} data-tour="progress">
+      {role === 'teacher' && effectiveStudentId && <React.Suspense fallback={null}><TeacherHomeworkLivesPanel key={effectiveStudentId} studentId={effectiveStudentId}
+        studentName={studentsList.find(student => student.id === effectiveStudentId)?.name} /></React.Suspense>}
       <div className={`progress-overview-card relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/70 to-sky-50/70 shadow-[0_16px_34px_rgba(99,102,241,0.14)] ${isStudentProgressSection ? 'progress-overview-card--compact' : 'p-4 md:p-6'} ${isStudentMocksSection ? 'progress-overview-card--mocks' : 'progress-overview-card--mastery'}`}>
         <div aria-hidden className="pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
         <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-12 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />

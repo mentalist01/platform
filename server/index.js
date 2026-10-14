@@ -40,6 +40,7 @@ import { normalizeMockCompletionEvents, mockCompletionNotifications } from './te
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
+import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
@@ -1861,6 +1862,7 @@ const getLoadedCollabDocs = () => (
     : null
 );
 const homeworkReminders = new HomeworkReminderStore(path.join(dataDir, 'homework-reminders.json'));
+const homeworkLives = new HomeworkLivesStore(path.join(dataDir, 'homework-lives.json'));
 const individualLessonPace = new IndividualLessonPaceStore(path.join(dataDir, 'individual-lesson-pace.json'));
 // A canvas can be opened only after its page was created in the teacher's
 // manifest. This prevents arbitrary page IDs from creating orphan snapshots.
@@ -22690,6 +22692,33 @@ registerHomeworkReminderRoutes(app, homeworkReminders, {
     if (lesson.groupId) return readLearningAssignmentsDb().filter(entry => entry.groupId === lesson.groupId && entry.teacherId === lesson.teacherId);
     const data = getStudentData(lesson.studentId);
     return [...(data.homeworks || []), ...(data.nextLesson?.issuedAt ? [data.nextLesson] : [])];
+  },
+});
+
+registerHomeworkLives(app, homeworkLives, {
+  staff: ensureStaffWriteAccess,
+  student: (req, res, id) => ensureStudentAccess(req, res, id),
+  students: teacherId => readStudentsDb().filter(student => student.teacherId === teacherId && !student.deletedAt && isCurrentStudent(student)),
+  context: (student, batch = {}) => {
+    const data = getStudentData(student.id);
+    const groups = batch.groups ||= readLearningGroupsDb().filter(group => group.teacherId === student.teacherId && !group.deletedAt);
+    const allGroupEntries = batch.groupEntries ||= availabilityCalendarEntries(student.teacherId, false, true, true);
+    const groupEntries = allGroupEntries.filter(entry => (
+      (entry.participantIds || []).includes(student.id)
+      && isGroupLessonAssigned(groups.find(group => group.id === entry.groupId), student.id, entry)
+    ));
+    const schedule = [...(data.schedule || []).filter(entry => !entry.groupId && !entry.isLearningGroupEvent), ...groupEntries];
+    return {
+      homeworks: data.homeworks || [],
+      estimatePlan: month => estimateHomeworkPlan(schedule, month),
+      evaluate: homework => {
+        const testsDb = batch.testsDb ||= getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
+        return homeworkDeadlineResult(
+          { ...homework, goals: getNormalizedHomeworkGoals(homework, testsDb) }, data, testsDb,
+          readMockExamsDb().filter(exam => isMockExamVisibleToStudent(exam, student.id)), Date.now()
+        );
+      },
+    };
   },
 });
 

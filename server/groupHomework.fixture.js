@@ -5,7 +5,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 
-export async function createGroupHomeworkFixture(fixedPort) {
+export async function createGroupHomeworkFixture(fixedPort, seedData) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-concurrent-homework-'));
   const data = path.join(root, 'data'), uploads = path.join(root, 'uploads');
   fs.mkdirSync(data); fs.mkdirSync(uploads);
@@ -18,6 +18,7 @@ export async function createGroupHomeworkFixture(fixedPort) {
     pythonSubsections: [{ id: 'input-output', title: 'Ввод и вывод данных', order: 0 }],
     pythonTheoryBySubsection: { 'input-output': { rutube: { type: 'rutube', content: 'https://rutube.ru/video/0123456789abcdef0123456789abcdef/' }, text: { type: 'text', content: 'print() выводит данные.' } } },
   } });
+  seedData?.(write, data);
   const port = fixedPort || await new Promise(resolve => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
   const base = `http://127.0.0.1:${port}`;
   let logs = '';

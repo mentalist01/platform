@@ -42,6 +42,8 @@ import StudentLeaderboardProfileModal from './components/StudentLeaderboardProfi
 import StudentLessonJoinPrompt from './components/StudentLessonJoinPrompt';
 import MockChestOpeningOverlay from './components/MockChestOpeningOverlay';
 import StudentPaymentReminder from './components/StudentPaymentReminder';
+const HomeworkLivesBadge = React.lazy(() => import('./components/HomeworkLives'));
+const TeacherHomeworkLivesNotice = React.lazy(() => import('./components/HomeworkLives').then(module => ({ default: module.TeacherHomeworkLivesNotice })));
 import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './components/TeacherSubscriptionGate';
 import TeacherDesktopNotice from './components/TeacherDesktopNotice';
 const TeacherUpdates = React.lazy(() => import('./components/TeacherUpdates'));
@@ -26020,6 +26022,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           data-tour="main"
         >
           <div className={mainContentShellClass}>
+            {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherHomeworkLivesNotice userId={user.id}
+              paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || isCallSessionActive || isAnyTelemostLessonReplayActive}
+              onOpen={studentId => { handleSelectStudent(studentId); setActiveProgressSection('progress'); navigateToView('progress'); }} /></React.Suspense>}
             {user.role === 'teacher' && !['lesson', 'board', 'collab', 'call'].includes(view) && <TeacherDesktopNotice key={user.id} teacherId={user.id} onDetails={() => setView('recording')} />}
             {user.role === 'teacher' && window.teacherDesktop?.isDesktop === true && <React.Suspense fallback={null}><TeacherUpdates key={user.id} role={user.role} teacherId={user.id}
               paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || isCallSessionActive || isAnyTelemostLessonReplayActive || Boolean(activeLearningLesson) || !desktopRecorder.checkedAt || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status) || (job.desired === 'record' && job.cutoffAt > Date.now()))} /></React.Suspense>}
@@ -26033,7 +26038,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}>
           {user.role === 'student' && !isStudentChatView && view !== 'collab' && view !== 'board' && view !== 'call' && (
             <div className="top-stats-strip mb-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/85 px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
-              <div className="flex items-center gap-1.5 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-2">
+              <div className="flex flex-wrap items-center gap-1.5 md:flex-row md:items-center md:justify-between md:gap-2">
                 <button
                   type="button"
                   onClick={openLevelProfile}
@@ -26106,6 +26111,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                     </div>
                   </div>
                   </button>
+                  <React.Suspense fallback={null}><HomeworkLivesBadge key={user.id} studentId={user.id} /></React.Suspense>
                   <div className="flex shrink-0 items-center gap-1.5 md:ml-auto md:gap-2">
                   <StudentGlobalSearch
                     studentId={user.id}
