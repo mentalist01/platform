@@ -1,3 +1,5 @@
+import { mergeGroupHomeworkCarryover } from './groupHomeworkCarryover.js';
+
 const WEEK_MS = 7 * 86400000;
 
 export const normalizeHomeworkStudyTrack = value => ['ege', 'python'].includes(value) ? value : '';
@@ -34,6 +36,7 @@ export const weeklyHomeworkLessonChoices = (schedule = [], now = Date.now()) => 
 };
 
 export const partitionConcurrentHomeworks = (entries = [], now = Date.now()) => {
+  entries = mergeGroupHomeworkCarryover(entries).filter(entry => !entry.learningEgeCarryover);
   const latestIndividual = entries.find(entry => entry.source !== 'learning-group');
   const active = [], history = [];
   for (const entry of entries) {

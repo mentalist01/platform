@@ -3285,7 +3285,7 @@ const ScheduleSection = ({
     const tracksNextLesson = normalizeHomeworkDueAtMode(entry?.dueAtMode)
       === HOMEWORK_DUE_AT_MODE_NEXT_LESSON;
     const sectionLabel = isNextSection
-      ? (entry.learningEgeCarryover ? 'Доделать прошлую домашку · ЕГЭ' : homeworkStudyTrackLabel(entry.studyTrack) || (tracksNextLesson ? 'К следующему уроку' : 'Текущая домашка'))
+      ? (homeworkStudyTrackLabel(entry.studyTrack) || (tracksNextLesson ? 'К следующему уроку' : 'Текущая домашка'))
       : 'Предыдущая домашка';
     const summaryStatus = goalsSummary.goalCount === 0
       ? (isLearningGroupHomework
@@ -3695,13 +3695,6 @@ const ScheduleSection = ({
               ))}
             </div>
           </header>
-
-          {entry.learningEgeCarryover && (
-            <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-950">
-              Здесь только ваши недоделанные обязательные номера из «{entry.carryoverOriginalTitle || 'Прошлой домашней работы'}».
-              Доделайте их вместе с новой домашкой. Повторного списания жизней за перенос не будет.
-            </p>
-          )}
 
           {learningVideoMaterials.length > 0 && (
             <section className="relative mt-4 space-y-4" aria-label="Видео к домашней работе">

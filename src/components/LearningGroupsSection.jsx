@@ -3206,7 +3206,7 @@ const LearningGroupsSection = ({
                   <input type="checkbox" className="mt-1 accent-violet-600" checked={assignmentComposerForm.carryoverEge !== false}
                     onChange={event => setAssignmentComposerForm(current => ({ ...current, carryoverEge: event.target.checked }))} />
                   <span><strong>Добавить каждому его недоделанные задания ЕГЭ</strong>
-                    <span className="mt-1 block text-xs leading-relaxed">Только обязательные номера этой группы. У каждого ученика свой остаток рядом с новой домашкой. За перенос повторно жизни не списываются.</span>
+                    <span className="mt-1 block text-xs leading-relaxed">Нерешённые обязательные номера этой группы добавятся прямо в новую домашку. Для каждого ученика — только его остаток. За перенос повторно жизни не списываются.</span>
                   </span>
                 </label>
               )}

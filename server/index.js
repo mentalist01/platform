@@ -43,6 +43,7 @@ import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homewor
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
+import { mergeGroupHomeworkCarryover } from '../src/utils/groupHomeworkCarryover.js';
 import { BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed } from './blankWorkbook.js';
 import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
@@ -15670,6 +15671,8 @@ const getRequiredHomeworkProgressSnapshot = (
   mockExamById = {}
 ) => {
   if (homework?.learningEgeCarryover) return { requiredGoalCount: 0, measurable: false, totalCount: 0, pendingCount: 0 };
+  homework = mergeGroupHomeworkCarryover(studentData?.homeworks)
+    .find(entry => entry.id === homework?.id) || homework;
   const requiredGoals = getNormalizedHomeworkGoals(homework, testsDb)
     .filter((goal) => !isOptionalHomeworkGoal(goal));
   const snapshots = requiredGoals.map((goal) => (
@@ -15712,6 +15715,8 @@ const wasHomeworkCompletedByDeadline = ({
   mockExams,
   nowMs,
 }) => {
+  homework = mergeGroupHomeworkCarryover(studentData?.homeworks)
+    .find(entry => entry.id === homework?.id) || homework;
   const dueAtMs = Date.parse(resolveHomeworkDueAt(homework));
   if (!Number.isFinite(dueAtMs)) return false;
 

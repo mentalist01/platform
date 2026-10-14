@@ -21,7 +21,9 @@ test('each pupil receives only their own unfinished EGE targets; old deadline an
   assert.equal(carried(projectGroupEgeCarryover([old,next],data([1,2,3]),testsDb)).length,0);
   assert.deepEqual(a.find(x=>x.id==='old').goals,old.goals);
   assert.equal(a.find(x=>x.id==='old').dueAt,old.dueAt);
-  assert.deepEqual(partitionConcurrentHomeworks(a,Date.parse('2026-10-15')).active.map(x=>x.id),['new','new--ege-old']);
+  const visible = partitionConcurrentHomeworks(a,Date.parse('2026-10-15')).active;
+  assert.deepEqual(visible.map(x=>x.id),['new']);
+  assert.deepEqual(visible[0].goals[0].targetQuestionIds,['q3','q4']);
 });
 test('only EGE required work from the same group is carried; cancelled work and Python never revive',()=>{
   const input=[{...old,learningGroupId:'g3'}, {...old,id:'withdrawn',learningHomeworkCancelledAt:'2026-10-10'},
@@ -34,7 +36,8 @@ test('snapshots are stable after solving and polls; a next assignment carries th
   assert.deepEqual(projectGroupEgeCarryover(first,data([1,2]),testsDb),first);
   const second=projectGroupEgeCarryover([...first,entry('newer','21',[goal([4])],{carryoverEge:true})],data([1,2]),testsDb);
   const active=partitionConcurrentHomeworks(second,Date.parse('2026-10-22')).active;
-  assert.deepEqual(active.filter(x=>x.learningEgeCarryover).flatMap(x=>x.goals.flatMap(g=>g.targetQuestionIds)),['q3']);
+  assert.deepEqual(active.map(x=>x.id),['newer']);
+  assert.deepEqual(active[0].goals[0].targetQuestionIds,['q3','q4']);
   assert.equal(active.some(x=>x.id==='new--ege-old'),false);
 });
 test('explicit repeats, removed IDs and a reordered question bank do not duplicate or substitute targets',()=>{
@@ -47,7 +50,9 @@ test('original issue window allows late completion and disabling transfer restor
   const values=projectGroupEgeCarryover([old,next],data([1,2]),testsDb), supplement=carried(values)[0];
   const done={solvedByTask:{7:{basic:{solved:['q3'],answerHistory:{q3:[{correct:true,submittedAt:'2026-10-15T12:00:00Z'}]}}}}};
   const stats=buildHomeworkStatistics({homeworks:values,studentData:done,testsDb,nowMs:Date.parse('2026-10-16')});
-  assert.equal(stats.find(x=>x.id===supplement.id).completedCount,1);
+  assert.equal(stats.some(x=>x.id===supplement.id),false);
+  assert.equal(stats.find(x=>x.id==='new').completedCount,1);
+  assert.equal(stats.find(x=>x.id==='new').totalCount,2);
   const disabled=projectGroupEgeCarryover(values.map(x=>x.id==='new'?{...x,carryoverEge:false}:x),done,testsDb);
   assert.equal(carried(disabled).length,0);
   assert.equal(disabled.find(x=>x.id==='old').learningCarryoverSupersededBy,undefined);

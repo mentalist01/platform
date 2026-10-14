@@ -5,7 +5,6 @@ import { subscribeScheduleSync } from './services/scheduleSync';
 import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
 import { GROUP_SHARED_CODE_ID, groupCodeTabs, groupCodeRoom } from './utils/groupCodeRooms.js';
 import useGroupCodePresence from './hooks/useGroupCodePresence.js';
-import { partitionConcurrentHomeworks } from './utils/concurrentHomework.js';
 import { hasHomeworkResources } from './utils/homeworkResourcePresence.js';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
 import { readCallResume } from './utils/callResume.js';
@@ -24174,6 +24173,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         return [];
       };
 
+      const { partitionConcurrentHomeworks } = await import('./utils/concurrentHomework.js');
       const entries = partitionConcurrentHomeworks(sorted).active;
       if (!entries.length) {
         setGoalState(null);

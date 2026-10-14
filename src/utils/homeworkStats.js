@@ -1,4 +1,5 @@
 import { isMockAttemptForHomework, resolveHomeworkTaskTargetDescriptors } from './homeworkComposer.js';
+import { mergeGroupHomeworkCarryover } from './groupHomeworkCarryover.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -488,7 +489,7 @@ export const buildHomeworkStatistics = ({
   nowMs = Date.now(),
 } = {}) => {
   const safeNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
-  const sorted = (Array.isArray(homeworks) ? homeworks : [])
+  const sorted = mergeGroupHomeworkCarryover(homeworks)
     .map((entry, sourceIndex) => ({
       entry: entry && typeof entry === 'object' ? entry : {},
       sourceIndex,

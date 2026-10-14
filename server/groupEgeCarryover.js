@@ -1,4 +1,5 @@
 import { buildHomeworkCarryoverDraft, resolveHomeworkTaskTargetDescriptors } from '../src/utils/homeworkComposer.js';
+import { isOptionalHomeworkGoal } from '../src/utils/homeworkAssignmentTier.js';
 
 const list = value => Array.isArray(value) ? value : [];
 const isEgeGoal = goal => goal?.type !== 'mock' && !goal?.mockExamId
@@ -48,6 +49,15 @@ export function projectGroupEgeCarryover(homeworks, studentData, testsDb) {
   const latestParent = new Map(parents.map(parent => [parent.learningGroupId, parent]));
   const supplements = [];
   for (const parent of parents) {
+    // New EGE work replaces earlier EGE cards even when an explicit new
+    // target already covers the entire remainder or the old work is complete.
+    for (const source of originals) {
+      if (eligible(source) && source.learningGroupId === parent.learningGroupId
+        && Date.parse(source.issuedAt) < Date.parse(parent.issuedAt)
+        && list(source.goals).some(goal => isEgeGoal(goal) && !isOptionalHomeworkGoal(goal))) {
+        source.learningCarryoverSupersededBy = parent.id;
+      }
+    }
     for (const snapshot of parent.egeCarryoverSnapshot) {
       const source = originals.find(entry => entry.id === snapshot.sourceHomeworkId);
       // A withdrawn assignment or a pupil's transfer must not revive old work.

@@ -27,7 +27,9 @@ test('real group publication snapshots personal EGE remainders and keeps them af
     assert.deepEqual(supplement(b).goals[0].targetQuestionIds,['q2','q3']);
     assert.deepEqual(a.find(x=>x.learningAssignmentId===old.id&&!x.learningEgeCarryover).goals[0].targetQuestionIds,['q1','q2','q3']);
     assert.equal(supplement(a).dueAt,current.dueAt);
-    assert.equal(partitionConcurrentHomeworks(a).active.length,2);
+    const visibleA=partitionConcurrentHomeworks(a).active;
+    assert.equal(visibleA.length,1);
+    assert.deepEqual(visibleA[0].goals[0].targetQuestionIds,['q3','q4']);
     const stored=JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'));
     assert.deepEqual(stored['student-a'].homeworks.find(x=>x.learningAssignmentId===current.id&&!x.learningEgeCarryover).egeCarryoverSnapshot[0].goals[0].targetQuestionIds,['q3']);
     const published=(await f.request(`${route}/${current.id}`,teacher)).assignment;
@@ -42,8 +44,9 @@ test('real group publication snapshots personal EGE remainders and keeps them af
     assert.equal(supplement(await fetchEntries('student-a')).goals[0].targetQuestionIds[0],'q3');
     const newer=await create('Следующая ЕГЭ',[goal([4])],{carryoverEge:true});
     const nextA=await fetchEntries('student-a'),nextB=await fetchEntries('student-b');
-    assert.deepEqual(partitionConcurrentHomeworks(nextA).active.filter(x=>x.learningEgeCarryover).flatMap(x=>x.goals.flatMap(g=>g.targetQuestionIds)),['q3']);
-    assert.equal(partitionConcurrentHomeworks(nextB).active.filter(x=>x.learningEgeCarryover).length,0);
+    assert.deepEqual(partitionConcurrentHomeworks(nextA).active.map(x=>x.learningAssignmentId),[newer.id]);
+    assert.deepEqual(partitionConcurrentHomeworks(nextA).active[0].goals[0].targetQuestionIds,['q3','q4']);
+    assert.deepEqual(partitionConcurrentHomeworks(nextB).active[0].goals[0].targetQuestionIds,['q4']);
     assert.equal(nextA.find(x=>x.learningAssignmentId===newer.id&&!x.learningEgeCarryover).goals[0].targetQuestionIds[0],'q4');
     // Former classmates do not receive another pupil's snapshot.
     assert.equal((await fetchEntries('student-c')).length,0);
@@ -52,4 +55,25 @@ test('real group publication snapshots personal EGE remainders and keeps them af
     await f.request(`/api/learning-groups/${f.groupId}/members/student-a/transfer`,teacher,{targetGroupId:target.id});
     assert.equal(partitionConcurrentHomeworks(await fetchEntries('student-a')).active.length,0);
   } finally {await f.stop();}
+});
+
+test('one combined homework grants one chest only after both new and carried targets are solved', {timeout:60000},async()=>{
+  const tests={7:{basic:[1,2].map(n=>({id:`q${n}`,question:'Проверка',answer:String(n)}))}};
+  const f=await createGroupHomeworkFixture(undefined,write=>write('tests',tests));
+  try {
+    const route=`/api/learning-groups/${f.groupId}/assignments`,teacher=f.tokens['teacher-a'],pupil=f.tokens['student-a'];
+    const dueAt=new Date(Date.now()+7*86400000).toISOString();
+    const create=async(n,carryoverEge=false)=>(await f.request(route,teacher,{title:'ЕГЭ',dueAt,homework:{studyTrack:'ege',carryoverEge,dueAt,
+      goals:[{type:'task',taskNumber:7,levelId:'basic',targetQuestions:[n],targetQuestionIds:[`q${n}`]}]}},'POST',201)).assignment;
+    const old=await create(1);
+    await f.request(`${route}/${old.id}`,teacher,{status:'closed'},'PATCH');
+    const current=await create(2,true);
+    const solve=n=>f.request('/api/progress/solve',pupil,{taskNumber:7,levelId:'basic',questionId:`q${n}`,code:String(n)});
+    assert.equal((await solve(2)).homeworkChestGranted,undefined);
+    const result=await solve(1);
+    assert.equal(result.homeworkChestGranted?.homeworkId,`learning-group-${current.id}`);
+    assert.equal((await solve(1)).homeworkChestGranted,undefined);
+    const data=await f.request('/api/student-data',pupil);
+    assert.equal(data.homeworks.filter(x=>x.homeworkChestGrantedAt).filter(x=>x.learningAssignmentId===current.id).length,1);
+  }finally{await f.stop();}
 });
