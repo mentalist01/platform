@@ -11,6 +11,7 @@ import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRoom
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
 import { useCallEntryTransition } from '../hooks/useCallEntryTransition';
+import { useCallMediaDevices } from '../hooks/useCallMediaDevices.js';
 import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCapture';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../utils/socketRecovery.js';
@@ -1337,6 +1338,7 @@ const CallSection = ({
   onMeetingLeft,
 }) => {
   const isTeacher = role === 'teacher';
+  const { preferences: mediaPreferences, devices: mediaDevices, selectDevice, requestMedia, refreshDevices } = useCallMediaDevices(role, userId);
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
   const effectiveTeacherId = String(teacherId || '').trim();
   const rtcRoom = useMemo(() => meetingId ? {
@@ -3473,7 +3475,7 @@ const CallSection = ({
       throw new Error('Браузер не поддерживает доступ к микрофону.');
     }
     const microphoneAttempt = callAttemptRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await requestMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -3557,7 +3559,7 @@ const CallSection = ({
     setMicEnabled(true);
     syncLocalTracksToAllPeers();
     return outputTrack;
-  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, restartLocalSelfSpeakingObserver, syncLocalTracksToAllPeers, listenOnly]);
+  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, restartLocalSelfSpeakingObserver, syncLocalTracksToAllPeers, listenOnly, requestMedia]);
 
   const ensureCameraTrack = useCallback(async () => {
     if (listenOnly) throw new Error('В режиме слушателя камера выключена');
@@ -3574,7 +3576,7 @@ const CallSection = ({
     }
 
     const cameraAttempt = callAttemptRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await requestMedia({
       audio: false,
       video: {
         frameRate: { ideal: CAMERA_MAX_FRAMERATE, max: CAMERA_MAX_FRAMERATE },
@@ -3626,7 +3628,7 @@ const CallSection = ({
     setCameraEnabled(true);
     syncLocalTracksToAllPeers();
     return track;
-  }, [stopCameraTrack, syncLocalTracksToAllPeers, listenOnly]);
+  }, [stopCameraTrack, syncLocalTracksToAllPeers, listenOnly, requestMedia]);
 
   const createPeerState = useCallback((peerId, peerMeta = {}) => {
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
@@ -4697,6 +4699,32 @@ const CallSection = ({
     }
   }, [cameraBusy, cameraEnabled, ensureCameraTrack, renegotiatePeers, status, stopCameraTrack, listenOnly]);
 
+  const changeMediaDevice = useCallback(async (kind, deviceId) => {
+    if (micBusy || cameraBusy || prejoinCheck.status === 'checking' || listenOnly || (status !== 'idle' && status !== 'connected')) return;
+    if (mediaPreferences[kind].deviceId === deviceId) return;
+    const camera = kind === 'camera';
+    const wasEnabled = camera ? cameraEnabled : micEnabled;
+    const setBusy = camera ? setCameraBusy : setMicBusy;
+    setBusy(true);
+    setError('');
+    selectDevice(kind, deviceId);
+    setPrejoinCheck({ status: 'idle', mic: 'idle', camera: 'idle', connection: 'idle', error: '' });
+    try {
+      // Release the old device first; muted microphones may still own a track.
+      if (camera) stopCameraTrack(true);
+      else stopMicTrack(true);
+      if (wasEnabled) {
+        if (camera) await ensureCameraTrack();
+        else await ensureMicTrack();
+      }
+    } catch (deviceError) {
+      setError(normalizeErrorMessage(deviceError, 'Не удалось переключить устройство. Проверьте подключение и разрешения.'));
+    } finally {
+      renegotiatePeers();
+      setBusy(false);
+    }
+  }, [micBusy, cameraBusy, prejoinCheck.status, listenOnly, status, mediaPreferences, cameraEnabled, micEnabled, selectDevice, stopCameraTrack, stopMicTrack, ensureCameraTrack, ensureMicTrack, renegotiatePeers]);
+
   const runPrejoinCheck = useCallback(async () => {
     if (prejoinCheck.status === 'checking') return;
 
@@ -4726,7 +4754,7 @@ const CallSection = ({
     } else if (micResult !== 'ok' || cameraResult !== 'ok') {
       let combinedStream = null;
       try {
-        combinedStream = await navigator.mediaDevices.getUserMedia({
+        combinedStream = await requestMedia({
           audio: micResult === 'ok' ? false : {
             echoCancellation: true,
             noiseSuppression: false,
@@ -4751,7 +4779,7 @@ const CallSection = ({
         if (micResult !== 'ok') {
           let audioStream = null;
           try {
-            audioStream = await navigator.mediaDevices.getUserMedia({
+            audioStream = await requestMedia({
               audio: {
                 echoCancellation: true,
                 noiseSuppression: false,
@@ -4771,7 +4799,7 @@ const CallSection = ({
         if (cameraResult !== 'ok') {
           let cameraStream = null;
           try {
-            cameraStream = await navigator.mediaDevices.getUserMedia({
+            cameraStream = await requestMedia({
               audio: false,
               video: {
                 frameRate: { ideal: CAMERA_MAX_FRAMERATE, max: CAMERA_MAX_FRAMERATE },
@@ -4810,11 +4838,11 @@ const CallSection = ({
       connection: connectionOk ? 'ok' : 'problem',
       error: checkIssues.join(' '),
     });
-  }, [cameraEnabled, micEnabled, prejoinCheck.status, rtcWsUrl, listenOnly]);
+  }, [cameraEnabled, micEnabled, prejoinCheck.status, rtcWsUrl, listenOnly, requestMedia]);
 
-  const toggleScreenShare = useCallback(async () => {
+  const toggleScreenShare = useCallback(async (replaceCurrent = false) => {
     if (screenBusy || listenOnly) return;
-    if (screenSharing) {
+    if (screenSharing && replaceCurrent !== true) {
       stopScreenTrack(true);
       void playAlertSound('screenOff');
       renegotiatePeers();
@@ -4902,6 +4930,7 @@ const CallSection = ({
       syncLocalTracksToAllPeers();
       renegotiatePeers();
     } catch (screenError) {
+      if (replaceCurrent === true && ['AbortError', 'NotAllowedError'].includes(screenError?.name)) return;
       setError(normalizeErrorMessage(screenError, 'Не удалось начать демонстрацию экрана.'));
     } finally {
       setScreenBusy(false);
@@ -6035,8 +6064,8 @@ const CallSection = ({
     ? 'border-violet-300/40 bg-violet-400/20 text-violet-100'
     : 'border-violet-200 bg-violet-50 text-violet-700';
   const micSettingsPopupClass = isDarkTheme
-    ? 'fixed z-[90] rounded-xl border border-slate-700/80 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
-    : 'fixed z-[90] rounded-xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_34px_rgba(15,23,42,0.2)] backdrop-blur';
+    ? 'fixed z-[90] max-h-[calc(100vh-24px)] overflow-y-auto rounded-xl border border-slate-700/80 bg-slate-900/95 p-3 shadow-[0_16px_34px_rgba(2,6,23,0.55)] backdrop-blur'
+    : 'fixed z-[90] max-h-[calc(100vh-24px)] overflow-y-auto rounded-xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_34px_rgba(15,23,42,0.2)] backdrop-blur';
   const micSettingsSectionClass = isDarkTheme
     ? 'rounded-lg border border-slate-800/90 bg-slate-900/50 p-2'
     : 'rounded-lg border border-slate-200/60 bg-white/70 p-2';
@@ -6145,6 +6174,46 @@ const CallSection = ({
     }
     : undefined;
 
+  const mediaDevicePickers = !listenOnly && (
+    <div className={`call-device-pickers rounded-2xl border p-3 ${isDarkTheme ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-violet-200 bg-violet-50/70 text-slate-700'}`}>
+      <div className="grid grid-cols-1 gap-3">
+        {[
+          { kind: 'camera', input: 'videoinput', title: 'Камера' },
+          { kind: 'microphone', input: 'audioinput', title: 'Микрофон' },
+        ].map(({ kind, input, title }) => {
+          const available = mediaDevices.filter((device) => device.kind === input && device.deviceId);
+          const selected = mediaPreferences[kind];
+          const missing = selected.deviceId && !available.some((device) => device.deviceId === selected.deviceId);
+          return (
+            <label key={kind} className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold">
+              <span className="flex items-center gap-1.5">{kind === 'camera' ? <Camera size={14} /> : <Mic size={14} />}{title}</span>
+              <select
+                aria-label={`${title} для урока`}
+                className={teacherSelectClass}
+                value={selected.deviceId}
+                disabled={prejoinMediaBusy}
+                onFocus={() => { void refreshDevices(); }}
+                onChange={(event) => { void changeMediaDevice(kind, event.target.value); }}
+              >
+                <option value="">По умолчанию в системе</option>
+                {missing && <option value={selected.deviceId}>{selected.label || title} · не подключена</option>}
+                {available.map((device, index) => (
+                  <option key={device.deviceId} value={device.deviceId}>{device.label || `${title} ${index + 1}`}</option>
+                ))}
+              </select>
+            </label>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-[11px] font-normal opacity-75">Выбор сохранится на этом устройстве. Включите камеру или микрофон для проверки.</p>
+      {isConnected && (
+        <button type="button" className={`${prejoinSecondaryActionClass} mt-3 w-full justify-center`} disabled={screenBusy} onClick={() => { void toggleScreenShare(true); }}>
+          <MonitorUp size={16} /><span>{screenSharing ? 'Выбрать другой экран или окно' : 'Выбрать экран или окно'}</span>
+        </button>
+      )}
+    </div>
+  );
+
   if (isHiddenUi) {
     return null;
   }
@@ -6152,7 +6221,7 @@ const CallSection = ({
   // Group channels provide their own entry screen. Keep the media lifecycle
   // mounted so a channel click can connect without a second prejoin screen.
   if (channelSelectionMode && isGroupLesson && !isConnected) {
-    return resolvedError ? <p className="group-voice__error" role="alert">{resolvedError}</p> : null;
+    return <div className="my-3">{mediaDevicePickers}{resolvedError && <p className="group-voice__error" role="alert">{resolvedError}</p>}</div>;
   }
 
   if (isCollapsedUi) {
@@ -6506,7 +6575,7 @@ const CallSection = ({
                         </button>
                       </div>
                     </div>
-
+                    <div className="mt-3">{mediaDevicePickers}</div>
                   </div>
 
                   <div className="call-prejoin-side-stack">
@@ -6944,8 +7013,9 @@ const CallSection = ({
               onMouseDown={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
             >
-              <p className={popupTitleClass}>Настройки звука</p>
+              <p className={popupTitleClass}>Звук и видео</p>
               <div className="mt-3 flex flex-col gap-3">
+                {mediaDevicePickers}
                 <button type="button" onClick={testAlertSound} className={`${prejoinSecondaryActionClass} w-full justify-center`}>
                   <Volume2 size={16} />
                   <span>Проверить звук</span>
