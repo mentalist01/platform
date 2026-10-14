@@ -76,6 +76,16 @@ export async function ensurePrivateAccess(page, editor) {
   if (!await selected()) throw new Error('Не удалось установить доступ «только по ссылке». Видео не опубликовано.');
 }
 
+export async function configureUploadEditor(page, editor, job, title, persist) {
+  // The upload shell renders before Rutube binds it to the registered video.
+  // Its initial access control is replaced as the file metadata arrives. Wait
+  // for that binding before editing, while keeping this transfer open.
+  job.uploadPhase = 'waiting-upload'; persist();
+  await editor.locator('a[href*="rutube.ru/video/"]').waitFor({ timeout: RUTUBE_UPLOAD_WAIT_MS });
+  await editor.getByRole('textbox', { name: 'Название', exact: true }).fill(title);
+  await ensurePrivateAccess(page, editor);
+}
+
 // Uses a separate browser profile. No passwords or browser cookies are copied from other apps.
 // On uncertain upload outcomes the queue stops for review instead of uploading a second copy.
 export class RutubeUploader {
@@ -140,9 +150,7 @@ export class RutubeUploader {
       await recoveryLink.waitFor({ timeout: 60000 });
       if (privateVideo(await recoveryLink.getAttribute('href'))?.id !== privateVideo(job.candidateUrl)?.id) throw new Error('Найден другой ролик с таким названием. Проверьте исходную загрузку.');
     }
-    await editor.getByRole('textbox', { name: 'Название', exact: true }).fill(title);
-    // The UI defaults can change. Require explicit private selection before saving.
-    await ensurePrivateAccess(page, editor);
+    await configureUploadEditor(page, editor, job, title, persist);
     return completePrivateVideo(editor, job, persist);
   }
 }

@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { completePrivateVideo, ensurePrivateAccess, isCurrentUploadEditor, RUTUBE_UPLOAD_WAIT_MS } from './rutube.mjs';
+import { completePrivateVideo, configureUploadEditor, ensurePrivateAccess, isCurrentUploadEditor, RUTUBE_UPLOAD_WAIT_MS } from './rutube.mjs';
 
 const url = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Test_Key';
+
+test('upload does not edit transient title or privacy controls before Rutube registers the transferred file', async () => {
+  let release,edited=false,accessChecked=false;
+  const registered=new Promise(resolve=>{release=resolve;});
+  const editor={locator:selector=>{assert.equal(selector,'a[href*="rutube.ru/video/"]');return{waitFor:async({timeout})=>{assert.equal(timeout,RUTUBE_UPLOAD_WAIT_MS);await registered;}};},
+    getByRole:role=>role==='textbox'?{fill:async title=>{assert.equal(title,'Lesson');edited=true;}}:{innerText:async()=>{accessChecked=true;return 'Только по ссылке';}}};
+  const job={},configure=configureUploadEditor({},editor,job,'Lesson',()=>{});
+  assert.equal(job.uploadPhase,'waiting-upload');assert.equal(edited,false);assert.equal(accessChecked,false);
+  release();await configure;assert.equal(edited,true);assert.equal(accessChecked,true);
+});
 
 test('private access selects an actual menu option instead of duplicate card labels and confirms the result', async () => {
   let mode='Для всех',clicked=0;
