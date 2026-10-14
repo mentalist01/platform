@@ -176,6 +176,56 @@ html[data-theme='dark'] .call-game-overlay.call-game-overlay--cabinet {
   --voice-control: #c4a6ff1a;
   --voice-shadow: #0e07261f;
 }
+/* Webcams use the same draggable panel and existing audio controls. */
+.call-game-overlay--cabinet[data-has-cameras='true'] .call-game-overlay__list,
+.call-game-overlay--cabinet[data-has-cameras='true'] .call-game-overlay__list.is-expanded {
+  max-height: min(72dvh, 640px);
+  overflow-y: auto;
+  padding: 2px;
+  gap: 8px;
+}
+.call-game-overlay--cabinet .call-game-overlay__row[data-camera='true'] {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: 220px;
+  max-width: 100%;
+  border-radius: 14px;
+  opacity: 1;
+  overflow: hidden;
+  background: var(--voice-glass);
+  border: 1px solid var(--voice-border);
+}
+.call-game-overlay--cabinet .call-game-overlay__row[data-camera='true'][data-speaking='true'] { box-shadow: 0 0 0 2px #a78bfa70; }
+.call-game-overlay--cabinet .call-mini-camera:not(:fullscreen) {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.call-game-overlay--cabinet .call-mini-camera:not(:fullscreen) .call-media-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  touch-action: none;
+  user-select: none;
+}
+.call-game-overlay--cabinet .call-mini-camera:not(:fullscreen) :is(.call-media-overlay, .call-video-frame-glow, .call-video-scan, .call-audio-badge) { display: none; }
+.call-game-overlay--cabinet .call-game-overlay__row[data-camera='true'] .call-game-overlay__plate {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.call-game-overlay--cabinet .call-game-overlay__row[data-camera='true'] .call-game-overlay__name { flex: 1; touch-action: none; cursor: grab; }
 @keyframes callMiniSpeaking {
   0%, 100% { box-shadow: 0 0 0 2px #a78bfa24, 0 0 10px #9b62e429, inset 0 1px #ffffff47; }
   50% { box-shadow: 0 0 0 3px #a78bfa17, 0 0 16px #9b62e433, inset 0 1px #ffffff47; }

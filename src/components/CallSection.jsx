@@ -12,6 +12,7 @@ import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
 import { useCallEntryTransition } from '../hooks/useCallEntryTransition';
 import { useCallMediaDevices } from '../hooks/useCallMediaDevices.js';
+import { withFloatingCameraStreams, visibleFloatingParticipants } from '../utils/callCameraPreviews.js';
 import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCapture';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
 import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../utils/socketRecovery.js';
@@ -821,18 +822,16 @@ const exitDocumentFullscreen = async () => {
   }
 };
 
-const CallGameVoiceOverlay = ({ participants = [], className = '', onReturn }) => {
+export const CallGameVoiceOverlay = ({ participants = [], className = '', onReturn }) => {
   const largeGroup = participants.length > 3;
   const [expansion, setExpansion] = useState({ largeGroup, expanded: false });
   if (expansion.largeGroup !== largeGroup) setExpansion({ largeGroup, expanded: false });
   const expanded = expansion.largeGroup === largeGroup && expansion.expanded;
   if (!participants.length) return null;
   const overlayClassName = ['call-game-overlay', className].filter(Boolean).join(' ');
-  const shownParticipants = largeGroup && !expanded
-    ? participants.filter(participant => participant.isSelf)
-    : participants;
+  const shownParticipants = visibleFloatingParticipants(participants, expanded);
   return (
-    <div className={overlayClassName}>
+    <div className={overlayClassName} data-has-cameras={participants.some(p => p.cameraStream) ? 'true' : undefined}>
       {largeGroup && <button type="button" className="call-game-overlay__toggle" aria-expanded={expanded}
         onClick={() => setExpansion({ largeGroup, expanded: !expanded })} onDoubleClick={event => event.stopPropagation()}>
         <Users size={15} /> Участники: {participants.length} · {expanded ? 'Свернуть' : 'Показать'}
@@ -857,13 +856,17 @@ const CallGameVoiceOverlay = ({ participants = [], className = '', onReturn }) =
             className="call-game-overlay__row"
             data-speaking={participant.isSpeaking ? 'true' : 'false'}
             data-muted={participant.isMuted ? 'true' : 'false'}
+            data-camera={participant.cameraStream ? 'true' : undefined}
             title={`${participant.title}: ${participantStateText}`}
           >
-            <span className="call-game-overlay__avatar" aria-hidden="true" data-panel-drag-handle>
+            {participant.cameraStream ? (
+              <MediaTile stream={participant.cameraStream} title={participant.title} subtitle=""
+                className="call-mini-camera" videoKind="camera" muted dragHandle />
+            ) : <span className="call-game-overlay__avatar" aria-hidden="true" data-panel-drag-handle>
               {participant.initial}
-            </span>
+            </span>}
             <span className="call-game-overlay__plate">
-              <span className="call-game-overlay__name">
+              <span className="call-game-overlay__name" data-panel-drag-handle>
                 {participant.title}
               </span>
               {participant.isSelf ? <button type="button" className="call-game-overlay__mic"
@@ -906,6 +909,9 @@ export const MediaTile = ({
   onContextMenu,
   isDarkTheme = false,
   fullscreenVoiceParticipants = [],
+  dragHandle = false,
+  smallPreview = false,
+  onTogglePreviewSize,
 }) => {
   const tileRef = useRef(null);
   const mediaRef = useRef(null);
@@ -1138,11 +1144,22 @@ export const MediaTile = ({
       >
         {isFullscreen ? <Minimize2 size={isCompact ? 13 : 16} /> : <Maximize2 size={isCompact ? 13 : 16} />}
       </button>
+      {onTogglePreviewSize && !isFullscreen && (
+        <button type="button" className={`${fullscreenButtonClass} call-camera-size-button`}
+          onClick={(event) => { event.stopPropagation(); onTogglePreviewSize(); }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          aria-label={smallPreview ? 'Увеличить свою вебку' : 'Уменьшить свою вебку'}
+          title={smallPreview ? 'Увеличить свою вебку' : 'Уменьшить свою вебку'}>
+          {smallPreview ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+          <span>{smallPreview ? 'Увеличить' : 'Уменьшить'}</span>
+        </button>
+      )}
       <video
         ref={mediaRef}
         autoPlay
         muted={muted}
         playsInline
+        data-panel-drag-handle={dragHandle ? true : undefined}
         className={`call-media-video w-full ${isDarkTheme ? 'bg-slate-950' : 'bg-slate-100'} object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
       />
       {isFullscreen && fullscreenVoiceParticipants.length > 0 && (
@@ -1338,7 +1355,7 @@ const CallSection = ({
   onMeetingLeft,
 }) => {
   const isTeacher = role === 'teacher';
-  const { preferences: mediaPreferences, devices: mediaDevices, selectDevice, requestMedia, refreshDevices } = useCallMediaDevices(role, userId);
+  const { preferences: mediaPreferences, devices: mediaDevices, selectDevice, requestMedia, refreshDevices, setSmallCameraPreview } = useCallMediaDevices(role, userId);
   const effectiveStudentId = isTeacher ? String(activeStudentId || '').trim() : String(userId || '').trim();
   const effectiveTeacherId = String(teacherId || '').trim();
   const rtcRoom = useMemo(() => meetingId ? {
@@ -5642,6 +5659,7 @@ const CallSection = ({
       return participants;
     })()
     : [];
+  const floatingCameraParticipants = withFloatingCameraStreams(overlayVoiceParticipants, voiceCallParticipants);
   const statusTone = isConnected
     ? (hasMediaConnectionIssue ? 'problem' : (hasActiveMediaConnection ? 'connected' : 'waiting'))
     : (isConnecting ? 'connecting' : 'idle');
@@ -6236,7 +6254,7 @@ const CallSection = ({
         onDoubleClick={() => { if (Date.now() >= panelDragClickSuppressedUntil.current) collapsedOpenHandler?.(); }}
         title="Перетащите панель. Двойной клик по имени или аватару откроет звонок."
       >
-        <CallGameVoiceOverlay participants={overlayVoiceParticipants} className={collapsedCardClass}
+        <CallGameVoiceOverlay participants={floatingCameraParticipants} className={collapsedCardClass}
           onReturn={() => collapsedOpenHandler?.()} />
       </div>
     );
@@ -6673,6 +6691,7 @@ const CallSection = ({
                           className="call-participant-entry call-participant-entry--video"
                           data-speaking={peer.isSpeaking ? 'true' : 'false'}
                           data-self={peer.isSelf ? 'true' : 'false'}
+                          data-self-camera-small={peer.videoKind === 'camera' && mediaPreferences.smallCameraPreview ? 'true' : undefined}
                           style={{
                             '--call-stagger-index': index,
                             '--call-depth-rotate': `${((index % 5) - 2) * 0.9}deg`,
@@ -6688,6 +6707,8 @@ const CallSection = ({
                             muted
                             isDarkTheme={isDarkTheme}
                             fullscreenVoiceParticipants={overlayVoiceParticipants}
+                            smallPreview={mediaPreferences.smallCameraPreview}
+                            onTogglePreviewSize={peer.videoKind === 'camera' ? () => setSmallCameraPreview(!mediaPreferences.smallCameraPreview) : undefined}
                           />
                         </div>
                       );

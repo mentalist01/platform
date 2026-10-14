@@ -6,9 +6,9 @@ export const normalizeCallDevice = (value) => ({
 export const readCallDevices = (storage, key) => {
   try {
     const saved = JSON.parse(storage?.getItem(key) || '{}');
-    return { camera: normalizeCallDevice(saved.camera), microphone: normalizeCallDevice(saved.microphone) };
+    return { camera: normalizeCallDevice(saved.camera), microphone: normalizeCallDevice(saved.microphone), smallCameraPreview: saved.smallCameraPreview === true };
   } catch {
-    return { camera: normalizeCallDevice(), microphone: normalizeCallDevice() };
+    return { camera: normalizeCallDevice(), microphone: normalizeCallDevice(), smallCameraPreview: false };
   }
 };
 

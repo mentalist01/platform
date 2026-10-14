@@ -55,5 +55,12 @@ export const useCallMediaDevices = (role, userId) => {
     }
   }, [refreshDevices]);
 
-  return { preferences, devices, selectDevice, requestMedia, refreshDevices };
+  const setSmallCameraPreview = useCallback((small) => {
+    const next = { ...preferencesRef.current, smallCameraPreview: small === true };
+    preferencesRef.current = next;
+    setPreferences(next);
+    try { window.localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Session size still works. */ }
+  }, [storageKey]);
+
+  return { preferences, devices, selectDevice, requestMedia, refreshDevices, setSmallCameraPreview };
 };

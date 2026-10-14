@@ -152,6 +152,23 @@ html[data-theme='dark'] .call-workspace-ambient span { opacity: .18; }
 }
 .call-workspace.call-panel-root[data-call-role] .call-media-stage:not([data-video-count='1']) .call-media-tile--stage { height: clamp(180px, 55cqh, 360px); }
 .call-workspace.call-panel-root[data-call-role] .call-media-stage[data-video-count='0'] .call-media-grid { min-height: calc(100% - 32px); }
+.call-workspace.call-panel-root[data-call-role] .call-media-grid .call-participant-entry--video[data-self-camera-small='true'] {
+  flex: 0 1 320px;
+  max-width: 320px;
+}
+.call-workspace.call-panel-root[data-call-role] .call-participant-entry[data-self-camera-small='true'] .call-media-tile--stage:not(:fullscreen) {
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+.call-camera-size-button {
+  top: 12px;
+  right: 56px;
+  min-height: 36px;
+  padding: 0 9px;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+}
 /* Override the legacy motion reset only for decorative pieces; video stays still. */
 .call-workspace.call-panel-root[data-call-role] .call-participant-entry--avatar { flex-basis: 160px; width: 160px; gap: 24px; padding: 8px; animation: callAvatarFloat 7s ease-in-out infinite !important; transform: none; filter: none; }
 .call-workspace.call-panel-root[data-call-role] .call-avatar-card { width: 112px; height: 112px; border-radius: 32px; font-size: 40px; border: 1px solid #ffffff70; background: linear-gradient(145deg, #9e71fb, #743de0 55%, #ae49d8); color: #fff; box-shadow: 0 14px 32px #7c3aed30, inset 0 1px 1px #ffffff80; animation: none; transform: none; }
