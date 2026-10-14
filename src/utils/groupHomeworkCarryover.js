@@ -1,4 +1,5 @@
 import { getHomeworkGoalAssignmentTier } from './homeworkAssignmentTier.js';
+import { filterCancelledGroupEgeGoals } from './groupHomeworkCancellations.js';
 
 const list = value => Array.isArray(value) ? value : [];
 const key = entry => `${entry.learningGroupId}|${entry.learningAssignmentId}`;
@@ -23,6 +24,13 @@ const mergeTargets = (current, extra) => {
 // Storage retains provenance for deadline/lives checks. Every visible surface
 // presents the pupil's old and new targets as one ordinary homework instead.
 export function mergeGroupHomeworkCarryover(entries = []) {
+  entries = list(entries).map(entry => {
+    if (!entry?.learningEgeCancellations?.length) return entry;
+    const goals = filterCancelledGroupEgeGoals(entry), primary = goals.find(isTask);
+    return { ...entry, goals, taskNumber: primary?.taskNumber ?? null, levelId: primary?.levelId ?? null,
+      targetQuestions: primary?.targetQuestions || [], targetQuestionIds: primary?.targetQuestionIds || [],
+      includeAll: Boolean(primary?.includeAll) };
+  });
   const parents = new Map(list(entries).filter(entry => entry?.source === 'learning-group'
     && !entry.learningEgeCarryover).map(entry => [key(entry), entry]));
   const merged = new Map();

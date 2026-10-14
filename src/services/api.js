@@ -1331,6 +1331,12 @@ export const api = {
   updateLearningGroupAssignment: async (groupId, assignmentId, payload = {}) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId), { method: 'PATCH', body: payload })
   ),
+  getLearningGroupHomeworkCancellations: (groupId, assignmentId) => requestLearningGroupJson(
+    getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'ege-cancellations')),
+  cancelLearningGroupHomeworkTargets: (groupId, assignmentId, payload) => requestLearningGroupJson(
+    getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'ege-cancellations'), { method: 'POST', body: payload }),
+  restoreLearningGroupHomeworkCancellation: (groupId, assignmentId, cancellationId) => requestLearningGroupJson(
+    getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'ege-cancellations', cancellationId), { method: 'DELETE' }),
   deleteLearningGroupAssignment: async (groupId, assignmentId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId), { method: 'DELETE' })
   ),

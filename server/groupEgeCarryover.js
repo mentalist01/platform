@@ -1,5 +1,6 @@
 import { buildHomeworkCarryoverDraft, resolveHomeworkTaskTargetDescriptors } from '../src/utils/homeworkComposer.js';
 import { isOptionalHomeworkGoal } from '../src/utils/homeworkAssignmentTier.js';
+import { filterCancelledGroupEgeGoals, groupEgeCancellationsForAssignment } from '../src/utils/groupHomeworkCancellations.js';
 
 const list = value => Array.isArray(value) ? value : [];
 const isEgeGoal = goal => goal?.type !== 'mock' && !goal?.mockExamId
@@ -12,9 +13,14 @@ const eligible = entry => entry?.source === 'learning-group' && !entry.learningE
 
 // Snapshot each pupil's unfinished required EGE targets at publication, rather
 // than changing the shared template or the old deadline/lives ledger.
-export function projectGroupEgeCarryover(homeworks, studentData, testsDb) {
+export function projectGroupEgeCarryover(homeworks, studentData, testsDb, cancellations = []) {
   const originals = list(homeworks).filter(entry => !entry.learningEgeCarryover)
     .map(entry => { const copy = { ...entry }; delete copy.learningCarryoverSupersededBy; return copy; });
+  for (const entry of originals) {
+    const relevant = groupEgeCancellationsForAssignment(cancellations, entry.learningGroupId, entry.learningAssignmentId);
+    if (relevant.length) entry.learningEgeCancellations = relevant;
+    else delete entry.learningEgeCancellations;
+  }
   const parents = originals.filter(entry => eligible(entry) && entry.carryoverEge === true)
     .sort((a, b) => Date.parse(a.issuedAt) - Date.parse(b.issuedAt));
   for (const parent of parents) {
@@ -27,7 +33,7 @@ export function projectGroupEgeCarryover(homeworks, studentData, testsDb) {
       && entry.learningGroupId === parent.learningGroupId && Date.parse(entry.issuedAt) < Date.parse(parent.issuedAt))
       .sort((a, b) => Date.parse(b.issuedAt) - Date.parse(a.issuedAt));
     parent.egeCarryoverSnapshot = sources.flatMap(source => {
-      const requiredSource = { ...source, goals: list(source.goals).filter(isEgeGoal) };
+      const requiredSource = { ...source, goals: filterCancelledGroupEgeGoals(source).filter(isEgeGoal) };
       if (!requiredSource.goals.length) return [];
       const pending = buildHomeworkCarryoverDraft({ homework: requiredSource, studentData, testsDb }).goals;
       const goals = pending.flatMap(goal => {
@@ -63,6 +69,9 @@ export function projectGroupEgeCarryover(homeworks, studentData, testsDb) {
       // A withdrawn assignment or a pupil's transfer must not revive old work.
       if (!source || !eligible(source) || source.learningGroupId !== parent.learningGroupId) continue;
       source.learningCarryoverSupersededBy = parent.id;
+      const goals = filterCancelledGroupEgeGoals({ goals: snapshot.goals,
+        learningEgeCancellations: [...list(source.learningEgeCancellations), ...list(parent.learningEgeCancellations)] });
+      if (!goals.length) continue;
       supplements.push({
         id: `${parent.id}--ege-${source.id}`,
         source: 'learning-group', learningEgeCarryover: true,
@@ -80,9 +89,9 @@ export function projectGroupEgeCarryover(homeworks, studentData, testsDb) {
         dueAt: parent.dueAt, dueAtMode: 'manual', daysToComplete: parent.daysToComplete,
         carryoverOriginalHomeworkId: source.id, carryoverOriginalIssuedAt: snapshot.sourceIssuedAt,
         carryoverOriginalTitle: snapshot.sourceTitle,
-        homeWork: '', checklistItems: [], goals: snapshot.goals,
-        taskNumber: snapshot.goals[0]?.taskNumber ?? null, levelId: snapshot.goals[0]?.levelId ?? null,
-        targetQuestions: snapshot.goals[0]?.targetQuestions || [], targetQuestionIds: snapshot.goals[0]?.targetQuestionIds || [],
+        homeWork: '', checklistItems: [], goals,
+        taskNumber: goals[0]?.taskNumber ?? null, levelId: goals[0]?.levelId ?? null,
+        targetQuestions: goals[0]?.targetQuestions || [], targetQuestionIds: goals[0]?.targetQuestionIds || [],
       });
     }
   }

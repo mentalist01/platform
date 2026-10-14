@@ -43,7 +43,9 @@ import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homewor
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
+import { normalizeGroupHomeworkCancellations, registerGroupHomeworkCancellations } from './groupHomeworkCancellations.js';
 import { mergeGroupHomeworkCarryover } from '../src/utils/groupHomeworkCarryover.js';
+import { groupEgeCancellationsForAssignment } from '../src/utils/groupHomeworkCancellations.js';
 import { BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed } from './blankWorkbook.js';
 import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
@@ -769,6 +771,7 @@ const boardAssetsFile = path.join(dataDir, 'board-assets.json');
 const learningGroupsFile = path.join(dataDir, 'learning-groups.json');
 const learningLessonSessionsFile = path.join(dataDir, 'learning-lesson-sessions.json');
 const learningAssignmentsFile = path.join(dataDir, 'learning-assignments.json');
+const groupHomeworkCancellationsFile = path.join(dataDir, 'group-homework-cancellations.json');
 const learningSubmissionsFile = path.join(dataDir, 'learning-submissions.json');
 const learningAttendanceFile = path.join(dataDir, 'learning-attendance.json');
 const learningMaterialsFile = path.join(dataDir, 'learning-materials.json');
@@ -2420,6 +2423,8 @@ const writeLearningLessonSessionsDb = (value) => writeLearningJsonStore(
   normalizeLearningLessonSessionsStore
 );
 const readLearningAssignmentsDb = () => readLearningJsonStore(learningAssignmentsFile, normalizeLearningAssignmentsStore);
+const readGroupHomeworkCancellations = () => readLearningJsonStore(groupHomeworkCancellationsFile, normalizeGroupHomeworkCancellations);
+const writeGroupHomeworkCancellations = value => writeLearningJsonStore(groupHomeworkCancellationsFile, value, normalizeGroupHomeworkCancellations);
 const writeLearningAssignmentsDb = (value) => writeLearningJsonStore(
   learningAssignmentsFile,
   value,
@@ -22729,7 +22734,9 @@ registerHomeworkLives(app, homeworkLives, {
       evaluate: homework => {
         const testsDb = batch.testsDb ||= getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
         return homeworkDeadlineResult(
-          { ...homework, goals: getNormalizedHomeworkGoals(homework, testsDb) }, data, testsDb,
+          { ...homework, goals: getNormalizedHomeworkGoals(homework, testsDb),
+            learningEgeCancellations: groupEgeCancellationsForAssignment(
+              batch.homeworkCancellations ||= readGroupHomeworkCancellations(), homework.learningGroupId, homework.learningAssignmentId) }, data, testsDb,
           readMockExamsDb().filter(exam => isMockExamVisibleToStudent(exam, student.id)), Date.now()
         );
       },
@@ -24524,7 +24531,7 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
     }
   });
 
-  const projectedHomeworks = projectGroupEgeCarryover(nextHomeworks, data, readTestsDbForTeacher(student.teacherId));
+  const projectedHomeworks = projectGroupEgeCarryover(nextHomeworks, data, readTestsDbForTeacher(student.teacherId), readGroupHomeworkCancellations());
   projectedHomeworks.sort((left, right) => (
     Date.parse(right?.issuedAt || 0) - Date.parse(left?.issuedAt || 0)
   ));
@@ -25804,6 +25811,14 @@ app.delete('/api/learning-groups/:groupId/assignments/:assignmentId', handleLear
   synchronizeLearningGroupAssignmentHomeworks(deleted);
   return res.json({ ok: true, assignment: serializeLearningAssignmentForAuth(deleted, req.auth) });
 }));
+
+registerGroupHomeworkCancellations(app, {
+  handle: handleLearningRoute, manageGroup: ensureLearningGroupManageAccess,
+  assignments: readLearningAssignmentsDb, read: readGroupHomeworkCancellations, write: writeGroupHomeworkCancellations,
+  syncStudent: synchronizeLearningGroupHomeworksForStudent, studentData: getStudentData, testsDb: readTestsDbForTeacher,
+  notify: (group, studentId) => notifyScheduleSyncUpdate({ scope: 'homework-progress', action: 'homework-targets-changed',
+    teacherId: group.teacherId, studentId, entryId: group.id }),
+});
 
 app.get('/api/learning-groups/:groupId/assignments/:assignmentId/submission', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);

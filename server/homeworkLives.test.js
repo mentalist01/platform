@@ -7,6 +7,15 @@ import { HomeworkLivesStore, homeworkDeadlineResult, estimateHomeworkPlan } from
 import { isGroupHomeworkRequired } from './groupHomeworkMembership.js';
 
 const instant = value => Date.parse(`2026-${value}`);
+test('teacher-cancelled numbers do not cause new life damage and full cancellation is not graded as a checklist',()=>{
+  const homework={id:'cancelled',issuedAt:'2026-10-01T10:00Z',dueAt:'2026-10-10T10:00Z',
+    goals:[{type:'task',taskNumber:4,levelId:'basic',targetQuestions:[1,2],targetQuestionIds:['a','b']}],
+    checklistItems:[{id:'title',text:'Домашка'}],learningEgeCancellations:[{taskNumber:4,levelId:'basic',targetQuestionIds:['a']}]};
+  const data={solvedByTask:{4:{basic:{solved:['b'],answerHistory:{b:[{correct:true,submittedAt:'2026-10-05T10:00Z'}]}}}}};
+  const db={4:{basic:[{id:'a'},{id:'b'}]}};
+  assert.equal(homeworkDeadlineResult(homework,data,db,[],Date.parse('2026-10-14')).percent,100);
+  assert.equal(homeworkDeadlineResult({...homework,learningEgeCancellations:[{taskNumber:4,levelId:'basic',targetQuestionIds:['a','b']}]},data,db,[],Date.parse('2026-10-14')),null);
+});
 const student={id:'pupil',teacherId:'teacher',createdAt:'2026-09-01T10:00:00Z'};
 const assigned=(id,percent=50,dueAt='2026-10-10T17:00:00Z')=>({id,issuedAt:'2026-10-02T17:00:00Z',dueAt,homeWork:id,percent});
 test('EGE carryover does not create another deduction for the original missed homework',t=>{

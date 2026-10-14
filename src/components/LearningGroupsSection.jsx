@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { api, resolveAuthenticatedApiUrl, withStoredAuthToken } from '../services/api';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
+import GroupHomeworkCancellationPanel from './GroupHomeworkCancellationPanel';
 import LearningGroupChat from './LearningGroupChat';
 import GroupAvailability from './GroupAvailability';
 const GroupAvailabilityShare = React.lazy(() => import('./GroupAvailabilityShare'));
@@ -3201,6 +3202,11 @@ const LearningGroupsSection = ({
                   onChange={event => setAssignmentComposerForm(current => ({ ...current, title: event.target.value }))} />
               </Field>
               <p className="text-xs text-[rgb(var(--ink-soft))]">ЕГЭ и Python выдаются отдельно. Новая домашка сохраняет предыдущую и её срок.</p>
+              {assignmentComposerEditing?.status !== 'draft' && getAssignmentId(assignmentComposerEditing)
+                && assignmentComposerForm.studyTrack !== 'python' && (
+                <GroupHomeworkCancellationPanel key={`${selectedGroup.id}|${getAssignmentId(assignmentComposerEditing)}`}
+                  groupId={selectedGroup.id} assignmentId={getAssignmentId(assignmentComposerEditing)} />
+              )}
               {assignmentComposerForm.studyTrack !== 'python' && (
                 <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
                   <input type="checkbox" className="mt-1 accent-violet-600" checked={assignmentComposerForm.carryoverEge !== false}

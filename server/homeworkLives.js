@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { isOptionalHomeworkGoal } from '../src/utils/homeworkAssignmentTier.js';
 import { buildHomeworkStatistics } from '../src/utils/homeworkStats.js';
 import { isMockAttemptForHomework } from '../src/utils/homeworkComposer.js';
+import { filterCancelledGroupEgeGoals } from '../src/utils/groupHomeworkCancellations.js';
 
 export const MAX_HOMEWORK_LIVES = 3;
 export const MONTHLY_HOMEWORK_DAMAGE = 8;
@@ -44,7 +45,7 @@ export function estimateHomeworkPlan(schedule = [], month, isAssigned = () => tr
 export function homeworkDeadlineResult(homework, data, testsDb, mockExams, nowMs) {
   if (homework.learningEgeCarryover === true) return null;
   const allGoals = Array.isArray(homework.goals) ? homework.goals : [];
-  const goals = allGoals.filter(goal => !isOptionalHomeworkGoal(goal));
+  const goals = filterCancelledGroupEgeGoals(homework).filter(goal => !isOptionalHomeworkGoal(goal));
   if (allGoals.length && !goals.length) return null;
   if (goals.some(goal => goal.type !== 'mock' && !text(goal.mockExamId)
     && !(Array.isArray(goal.targetQuestionIds) && goal.targetQuestionIds.some(Boolean)))) {
