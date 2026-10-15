@@ -47,6 +47,15 @@ test('converts lesson wall clock time with the configured timezone', () => {
   );
 });
 
+test('repeated timezone conversion keeps winter and summer offsets separate', () => {
+  for (let index = 0; index < 20; index += 1) {
+    assert.equal(new Date(zonedLessonDateTimeToUtcMs('2026-01-19', '21:00', 'Europe/Berlin')).toISOString(), '2026-01-19T20:00:00.000Z');
+    assert.equal(new Date(zonedLessonDateTimeToUtcMs('2026-07-19', '21:00', 'Europe/Berlin')).toISOString(), '2026-07-19T19:00:00.000Z');
+    assert.equal(new Date(zonedLessonDateTimeToUtcMs('2026-07-19', '21:00', 'Europe/Moscow')).toISOString(), '2026-07-19T18:00:00.000Z');
+  }
+  assert.throws(() => zonedLessonDateTimeToUtcMs('2026-07-19', '21:00', 'Invalid/Zone'), RangeError);
+});
+
 test('derives all tasks saved during the lesson and ranks repeated activity first', () => {
   const startMs = zonedLessonDateTimeToUtcMs('2026-07-19', '21:00', 'Europe/Moscow');
   const occurrence = {

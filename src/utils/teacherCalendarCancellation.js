@@ -82,20 +82,30 @@ export const isCalendarLessonCancelledStatus = (entry) => Boolean(
   || entry?.isCancelled
   || CANCELLATION_STATUS_VALUES.has(normalizeText(entry?.status || entry?.lessonStatus).toLowerCase())
 );
+const frozenCancellationIndexes = new WeakMap();
+const cancellationScopeKey = (teacherId, sourceId, scopeId, time) => (
+  JSON.stringify([teacherId, sourceId, scopeId, time])
+);
+const getCancellationIndex = (marks) => {
+  const frozen = Object.isFrozen(marks);
+  if (frozen && frozenCancellationIndexes.has(marks)) return frozenCancellationIndexes.get(marks);
+  const index = new Map();
+  Object.keys(marks).forEach((key) => {
+    if (!key.startsWith(`${CANCELLATION_MARK_PREFIX}|`)) return;
+    const mark = parseTeacherCalendarCancellationMarkKey(key);
+    if (!mark) return;
+    const scope = cancellationScopeKey(mark.teacherId, mark.sourceId, mark.scopeId, mark.time);
+    if (!index.has(scope)) index.set(scope, new Set());
+    index.get(scope).add(mark.dayKey);
+  });
+  const result = new Map([...index].map(([key, dates]) => [key, [...dates].sort((a, b) => a.localeCompare(b))]));
+  if (frozen) frozenCancellationIndexes.set(marks, result);
+  return result;
+};
 export const getTeacherCalendarCancelledDates = (teacherId, entry, marks = {}) => {
   const normalizedMarks = marks && typeof marks === 'object' && !Array.isArray(marks) ? marks : {};
-  return Array.from(new Set(
-    Object.keys(normalizedMarks)
-      .map(parseTeacherCalendarCancellationMarkKey)
-      .filter(Boolean)
-      .filter((mark) => (
-        mark.teacherId === normalizeText(teacherId)
-        && mark.sourceId === getSourceId(entry)
-        && mark.scopeId === getScopeId(entry)
-        && mark.time === normalizeTime(entry?.time)
-      ))
-      .map((mark) => mark.dayKey)
-  )).sort((left, right) => left.localeCompare(right));
+  const scope = cancellationScopeKey(normalizeText(teacherId), getSourceId(entry), getScopeId(entry), normalizeTime(entry?.time));
+  return [...(getCancellationIndex(normalizedMarks).get(scope) || [])];
 };
 
 export const isTeacherCalendarLessonCancelled = (teacherId, entry, dayKey, marks = {}) => {
@@ -121,15 +131,19 @@ export const annotateTeacherCalendarCancellation = (teacherId, entry, marks = {}
   };
 };
 
-export const filterTeacherCalendarCancelledSchedule = (teacherId, entries = [], marks = {}) => (
-  (Array.isArray(entries) ? entries : [])
-    .map((entry) => annotateTeacherCalendarCancellation(teacherId, entry, marks))
+export const filterTeacherCalendarCancelledSchedule = (teacherId, entries = [], marks = {}) => {
+  // One snapshot/index for the whole schedule; callers may edit their marks later.
+  const snapshot = marks && typeof marks === 'object' && !Array.isArray(marks)
+    ? (Object.isFrozen(marks) ? marks : Object.freeze({ ...marks }))
+    : Object.freeze({});
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry) => annotateTeacherCalendarCancellation(teacherId, entry, snapshot))
     .map((entry) => {
       const explicitDayKey = normalizeDayKey(entry?.date || entry?.dayKey);
-      if (explicitDayKey && isTeacherCalendarLessonCancelled(teacherId, entry, explicitDayKey, marks)) {
+      if (explicitDayKey && isTeacherCalendarLessonCancelled(teacherId, entry, explicitDayKey, snapshot)) {
         return null;
       }
-      const cancelledDates = getTeacherCalendarCancelledDates(teacherId, entry, marks);
+      const cancelledDates = getTeacherCalendarCancelledDates(teacherId, entry, snapshot);
       if (cancelledDates.length === 0) return entry;
       return {
         ...entry,
@@ -139,5 +153,5 @@ export const filterTeacherCalendarCancelledSchedule = (teacherId, entries = [], 
         ])).sort((left, right) => left.localeCompare(right)),
       };
     })
-    .filter(Boolean)
-);
+    .filter(Boolean);
+};

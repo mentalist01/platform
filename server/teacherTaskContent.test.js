@@ -4,12 +4,39 @@ import {
   applyGlobalCatalogToTeacherStores,
   applyGlobalTestsUpdate,
   applyTeacherTestsUpdate,
+  createTeacherTestsDbReader,
   getSharedNextTaskNumber,
   mergeTeacherTestsDb,
   normalizeTeacherTaskContentStore,
 } from './teacherTaskContent.js';
 
 const bank = (answer) => ({ basic: [{ id: answer, answer: String(answer) }], advanced: [], expert: [] });
+
+test('repeated teacher reads reuse a bank and refresh after global or personal writes', (t) => {
+  const clone = t.mock.method(globalThis, 'structuredClone');
+  const read = createTeacherTestsDbReader();
+  const global = { 1: bank(1), 2: bank(2) };
+  const personal = { tests: { 1: bank(10) } };
+  const first = read(global, personal);
+  const count = clone.mock.callCount();
+  for (let index = 0; index < 100; index += 1) assert.equal(read(global, personal), first);
+  assert.equal(clone.mock.callCount(), count, 'polling must not clone the whole bank again');
+  assert.equal(first[1].basic[0].answer, '10');
+  assert.equal(first[2].basic[0].answer, '2');
+  assert.throws(() => { first[1].basic[0].answer = 'changed'; }, TypeError);
+
+  const other = read(global, { tests: { 1: bank(20) } });
+  assert.equal(other[1].basic[0].answer, '20');
+  const updated = read(global, { tests: { 1: bank(30) } });
+  assert.equal(updated[1].basic[0].answer, '30');
+  const nextGlobal = { ...global, 2: bank(200) };
+  assert.equal(read(nextGlobal, personal)[2].basic[0].answer, '200');
+  assert.equal(first[2].basic[0].answer, '2');
+  const editable = mergeTeacherTestsDb(global, personal);
+  editable[1].basic[0].answer = 'edited';
+  assert.equal(read(global, personal)[1].basic[0].answer, '10');
+  assert.equal(global[1].basic[0].answer, '1');
+});
 
 test('teacher test changes stay private and inherit untouched global tasks', () => {
   const globalTests = { 1: bank(1), 2: bank(2) };

@@ -48,6 +48,36 @@ export const mergeTeacherTestsDb = (globalTestsDb, teacherEntry) => ({
   ...clonePlainObject(teacherEntry?.tests),
 });
 
+const freezeTestsSnapshot = (value) => {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  Object.values(value).forEach(freezeTestsSnapshot);
+  return value;
+};
+
+// Store writers replace their snapshots. Readers can reuse the merged bank
+// until either source changes instead of cloning several megabytes per read.
+// Mutating callers must keep using mergeTeacherTestsDb for a private copy.
+export const createTeacherTestsDbReader = () => {
+  const cache = new WeakMap();
+  const emptyEntry = {};
+  return (globalTestsDb, teacherEntry) => {
+    if (!isPlainObject(globalTestsDb)) return mergeTeacherTestsDb(globalTestsDb, teacherEntry);
+    let teachers = cache.get(globalTestsDb);
+    if (!teachers) {
+      teachers = new WeakMap();
+      cache.set(globalTestsDb, teachers);
+    }
+    const entry = isPlainObject(teacherEntry) ? teacherEntry : emptyEntry;
+    let merged = teachers.get(entry);
+    if (!merged) {
+      merged = freezeTestsSnapshot(mergeTeacherTestsDb(globalTestsDb, entry));
+      teachers.set(entry, merged);
+    }
+    return merged;
+  };
+};
+
 const jsonEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 
 export const getChangedTestTaskKeys = (previousTestsDb, nextTestsDb) => {

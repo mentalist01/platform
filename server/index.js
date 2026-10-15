@@ -366,11 +366,13 @@ import {
   applyGlobalCatalogToTeacherStores,
   applyGlobalTestsUpdate,
   applyTeacherTestsUpdate,
+  createTeacherTestsDbReader,
   getSharedNextTaskNumber,
   mergeTeacherTestsDb,
   normalizeTeacherTaskContentStore,
   serializeTaskCatalogForStore,
 } from './teacherTaskContent.js';
+import { createTeacherCalendarMarksReader } from './teacherCalendarMarksReader.js';
 import { migratePythonForCurriculumStore } from './pythonForCurriculumMigration.js';
 import {
   migratePythonCoreCurriculaStore,
@@ -2250,18 +2252,27 @@ const writeTeacherTaskContentStore = (value) => {
   return normalized;
 };
 
+const teacherClassicTaskCatalogCache = new WeakMap();
+const normalizeTeacherClassicTaskCatalog = (stored) => {
+  let catalog = teacherClassicTaskCatalogCache.get(stored);
+  if (!catalog) {
+    catalog = normalizeStoredClassicTaskCatalog(stored);
+    teacherClassicTaskCatalogCache.set(stored, catalog);
+  }
+  return catalog;
+};
 const readClassicTaskCatalogForTeacher = (teacherId) => {
   const normalizedTeacherId = String(teacherId || '').trim();
   if (!normalizedTeacherId) return readClassicTaskCatalogDb();
   const stored = readTeacherTaskContentStore().teachers?.[normalizedTeacherId]?.catalog;
   if (!stored) return readClassicTaskCatalogDb();
-  return normalizeStoredClassicTaskCatalog(stored);
+  return normalizeTeacherClassicTaskCatalog(stored);
 };
 
 const getAllClassicTaskCatalogs = () => {
   const result = [readClassicTaskCatalogDb()];
   Object.values(readTeacherTaskContentStore().teachers || {}).forEach((entry) => {
-    if (entry?.catalog) result.push(normalizeStoredClassicTaskCatalog(entry.catalog));
+    if (entry?.catalog) result.push(normalizeTeacherClassicTaskCatalog(entry.catalog));
   });
   return result;
 };
@@ -2554,15 +2565,10 @@ const normalizeTeacherCalendarMarksDb = (value) => {
   return normalized;
 };
 
-const readTeacherCalendarMarksDb = () => {
-  try {
-    const raw = fs.readFileSync(teacherCalendarMarksFile, 'utf8');
-    const data = JSON.parse(raw);
-    return normalizeTeacherCalendarMarksDb(data);
-  } catch {
-    return {};
-  }
-};
+const teacherCalendarMarksReader = createTeacherCalendarMarksReader(
+  teacherCalendarMarksFile, normalizeTeacherCalendarMarksDb,
+);
+const readTeacherCalendarMarksDb = teacherCalendarMarksReader.read;
 
 const readLessonTopicsStore = () => {
   try {
@@ -3381,6 +3387,7 @@ const writeTeacherCalendarGoogleDb = (data) => {
 
 const writeTeacherCalendarMarksDb = (data) => {
   writeJsonFileAtomic(teacherCalendarMarksFile, normalizeTeacherCalendarMarksDb(data));
+  teacherCalendarMarksReader.invalidate();
 };
 
 const writeLessonTopicsStore = (data) => {
@@ -5185,10 +5192,11 @@ const readTestsDb = () => {
   }
 };
 
+const readMergedTeacherTestsDb = createTeacherTestsDbReader();
 const readTestsDbForTeacher = (teacherId) => {
   const normalizedTeacherId = String(teacherId || '').trim();
   if (!normalizedTeacherId) return readTestsDb();
-  return mergeTeacherTestsDb(
+  return readMergedTeacherTestsDb(
     readTestsDb(),
     readTeacherTaskContentStore().teachers?.[normalizedTeacherId],
   );
@@ -10212,7 +10220,7 @@ const hasGroupEntryPaidMark = (entry, studentId) => {
   const day = participationOccurrence(entry).day;
   const teacherId = entry.teacherId || readLearningGroupsDb().find(g=>g.id===entry.groupId)?.teacherId;
   const ids = getGroupEntryStudentSourceIds(entry,studentId);
-  const marks = readTeacherCalendarMarksDb()[teacherId];
+  const marks = teacherCalendarMarksReader.readSnapshot()[teacherId];
   return ids.some(id => marks?.[buildTeacherCalendarPaymentMarkKey(teacherId,{...entry,id,studentId},day,'paid')]);
 };
 const doesGoogleCalendarLearningGroupEntryIncludeStudent = (entry, student) => {
@@ -10438,7 +10446,7 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
   const teacherId = normalizeTeacherId(group?.teacherId);
   const externalEventId = String(entry?.externalEventId || '').trim();
   const externalOccurrenceId = String(entry?.id || '').trim();
-  const teacherMarks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]);
+  const teacherMarks = teacherCalendarMarksReader.readSnapshot()[teacherId] || {};
   const platformCancelled = isTeacherCalendarLessonCancelled(
     teacherId,
     entry,

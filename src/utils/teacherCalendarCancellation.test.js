@@ -5,6 +5,7 @@ import {
   annotateTeacherCalendarCancellation,
   buildTeacherCalendarCancellationMarkKey,
   filterTeacherCalendarCancelledSchedule,
+  getTeacherCalendarCancelledDates,
   isTeacherCalendarLessonCancelled,
   parseTeacherCalendarCancellationMarkKey,
 } from './teacherCalendarCancellation.js';
@@ -16,6 +17,21 @@ const recurring = {
   weekdayKey: 'monday',
   time: '18:00',
 };
+
+test('cancellation indexes keep scopes isolated and do not hide later edits', () => {
+  const key = buildTeacherCalendarCancellationMarkKey(teacherId, recurring, '2026-08-31');
+  const marks = { [key]: 'yes', 'paid|unrelated': 'yes' };
+  const frozen = Object.freeze({ ...marks });
+  const dates = getTeacherCalendarCancelledDates(teacherId, recurring, frozen);
+  dates.push('2026-09-07');
+  assert.deepEqual(getTeacherCalendarCancelledDates(teacherId, recurring, frozen), ['2026-08-31']);
+  assert.deepEqual(getTeacherCalendarCancelledDates('other-teacher', recurring, frozen), []);
+  assert.deepEqual(getTeacherCalendarCancelledDates(teacherId, { ...recurring, studentId: 'other' }, frozen), []);
+  assert.equal(filterTeacherCalendarCancelledSchedule(teacherId, [recurring], marks)[0].excludedDates[0], '2026-08-31');
+  delete marks[key];
+  assert.deepEqual(getTeacherCalendarCancelledDates(teacherId, recurring, marks), []);
+  assert.equal(filterTeacherCalendarCancelledSchedule(teacherId, [recurring], marks)[0].excludedDates, undefined);
+});
 
 test('cancellation key identifies one occurrence and survives parsing', () => {
   const key = buildTeacherCalendarCancellationMarkKey(teacherId, recurring, '2026-08-31');

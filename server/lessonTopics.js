@@ -173,8 +173,9 @@ const getScheduleWeekdayOrder = (entry) => {
   return getWeekdayOrder(entry?.date);
 };
 
-const getTimeZoneOffsetMs = (timestampMs, timeZone) => {
-  const date = new Date(timestampMs);
+const timeZoneOffsetFormatters = new Map();
+const getTimeZoneOffsetFormatter = (timeZone) => {
+  if (timeZoneOffsetFormatters.has(timeZone)) return timeZoneOffsetFormatters.get(timeZone);
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric',
@@ -185,6 +186,16 @@ const getTimeZoneOffsetMs = (timestampMs, timeZone) => {
     second: '2-digit',
     hourCycle: 'h23',
   });
+  if (timeZoneOffsetFormatters.size >= 32) {
+    timeZoneOffsetFormatters.delete(timeZoneOffsetFormatters.keys().next().value);
+  }
+  timeZoneOffsetFormatters.set(timeZone, formatter);
+  return formatter;
+};
+
+const getTimeZoneOffsetMs = (timestampMs, timeZone) => {
+  const date = new Date(timestampMs);
+  const formatter = getTimeZoneOffsetFormatter(timeZone);
   const parts = formatter.formatToParts(date).reduce((acc, part) => {
     if (part.type !== 'literal') acc[part.type] = part.value;
     return acc;
