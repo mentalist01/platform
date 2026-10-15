@@ -36,6 +36,7 @@ import { subscribeScheduleSync } from '../services/scheduleSync';
 import { normalizeTelemostUrl } from '../utils/telemost';
 import { resolveCalendarEventHomeworkProgress } from '../utils/calendarHomeworkProgress';
 import './TeacherCalendarSection.css';
+import StudentParentContact from './StudentParentContact';
 import {
   buildTeacherCalendarCancellationMarkKey,
   isTeacherCalendarLessonCancelled,
@@ -5183,6 +5184,7 @@ const TeacherCalendarSection = ({
                           <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                             {lesson.hasExternal ? 'Google Calendar' : 'Расписание'}
                           </span>
+                          {lesson.studentId && <StudentParentContact studentId={lesson.studentId} studentName={lesson.label} compact />}
                           {lesson.studentId ? (
                             <button
                               type="button"

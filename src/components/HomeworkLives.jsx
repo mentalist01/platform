@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Info, X, MessageCircle, RotateCcw } from 'lucide-react';
 import { homeworkLivesRequest, teacherHomeworkLives, notifyHomeworkLivesUpdated } from '../services/homeworkLives';
 import { formatLives, lifeFractions, nextLivesMonth } from '../utils/homeworkLives';
 import './HomeworkLives.css';
+const StudentParentContact = React.lazy(() => import('./StudentParentContact'));
 
 const dateLabel = value => new Date(value).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', day: 'numeric', month: 'long' });
 const monthLabel = month => new Date(`${month}-15T12:00:00+03:00`).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', month: 'long', year: 'numeric' });
@@ -138,6 +139,7 @@ export function TeacherHomeworkLivesPanel({ studentId, studentName = '' }) {
     <small>Текущий план: {data.plannedCount}. Полностью пропущенная работа — до {formatLives(data.maxLossPerHomework)} жизни. План действует и в следующих месяцах, пока вы его не измените.</small>
     {data.planLocked&&<small>Текущий месяц уже рассчитан: новый план начнёт действовать со следующего.</small>}
     {data.pendingReviews.map(review=><div className="homework-lives-panel__review" key={review.month}><div><b>Нужен разговор</b><small>Жизни закончились · {monthLabel(review.month)}</small></div>
+      <React.Suspense fallback={null}><StudentParentContact studentId={studentId} studentName={studentName} compact /></React.Suspense>
       <button type="button" disabled={busy} onClick={()=>act(`/${encodeURIComponent(studentId)}/review`,{month:review.month})}>Разговор проведён</button></div>)}
     {data.needsReview&&<p className="homework-lives-panel__warning">Есть работы без достоверного результата к дедлайну. За них жизни не списаны; проверьте историю.</p>}
     {(actionError||error)&&<p className="homework-lives-panel__error" role="alert">{actionError||error}</p>}
@@ -162,5 +164,5 @@ export function TeacherHomeworkLivesNotice({ userId, paused, onOpen }) {
     return()=>{cancelled=true;window.clearInterval(timer);window.removeEventListener('homework-lives-updated',refresh);window.removeEventListener('focus',refresh);};
   },[userId,paused]);
   if(paused||!students.length)return null;
-  return <aside className="homework-lives-notice"><MessageCircle size={19}/><div><b>Нужен разговор с учеником</b><small>{students[0].name}: запас жизней закончился{students.length>1?` · ещё ${students.length-1}`:''}</small></div><button type="button" onClick={()=>onOpen(students[0].studentId)}>Открыть ученика</button></aside>;
+  return <aside className="homework-lives-notice"><MessageCircle size={19}/><div><b>Нужен разговор с учеником</b><small>{students[0].name}: запас жизней закончился{students.length>1?` · ещё ${students.length-1}`:''}</small></div><React.Suspense fallback={null}><StudentParentContact studentId={students[0].studentId} studentName={students[0].name} compact /></React.Suspense><button type="button" onClick={()=>onOpen(students[0].studentId)}>Открыть ученика</button></aside>;
 }

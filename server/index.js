@@ -41,6 +41,7 @@ import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifi
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
+import { registerStudentParentContacts } from './studentParentContacts.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
 import { normalizeGroupHomeworkCancellations, registerGroupHomeworkCancellations } from './groupHomeworkCancellations.js';
@@ -22735,6 +22736,12 @@ registerHomeworkReminderRoutes(app, homeworkReminders, {
     const data = getStudentData(lesson.studentId);
     return [...(data.homeworks || []), ...(data.nextLesson?.issuedAt ? [data.nextLesson] : [])];
   },
+});
+
+registerStudentParentContacts(app, {
+  dataDir, staff: ensureStaffWriteAccess,
+  student: (req, res, id) => ensureStudentAccess(req, res, id),
+  students: readStudentsDb, isAdmin: isAdminRole,
 });
 
 registerHomeworkLives(app, homeworkLives, {

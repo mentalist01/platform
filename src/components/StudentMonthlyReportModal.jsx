@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { createStudentReportCanvas } from '../utils/studentReportImage';
+import StudentParentContact from './StudentParentContact';
 
 const getCurrentMoscowMonth = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -532,6 +533,7 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
               aria-label={audience === 'student' ? 'Текст отчёта для ученика' : 'Текст отчёта для родителя'}
             />
 
+            {audience === 'parent' && <div className="px-5"><StudentParentContact studentId={student?.id} studentName={student?.name} messageText={text} /></div>}
             <footer className="student-month-report__footer">
               <span>Отчёт не отправляется сам — вы сначала видите и проверяете готовый текст.</span>
               <div>

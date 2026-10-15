@@ -283,6 +283,7 @@ const TeacherCalendarSection = React.lazy(loadTeacherCalendarSection);
 const TeacherFinanceSection = React.lazy(loadTeacherFinanceSection);
 const TeacherLessonStartPrompt = React.lazy(loadTeacherLessonStartPrompt);
 const TeacherPanel = React.lazy(loadTeacherPanel);
+const PythonHomeworkTasks = React.lazy(() => import('./components/PythonHomeworkTasks'));
 const TeacherStudentChatsSection = React.lazy(loadTeacherStudentChatsSection);
 const SessionManagementSection = React.lazy(loadSessionManagementSection);
 const loadGuestMeetingsSection = () => import('./components/GuestMeetingsSection.jsx');
@@ -26536,7 +26537,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                               </div>
                               {goal.targetNumbers?.length > 0 ? (
                                 <>
-                                  <div className="student-goal-summary__target-list">
+                                  {isPythonGoal ? <React.Suspense fallback={<span>Загружаем разделы Python…</span>}>
+                                    <PythonHomeworkTasks taskEntry={goalTestsDb?.[String(goal.taskNumber)]} levelId={goal.levelId} items={goal.targetStatus}
+                                      onOpenQuestion={number => handleOpenTask(goal.taskNumber, goal.levelId, [number])} />
+                                  </React.Suspense> : <div className="student-goal-summary__target-list">
                                     {goal.targetStatus.map((item) => (
                                       <span
                                         key={item.num}
@@ -26549,7 +26553,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                         №{item.num}{item.solved ? ' ✓' : ''}
                                       </span>
                                     ))}
-                                  </div>
+                                  </div>}
                                   <div className="student-goal-summary__target-progress" aria-hidden="true">
                                     <span style={{ width: `${targetProgressPercent}%` }} />
                                   </div>

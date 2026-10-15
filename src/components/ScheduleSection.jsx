@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import RutubeViewingHelp from './RutubeViewingHelp';
 import RutubeChapterPlayer from './RutubeChapterPlayer';
+import PythonHomeworkTasks from './PythonHomeworkTasks';
 const StudentLessonReschedule = React.lazy(() => import('./LessonReschedule').then(m => ({ default: m.StudentLessonReschedule })));
 import { isScheduleEntryInDateRange } from '../utils/scheduleDateRange';
 const StudentWeeklySchedule = React.lazy(() => import('./WeeklySchedule').then(m => ({ default: m.StudentWeeklySchedule })));
@@ -3473,7 +3474,7 @@ const ScheduleSection = ({
                 <div className="flex items-center gap-3 border-t border-violet-100 bg-white/70 px-3.5 py-2.5">
                   <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-fuchsia-100 text-xs font-black text-fuchsia-700">2</span>
                   <span className="text-xs font-bold text-slate-700">
-                    Затем реши {targetItems.length > 0 ? `задания №${formatHomeworkQuestionRanges(targetItems.map((item) => item.num))}` : 'выбранные задания'} из этого раздела.
+                    Затем реши задания по теме «{getPythonTaskInfo(goalView.taskNumber)?.title || goalView.heading}» — они сгруппированы по подразделам ниже.
                   </span>
                 </div>
               </div>
@@ -3531,7 +3532,10 @@ const ScheduleSection = ({
                 ) : null}
 
                 <div className="student-today-homework__goal-controls mt-3 flex flex-wrap items-end justify-between gap-3">
-                  <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                  {isPythonTaskNumber(goalView.taskNumber) ? (
+                    <PythonHomeworkTasks taskEntry={testsDb?.[String(goalView.taskNumber)]} levelId={goalView.levelId} items={targetItems}
+                      onOpenQuestion={onOpenTask ? number => onOpenTask(goalView.taskNumber, goalView.levelId, [number]) : undefined} />
+                  ) : <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                     {targetItems.map((item) => {
                       const itemLabel = item.num ?? item.label ?? item.taskKey;
                       return (
@@ -3547,7 +3551,7 @@ const ScheduleSection = ({
                         </span>
                       );
                     })}
-                  </div>
+                  </div>}
 
                   {isOpenable ? (
                     <button
@@ -4354,7 +4358,10 @@ const ScheduleSection = ({
                       </button>
                     )}
                   </div>
-                  {goalView.targetNumbers.length > 0 && (
+                  {goalView.targetNumbers.length > 0 && (isPythonTaskNumber(goalView.taskNumber) ? (
+                    <PythonHomeworkTasks taskEntry={testsDb?.[String(goalView.taskNumber)]} levelId={goalView.levelId} items={goalView.targetStatus}
+                      onOpenQuestion={onOpenTask ? number => onOpenTask(goalView.taskNumber, goalView.levelId, [number]) : undefined} />
+                  ) : (
                     <div className="flex flex-wrap gap-1.5">
                       {goalView.targetStatus.map((item) => (
                         <span
@@ -4369,7 +4376,7 @@ const ScheduleSection = ({
                         </span>
                       ))}
                     </div>
-                  )}
+                  ))}
                 </div>
               );
             })}
