@@ -9,6 +9,11 @@ const headline = vm.runInNewContext(`(${source})`);
 const job = { id: 'one', status: 'recording', lessonName: 'Олег', title: 'Урок 2026-09-26 17:00' };
 const live = { jobs: [job], obs: { outputActive: true, outputTimecode: '00:12:34.500' } };
 
+test('headline displays the scheduled local auto-stop time in Moscow', () => {
+  const view = headline({ ...live, jobs: [{ ...job, occurrence: { endMs: Date.parse('2026-10-15T18:00:00Z') } }] });
+  assert.match(view.detail, /Автостоп в 21:00 \(Москва\) · по расписанию/);
+});
+
 const startReason = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonStartReason('), panel.indexOf('function pythonPauseView('))})`);
 const pauseView = vm.runInNewContext(`(${panel.slice(panel.indexOf('function pythonPauseView('), panel.indexOf('function reconcilePythonPauseMessage('))})`);
 

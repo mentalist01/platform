@@ -4,11 +4,20 @@ import { ownedRecording } from './storage.mjs';
 import { recordingSeconds, observeTimeline, closeTimelineClip, resumeTimeline, finishTimeline } from './python-timeline.mjs';
 const sourceSeconds = (job,status) => (job.pythonCaptureOffset || 0) + recordingSeconds(status);
 
+// A scheduled lesson has a hard local boundary, including offline transport.
+// Standalone teaching videos keep their own capture deadline.
+export function recordingDeadline(job) {
+  const end = job?.occurrence?.endMs;
+  return !job?.pythonTheory && !job?.mockReview && Number.isFinite(end) && end > 0
+    ? Math.min(Number.isFinite(job.cutoffAt) ? job.cutoffAt : end, end) : job?.cutoffAt;
+}
+
 export class RecorderEngine {
   constructor({ obs, state, save, api, recordDirectory, ready, now = Date.now }) {
     Object.assign(this, { obs, state, save, api, recordDirectory, ready, now });
     this.restartJobs = new Set(Object.values(state.jobs).filter(job => ['starting', 'recording', 'stopping'].includes(job.status)).map(job => job.id));
     this.materialControlRevision = 0;
+    this.stops = new Map();
   }
   active() { return Object.values(this.state.jobs).find((j) => ['starting', 'recording', 'stopping'].includes(j.status)); }
   async report(job, status, extra = {}) {
@@ -27,16 +36,20 @@ export class RecorderEngine {
   }
   async start(job) {
     if (this.active()) throw new Error('Сначала завершите текущую запись');
+    job = { ...job, cutoffAt: recordingDeadline(job) };
+    if (job.cutoffAt <= this.now()) throw new Error('Время урока по расписанию закончилось. Запись этого занятия завершена.');
     if (this.state.jobs[job.id]?.file || fs.existsSync(ownedRecording(this.recordDirectory, job.id))) throw new Error('Файл этой записи уже существует. Продолжите урок новой частью, чтобы сохранить обе записи.');
     await this.obs.launch();
     if (this.obs.prepare) await this.obs.prepare({ ...this.state.config, ...job.captureConfig }, this.recordDirectory, job.audioMode, job.captureProfile);
     else if ((await this.obs.status()).outputActive) throw new Error('В OBS уже идёт запись. Сначала завершите её.');
+    if (job.cutoffAt <= this.now()) throw new Error('Время урока по расписанию закончилось. Запись не начата.');
     // Persist the intent first: a crash after StartRecord must not create a second recording.
     const local = { ...job, status: 'starting', error: '', createdAt: this.now() };
     this.state.jobs[job.id] = local; this.save();
     try {
       await this.obs.start(job.id, job.captureProfile, job.captureConfig?.mode);
       local.status = 'recording'; this.save();
+      if (local.cutoffAt <= this.now()) { await this.stop(local); return; }
       await this.report(local, 'recording');
     } catch (error) {
       // Keep starting until reconciliation establishes whether OBS accepted the request.
@@ -47,6 +60,7 @@ export class RecorderEngine {
     const controlRevision = this.materialControlRevision;
     const status = await this.obs.status();
     const { parameterValue } = await this.obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' });
+    if (!['starting', 'recording', 'stopping'].includes(job.status) || this.stops.has(job.id)) return;
     const ourOutput = parameterValue === `lesson-${job.id}`;
     if (status.outputActive) {
       if (!ourOutput) throw new Error('OBS пишет другую запись; пульт не будет её останавливать');
@@ -67,7 +81,7 @@ export class RecorderEngine {
     if (fs.existsSync(file) && fs.statSync(file).size > 0) {
       finishTimeline(job.pythonTimeline, sourceSeconds(job,status));
       if (job.status !== 'stopping' && !job.local && !job.manual && !job.fallbackMode
-        && job.desired === 'record' && job.cutoffAt > this.now()) job.resumeAfterRestart = true;
+        && job.desired === 'record' && recordingDeadline(job) > this.now()) job.resumeAfterRestart = true;
       job.file = file; job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
       await this.report(job, 'saved');
     } else if (job.status === 'starting') {
@@ -78,7 +92,14 @@ export class RecorderEngine {
       await this.report(job, 'error', { error: job.error });
     }
   }
-  async stop(job) {
+  stop(job) {
+    if (this.stops.has(job.id)) return this.stops.get(job.id);
+    if (!['starting', 'recording', 'stopping'].includes(job.status)) return Promise.resolve();
+    const operation = this.stopRecording(job).finally(() => this.stops.delete(job.id));
+    this.stops.set(job.id, operation);
+    return operation;
+  }
+  async stopRecording(job) {
     delete job.resumeAfterRestart;
     job.status = 'stopping'; this.save();
     // A local pause is independent of slow platform polling, but StopRecord
@@ -135,10 +156,21 @@ export class RecorderEngine {
     }
     this.save();
   }
+  async enforceDeadline() {
+    const active = this.active();
+    if (!active || this.restartJobs.has(active.id)) return;
+    const deadline = recordingDeadline(active);
+    if (active.cutoffAt !== deadline) { active.cutoffAt = deadline; this.save(); }
+    // StartRecord owns a pending start; start() checks the boundary again as
+    // soon as OBS confirms. A slow platform request never owns this timer.
+    if (active.status !== 'starting' && (deadline <= this.now() || active.status === 'stopping')) await this.stop(active);
+  }
   async reconcileActive() {
     const active = this.active();
     // A network outage does not bypass the local safety cutoff.
     if (active) {
+      const deadline = recordingDeadline(active);
+      if (active.cutoffAt !== deadline) { active.cutoffAt = deadline; this.save(); }
       // A persisted active job is not proof that OBS survived a PC restart.
       // Launch is idempotent and leaves an already-running OBS output intact.
       if (this.restartJobs.has(active.id) || (this.obs.connected === false && active.status !== 'stopping' && active.cutoffAt > this.now())) await this.obs.launch();
@@ -156,12 +188,12 @@ export class RecorderEngine {
     // server ordering. Uploading that file is independent of the next capture.
     this.currentLesson = remote.currentLesson || null;
     const active = this.active();
-    if (active && !active.local && !active.manual && !active.fallbackMode && !active.pythonTheory && !active.mockReview
+    if (active && !active.pythonTheory && !active.mockReview
       && active.occurrence?.key && remote.currentLesson?.occurrence?.key
       && active.occurrence.key !== remote.currentLesson.occurrence.key) await this.stop(active);
     for (const job of Object.values(this.state.jobs)) {
       if (!job.resumeAfterRestart) continue;
-      if (job.cutoffAt <= this.now() || (remote.currentLesson && remote.currentLesson.occurrence?.key !== job.occurrence?.key)) {
+      if (recordingDeadline(job) <= this.now() || (remote.currentLesson && remote.currentLesson.occurrence?.key !== job.occurrence?.key)) {
         delete job.resumeAfterRestart; this.save(); continue;
       }
       // Wait until the teacher rejoins the same lesson. The server validates
@@ -192,7 +224,7 @@ export class RecorderEngine {
     for (const wanted of remote.jobs) {
       const local = this.state.jobs[wanted.id];
       if (wanted.desired === 'stop') continue;
-      if (!remote.enabled || !this.ready() || wanted.cutoffAt <= this.now()) continue;
+      if (!remote.enabled || !this.ready() || recordingDeadline(wanted) <= this.now()) continue;
       if (!local && !this.active()) await this.start(wanted);
       else if (local?.status === 'recording' && !local.fallbackMode) await this.report(local, 'recording');
     }

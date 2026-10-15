@@ -82,9 +82,13 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   }, [lessonId]);
   const onCallStatusChange = useCallback((status) => {
     setCallStatus(status);
-    if (isTeacher && status === 'connected') setRecordingRequested(true);
     void refreshRef.current?.();
-  }, [isTeacher]);
+  }, []);
+
+  useEffect(() => {
+    if (isTeacher && callStatus === 'connected'
+      && snapshot?.channels?.some(channel => channel.participants.some(person => person.role === 'student'))) setRecordingRequested(true);
+  }, [callStatus, isTeacher, snapshot?.channels]);
 
   useEffect(() => {
     if (callStatus !== 'connected') {
@@ -193,6 +197,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     <div className="group-voice" data-theme={theme}>
       <div hidden={!visible}>
         {(loadError || actionError) && <p className="group-voice__error" role="alert">{actionError || loadError}</p>}
+        {isTeacher && callStatus === 'connected' && !recordingRequested && recorder.enabled && <p className="group-voice__notice" role="status">Запись начнётся, когда подключится хотя бы один ученик.</p>}
         {isTeacher && recordingRequested && snapshot?.lessonStatus === 'active' && recorder.enabled && <p className="group-voice__notice" role="status">
           {recorder.error || (recorder.settings?.jobs?.find(job => job.id === recorder.jobId)?.status === 'recording'
             ? 'Занятие записывается. Запись продолжится при переходе между каналами.'

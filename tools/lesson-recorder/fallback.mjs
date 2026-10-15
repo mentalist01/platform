@@ -1,10 +1,13 @@
 import crypto from 'node:crypto';
 import { INPUTS } from './obs.mjs';
+import { recordingDeadline } from './engine.mjs';
 
 // Keep the current file and lesson binding. A new offline file is local-only.
 export async function enterFallback({ engine, obs, payload, save, now = Date.now }) {
   const active = engine.active();
   if (active && (active.status !== 'recording' || active.pythonTheory)) throw Error('Сначала завершите текущую запись или дождитесь её запуска');
+  const deadline = active && recordingDeadline(active);
+  if (Number.isFinite(deadline) && deadline <= now()) throw Error('Время урока закончилось. Нельзя продлить запись переходом в Телемост.');
   const choices = await obs.choices();
   for (const [key, value] of [['platform', payload.window], ['telemost', payload.audio]]) {
     if (!value || !choices[key].some(item => item.itemEnabled && item.itemValue === value)) throw Error('Выберите открытые окна разговора и доски');
@@ -19,7 +22,8 @@ export async function enterFallback({ engine, obs, payload, save, now = Date.now
     await obs.call('SetInputMute', { inputName: INPUTS.telemost, inputMuted: false });
     obs.audioWindow = payload.audio;
     active.fallbackMode = true;
-    active.cutoffAt = active.fallbackStartedAt ? active.cutoffAt : now() + 3 * 60 * 60_000;
+    active.cutoffAt = active.occurrence?.endMs ? deadline
+      : active.fallbackStartedAt ? active.cutoffAt : now() + 3 * 60 * 60_000;
     active.fallbackStartedAt ||= now();
     active.captureConfig = { platform: payload.window, telemost: payload.audio };
     save();

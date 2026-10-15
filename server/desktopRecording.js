@@ -10,6 +10,8 @@ const token = () => crypto.randomBytes(32).toString('base64url');
 // A lost WebSocket/browser is not the end of a lesson. Keep the local OBS
 // recording through reconnection; explicit finish/next lesson/cutoff still win.
 export const RECORDING_RECONNECT_GRACE_MS = 5 * 60_000;
+const recordingDeadline = job => Number.isFinite(job.occurrence?.endMs) && job.occurrence.endMs > 0
+  ? Math.min(job.cutoffAt, job.occurrence.endMs) : job.cutoffAt;
 
 export function privateRutubeVideo(value) {
   let url;
@@ -28,6 +30,7 @@ export function privateRutubeVideo(value) {
 export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFor = () => '', lessonTopicFor = () => null } = {}) {
   let db = { teachers: {}, devices: {}, jobs: {} };
   try { db = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  for (const job of Object.values(db.jobs)) if (job.desired === 'record') job.cutoffAt = recordingDeadline(job);
   const pairs = new Map();
   const save = () => {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -41,7 +44,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     id: job.id, occurrence: job.occurrence, title: job.title, status: job.status,
     lessonName: String(lessonNameFor(job) || '').trim().slice(0, 150),
     lessonTopic: lessonTopicFor(job),
-    desired: job.desired, cutoffAt: job.cutoffAt, startedAt: job.startedAt,
+    desired: job.desired, cutoffAt: recordingDeadline(job), startedAt: job.startedAt,
     stoppedAt: job.stoppedAt || '', updatedAt: job.updatedAt, video: job.video || null,
     previousJobId: job.previousJobId || '', error: job.error || '', deviceId: job.deviceId || '', audioMode: job.audioMode || '',
   });
@@ -142,6 +145,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     },
     start(teacherId, occurrence, title, cutoffAt, { audioMode = '', transitionFrom = '' } = {}) {
       if (!enabled(teacherId)) fail('Запись на компьютере не включена', 409);
+      cutoffAt = recordingDeadline({ occurrence, cutoffAt });
       if (!occurrence?.key || !Number.isFinite(cutoffAt) || cutoffAt <= now()) fail('Занятие уже завершено', 409);
       const departing = db.jobs[transitionFrom];
       if (departing?.teacherId === teacherId && departing.occurrence.key !== occurrence.key) stop(departing.occurrence.key);
@@ -151,6 +155,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
         && audioMode === 'platform';
       if (previous && !newGroupPart) {
         if (previous.desired === 'record') {
+          previous.cutoffAt = Math.min(recordingDeadline(previous), cutoffAt);
           previous.lastActiveAt = now(); previous.stopRequestedAt = 0;
           if (['platform', 'telemost'].includes(audioMode)) previous.audioMode = audioMode;
           save();
@@ -191,6 +196,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       const previous = db.jobs[id];
       if (!previous || previous.teacherId !== device.teacherId) fail('Запись не найдена', 404);
       if (previous.deviceId && previous.deviceId !== device.id) fail('Запись принадлежит другому компьютеру', 409);
+      previous.cutoffAt = recordingDeadline(previous);
       if (!enabled(device.teacherId) || previous.cutoffAt <= now() || !isActive?.(previous)) fail('Сначала подключитесь к нужному уроку на платформе', 409);
       const latest = jobs(device.teacherId).filter((job) => job.occurrence.key === previous.occurrence.key).at(-1);
       if (latest.id !== previous.id) return publicJob(latest); // retry is idempotent
@@ -205,6 +211,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     poll(device, ready, isEnded = () => false, isActive = null) {
       device.lastSeenAt = now(); device.ready = ready === true;
       for (const job of jobs(device.teacherId)) {
+        job.cutoffAt = recordingDeadline(job);
         if (job.desired === 'record' && (job.cutoffAt <= now() || isEnded(job))) stop(job.occurrence.key);
         if (job.desired !== 'record') continue;
         if (isActive?.(job)) { job.lastActiveAt = now(); job.stopRequestedAt = 0; }

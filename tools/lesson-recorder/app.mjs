@@ -627,6 +627,15 @@ server.listen(18765, '127.0.0.1', () => {
   }
 });
 setInterval(() => { try { runtimeWatchdog?.heartbeat(); } catch (failure) { diagnosticLog(directory, 'heartbeat-write-error', failure.message); } }, 5000);
+// Deliberately outside the serialized network/preview queue: even a hung poll
+// must not capture beyond the scheduled end or spill into the next lesson.
+let checkingDeadline = false;
+setInterval(() => {
+  if (checkingDeadline || updater.busy) return;
+  checkingDeadline = true;
+  void engine.enforceDeadline().catch(failure => { error = failure.message; })
+    .finally(() => { checkingDeadline = false; });
+}, 250);
 let ticking = false;
 setInterval(() => {
   if (ticking || updater.busy) return; ticking = true;

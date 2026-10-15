@@ -312,3 +312,53 @@ test('fallback capture ignores stale server stop after recovery but still obeys 
   f.offline(); f.advance(1001); await assert.rejects(f.engine.tick(), /offline/);
   assert.deepEqual(f.counts(), [1, 1]); assert.equal(f.state.jobs.one.status, 'saved');
 });
+
+test('scheduled end wins over legacy overrun and stops an offline fallback at the exact boundary', async t => {
+  const f = fixture(t);
+  await f.engine.start({ ...f.job, cutoffAt: 200000, occurrence: { key: 'group', endMs: 100500 }, fallbackMode: true });
+  assert.equal(f.engine.active().cutoffAt, 100500);
+  f.offline(); f.advance(499); await f.engine.enforceDeadline();
+  assert.deepEqual(f.counts(), [1, 0]);
+  f.advance(1); await assert.rejects(f.engine.enforceDeadline(), /offline/);
+  assert.deepEqual(f.counts(), [1, 1]); assert.equal(f.state.jobs.one.status, 'saved');
+  assert.equal(f.state.jobs.one.pendingReport.status, 'saved');
+  f.online(); f.remote({ enabled: true, jobs: [{ ...f.job, cutoffAt: 200000, occurrence: { key: 'group', endMs: 100500 } }] });
+  await f.engine.tick(); assert.deepEqual(f.counts(), [1, 1], 'stale server record commands cannot reopen an expired local file');
+});
+
+test('a blocked network poll cannot delay the independent schedule stop or duplicate StopRecord', async t => {
+  const f = fixture(t); await f.engine.start({ ...f.job, occurrence: { key: 'lesson', endMs: 101000 } });
+  let release, entered; const polled = new Promise(resolve => { entered = resolve; });
+  f.engine.api = async route => route === '/poll' ? (entered(), new Promise(resolve => { release = resolve; })) : {};
+  const ticking = f.engine.tick(); await polled; f.advance(1000);
+  await Promise.all([f.engine.enforceDeadline(), f.engine.enforceDeadline()]);
+  assert.deepEqual(f.counts(), [1, 1]); assert.equal(f.engine.active(), undefined);
+  release({ enabled: true, jobs: [] }); await ticking;
+  assert.deepEqual(f.counts(), [1, 1]);
+});
+
+test('expired lessons cannot start or resume capture, including old fallback state after restart', async t => {
+  const f = fixture(t);
+  await assert.rejects(f.engine.start({ ...f.job, occurrence: { key: 'old', endMs: 100000 } }), /расписанию/);
+  assert.deepEqual(f.counts(), [0, 0]);
+  await f.engine.start({ ...f.job, fallbackMode: true });
+  Object.assign(f.engine.active(), { cutoffAt: 200000, occurrence: { key: 'old', endMs: 100100 } });
+  f.advance(100); await f.engine.enforceDeadline(); assert.deepEqual(f.counts(), [1, 1]);
+});
+
+test('the next lesson closes bound fallback capture before creating its separate file', async t => {
+  const f = fixture(t);
+  await f.engine.start({ ...f.job, fallbackMode: true, occurrence: { key: 'group', endMs: 101000 } });
+  const next = { ...f.job, id: 'next', occurrence: { key: 'individual', endMs: 101000 } };
+  f.remote({ enabled: true, currentLesson: next, jobs: [next] }); await f.engine.tick();
+  assert.deepEqual(f.counts(), [2, 1]); assert.equal(f.engine.active().id, 'next');
+  assert.equal(f.state.jobs.one.occurrence.key, 'group'); assert.equal(f.state.jobs.next.occurrence.key, 'individual');
+});
+
+test('independent Python and mock recordings retain their own deadlines', async t => {
+  for (const kind of ['pythonTheory', 'mockReview']) {
+    const f = fixture(t);
+    await f.engine.start({ ...f.job, local: true, [kind]: {}, occurrence: { endMs: 100001 } });
+    f.advance(100); await f.engine.enforceDeadline(); assert.deepEqual(f.counts(), [1, 0]);
+  }
+});

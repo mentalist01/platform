@@ -7,6 +7,34 @@ import { createDesktopRecordingStore, privateRutubeVideo, RECORDING_RECONNECT_GR
 import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordinator.js';
 
 const video = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Secret_Key-123';
+
+test('scheduled recordings stop at endMs in every transport and cannot resume after that boundary', t => {
+  for (const audioMode of ['platform', 'telemost']) {
+    const f = fixture(t); const { device } = f.connect('teacher');
+    const occurrence = { key: 'lesson', lessonId: 'group', endMs: f.now() + 1000 };
+    const job = f.store.start('teacher', occurrence, 'Lesson', f.now() + 1800000, { audioMode });
+    assert.equal(job.cutoffAt, occurrence.endMs);
+    f.store.report(device, job.id, { status: 'recording' });
+    f.advance(999); assert.equal(f.store.poll(device, true, () => false, () => true).jobs[0].desired, 'record');
+    f.advance(1); assert.equal(f.store.poll(device, true, () => false, () => true).jobs[0].desired, 'stop');
+    assert.throws(() => f.store.resume(device, job.id, () => true), /подключитесь/);
+    assert.throws(() => f.store.start('teacher', occurrence, 'Lesson', f.now() + 1800000, { audioMode }), /завершено/);
+    const next = f.store.start('teacher', { key: 'next', studentId: 'student', endMs: f.now() + 1000 }, 'Next', f.now() + 1800000);
+    assert.notEqual(next.id, job.id); assert.equal(next.previousJobId, '');
+  }
+});
+
+test('persisted legacy overrun is clamped on load before reconnect or resume', t => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  const occurrence = { key: 'old', studentId: 'student', endMs: f.now() + 1000 };
+  const job = f.store.start('teacher', occurrence, 'Old', occurrence.endMs);
+  const db = JSON.parse(fs.readFileSync(f.file)); db.jobs[job.id].cutoffAt += 1800000;
+  fs.writeFileSync(f.file, JSON.stringify(db)); f.advance(1000);
+  const restarted = createDesktopRecordingStore(f.file, { now: f.now });
+  assert.equal(restarted.settings('teacher').jobs[0].cutoffAt, occurrence.endMs);
+  assert.throws(() => restarted.resume(device, job.id, () => true), /подключитесь/);
+  assert.equal(restarted.poll(device, true, () => false, () => true).jobs[0].desired, 'stop');
+});
 test('group hangup is immediate, channel changes keep one file, and rejoining creates a bound continuation', t => {
   const f=fixture(t); const {device}=f.connect('teacher');f.connect('other');
   const occurrence={key:'group',lessonId:'group1'};

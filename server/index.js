@@ -22551,6 +22551,13 @@ const hasGroupRecordingTeacher = (teacherId, lessonId) => {
   }
   return false;
 };
+const hasGroupRecordingStudent = lessonId => {
+  for (const [roomId, clients] of rtcRooms) {
+    if (parseLearningLessonRoomTarget(roomId)?.sessionId !== lessonId) continue;
+    if (Array.from(clients.values()).some(client => client.auth?.role === 'student')) return true;
+  }
+  return false;
+};
 registerDesktopDeviceRoutes(app, desktopRecordings, {
   lessonTopic: (teacherId,payload) => {
     const teacher=readTeachersDb().find(t=>t.id===teacherId);
@@ -22768,20 +22775,24 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
       if (audioMode === 'platform' && !hasGroupRecordingTeacher(req.auth.id, context.lesson.id)) {
         res.status(409).json({ error: 'Сначала войдите в голосовой канал занятия' }); return null;
       }
-      cutoffAt = occurrence.endMs + LEARNING_LESSON_OVERRUN_GRACE_MS;
+      const alreadyRecording = desktopRecordings.activeLessonKeys(req.auth.id).has(occurrence.key);
+      if (audioMode === 'platform' && !alreadyRecording && !hasGroupRecordingStudent(context.lesson.id)) {
+        res.status(409).json({ error: 'Запись начнётся, когда к преподавателю подключится хотя бы один ученик.' }); return null;
+      }
+      cutoffAt = occurrence.endMs;
     } else {
       const student = ensureStudentAccess(req, res, req.body?.studentId);
       if (!student) return null;
       if (hasActivePlatformLessonCall(student)) audioMode = 'platform';
       const activity = getTelemostLessonReplayEntry(student.id);
       if (activity) {
-        occurrence = activity.occurrence; cutoffAt = activity.autoFinishAtMs;
+        occurrence = activity.occurrence; cutoffAt = occurrence.endMs;
         if (req.body?.audioMode === 'telemost') audioMode = 'telemost';
       }
       else if (hasActivePlatformLessonCall(student)) {
         audioMode = 'platform';
         occurrence = await resolveCurrentLessonReplayOccurrence(student, req.auth, Date.now(), { preferActive: true, allowFallback: true });
-        cutoffAt = occurrence?.endMs + TELEMOST_LESSON_BUFFER_MS;
+        cutoffAt = occurrence?.endMs;
       }
     }
     if (!occurrence) { res.status(409).json({ error: 'Сначала начните занятие' }); return null; }
