@@ -9,6 +9,7 @@ const resetScope = () => {
   return next;
 };
 export const parentContactSnapshot = studentId => { resetScope(); return contacts[studentId] || null; };
+export const parentContactsSnapshot = () => { resetScope(); return contacts; };
 export const subscribeParentContacts = listener => { listeners.add(listener); return () => listeners.delete(listener); };
 export async function loadParentContacts(force = false) {
   const token = resetScope();

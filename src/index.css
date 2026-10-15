@@ -87070,7 +87070,7 @@ html[data-theme='light'] .python-task-builder__step-card--card .text-purple-100 
 
 .student-month-report__toolbar input,
 .student-month-report__toolbar button,
-.student-month-report__footer button {
+.student-month-report__footer :is(button, a) {
   min-height: 39px;
   border: 1px solid #dbe3ee;
   border-radius: 11px;
@@ -87086,7 +87086,7 @@ html[data-theme='light'] .python-task-builder__step-card--card .text-purple-100 
 }
 
 .student-month-report__toolbar button,
-.student-month-report__footer button {
+.student-month-report__footer :is(button, a) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -87096,14 +87096,14 @@ html[data-theme='light'] .python-task-builder__step-card--card .text-purple-100 
 }
 
 .student-month-report__toolbar button:hover,
-.student-month-report__footer button:hover:not(:disabled) {
+.student-month-report__footer :is(button, a):hover:not(:disabled) {
   border-color: #c4b5fd;
   background: #faf5ff;
   color: #6d28d9;
 }
 
 .student-month-report__toolbar button:disabled,
-.student-month-report__footer button:disabled {
+.student-month-report__footer :is(button, a):disabled {
   cursor: wait;
   opacity: 0.55;
 }
@@ -87314,20 +87314,20 @@ html[data-theme='light'] .python-task-builder__step-card--card .text-purple-100 
   gap: 8px;
 }
 
-.student-month-report__footer button[data-primary='soft'] {
+.student-month-report__footer :is(button, a)[data-primary='soft'] {
   border-color: #c4b5fd;
   background: #f5f3ff;
   color: #6d28d9;
 }
 
-.student-month-report__footer button[data-primary='strong'] {
+.student-month-report__footer :is(button, a)[data-primary='strong'] {
   border-color: #7c3aed;
   background: linear-gradient(135deg, #7c3aed, #9333ea);
   color: #ffffff;
   box-shadow: 0 8px 20px rgba(124, 58, 237, 0.22);
 }
 
-.student-month-report__footer button[data-primary='strong']:hover:not(:disabled) {
+.student-month-report__footer :is(button, a)[data-primary='strong']:hover:not(:disabled) {
   border-color: #6d28d9;
   background: linear-gradient(135deg, #6d28d9, #7e22ce);
   color: #ffffff;
@@ -87421,7 +87421,7 @@ html[data-theme='dark'] .student-month-report__error strong {
 html[data-theme='dark'] .student-month-report__close,
 html[data-theme='dark'] .student-month-report__toolbar input,
 html[data-theme='dark'] .student-month-report__toolbar button,
-html[data-theme='dark'] .student-month-report__footer button {
+html[data-theme='dark'] .student-month-report__footer :is(button, a) {
   border-color: #334155;
   background: #1e293b;
   color: #cbd5e1;
@@ -87567,7 +87567,7 @@ html[data-theme='dark'] .student-month-report__error {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .student-month-report__footer button {
+  .student-month-report__footer :is(button, a) {
     min-width: 0;
     padding-inline: 7px;
   }
@@ -87577,3 +87577,14 @@ html[data-theme='dark'] .student-month-report__error {
     margin-inline: 16px;
   }
 }
+
+.student-month-report__footer a{text-decoration:none}
+.student-month-report__sent{display:flex;align-items:center;gap:8px;margin:12px 0 16px;color:rgb(var(--ink-soft));font-size:12px;cursor:pointer}
+.student-month-report__sent input{width:16px;height:16px;accent-color:#7c3aed}
+
+.student-month-report__practice{margin:0 24px 20px;padding:16px;border:1px solid rgb(var(--ink)/.1);border-radius:16px;background:rgb(var(--surface-soft));font-size:12px}
+.student-month-report__practice>strong{display:block;margin-bottom:10px;font-size:13px}
+.student-month-report__practice table{width:100%;border-collapse:collapse;text-align:left}
+.student-month-report__practice th,.student-month-report__practice td{padding:8px;border-bottom:1px solid rgb(var(--ink)/.08)}
+.student-month-report__practice th:last-child,.student-month-report__practice td:last-child{text-align:right;font-weight:700}
+.student-month-report__practice small{display:block;margin-top:10px;color:rgb(var(--ink-soft));line-height:1.5}

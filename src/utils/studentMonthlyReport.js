@@ -1,3 +1,5 @@
+import { homeworkPracticeText, lessonTopicWithNumbers, monthlyHomeworkPractice } from './studentMonthlyPractice.js';
+
 const REPORT_TIME_ZONE = 'Europe/Moscow';
 
 const normalizeText = (value) => String(value ?? '').trim();
@@ -25,6 +27,7 @@ const getStudentGrammar = (name) => {
   const firstName = normalizeText(name).split(/\s+/u)[0].toLocaleLowerCase('ru-RU');
   const isFemale = /[ая]$/u.test(firstName) && !MALE_NAMES_ENDING_WITH_A_OR_YA.has(firstName);
   return {
+    solved: isFemale ? 'решила' : 'решил',
     studied: isFemale ? 'занималась' : 'занимался',
     wrote: isFemale ? 'написала' : 'написал',
     scored: isFemale ? 'набрала' : 'набрал',
@@ -130,16 +133,6 @@ const getHomeworkMonthKey = (entry) => (
 );
 
 const isHomeworkComplete = (entry) => Number(entry?.percent) >= 100;
-
-const getLessonTopicLabel = (entry) => {
-  const topic = entry?.topic;
-  if (typeof topic === 'string') return normalizeText(topic);
-  if (topic && typeof topic === 'object') {
-    const label = normalizeText(topic.title || topic.name || topic.text || topic.label);
-    if (label) return label;
-  }
-  return '';
-};
 
 const uniqueLabels = (values, limit = 6) => {
   const seen = new Set();
@@ -488,6 +481,8 @@ const buildStudentFacingText = ({
     lines.push('', 'Домашних заданий в этом месяце не было.');
   }
 
+  const practiceText = homeworkPracticeText(metrics.homework.practice, { studentAudience: true, solved: getStudentGrammar(studentName).solved });
+  if (practiceText) lines.push('', practiceText);
   if (metrics.mocks.count > 0) {
     lines.push('', buildStudentMockJourneyText({ mocks: metrics.mocks, pickPhrase }));
   } else {
@@ -521,6 +516,7 @@ export const buildStudentMonthlyReport = ({
   homeworkEntries = [],
   mockEntries = [],
   lessonEntries = [],
+  taskTitles = {},
   nowMs = Date.now(),
 } = {}) => {
   const normalizedMonth = normalizeStudentReportMonth(month) || getCurrentMonthKey(nowMs);
@@ -575,7 +571,8 @@ export const buildStudentMonthlyReport = ({
   });
   const overdueHomeworks = incompleteHomeworks.filter((entry) => !upcomingHomeworks.includes(entry));
   const evaluatedHomeworks = homeworks.filter((entry) => !upcomingHomeworks.includes(entry));
-  const lessonTopics = normalizeLessonTopicLabels(lessons.map(getLessonTopicLabel));
+  const lessonTopics = normalizeLessonTopicLabels(lessons.map(entry => lessonTopicWithNumbers(entry?.topic, taskTitles)), 30);
+  const practice = monthlyHomeworkPractice(Array.isArray(homeworkEntries) ? homeworkEntries : [], normalizedMonth, nowMs, taskTitles);
   const lessonTopicCount = countLessonTopicLabels(lessonTopics);
   const lessonMinutes = lessons.reduce((sum, entry) => sum + Math.max(0, Number(entry?.durationMinutes) || 0), 0);
   const latestMock = mocksInMonth[mocksInMonth.length - 1] || null;
@@ -617,6 +614,8 @@ export const buildStudentMonthlyReport = ({
       deltaFromPreviousMonth: averagePercent != null && previousAveragePercent != null
         ? averagePercent - previousAveragePercent
         : null,
+      practice,
+      solvedTaskCount: practice.reduce((sum, group) => sum + group.solvedCount, 0),
     },
     mocks: {
       count: mocksInMonth.length,
@@ -681,6 +680,8 @@ export const buildStudentMonthlyReport = ({
     lines.push('', 'Домашних заданий в этом месяце не было.');
   }
 
+  const practiceText = homeworkPracticeText(metrics.homework.practice, { studentName, solved: grammar.solved });
+  if (practiceText) lines.push('', practiceText);
   if (metrics.mocks.count === 0) {
     lines.push('', 'Пробника в этом месяце пока не было.');
   } else {

@@ -3723,6 +3723,7 @@ const TeacherPanel = ({
       {isStudentsMode && monthlyReportStudent && (
         <StudentMonthlyReportModal
           student={monthlyReportStudent}
+          onStudentUpdated={onStudentUpdated}
           onClose={() => setMonthlyReportStudent(null)}
         />
       )}

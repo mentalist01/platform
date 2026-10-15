@@ -37170,6 +37170,10 @@ app.get('/api/student-month-report', async (req, res) => {
       homeworkEntries,
       mockEntries,
       lessonEntries,
+      taskTitles: Object.fromEntries([
+        ...readClassicTaskCatalogForTeacher(student.teacherId).activeTasks.map(task => [task.taskNumber, task.title]),
+        ...Array.from(getLeaderboardProfilePythonTaskMap(testsDb).values(), task => [task.taskNumber, task.title]),
+      ]),
     });
     res.setHeader('Cache-Control', 'no-store');
     return res.json({

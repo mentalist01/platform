@@ -16,6 +16,10 @@ import {
 import { api } from '../services/api';
 import { createStudentReportCanvas } from '../utils/studentReportImage';
 import StudentParentContact from './StudentParentContact';
+import useStudentParentContacts from '../hooks/useStudentParentContacts';
+import { parentContactSnapshot } from '../services/studentParentContacts';
+import { copyParentMessage, normalizeStudentParentContact } from '../utils/studentParentContact';
+import { personalizeParentReport } from '../utils/parentReportReminder';
 
 const getCurrentMoscowMonth = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -27,23 +31,6 @@ const getCurrentMoscowMonth = () => {
     return result;
   }, {});
   return `${parts.year}-${parts.month}`;
-};
-
-const writeTextToClipboard = async (text) => {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const field = document.createElement('textarea');
-  field.value = text;
-  field.style.position = 'fixed';
-  field.style.opacity = '0';
-  document.body.appendChild(field);
-  field.focus();
-  field.select();
-  const copied = document.execCommand('copy');
-  field.remove();
-  if (!copied) throw new Error('copy failed');
 };
 
 const sanitizeFileName = (value) => String(value || 'ученик')
@@ -289,9 +276,18 @@ const MetricCard = ({ icon, label, value, note, tone }) => (
   </div>
 );
 
-const StudentMonthlyReportModal = ({ student, onClose }) => {
+const reportDrafts = (report, parentName) => ({
+  parent: personalizeParentReport(report?.texts?.parent || report?.parentText || report?.text || '', parentName),
+  student: String(report?.texts?.student || report?.studentText || ''),
+});
+
+const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUpdated }) => {
   const currentMonth = useMemo(getCurrentMoscowMonth, []);
-  const [month, setMonth] = useState(currentMonth);
+  const [month, setMonth] = useState(initialMonth || currentMonth);
+  const { contacts, error: contactError } = useStudentParentContacts(student?.id);
+  const parentName = contacts[student?.id]?.name || '';
+  let parentContact;
+  try { parentContact = normalizeStudentParentContact(contacts[student?.id] || {}); } catch { parentContact = null; }
   const [report, setReport] = useState(null);
   const [audience, setAudience] = useState('parent');
   const [drafts, setDrafts] = useState({ parent: '', student: '' });
@@ -301,10 +297,15 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
   const [shareState, setShareState] = useState('idle');
   const [imageState, setImageState] = useState('idle');
   const closeButtonRef = useRef(null);
+  const automaticDrafts = useRef({ parent: '', student: '' });
+  const requestSequence = useRef(0);
+  const [sentMonths, setSentMonths] = useState(student?.monthlyReportSentMonths || {});
+  const [statusSaving, setStatusSaving] = useState(false), [statusError, setStatusError] = useState('');
 
   const loadReport = useCallback(async () => {
     const studentId = String(student?.id || '').trim();
     if (!studentId) return;
+    const sequence = ++requestSequence.current;
     setLoading(true);
     setError('');
     setCopyState('idle');
@@ -312,27 +313,37 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
     setImageState('idle');
     try {
       const next = await api.getStudentMonthlyReport(studentId, month);
+      if (sequence !== requestSequence.current) return;
       setReport(next);
-      setDrafts({
-        parent: String(next?.texts?.parent || next?.parentText || next?.text || ''),
-        student: String(next?.texts?.student || next?.studentText || ''),
-      });
+      const nextDrafts = reportDrafts(next, parentContactSnapshot(studentId)?.name);
+      automaticDrafts.current = nextDrafts; setDrafts(nextDrafts);
     } catch (loadError) {
-      setError(loadError?.message || 'Не удалось собрать отчёт.');
+      if (sequence === requestSequence.current) setError(loadError?.message || 'Не удалось собрать отчёт.');
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, [month, student?.id]);
 
   const text = drafts[audience] || '';
-  const automaticText = audience === 'student'
-    ? String(report?.texts?.student || report?.studentText || '')
-    : String(report?.texts?.parent || report?.parentText || report?.text || '');
+  const automaticText = reportDrafts(report, parentName)[audience];
   const updateText = (value) => setDrafts((current) => ({ ...current, [audience]: value }));
 
   useEffect(() => {
+    const sequence = requestSequence;
     loadReport();
+    return () => { sequence.current++; };
   }, [loadReport]);
+
+  useEffect(() => {
+    if (!report) return;
+    const next = reportDrafts(report, parentName), previous = automaticDrafts.current;
+    setDrafts(current => ({
+      parent: current.parent === previous.parent ? next.parent : current.parent,
+      student: current.student === previous.student ? next.student : current.student,
+    }));
+    automaticDrafts.current = next;
+  }, [report, parentName]);
+  useEffect(() => { setSentMonths(student?.monthlyReportSentMonths || {}); }, [student?.id, student?.monthlyReportSentMonths]);
 
   useEffect(() => {
     setCopyState('idle');
@@ -365,12 +376,23 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
   const handleCopy = async () => {
     if (!text.trim()) return;
     try {
-      await writeTextToClipboard(text);
+      await copyParentMessage(text);
       setCopyState('copied');
       window.setTimeout(() => setCopyState('idle'), 2200);
     } catch {
       setCopyState('error');
     }
+  };
+
+  const handleSentChange = async (sent) => {
+    if (statusSaving) return;
+    setStatusSaving(true); setStatusError('');
+    try {
+      const result = await api.updateStudentMonthlyReportStatus(student.id, month, sent);
+      setSentMonths(result.monthlyReportSentMonths || {});
+      onStudentUpdated?.({ id: student.id, monthlyReportSentMonths: result.monthlyReportSentMonths || {} });
+    } catch (failure) { setStatusError(failure.message || 'Не удалось сохранить отметку.'); }
+    finally { setStatusSaving(false); }
   };
 
   const handleShare = async () => {
@@ -514,6 +536,14 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
               </p>
             )}
 
+            {homework.practice?.length > 0 && <section className="student-month-report__practice" aria-label="Решено в домашке за месяц">
+              <strong>Решено в домашке за месяц · {homework.solvedTaskCount} задач</strong>
+              <table><thead><tr><th>Тема</th><th>Выполнено</th></tr></thead><tbody>{homework.practice.map(group => <tr key={group.taskNumber}>
+                <td>{group.taskNumber >= 100 ? 'Python' : `ЕГЭ №${group.taskNumber}`}{group.title ? ` · ${group.title}` : ''}</td><td>{group.solvedCount}</td>
+              </tr>)}</tbody></table>
+              <small>По датам выполнения. Повторяющиеся номера в перенесённой домашке учитываются один раз.</small>
+            </section>}
+
             <div className="student-month-report__editor-head">
               <div>
                 <strong>{audience === 'student' ? 'Текст для ученика' : 'Текст для родителя'}</strong>
@@ -533,9 +563,13 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
               aria-label={audience === 'student' ? 'Текст отчёта для ученика' : 'Текст отчёта для родителя'}
             />
 
-            {audience === 'parent' && <div className="px-5"><StudentParentContact studentId={student?.id} studentName={student?.name} messageText={text} /></div>}
+            {audience === 'parent' && <div className="px-5"><StudentParentContact studentId={student?.id} studentName={student?.name} />
+              {contactError && <p role="alert" className="text-xs text-rose-600">{contactError}</p>}
+              <label className="student-month-report__sent"><input type="checkbox" checked={Boolean(sentMonths[month])} disabled={statusSaving} onChange={event => { void handleSentChange(event.target.checked); }} />Я отправил отчёт родителю за выбранный месяц</label>
+              {statusError && <p role="alert" className="text-xs text-rose-600">{statusError}</p>}
+            </div>}
             <footer className="student-month-report__footer">
-              <span>Отчёт не отправляется сам — вы сначала видите и проверяете готовый текст.</span>
+              <span>{audience === 'parent' && parentContact?.url ? '«Отправить» скопирует текст и откроет контакт. Вставьте сообщение в чат, отправьте и поставьте отметку.' : 'Отчёт не отправляется сам — вы сначала видите и проверяете готовый текст.'}</span>
               <div>
                 <button type="button" onClick={handleDownload} disabled={!text.trim()}>
                   <Download size={16} /> Текст
@@ -548,10 +582,10 @@ const StudentMonthlyReportModal = ({ student, onClose }) => {
                   {copyState === 'copied' ? <Check size={16} /> : <ClipboardCopy size={16} />}
                   {copyState === 'copied' ? 'Скопировано' : (copyState === 'error' ? 'Не удалось' : 'Копировать')}
                 </button>
-                <button type="button" onClick={handleShare} disabled={!text.trim()} data-primary="strong">
+                {audience === 'parent' && parentContact?.url && text.trim() ? <a href={parentContact.url} target="_blank" rel="noopener noreferrer" onClick={() => { void handleCopy(); }} data-primary="strong"><Send size={16} />Отправить</a> : <button type="button" onClick={handleShare} disabled={!text.trim()} data-primary="strong">
                   <Send size={16} />
                   {shareState === 'shared' ? 'Отправлено' : (shareState === 'copied' ? 'Скопировано' : 'Отправить')}
-                </button>
+                </button>}
               </div>
             </footer>
           </>

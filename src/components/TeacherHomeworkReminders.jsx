@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BookOpen, ArrowRight, Check } from 'lucide-react';
 import { homeworkReminders } from '../services/homeworkReminders';
 import './TeacherHomeworkReminders.css';
+import TeacherParentReportReminder from './TeacherParentReportReminder';
 
 export function HomeworkReminderCard({ reminder, count = 1, busy = false, error = '', onOpen, onDismiss }) {
   const date = new Date(reminder.endedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
@@ -19,7 +20,7 @@ export function HomeworkReminderCard({ reminder, count = 1, busy = false, error 
   </aside>;
 }
 
-export default function TeacherHomeworkReminders({ userId, onOpen, paused = false }) {
+export default function TeacherHomeworkReminders({ userId, onOpen, students, onStudentUpdated, paused = false }) {
   const [reminders, setReminders] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -53,7 +54,6 @@ export default function TeacherHomeworkReminders({ userId, onOpen, paused = fals
   }, [userId]);
   const visible = reminders.filter(reminder => !(snoozed[reminder.id] > Date.now()));
   const reminder = visible[0];
-  if (!reminder || paused) return null;
   const dismiss = async () => {
     setBusy(true); setError('');
     try {
@@ -62,10 +62,11 @@ export default function TeacherHomeworkReminders({ userId, onOpen, paused = fals
     } catch (failure) { if (alive.current) setError(failure.message || 'Не удалось сохранить ответ. Повторите.'); }
     finally { if (alive.current) setBusy(false); }
   };
-  return <HomeworkReminderCard reminder={reminder} count={visible.length} busy={busy} error={error}
+  return <><TeacherParentReportReminder userId={userId} students={students} onStudentUpdated={onStudentUpdated} paused={paused} showEntry={!reminder} />
+    {reminder && !paused && <HomeworkReminderCard reminder={reminder} count={visible.length} busy={busy} error={error}
     onDismiss={dismiss} onOpen={() => {
       onOpen?.(reminder);
       setError('');
       setSnoozed(current => ({ ...current, [reminder.id]: Date.now() + 10 * 60_000 }));
-    }} />;
+    }} />}</>;
 }

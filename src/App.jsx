@@ -25279,7 +25279,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       )}
       {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherRescheduleInbox userId={user.id} showEmpty={isTeacherNotificationsTabOpen} /></React.Suspense>}
       {user.role === 'teacher' && <React.Suspense fallback={null}><RecordingHealthWarning key={user.id} recorder={desktopRecorder} active={callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive} /></React.Suspense>}
-      {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherHomeworkReminders key={user.id} userId={user.id} onOpen={handleHomeworkReminderOpen} paused={callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status))} /></React.Suspense>}
+      {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherHomeworkReminders key={user.id} userId={user.id} students={studentsWithNicknames} onStudentUpdated={handleStudentUpdated} onOpen={handleHomeworkReminderOpen} paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || isCallSessionActive || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status))} /></React.Suspense>}
       {user.role === 'student' && !studentTourActive && (
         <StudentNotificationsCenter
           user={user}
