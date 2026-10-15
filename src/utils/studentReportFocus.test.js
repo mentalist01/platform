@@ -20,17 +20,17 @@ test('focus comes from sufficiently covered lesson topics and never from homewor
 
 test('no new mock, first mock, unchanged and lower score receive distinct factual explanations', () => {
   const context = inferStudentReportFocus([topic([103]), topic([105])], titles);
-  assert.match(studentReportFocusText(context), /Свежего пробника.*нет/);
+  assert.match(studentReportFocusText(context), /Нового результата пробника.*пока нет/);
   assert.doesNotMatch(studentReportFocusText(context), /не показал прибавки|снизился/);
   const first = studentReportFocusText({ ...context, mockCount: 1, mockDelta: null });
-  assert.match(first, /первую точку отсчёта/);
+  assert.match(first, /первый результат пробника/);
   const unchanged = studentReportFocusText({ ...context, mockCount: 1, mockDelta: 0 });
   assert.match(unchanged, /не показал прибавки/);
-  assert.match(unchanged, /Сам по себе акцент на Python не объясняет/);
+  assert.match(unchanged, /По одному общему баллу причину результата понять нельзя/);
   const lower = studentReportFocusText({ ...context, mockCount: 1, mockDelta: -5 });
   assert.match(lower, /результат снизился/);
   assert.doesNotMatch(lower, /из-за Python|потому что|обязательно выраст|освоил/);
-  assert.doesNotMatch(studentReportFocusText({ ...context, mockCount: 1, mockDelta: 5 }), /не показал прибавки|снизился|точку отсчёта/);
+  assert.doesNotMatch(studentReportFocusText({ ...context, mockCount: 1, mockDelta: 5 }), /не показал прибавки|снизился|первый результат/);
 });
 
 test('manual focus and a teacher plan can change the automatic message without changing facts', () => {
@@ -41,7 +41,7 @@ test('manual focus and a teacher plan can change the automatic message without c
   assert.match(changed, /ЕГЭ №7: 20 задач/);
   assert.doesNotMatch(changed, /Продолжаем подготовку/);
   assert.doesNotMatch(composeParentReportFocus(report), /Дальше планируем:/);
-  assert.match(composeParentReportFocus(report, { focus: 'mixed' }), /сочетали изучение Python/);
+  assert.match(composeParentReportFocus(report, { focus: 'mixed' }), /работали и с Python, и с заданиями ЕГЭ/);
   assert.match(composeParentReportFocus(report, { focus: 'ege' }), /основной акцент.*ЕГЭ/);
 });
 
@@ -56,10 +56,22 @@ test('generated reports include lesson focus but no inferred dominance from many
     homeworkEntries: [{ dueAt: '2026-10-03T12:00:00Z', percent: 100, goals: [{ type: 'task', taskNumber: 105, levelId: 'python', items: Array.from({ length: 50 }, (_, i) => ({ questionId: `python-${i}`, state: 'clean', completedAt: '2026-10-02T12:00:00Z' })) }] }],
   });
   assert.equal(report.focusContext.inferred, 'ege');
-  assert.match(report.parentText, /чаще работали над заданиями ЕГЭ/);
+  assert.match(report.parentText, /чаще разбирали задания ЕГЭ/);
   assert.match(report.parentText, /50 задач/);
-  assert.doesNotMatch(report.parentText, /основной акцент.*Python|чаще работали над Python/);
+  assert.doesNotMatch(report.parentText, /основной акцент.*Python|чаще занимались Python/);
   assert.equal(report.parentText, composeParentReportFocus(report));
-  assert.doesNotMatch(report.texts.parentBase, /Свежего пробника/);
+  assert.doesNotMatch(report.texts.parentBase, /Нового результата пробника/);
   assert.doesNotMatch(report.parentText, /Пробника в этом месяце пока не было/);
+});
+
+test('parent focus prose speaks as the teacher and never describes how the report was assembled', () => {
+  for (const inferred of ['python', 'ege', 'mixed', '']) {
+    for (const focus of ['auto', 'python', 'ege', 'mixed']) {
+      for (const [mockCount, mockDelta] of [[0, null], [1, null], [1, 0], [1, -5], [1, 5]]) {
+        const text = studentReportFocusText({ inferred, pythonTopics: ['Условия'], mockCount, mockDelta }, { focus });
+        assert.doesNotMatch(text, /сохран[её]н|по данным|на платформе|источник данных|автоматически/iu);
+        assert.doesNotMatch(text, /обязательно выраст|из-за Python|освоил/iu);
+      }
+    }
+  }
 });

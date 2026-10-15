@@ -474,6 +474,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
           </button>
         </header>
 
+        <div className="student-month-report__body" role="region" aria-label="Содержимое отчёта" tabIndex={0}>
         <div className="student-month-report__toolbar">
           <label>
             <span>Месяц отчёта</span>
@@ -546,11 +547,13 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
 
             {audience === 'parent' && report?.focusContext && <details className="student-month-report__focus">
               <summary>Фокус месяца · {focusOptions.focus === 'auto' ? (REPORT_FOCUS_LABELS[report.focusContext.inferred] || 'нужно уточнить') : REPORT_FOCUS_LABELS[focusOptions.focus]}</summary>
+              <div className="student-month-report__focus-fields">
               <label>На чём сосредоточились<select value={focusOptions.focus} onChange={event => setFocusOptions(current => ({ ...current, focus: event.target.value }))}>
                 <option value="auto">Автоматически по темам занятий</option><option value="python">Python</option><option value="ege">ЕГЭ</option><option value="mixed">Смешанный</option>
               </select></label>
-              <small>По сохранённым темам: Python — {report.focusContext.counts.python}, ЕГЭ — {report.focusContext.counts.ege}, оба направления — {report.focusContext.counts.mixed}, без уточнения — {report.focusContext.counts.unknown}. Количество решений домашки не определяет время уроков.</small>
               <label>Следующий шаг · необязательно<input value={focusOptions.nextStep} maxLength={400} placeholder="Например: применить циклы в заданиях ЕГЭ №17" onChange={event => setFocusOptions(current => ({ ...current, nextStep: event.target.value }))} /></label>
+              </div>
+              <small>По сохранённым темам: Python — {report.focusContext.counts.python}, ЕГЭ — {report.focusContext.counts.ege}, оба направления — {report.focusContext.counts.mixed}, без уточнения — {report.focusContext.counts.unknown}. Количество решений домашки не определяет время уроков.</small>
               {text !== automaticText && <p>В тексте есть ваши правки. Они сохранены. Чтобы применить выбранный фокус к автотексту, нажмите «Вернуть автотекст» ниже.</p>}
             </details>}
             <div className="student-month-report__editor-head">
@@ -580,13 +583,16 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
               <small>По датам выполнения. Повторяющиеся номера в перенесённой домашке учитываются один раз.</small>
             </details>}
 
-            {audience === 'parent' && <div className="px-5"><StudentParentContact studentId={student?.id} studentName={student?.name} messageText={text} />
+            {audience === 'parent' && <div className="student-month-report__contact"><StudentParentContact studentId={student?.id} studentName={student?.name} messageText={text} />
               {contactError && <p role="alert" className="text-xs text-rose-600">{contactError}</p>}
               <label className="student-month-report__sent"><input type="checkbox" checked={Boolean(sentMonths[month])} disabled={statusSaving} onChange={event => { void handleSentChange(event.target.checked); }} />Я отправил отчёт родителю за выбранный месяц</label>
               {statusError && <p role="alert" className="text-xs text-rose-600">{statusError}</p>}
             </div>}
-            <footer className="student-month-report__footer">
-              <span>{audience === 'parent' && parentContact?.url ? '«Отправить» скопирует текст и откроет контакт. Вставьте сообщение в чат, отправьте и поставьте отметку.' : 'Отчёт не отправляется сам — вы сначала видите и проверяете готовый текст.'}</span>
+          </>
+        )}
+        </div>
+        {!error && !loading && <footer className="student-month-report__footer">
+              <span>{audience === 'parent' && parentContact?.url ? `${parentName ? `Родитель · ${parentName}. ` : ''}«Отправить» скопирует текст и откроет контакт. Отправьте сообщение и поставьте отметку.` : 'Отчёт не отправляется сам — вы сначала видите и проверяете готовый текст.'}</span>
               <div>
                 <button type="button" onClick={handleDownload} disabled={!text.trim()}>
                   <Download size={16} /> Текст
@@ -605,8 +611,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
                 </button>}
               </div>
             </footer>
-          </>
-        )}
+        }
       </section>
     </div>
   );

@@ -74,7 +74,7 @@ test('monthly report handles an empty month without inventing results', () => {
   });
   assert.equal(report.metrics.homework.assignedCount, 0);
   assert.equal(report.metrics.mocks.latestScore, null);
-  assert.match(report.text, /пока мало данных/);
+  assert.match(report.text, /Пока рано подводить итоги месяца/);
   assert.doesNotMatch(report.text, /undefined|null/);
 });
 
@@ -329,6 +329,6 @@ test('reports without a mock do not invent an exam date', () => {
   const report = buildStudentMonthlyReport({student: {id: 'no-mock', name: 'Иван'}, month: '2026-09',
     nowMs: Date.parse('2026-09-28T12:00:00+03:00'), mockEntries: []});
   assert.equal(report.metrics.mocks.latestDate, '');
-  assert.match(report.parentText, /Свежего пробника за этот месяц пока нет/u);
+  assert.match(report.parentText, /Нового результата пробника в этом месяце пока нет/u);
   assert.doesNotMatch(report.parentText + report.studentText, /пробника? от \d/u);
 });

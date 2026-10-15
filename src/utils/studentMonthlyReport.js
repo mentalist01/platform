@@ -282,7 +282,7 @@ const buildAutomaticConclusion = ({ homework, mocks, lessons, pickPhrase }) => {
     ], 4));
   }
   if (sentences.length === 0) {
-    sentences.push('За этот месяц пока мало данных, поэтому содержательный вывод получится сделать после следующих занятий.');
+    sentences.push('Пока рано подводить итоги месяца. Вернёмся к ним после следующих занятий.');
   }
   return sentences.join(' ');
 };
