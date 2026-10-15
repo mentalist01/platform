@@ -20,6 +20,7 @@ import useStudentParentContacts from '../hooks/useStudentParentContacts';
 import { parentContactSnapshot } from '../services/studentParentContacts';
 import { copyParentMessage, normalizeStudentParentContact } from '../utils/studentParentContact';
 import { personalizeParentReport } from '../utils/parentReportReminder';
+import { composeParentReportFocus, REPORT_FOCUS_LABELS, updateUntouchedReportDrafts } from '../utils/studentReportFocus';
 
 const getCurrentMoscowMonth = () => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -282,8 +283,8 @@ const MetricCard = ({ icon, label, value, note, tone }) => (
   </div>
 );
 
-const reportDrafts = (report, parentName) => ({
-  parent: personalizeParentReport(report?.texts?.parent || report?.parentText || report?.text || '', parentName),
+const reportDrafts = (report, parentName, options) => ({
+  parent: personalizeParentReport(composeParentReportFocus(report || {}, options), parentName),
   student: String(report?.texts?.student || report?.studentText || ''),
 });
 
@@ -297,6 +298,9 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
   const [report, setReport] = useState(null);
   const [audience, setAudience] = useState('parent');
   const [drafts, setDrafts] = useState({ parent: '', student: '' });
+  const [focusOptions, setFocusOptions] = useState({ focus: 'auto', nextStep: '' });
+  const focusOptionsRef = useRef(focusOptions);
+  focusOptionsRef.current = focusOptions;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copyState, setCopyState] = useState('idle');
@@ -321,7 +325,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
       const next = await api.getStudentMonthlyReport(studentId, month);
       if (sequence !== requestSequence.current) return;
       setReport(next);
-      const nextDrafts = reportDrafts(next, parentContactSnapshot(studentId)?.name);
+      const nextDrafts = reportDrafts(next, parentContactSnapshot(studentId)?.name, focusOptionsRef.current);
       automaticDrafts.current = nextDrafts; setDrafts(nextDrafts);
     } catch (loadError) {
       if (sequence === requestSequence.current) setError(loadError?.message || 'Не удалось собрать отчёт.');
@@ -331,7 +335,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
   }, [month, student?.id]);
 
   const text = drafts[audience] || '';
-  const automaticText = reportDrafts(report, parentName)[audience];
+  const automaticText = reportDrafts(report, parentName, focusOptions)[audience];
   const updateText = (value) => setDrafts((current) => ({ ...current, [audience]: value }));
 
   useEffect(() => {
@@ -342,13 +346,11 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
 
   useEffect(() => {
     if (!report) return;
-    const next = reportDrafts(report, parentName), previous = automaticDrafts.current;
-    setDrafts(current => ({
-      parent: current.parent === previous.parent ? next.parent : current.parent,
-      student: current.student === previous.student ? next.student : current.student,
-    }));
+    const next = reportDrafts(report, parentName, focusOptions), previous = automaticDrafts.current;
+    setDrafts(current => updateUntouchedReportDrafts(current, previous, next));
     automaticDrafts.current = next;
-  }, [report, parentName]);
+  }, [report, parentName, focusOptions]);
+  useEffect(() => { setFocusOptions({ focus: 'auto', nextStep: '' }); }, [month, student?.id]);
   useEffect(() => { setSentMonths(student?.monthlyReportSentMonths || {}); }, [student?.id, student?.monthlyReportSentMonths]);
 
   useEffect(() => {
@@ -542,6 +544,15 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
               </p>
             )}
 
+            {audience === 'parent' && report?.focusContext && <details className="student-month-report__focus">
+              <summary>Фокус месяца · {focusOptions.focus === 'auto' ? (REPORT_FOCUS_LABELS[report.focusContext.inferred] || 'нужно уточнить') : REPORT_FOCUS_LABELS[focusOptions.focus]}</summary>
+              <label>На чём сосредоточились<select value={focusOptions.focus} onChange={event => setFocusOptions(current => ({ ...current, focus: event.target.value }))}>
+                <option value="auto">Автоматически по темам занятий</option><option value="python">Python</option><option value="ege">ЕГЭ</option><option value="mixed">Смешанный</option>
+              </select></label>
+              <small>По сохранённым темам: Python — {report.focusContext.counts.python}, ЕГЭ — {report.focusContext.counts.ege}, оба направления — {report.focusContext.counts.mixed}, без уточнения — {report.focusContext.counts.unknown}. Количество решений домашки не определяет время уроков.</small>
+              <label>Следующий шаг · необязательно<input value={focusOptions.nextStep} maxLength={400} placeholder="Например: применить циклы в заданиях ЕГЭ №17" onChange={event => setFocusOptions(current => ({ ...current, nextStep: event.target.value }))} /></label>
+              {text !== automaticText && <p>В тексте есть ваши правки. Они сохранены. Чтобы применить выбранный фокус к автотексту, нажмите «Вернуть автотекст» ниже.</p>}
+            </details>}
             <div className="student-month-report__editor-head">
               <div>
                 <strong>{audience === 'student' ? 'Текст для ученика' : 'Текст для родителя'}</strong>
@@ -569,7 +580,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
               <small>По датам выполнения. Повторяющиеся номера в перенесённой домашке учитываются один раз.</small>
             </details>}
 
-            {audience === 'parent' && <div className="px-5"><StudentParentContact studentId={student?.id} studentName={student?.name} />
+            {audience === 'parent' && <div className="px-5"><StudentParentContact studentId={student?.id} studentName={student?.name} messageText={text} />
               {contactError && <p role="alert" className="text-xs text-rose-600">{contactError}</p>}
               <label className="student-month-report__sent"><input type="checkbox" checked={Boolean(sentMonths[month])} disabled={statusSaving} onChange={event => { void handleSentChange(event.target.checked); }} />Я отправил отчёт родителю за выбранный месяц</label>
               {statusError && <p role="alert" className="text-xs text-rose-600">{statusError}</p>}

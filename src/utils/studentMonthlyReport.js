@@ -1,4 +1,5 @@
 import { homeworkPracticeText, lessonTopicWithNumbers, monthlyHomeworkPractice } from './studentMonthlyPractice.js';
+import { composeParentReportFocus, inferStudentReportFocus } from './studentReportFocus.js';
 
 const REPORT_TIME_ZONE = 'Europe/Moscow';
 
@@ -701,7 +702,9 @@ export const buildStudentMonthlyReport = ({
   });
   lines.push('', automaticConclusion);
 
-  const parentText = toShortDashes(lines.join('\n'));
+  const parentBase = toShortDashes(lines.join('\n'));
+  const focusContext = inferStudentReportFocus(lessons, taskTitles, metrics.mocks);
+  const parentText = composeParentReportFocus({ texts: { parentBase }, focusContext });
   const studentText = buildStudentFacingText({
     studentName,
     messageMonthLabel,
@@ -721,10 +724,12 @@ export const buildStudentMonthlyReport = ({
     student: { id: normalizeText(student?.id), name: studentName },
     metrics,
     automaticConclusion,
+    focusContext,
     text: parentText,
     parentText,
     studentText,
     texts: {
+      parentBase,
       parent: parentText,
       student: studentText,
     },

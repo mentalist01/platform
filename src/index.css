@@ -87588,3 +87588,9 @@ html[data-theme='dark'] .student-month-report__error {
 .student-month-report__practice th,.student-month-report__practice td{padding:8px;border-bottom:1px solid rgb(var(--ink)/.08)}
 .student-month-report__practice th:last-child,.student-month-report__practice td:last-child{text-align:right;font-weight:700}
 .student-month-report__practice small{display:block;margin-top:10px;color:rgb(var(--ink-soft));line-height:1.5}
+
+.student-month-report__focus{margin:0 24px 18px;padding:14px 16px;border:1px solid #ddd1fb;border-radius:14px;background:rgb(var(--surface-soft));font-size:12px}
+.student-month-report__focus summary{font-weight:750;color:#7c3aed;cursor:pointer}
+.student-month-report__focus label{display:grid;gap:6px;margin-top:12px;font-weight:650}
+.student-month-report__focus input,.student-month-report__focus select{width:100%;min-width:0;padding:9px 10px;border:1px solid rgb(var(--ink)/.16);border-radius:9px;background:rgb(var(--surface));color:rgb(var(--ink));font-weight:400}
+.student-month-report__focus small,.student-month-report__focus p{display:block;margin:9px 0 0;color:rgb(var(--ink-soft));line-height:1.6}
