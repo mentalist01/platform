@@ -49,6 +49,12 @@ const formatTopicCount = (value) => {
   return `${count} ${label}`;
 };
 
+const formatPracticeCount = value => {
+  const count = Math.max(0, Math.trunc(Number(value) || 0));
+  const label = count % 100 >= 11 && count % 100 <= 14 ? 'задач' : count % 10 === 1 ? 'задача' : count % 10 >= 2 && count % 10 <= 4 ? 'задачи' : 'задач';
+  return `${count} ${label}`;
+};
+
 const capitalizeFirst = (value) => {
   const text = String(value || '').trim();
   return text ? `${text[0].toLocaleUpperCase('ru-RU')}${text.slice(1)}` : '';
@@ -536,14 +542,6 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
               </p>
             )}
 
-            {homework.practice?.length > 0 && <section className="student-month-report__practice" aria-label="Решено в домашке за месяц">
-              <strong>Решено в домашке за месяц · {homework.solvedTaskCount} задач</strong>
-              <table><thead><tr><th>Тема</th><th>Выполнено</th></tr></thead><tbody>{homework.practice.map(group => <tr key={group.taskNumber}>
-                <td>{group.taskNumber >= 100 ? 'Python' : `ЕГЭ №${group.taskNumber}`}{group.title ? ` · ${group.title}` : ''}</td><td>{group.solvedCount}</td>
-              </tr>)}</tbody></table>
-              <small>По датам выполнения. Повторяющиеся номера в перенесённой домашке учитываются один раз.</small>
-            </section>}
-
             <div className="student-month-report__editor-head">
               <div>
                 <strong>{audience === 'student' ? 'Текст для ученика' : 'Текст для родителя'}</strong>
@@ -562,6 +560,14 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
               spellCheck="true"
               aria-label={audience === 'student' ? 'Текст отчёта для ученика' : 'Текст отчёта для родителя'}
             />
+
+            {homework.practice?.length > 0 && <details className="student-month-report__practice" aria-label="Решено в домашке за месяц">
+              <summary>Подробная статистика · {formatPracticeCount(homework.solvedTaskCount)}</summary>
+              <table><thead><tr><th>Тема</th><th>Выполнено</th></tr></thead><tbody>{homework.practice.map(group => <tr key={group.taskNumber}>
+                <td>{group.taskNumber >= 100 ? 'Python' : `ЕГЭ №${group.taskNumber}`}{group.title ? ` · ${group.title}` : ''}</td><td>{group.solvedCount}</td>
+              </tr>)}</tbody></table>
+              <small>По датам выполнения. Повторяющиеся номера в перенесённой домашке учитываются один раз.</small>
+            </details>}
 
             {audience === 'parent' && <div className="px-5"><StudentParentContact studentId={student?.id} studentName={student?.name} />
               {contactError && <p role="alert" className="text-xs text-rose-600">{contactError}</p>}

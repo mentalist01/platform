@@ -87583,7 +87583,7 @@ html[data-theme='dark'] .student-month-report__error {
 .student-month-report__sent input{width:16px;height:16px;accent-color:#7c3aed}
 
 .student-month-report__practice{margin:0 24px 20px;padding:16px;border:1px solid rgb(var(--ink)/.1);border-radius:16px;background:rgb(var(--surface-soft));font-size:12px}
-.student-month-report__practice>strong{display:block;margin-bottom:10px;font-size:13px}
+.student-month-report__practice>summary{cursor:pointer;font-size:13px;font-weight:700}.student-month-report__practice[open]>summary{margin-bottom:10px}
 .student-month-report__practice table{width:100%;border-collapse:collapse;text-align:left}
 .student-month-report__practice th,.student-month-report__practice td{padding:8px;border-bottom:1px solid rgb(var(--ink)/.08)}
 .student-month-report__practice th:last-child,.student-month-report__practice td:last-child{text-align:right;font-weight:700}
