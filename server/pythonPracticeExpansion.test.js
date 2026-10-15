@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { appendPythonPracticeExpansion } from './pythonPracticeExpansion.js';
 import { buildPythonSubsectionModel } from '../src/utils/pythonSubsections.js';
 import { createTeacherTestsDbReader } from './teacherTaskContent.js';
+import { remapProgressQuestionTargets } from './questionTargetRemap.js';
 
 const payload = JSON.parse(fs.readFileSync(new URL('./pythonPracticeExpansionData.json', import.meta.url),'utf8'));
 const fixture = () => Object.fromEntries([
@@ -83,4 +84,16 @@ test('teacher snapshot reader observes appended content without changing other t
   assert.equal(next[101].python.length,17);
   assert.equal(old[101].python.length,1);
   assert.equal(read(global,first),old);
+});
+
+test('existing homework targets and solved progress need no remapping after expansion', () => {
+  const source = fixture();
+  const next = appendPythonPracticeExpansion(source,payload).testsDb;
+  const goals = Object.keys(payload.topics).map(topic=>({type:'task',taskNumber:Number(topic),levelId:'python',targetQuestions:[1]}));
+  const progress = {student:{homeworks:[{id:'previous',goals}],nextLesson:{goals},
+    solved:{'101-python-0':true},drafts:{'101-python-0':'print("saved")'}}};
+  const result = remapProgressQuestionTargets(progress,source,next);
+  assert.equal(result.changed,false);
+  assert.equal(result.changedReferences,0);
+  assert.equal(result.db,progress);
 });
