@@ -11,7 +11,7 @@ Validation:
 - Integration test checks owner/other-teacher/student/parent authorization, invalid-link rejection, persistence, clearing one contact without changing another, and unchanged student records/public payloads.
 - Unit tests cover links including Telegram/MAX/WhatsApp, script and credential URL rejection, exact reviewed-text copying, noncontiguous global task numbers, completion states, legacy subsections and missing bank tasks.
 - Browser fixture uses the actual components and backend with synthetic students only. A contact survives reload, appears in the report, and the teacher's edited text is copied exactly. Task 5 opens from the appropriate named subsection. The test contact URL points to a local dummy page; no real parent messages were sent.
-- Production build preserves authenticated TURN/relay configuration and the initial bundle budget; scoped ESLint has no errors. Existing large components retain pre-existing hook warnings.
+- Production build preserves authenticated TURN/relay configuration and the initial bundle budget. New files and the other scoped components have no ESLint errors. TeacherCalendarSection has 16 existing errors; comparison against the previous release confirms the exact same rule/message set. Existing large components also retain their previous hook warnings.
 
 Browser proofs: `output/parent-python-homework-browser-20261015.png` and `output/parent-report-browser-20261015.png`.
 
