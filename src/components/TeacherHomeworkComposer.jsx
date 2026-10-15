@@ -47,6 +47,7 @@ import {
   getPythonHomeworkTheoryChoices,
   getPythonHomeworkTheorySelection,
 } from '../utils/pythonTheoryHomework';
+import { buildPythonSubsectionModel } from '../utils/pythonSubsections';
 
 const EMPTY_GOALS = [];
 const QUESTION_SELECTION_CLICK_SUPPRESS_MS = 450;
@@ -109,7 +110,7 @@ const getQuestionLabel = (question, fallback) => {
       ? rawLabel
       : rawLabel?.text || rawLabel?.label || ''
   ).trim();
-  return label || fallback;
+  return label || String(question?.title || '').trim() || fallback;
 };
 
 const QuestionCondition = ({ question, label, onExpandImage }) => {
@@ -377,6 +378,19 @@ const TeacherHomeworkComposer = ({
     : activeQuestions.map((question, index) => ({ key: question?.id || index, label: index + 1, question }));
   const safePreviewIndex = Math.min(Math.max(0, previewIndex), Math.max(0, previewItems.length - 1));
   const previewItem = previewItems[safePreviewIndex] || null;
+  const activePythonTitle = String(getPythonTaskInfo?.(activeTaskNumber)?.title || '').trim()
+    || `Python ${getPythonTaskInfo?.(activeTaskNumber)?.displayNumber || activeTaskNumber}`;
+  const activePythonModel = activeIsPython && activeGoalType === goalTypeTask
+    ? buildPythonSubsectionModel(testsDb?.[String(activeTaskNumber)], activeLevelId)
+    : null;
+  const previewQuestionGroups = activePythonModel
+    ? activePythonModel.subsections.map((section) => ({
+        key: section.id,
+        title: section.title,
+        items: section.questionIndexes.map((index) => ({ ...previewItems[index], index })),
+      }))
+    : [{ key: 'all', title: '', items: previewItems.map((item, index) => ({ ...item, index })) }];
+  const previewPythonSection = activePythonModel?.subsections.find((section) => section.questionIndexes.includes(safePreviewIndex));
 
   const selectedTargetNumbers = !activeGoal || activeGoalType !== goalTypeTask
     ? []
@@ -849,7 +863,7 @@ const TeacherHomeworkComposer = ({
         ))
       : null;
     const taskLabel = pythonGoal
-      ? `Python ${taskInfo?.displayNumber || taskNumber}`
+      ? `Python · ${taskInfo?.title || taskInfo?.displayNumber || taskNumber}`
       : (Number.isFinite(taskNumber) ? `Задание ${formatTaskNumber?.(taskNumber) || taskNumber}` : 'Новое задание');
     const isActive = index === safeActiveGoalIndex;
 
@@ -1784,9 +1798,9 @@ const TeacherHomeworkComposer = ({
                       {activeGoalType === goalTypeMock
                         ? (activeMockExam?.title || 'Выберите пробник слева')
                         : (Number.isFinite(activeTaskNumber)
-                            ? `${activeIsPython ? 'Python' : 'Задание'} ${activeIsPython
-                                ? (getPythonTaskInfo?.(activeTaskNumber)?.displayNumber || activeTaskNumber)
-                                : (formatTaskNumber?.(activeTaskNumber) || activeTaskNumber)}`
+                            ? (activeIsPython
+                                ? `Python · ${activePythonTitle}`
+                                : `Задание ${formatTaskNumber?.(activeTaskNumber) || activeTaskNumber}`)
                             : 'Выберите раздел слева')}
                     </strong>
                     {previewItems.length > 0 && (
@@ -1838,11 +1852,23 @@ const TeacherHomeworkComposer = ({
 
                 {previewItems.length > 0 && (
                   <div
-                    className={`teacher-homework-question-selector mt-3 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1 ${questionSelectionDragging ? 'is-dragging' : ''}`}
+                    className={`teacher-homework-question-selector mt-3 overflow-y-auto pr-1 ${activeIsPython ? 'max-h-48 space-y-3' : 'max-h-28'} ${questionSelectionDragging ? 'is-dragging' : ''}`}
                     onPointerMove={handleQuestionSelectionDragMove}
                     onClickCapture={suppressQuestionSelectionClick}
                   >
-                    {previewItems.map((item, index) => {
+                    {previewQuestionGroups.map((group) => (
+                      <div key={group.key}>
+                        {activeIsPython && (
+                          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold text-[rgb(var(--ink-soft))]">
+                            <span>{group.title}</span>
+                            <span className="text-[10px] font-semibold text-purple-500">
+                              {`Выбрано ${group.items.filter((item) => selectedTargetSet.has(item.index + 1)).length} из ${group.items.length}`}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-1.5">
+                    {group.items.map((item) => {
+                      const index = item.index;
                       const number = activeGoalType === goalTypeTask ? index + 1 : item.label;
                       const solved = activeGoalType === goalTypeTask
                         && visibleSolvedQuestionIds.has(String(item.question?.id ?? index));
@@ -1877,8 +1903,8 @@ const TeacherHomeworkComposer = ({
                                 : (selected ? 'bg-purple-600 text-white' : 'bg-[rgb(var(--surface))] text-[rgb(var(--ink-soft))]')
                             }`}
                             data-previously-assigned={previouslyAssigned || undefined}
-                            title={previouslyAssigned ? previousHistory : solved ? `Задание №${item.label} уже решено учеником` : `Показать задание №${item.label}`}
-                            aria-label={`Показать задание №${item.label}${previouslyAssigned ? ` · ${previousHistory}` : ''}`}
+                            title={`${activeIsPython ? `${activePythonTitle} · ${group.title} · ${getQuestionLabel(item.question, 'Задача')} · ` : ''}${previouslyAssigned ? previousHistory : solved ? `Задание №${item.label} уже решено учеником` : `Показать задание №${item.label}`}`}
+                            aria-label={`Показать задание №${item.label}${activeIsPython ? ` · ${group.title}` : ''}${previouslyAssigned ? ` · ${previousHistory}` : ''}`}
                           >
                             {item.label}
                           </button>
@@ -1904,12 +1930,22 @@ const TeacherHomeworkComposer = ({
                         </div>
                       );
                     })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
 
               {previewItem ? (
                 <div className="space-y-3">
+                  {activeIsPython && previewPythonSection && (
+                    <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700">
+                      <span className="font-black">{activePythonTitle}</span>
+                      <span className="mx-1.5 text-violet-400">→</span>
+                      {previewPythonSection.title}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <span className="text-[10px] font-black uppercase tracking-[0.15em] text-purple-500">
