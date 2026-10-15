@@ -13,3 +13,4 @@
 .student-parent-contact input{width:100%;min-width:0;padding:8px 10px;border:1px solid rgb(var(--ink)/.18);border-radius:9px;background:rgb(var(--surface));color:rgb(var(--ink));font-size:13px}
 .student-parent-contact__error{margin-top:7px;color:#e11d48;font-size:11px;line-height:1.5}
 .student-parent-contact__error button{margin-left:6px}
+.student-parent-contact__preview span{color:#7c3aed;overflow-wrap:anywhere}

@@ -31,6 +31,10 @@ export default function StudentParentContact({ studentId, studentName = '', mess
   };
   let safeContact;
   try { safeContact = normalizeStudentParentContact(contact || {}); } catch { safeContact = null; }
+  let draftUrl = '';
+  if (editing && draft.url.trim()) {
+    try { draftUrl = normalizeStudentParentContact({ url: draft.url }).url; } catch { /* Show validation when the teacher saves. */ }
+  }
   const hasMessage = Boolean(String(messageText || '').trim());
   return <section className={`student-parent-contact ${compact ? 'student-parent-contact--compact' : ''}`}
     aria-label={`Контакт родителя${studentName ? ` · ${studentName}` : ''}`} onClick={event => event.stopPropagation()}>
@@ -49,7 +53,9 @@ export default function StudentParentContact({ studentId, studentName = '', mess
     {error && <div role="alert" className="student-parent-contact__error">{error}{!editing && <button type="button" onClick={() => { setLoading(true); void loadParentContacts(true).then(() => setError('')).catch(failure => setError(failure.message)).finally(() => setLoading(false)); }}>Повторить</button>}</div>}
     {editing && contactState.studentId === studentId && <form onSubmit={event => { event.preventDefault(); void save(draft); }} className="student-parent-contact__editor">
       <label>Имя родителя · необязательно<input value={draft.name} onChange={event => setDraft(value => ({ ...value, name: event.target.value }))} maxLength={80} autoComplete="off" /></label>
-      <label>Ссылка на контакт<input value={draft.url} onChange={event => setDraft(value => ({ ...value, url: event.target.value }))} maxLength={2048} placeholder="Ссылка на контакт в Telegram, MAX или WhatsApp" autoComplete="off" /></label>
+      <label>Ссылка, @username или телефон<input value={draft.url} onChange={event => { setDraft(value => ({ ...value, url: event.target.value })); setError(''); }} maxLength={2048} placeholder="@username, +7 (999) 000-00-00 или ссылка" autoComplete="off" /></label>
+      <small>Номер телефона и @username откроют Telegram. Для MAX и WhatsApp вставьте ссылку на контакт.</small>
+      {draftUrl && <small className="student-parent-contact__preview">Будет сохранено: <span>{draftUrl}</span></small>}
       <small>Контакт виден только преподавателю.</small>
       <div className="student-parent-contact__actions"><button type="submit" disabled={busy} className="student-parent-contact__primary">{busy ? 'Сохраняем…' : 'Сохранить контакт'}</button><button type="button" disabled={busy} onClick={() => { setEditing(false); setError(''); }}>Отмена</button>
         {contact?.url && <button type="button" disabled={busy} onClick={() => { void save({ name: '', url: '' }); }}>Убрать контакт</button>}</div>

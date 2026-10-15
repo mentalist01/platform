@@ -1,3 +1,15 @@
+const PHONE_FORMAT = /^\+?[\d ()\-\u00a0\u202f]+$/u;
+
+function telegramPhoneUrl(phone) {
+  let digits = phone.replace(/[^\d]/g, '');
+  if (!phone.startsWith('+')) {
+    if (!/^[78]\d{10}$/.test(digits)) throw new Error('Укажите телефон с кодом страны, например +7 (999) 000-00-00.');
+    if (digits.startsWith('8')) digits = `7${digits.slice(1)}`;
+  }
+  if (!/^[1-9]\d{7,14}$/.test(digits)) throw new Error('Проверьте номер телефона и код страны.');
+  return `https://t.me/+${digits}`;
+}
+
 export function normalizeStudentParentContact(value = {}) {
   const name = String(value?.name || '').trim();
   let url = String(value?.url || '').trim();
@@ -5,7 +17,12 @@ export function normalizeStudentParentContact(value = {}) {
   if (!url && !name) return { name: '', url: '' };
   if (!url) throw new Error('Укажите ссылку на контакт родителя.');
   if (/^[/\\]/.test(url)) throw new Error('Введите полную ссылку на контакт родителя.');
-  if (url.length > 2048 || /\s/u.test(url) || [...url].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) throw new Error('Проверьте ссылку на контакт родителя.');
+  if (url.length > 2048 || [...url].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) throw new Error('Проверьте ссылку на контакт родителя.');
+  // Only phone formatting is removed; spaces in other URLs remain invalid.
+  const telegramPhone = url.match(/^(?:https?:\/\/)?t\.me\/(\+[\d ()\-\u00a0\u202f]+)\/?([?#].*)?$/iu);
+  if (telegramPhone) url = telegramPhoneUrl(telegramPhone[1]) + (telegramPhone[2] || '');
+  else if (PHONE_FORMAT.test(url)) url = telegramPhoneUrl(url);
+  if (/\s/u.test(url)) throw new Error('Проверьте ссылку на контакт родителя.');
   if (/^@[a-zA-Z0-9_]{5,32}$/.test(url)) url = `https://t.me/${url.slice(1)}`;
   if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = `https://${url}`;
   let parsed;
