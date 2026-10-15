@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
 import ChatCodeBlock from './ChatCodeBlock';
+import ChatAttachmentDownload from './ChatAttachmentDownload';
 import LinkifiedText from './LinkifiedText';
 import OnlinePresenceDot from './OnlinePresenceDot';
 import './ChatSections.css';
@@ -825,14 +826,14 @@ const ChatImageViewer = ({ image, onClose }) => {
           <p className="text-xs font-semibold text-white/58">Полный размер</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <a
+          <ChatAttachmentDownload
             href={src}
             download={name || undefined}
             className="student-chat-image-viewer__action"
             onMouseDown={(event) => event.stopPropagation()}
           >
             Скачать
-          </a>
+          </ChatAttachmentDownload>
           <button
             type="button"
             className="student-chat-image-viewer__close"
@@ -2728,7 +2729,7 @@ const TeacherStudentChatsSection = ({
                               </button>
                             )}
                             {renderedFileDataUrl && (
-                              <a
+                              <ChatAttachmentDownload
                                 href={renderedFileDataUrl}
                                 download={messageFileName || undefined}
                                 className={`student-message-file teacher-chat-file-link mb-2 flex items-center gap-2 rounded-2xl border px-3 py-2.5 ${
@@ -2753,7 +2754,7 @@ const TeacherStudentChatsSection = ({
                                     </span>
                                   )}
                                 </span>
-                              </a>
+                              </ChatAttachmentDownload>
                             )}
                             {solutionImageDataUrl && (
                               <div className="student-chat-solution-attachment">
