@@ -9,8 +9,18 @@ const aliases = new Map([
 // Append only. Existing indexes, IDs, theory, homework links and teacher edits
 // stay intact; sections are matched to their existing identifiers by title.
 export function appendPythonPracticeExpansion(testsDb, payload) {
+  return appendExpansion(testsDb,payload,{topics:TOPICS,version:'20261015',count:152,prefix:'py-expand-20261015'});
+}
+
+export function appendPythonGeneratorExpansion(testsDb, payload) {
+  const card = testsDb?.__pythonTaskCatalog?.find(t=>Number(t.number)===112);
+  if (normalize(card?.title)!=='генераторы') throw Error('Expected existing Generators card 112');
+  return appendExpansion(testsDb,payload,{topics:new Set(['112']),version:'20261015-generators',count:24,prefix:'py-gen-expand-20261015'});
+}
+
+function appendExpansion(testsDb, payload, {topics,version,count,prefix}) {
   if (!testsDb || typeof testsDb !== 'object' || Array.isArray(testsDb)) throw Error('Invalid tests database');
-  if (payload?.version !== '20261015' || !Array.isArray(payload.questions) || payload.questions.length !== 152) {
+  if (payload?.version !== version || !Array.isArray(payload.questions) || payload.questions.length !== count) {
     throw Error('Unexpected Python expansion payload');
   }
   const next = structuredClone(testsDb);
@@ -19,7 +29,7 @@ export function appendPythonPracticeExpansion(testsDb, payload) {
   for (const item of payload.questions) {
     const topic = String(item.topic);
     const question = item.question;
-    if (!TOPICS.has(topic) || !String(question?.id || '').startsWith(`py-expand-20261015-${topic}-`)
+    if (!topics.has(topic) || !String(question?.id || '').startsWith(`${prefix}-${topic}-`)
       || ids.has(question.id) || !item.sectionTitle || !question.title || !question.question || !question.starterCode
       || !Array.isArray(question.tests) || !question.tests.length
       || question.tests.some(t => typeof t.input !== 'string' || typeof t.output !== 'string')
@@ -51,7 +61,7 @@ export function appendPythonPracticeExpansion(testsDb, payload) {
     entry.python.push(added);
     summary[topic] = (summary[topic] || 0) + 1;
   }
-  for (const topic of TOPICS) {
+  for (const topic of topics) {
     if (!summary[topic]) continue;
     const before = testsDb[topic];
     const after = next[topic];

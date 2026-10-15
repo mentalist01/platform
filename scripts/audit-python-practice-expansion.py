@@ -4,6 +4,7 @@ Also check prerequisite syntax and test sensitivity to realistic code mutations.
 The Node launcher exports PYTHON_RUNNER_SCRIPT; no second Python sandbox is used.
 """
 import ast
+import argparse
 import base64
 import concurrent.futures
 import copy
@@ -17,8 +18,13 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'output'
 RUNNER = (OUT / 'python-practice-platform-runner.py').read_text(encoding='utf-8')
-TASKS = json.loads((OUT / 'python-practice-expansion-audit-input.json').read_text(encoding='utf-8'))
-PAYLOAD = json.loads((ROOT / 'server/pythonPracticeExpansionData.json').read_text(encoding='utf-8'))
+parser = argparse.ArgumentParser()
+parser.add_argument('--input',type=Path,default=OUT/'python-practice-expansion-audit-input.json')
+parser.add_argument('--payload',type=Path,default=ROOT/'server/pythonPracticeExpansionData.json')
+parser.add_argument('--report',type=Path,default=OUT/'python-practice-expansion-audit-report.json')
+OPTIONS = parser.parse_args()
+TASKS = json.loads(OPTIONS.input.read_text(encoding='utf-8'))
+PAYLOAD = json.loads(OPTIONS.payload.read_text(encoding='utf-8'))
 PUBLIC = {q['question']['id']:q['question']['tests'] for q in PAYLOAD['questions']}
 
 
@@ -42,7 +48,7 @@ def execute(code, stdin):
 
 
 def prerequisite_errors(task, tree):
-    topic = task['topic']
+    topic = task.get('stage',task['topic'])
     errors = []
     builtins = {'input','print','int'}
     if topic >= 102: builtins |= {'str','float'}
@@ -72,7 +78,7 @@ def prerequisite_errors(task, tree):
         errors.append('missing target for')
     if topic == 107 and not any(isinstance(n,ast.While) for n in ast.walk(tree)):
         errors.append('missing target while')
-    if task['section']=='Генераторы списков' and not any(isinstance(n,ast.ListComp) for n in ast.walk(tree)):
+    if (task.get('requiresListComp') or task['section']=='Генераторы списков') and not any(isinstance(n,ast.ListComp) for n in ast.walk(tree)):
         errors.append('missing target list comprehension')
     return sorted(set(errors))
 
@@ -157,7 +163,7 @@ def main():
                'syntaxErrors':sum(len(x['syntaxErrors']) for x in results),
                'mutants':sum(x['mutants'] for x in results),'mutantsRejected':sum(x['mutantsRejected'] for x in results),
                'constantAnswerTasks':[x['id'] for x in results if not x['constantFirstAnswerRejected']]}
-    (OUT/'python-practice-expansion-audit-report.json').write_text(json.dumps({'summary':summary,'tasks':results},ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    OPTIONS.report.write_text(json.dumps({'summary':summary,'tasks':results},ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(summary,ensure_ascii=False),flush=True)
     return 1 if summary['failures'] or summary['syntaxErrors'] else 0
 

@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { appendPythonPracticeExpansion } from './pythonPracticeExpansion.js';
+import { appendPythonPracticeExpansion, appendPythonGeneratorExpansion } from './pythonPracticeExpansion.js';
 import { buildPythonSubsectionModel } from '../src/utils/pythonSubsections.js';
 import { createTeacherTestsDbReader } from './teacherTaskContent.js';
 import { remapProgressQuestionTargets } from './questionTargetRemap.js';
 
 const payload = JSON.parse(fs.readFileSync(new URL('./pythonPracticeExpansionData.json', import.meta.url),'utf8'));
+const generators = JSON.parse(fs.readFileSync(new URL('./pythonGeneratorExpansionData.json', import.meta.url),'utf8'));
 const fixture = () => Object.fromEntries([
   ...Object.keys(payload.topics).map(topic => [topic, {
     python: [{id:`old-${topic}`,title:'Задание учителя',question:'Своё условие',tests:[{input:'1\n',output:'2'}],subsectionId:'custom',subsectionTitle:'Мои задачи'}],
@@ -16,6 +17,8 @@ const fixture = () => Object.fromEntries([
   }]),
   ['109',{python:[{id:'tuple',title:'Кортежи'}]}],
   ['110',{python:[{id:'function',title:'Функции'}]}],
+  ['112',{python:[{id:'original-generator',title:'1',tests:[{input:'',output:'1'}]}],pythonTheory:{type:'text',content:'Теория учителя'}}],
+  ['__pythonTaskCatalog',[{number:112,title:'Генераторы',displayNumber:'10',sectionId:'topics'}]],
   ['7',{basic:[{id:'ege',question:'ЕГЭ'}]}],
 ]);
 
@@ -96,4 +99,28 @@ test('existing homework targets and solved progress need no remapping after expa
   assert.equal(result.changed,false);
   assert.equal(result.changedReferences,0);
   assert.equal(result.db,progress);
+});
+
+test('standalone generators append after the existing task, with all other banks and references preserved',()=>{
+  const before = appendPythonPracticeExpansion(fixture(),payload).testsDb;
+  const result = appendPythonGeneratorExpansion(before,generators);
+  assert.equal(result.added,24);
+  assert.equal(result.testsDb[112].python.length,25);
+  assert.deepEqual(result.testsDb[112].python[0],before[112].python[0]);
+  assert.deepEqual(result.testsDb[112].pythonTheory,before[112].pythonTheory);
+  for (const key of Object.keys(before).filter(k=>k!=='112')) assert.deepEqual(result.testsDb[key],before[key]);
+  assert.deepEqual(appendPythonGeneratorExpansion(result.testsDb,generators).testsDb,result.testsDb);
+  const progress = {student:{nextLesson:{goals:[{type:'task',taskNumber:112,levelId:'python',targetQuestions:[1]}]},
+    solved:{'112-python-0':true},drafts:{'112-python-0':'print(1)'}}};
+  assert.equal(remapProgressQuestionTargets(progress,before,result.testsDb).changedReferences,0);
+  assert.equal(buildPythonSubsectionModel(result.testsDb[112],'python').questions.length,25);
+});
+
+test('standalone generator release refuses another card or changes to existing exercises',()=>{
+  const before = fixture();
+  before.__pythonTaskCatalog[0].title='Кортежи';
+  assert.throws(()=>appendPythonGeneratorExpansion(before,generators),/Expected existing Generators/);
+  const saved = appendPythonGeneratorExpansion(fixture(),generators).testsDb;
+  saved[112].python.at(-1).question='Условие изменил учитель';
+  assert.throws(()=>appendPythonGeneratorExpansion(saved,generators),/no overwrite/);
 });
