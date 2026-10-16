@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { appendPythonPracticeExpansion, appendPythonGeneratorExpansion } from './pythonPracticeExpansion.js';
+import { appendPythonPracticeExpansion, appendPythonGeneratorExpansion, appendPythonSecondExpansion } from './pythonPracticeExpansion.js';
 import { buildPythonSubsectionModel } from '../src/utils/pythonSubsections.js';
 import { createTeacherTestsDbReader } from './teacherTaskContent.js';
 import { remapProgressQuestionTargets } from './questionTargetRemap.js';
 
 const payload = JSON.parse(fs.readFileSync(new URL('./pythonPracticeExpansionData.json', import.meta.url),'utf8'));
 const generators = JSON.parse(fs.readFileSync(new URL('./pythonGeneratorExpansionData.json', import.meta.url),'utf8'));
+const second = JSON.parse(fs.readFileSync(new URL('./pythonSecondExpansionData.json', import.meta.url),'utf8'));
 const fixture = () => Object.fromEntries([
   ...Object.keys(payload.topics).map(topic => [topic, {
     python: [{id:`old-${topic}`,title:'Задание учителя',question:'Своё условие',tests:[{input:'1\n',output:'2'}],subsectionId:'custom',subsectionTitle:'Мои задачи'}],
@@ -123,4 +124,23 @@ test('standalone generator release refuses another card or changes to existing e
   const saved = appendPythonGeneratorExpansion(fixture(),generators).testsDb;
   saved[112].python.at(-1).question='Условие изменил учитель';
   assert.throws(()=>appendPythonGeneratorExpansion(saved,generators),/no overwrite/);
+});
+
+test('second batch adds 120 distinct exercises after both previous expansions without remapping homework', () => {
+  const old = appendPythonGeneratorExpansion(appendPythonPracticeExpansion(fixture(), payload).testsDb, generators).testsDb;
+  const saved = structuredClone(old);
+  const result = appendPythonSecondExpansion(old, second);
+  assert.equal(result.added, 120);
+  assert.deepEqual(old, saved);
+  for (const [topic, count] of Object.entries(result.topics)) {
+    assert.equal(count, topic === '112' ? 24 : 12);
+    assert.deepEqual(result.testsDb[topic].python.slice(0, old[topic].python.length), old[topic].python);
+    assert.deepEqual(result.testsDb[topic].pythonTheory, old[topic].pythonTheory);
+  }
+  for (const key of ['109', '110', '7']) assert.deepEqual(result.testsDb[key], old[key]);
+  assert.equal(appendPythonSecondExpansion(result.testsDb, second).added, 0);
+  const progress = { student: { homeworks: [{id:'existing', goals:[{type:'task',taskNumber:108,levelId:'python',targetQuestions:[1,18,41]}]}], solved:{'108-python-0':true}, drafts:{'108-python-0':'saved'} } };
+  assert.equal(remapProgressQuestionTargets(progress, old, result.testsDb).changedReferences, 0);
+  result.testsDb[101].python.at(-1).title = 'Правка учителя';
+  assert.throws(() => appendPythonSecondExpansion(result.testsDb, second), /no overwrite/);
 });

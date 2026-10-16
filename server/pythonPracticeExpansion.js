@@ -18,6 +18,17 @@ export function appendPythonGeneratorExpansion(testsDb, payload) {
   return appendExpansion(testsDb,payload,{topics:new Set(['112']),version:'20261015-generators',count:24,prefix:'py-gen-expand-20261015'});
 }
 
+export function appendPythonSecondExpansion(testsDb, payload) {
+  const card = testsDb?.__pythonTaskCatalog?.find(t => Number(t.number) === 112);
+  if (normalize(card?.title) !== 'генераторы') throw Error('Expected existing Generators card 112');
+  for (const topic of [...TOPICS, '112']) {
+    if (payload?.questions?.filter(item => String(item.topic) === topic).length !== (topic === '112' ? 24 : 12)) {
+      throw Error(`Unexpected second expansion topic count: ${topic}`);
+    }
+  }
+  return appendExpansion(testsDb, payload, {topics:new Set([...TOPICS, '112']),version:'20261016-second',count:120,prefix:'py-more-20261016'});
+}
+
 function appendExpansion(testsDb, payload, {topics,version,count,prefix}) {
   if (!testsDb || typeof testsDb !== 'object' || Array.isArray(testsDb)) throw Error('Invalid tests database');
   if (payload?.version !== version || !Array.isArray(payload.questions) || payload.questions.length !== count) {
