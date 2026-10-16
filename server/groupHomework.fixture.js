@@ -5,7 +5,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 
-export async function createGroupHomeworkFixture(fixedPort, seedData) {
+export async function createGroupHomeworkFixture(fixedPort, seedData, {existingGroupId} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-concurrent-homework-'));
   const data = path.join(root, 'data'), uploads = path.join(root, 'uploads');
   fs.mkdirSync(data); fs.mkdirSync(uploads);
@@ -40,8 +40,10 @@ export async function createGroupHomeworkFixture(fixedPort, seedData) {
     }
     const tokens = {};
     for (const id of ['teacher-a', 'teacher-b', 'student-a', 'student-b', 'student-c']) tokens[id] = (await request('/api/login', '', { code: `${id}-code` })).token;
-    const group = (await request('/api/learning-groups', tokens['teacher-a'], { name: 'Группа 2 · тест', studentIds: ['student-a', 'student-b'] }, 'POST', 201)).group;
-    await request(`/api/learning-groups/${group.id}/start`, tokens['teacher-a'], {});
+    const group = existingGroupId
+      ? (await request(`/api/learning-groups/${existingGroupId}`,tokens['teacher-a'])).group
+      : (await request('/api/learning-groups', tokens['teacher-a'], { name: 'Группа 2 · тест', studentIds: ['student-a', 'student-b'] }, 'POST', 201)).group;
+    if (!existingGroupId) await request(`/api/learning-groups/${group.id}/start`, tokens['teacher-a'], {});
     await request(`/api/learning-groups/${group.id}/schedule`, tokens['teacher-a'], { schedule: [
       { weekdayKey: 'wednesday', time: '20:00', durationMinutes: 60, subject: 'ЕГЭ' }, { weekdayKey: 'friday', time: '20:00', durationMinutes: 60, subject: 'Python' } ] }, 'PUT');
     return { root, data, child, base, tokens, groupId: group.id, request, stop };

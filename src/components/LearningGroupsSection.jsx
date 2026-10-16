@@ -1,3 +1,4 @@
+import {isGroupHomeworkTrackAllowed,groupHomeworkTrackLabel} from '../utils/groupHomeworkTracks.js';
 import RutubeViewingHelp from './RutubeViewingHelp';
 import { LessonPaceResults } from './LessonPaceFeedback.jsx';
 import {GroupParticipationPanel, LessonParticipationEditor} from './GroupParticipation.jsx';
@@ -1145,7 +1146,7 @@ const LearningGroupsSection = ({
         await api.createLearningGroupAssignment(selectedGroup.id, payload);
       }
       setNotice(draft ? 'Черновик домашки сохранён.' : recipientMode === 'all'
-        ? 'Домашнее задание назначено всей группе.' : `Домашнее задание назначено выбранным ученикам: ${recipientIds.length}.`);
+        ? 'Домашнее задание назначено участникам этого направления.' : 'Домашнее задание назначено выбранным ученикам с учётом их направления.');
       setAssignmentComposerOpen(false);
       setAssignmentComposerEditing(null);
       await loadGroupDetails(selectedGroup.id);
@@ -3183,7 +3184,7 @@ const LearningGroupsSection = ({
           groupHistoryError={assignmentHistoryError}
           onRetryGroupHistory={() => void loadAssignmentHistory(selectedGroup.id)}
           editingAssignmentId={assignmentComposerEditing?.id || ''}
-          groupRecipients={selectedGroup?.members || []}
+          groupRecipients={(selectedGroup?.members || []).filter(member=>isGroupHomeworkTrackAllowed(assignmentComposerForm,member))}
           recipientsReadOnly={selectedGroup?.status === LEARNING_GROUP_STATUS_COMPLETED}
           form={assignmentComposerForm}
           assignmentSettings={(
@@ -3202,6 +3203,8 @@ const LearningGroupsSection = ({
                   onChange={event => setAssignmentComposerForm(current => ({ ...current, title: event.target.value }))} />
               </Field>
               <p className="text-xs text-[rgb(var(--ink-soft))]">ЕГЭ и Python выдаются отдельно. Новая домашка сохраняет предыдущую и её срок.</p>
+              {(selectedGroup?.members || []).some(member=>member.status==='active'&&!isGroupHomeworkTrackAllowed(assignmentComposerForm,member))&&<p role="status" className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">Эту домашку не получат: {(selectedGroup?.members || []).filter(member=>member.status==='active'&&!isGroupHomeworkTrackAllowed(assignmentComposerForm,member)).map(member=>`${member.name} (${groupHomeworkTrackLabel(member.homeworkStudyTrack).toLowerCase()})`).join(', ')}. Она не повлияет на их жизни.</p>}
+
               {assignmentComposerEditing?.status !== 'draft' && getAssignmentId(assignmentComposerEditing)
                 && assignmentComposerForm.studyTrack !== 'python' && (
                 <GroupHomeworkCancellationPanel key={`${selectedGroup.id}|${getAssignmentId(assignmentComposerEditing)}`}

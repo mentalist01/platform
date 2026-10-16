@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
 import {participationDay, participationPlanAt, participationSlotLabel} from '../utils/groupParticipation.js';
 import {groupParticipationApi} from '../services/groupParticipationApi.js';
+import {normalizeGroupHomeworkTrack,groupHomeworkTrackLabel} from '../utils/groupHomeworkTracks.js';
 import './GroupParticipation.css';
 export function GroupParticipationPanel({group, onSaved, transport = groupParticipationApi}) {
   const [available,setAvailable]=useState([]), [studentId,setStudentId]=useState('');
@@ -16,7 +17,7 @@ export function GroupParticipationPanel({group, onSaved, transport = groupPartic
   return <details className="group-participation"><summary>Индивидуальные планы участия</summary>
     <p>Закреплённый урок учитывается в оплате и при пропуске. Заранее согласуйте это условие с родителем.</p>
     <label>Ученик<select value={studentId} disabled={busy} onChange={e=>choose(e.target.value)}><option value="">Выберите ученика</option>{group.members.filter(m=>m.status!=='removed').map(m=><option key={m.studentId} value={m.studentId}>{m.name}</option>)}</select></label>
-    {studentId && <><div className="group-participation-fields"><label>Действует с<input type="date" min={participationDay(Date.now())} value={from} disabled={busy} onChange={e=>{setFrom(e.target.value);changed();}}/></label>
+    {studentId && <><GroupHomeworkTrackEditor key={studentId} group={group} studentId={studentId} onSaved={onSaved} transport={transport}/><div className="group-participation-fields"><label>Действует с<input type="date" min={participationDay(Date.now())} value={from} disabled={busy} onChange={e=>{setFrom(e.target.value);changed();}}/></label>
       <label>Участие<select value={mode} disabled={busy} onChange={e=>{setMode(e.target.value);changed();}}><option value="all">Все занятия группы</option><option value="selected">Только выбранные занятия</option></select></label></div>
       {mode==='selected' && <fieldset><legend>Обязательные занятия ученика</legend>{available.length ? available.map(slot=><label className="group-participation-slot" key={slot}><input type="checkbox" checked={slots.includes(slot)} disabled={busy} onChange={e=>{setSlots(current=>e.target.checked?[...current,slot]:current.filter(s=>s!==slot));changed();}}/>{participationSlotLabel(slot)}</label>):<p>Сначала добавьте занятия в расписание группы.</p>}</fieldset>}
       <div className="group-participation-actions"><button disabled={busy || !from || (mode==='selected'&&!slots.length)} onClick={()=>act(async()=>{await transport.saveLearningGroupParticipation(group.id,studentId,{from,mode,slots});await onSaved?.();setSuccess('План участия сохранён.');})}>Сохранить план</button>
@@ -25,6 +26,19 @@ export function GroupParticipationPanel({group, onSaved, transport = groupPartic
       {(group.members.find(m=>m.studentId===studentId)?.participationPlans || []).map(p=><p key={p.effectiveAt || p.from}>С {new Date(p.effectiveAt || `${p.from}T12:00:00+03:00`).toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}: {p.mode==='all'?'все занятия группы':p.slots.map(participationSlotLabel).join(' · ')}</p>)}
     </>}{error && <p role="alert">{error}</p>}{success && <p role="status">{success}</p>}
   </details>;
+}
+export function GroupHomeworkTrackEditor({group,studentId,onSaved,transport=groupParticipationApi}) {
+  const member=group.members.find(m=>m.studentId===studentId);
+  const [track,setTrack]=useState(()=>normalizeGroupHomeworkTrack(member?.homeworkStudyTrack));
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[saved,setSaved]=useState(false);
+  return <section aria-label="Направление домашки ученика">
+    <label>Домашка ученика<select value={track} disabled={busy} onChange={e=>{setTrack(e.target.value);setSaved(false);setError('');}}>
+      {['all','ege','python'].map(value=><option key={value} value={value}>{groupHomeworkTrackLabel(value)}</option>)}
+    </select></label>
+    <p>Домашка вне выбранного направления не назначается и не тратит жизни. Уже выданные работы этого направления останутся в истории без обязательства их выполнять; решения сохранятся. Настройка не меняет расписание и оплату.</p>
+    <button type="button" disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await transport.saveLearningGroupHomeworkTrack(group.id,studentId,{studyTrack:track});await onSaved?.();setSaved(true);}catch(e){setError(e.message);}finally{setBusy(false);}}}>Сохранить направление домашки</button>
+    {saved&&<p role="status">Направление домашки сохранено.</p>}{error&&<p role="alert">{error}</p>}
+  </section>;
 }
 export function LessonParticipationEditor({group,lesson,onSaved,transport=groupParticipationApi}) {
   const [busy,setBusy]=useState(''),[error,setError]=useState('');

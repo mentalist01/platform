@@ -162,7 +162,7 @@ export class HomeworkLivesStore {
         const period = Object.values(row.months).find(period => period.events[id]);
         if (period && !period.events[id].waivedAt) {
           Object.assign(period.events[id], { waivedAt: new Date(now).toISOString(),
-            waiverReason: 'Задание прежней группы отменено при выходе до срока сдачи', waivedById: 'group-membership' });
+            waiverReason: context.homeworkExemptionReason?.(homework) || 'Задание прежней группы отменено при выходе до срока сдачи', waivedById: context.homeworkExemptionReason?.(homework) ? 'group-homework-track' : 'group-membership' });
           if (period.review && this.balance(period) > 1e-5) period.review.cancelledAt = new Date(now).toISOString();
           changed = true;
         }

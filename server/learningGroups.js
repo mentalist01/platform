@@ -1,3 +1,4 @@
+import {normalizeGroupHomeworkTrack, groupHomeworkRecipients} from '../src/utils/groupHomeworkTracks.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 import { normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
 import { normalizeParticipationPlans, participationOccurrence } from '../src/utils/groupParticipation.js';
@@ -240,6 +241,8 @@ export const normalizeLearningGroupMember = (value) => {
     addedById: cleanText(value.addedById, 180),
     removedById: status === 'removed' ? cleanText(value.removedById, 180) : '',
     ...(value.participationPlans ? {participationPlans: normalizeParticipationPlans(value.participationPlans)} : {}),
+    homeworkStudyTrack: normalizeGroupHomeworkTrack(value.homeworkStudyTrack),
+    homeworkStudyTrackUpdatedAt: normalizeIsoTimestamp(value.homeworkStudyTrackUpdatedAt),
   };
 };
 
@@ -660,10 +663,12 @@ export const createLearningAssignment = (groupValue, payload = {}, options = {})
   const now = getNowIso(options.now);
   const activeIds = getActiveLearningGroupMembers(group).map((member) => member.studentId);
   const selected = payload.recipientMode === 'selected' || (payload.recipientMode !== 'all' && Object.prototype.hasOwnProperty.call(payload, 'recipientIds'));
-  const recipientIds = selected ? normalizeStringIds(payload.recipientIds, Infinity) : activeIds;
-  if (selected && (!recipientIds.length || recipientIds.some(id => !activeIds.includes(id)))) {
+  const requestedIds = selected ? normalizeStringIds(payload.recipientIds, Infinity) : activeIds;
+  const recipientIds = groupHomeworkRecipients(group, payload, requestedIds);
+  if (selected && (!requestedIds.length || requestedIds.some(id => !activeIds.includes(id)))) {
     fail('Выберите участников группы для домашнего задания', 'invalid_assignment_recipient', 400);
   }
+  if (!recipientIds.length && payload.status !== 'draft') fail('У выбранных учеников нет этого направления домашки', 'no_homework_track_recipients');
   return normalizeLearningAssignment({
     id,
     groupId: group.id,

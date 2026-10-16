@@ -490,6 +490,7 @@ export const buildHomeworkStatistics = ({
 } = {}) => {
   const safeNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
   const sorted = mergeGroupHomeworkCarryover(homeworks)
+    .filter(entry => !entry?.learningHomeworkTrackExcluded)
     .map((entry, sourceIndex) => ({
       entry: entry && typeof entry === 'object' ? entry : {},
       sourceIndex,

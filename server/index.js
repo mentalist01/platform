@@ -50,6 +50,7 @@ import { groupEgeCancellationsForAssignment } from '../src/utils/groupHomeworkCa
 import { BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed } from './blankWorkbook.js';
 import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
+import {isGroupHomeworkTrackAllowed, groupHomeworkRecipients} from '../src/utils/groupHomeworkTracks.js';
 import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
 import multer from 'multer';
@@ -22770,6 +22771,8 @@ registerHomeworkLives(app, homeworkLives, {
       isHomeworkRequired: homework => isGroupHomeworkRequired(
         homework, groups.find(group => group.id === homework.learningGroupId), student.id
       ),
+      homeworkExemptionReason: homework => !isGroupHomeworkTrackAllowed(homework, groups.find(group => group.id === homework.learningGroupId)?.members?.find(member => member.studentId === student.id))
+        ? 'Направление домашки не входит в план ученика' : '',
       estimatePlan: month => estimateHomeworkPlan(schedule, month),
       evaluate: homework => {
         const testsDb = batch.testsDb ||= getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
@@ -24545,7 +24548,7 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       studyTrack: homeworkTemplate.studyTrack || '',
       carryoverEge: homeworkTemplate.studyTrack !== 'python' && homeworkTemplate.carryoverEge === true,
       ...groupHomeworkMembershipProjection(
-        { ...existing, source: LEARNING_GROUP_HOMEWORK_SOURCE, issuedAt, dueAt },
+        { ...existing, source: LEARNING_GROUP_HOMEWORK_SOURCE, issuedAt, dueAt, studyTrack: homeworkTemplate.studyTrack, goals },
         group, studentId, getLearningAssignmentState(assignment).status
       ),
       learningAssignmentUpdatedAt: assignment.updatedAt || '',
@@ -25414,6 +25417,7 @@ registerGroupParticipation(app, {
   saveGroup:group => writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(),group)),
   saveLesson:lesson => writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(),lesson)),
   notify:notifyLearningGroupScheduleAccess,
+  syncHomework:synchronizeLearningGroupHomeworksForStudent,
   payment:async (group,studentId,lesson) => {
     const parts = participationOccurrence(lesson);
     const entries = (await getPaymentScheduleEntries(group.teacherId)).filter(e => e.groupId===group.id && e.studentId===studentId
@@ -25839,7 +25843,14 @@ app.patch('/api/learning-groups/:groupId/assignments/:assignmentId', handleLearn
       failLearningRequest('Материал не найден', 'material_not_found', 404);
     }
   }
-  const updated = updateLearningAssignment(assignment, assignmentPatch, { actorId: req.auth.id });
+  const candidate = updateLearningAssignment(assignment, assignmentPatch, { actorId: req.auth.id });
+  const allowedIds = groupHomeworkRecipients(group,candidate,candidate.recipientIds);
+  // Existing published recipients retain their archived work and solutions.
+  const previousIds = assignment.status !== 'draft' ? assignment.recipientIds : [];
+  const updated = {...candidate,recipientIds:candidate.recipientIds.filter(id=>allowedIds.includes(id)||previousIds.includes(id))};
+  if (!allowedIds.length && updated.status === 'assigned' && assignment.status === 'draft') {
+    failLearningRequest('У выбранных учеников нет этого направления домашки', 'no_homework_track_recipients');
+  }
   writeLearningAssignmentsDb(replaceLearningStoreEntry(readLearningAssignmentsDb(), updated));
   synchronizeLearningGroupAssignmentHomeworks(updated, {
     notify: assignment.status === 'draft' && updated.status === 'assigned',

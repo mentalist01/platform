@@ -1,12 +1,13 @@
 import {LearningGroupDomainError} from './learningGroups.js';
 import {isGroupLessonAssigned, normalizeParticipationPlans, participationDay, participationOccurrence} from '../src/utils/groupParticipation.js';
+import {normalizeGroupHomeworkTrack} from '../src/utils/groupHomeworkTracks.js';
 
 const invalid = (message, statusCode = 400) => {throw new LearningGroupDomainError(message, {code:'invalid_participation', statusCode});};
 export function participationSlots(group, lessons) {
   return [...new Set([...(group.schedule || []), ...lessons.filter(l => l.groupId === group.id && l.status !== 'cancelled')]
     .map(l => participationOccurrence(l).slot).filter(s => /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\|([01]\d|2[0-3]):[0-5]\d$/.test(s)))].sort();
 }
-export function registerGroupParticipation(app, {handle, manageGroup, lessons, saveGroup, saveLesson, payment, notify}) {
+export function registerGroupParticipation(app, {handle, manageGroup, lessons, saveGroup, saveLesson, payment, notify, syncHomework}) {
   const member = (group, id) => {
     const value = group.members.find(m => m.studentId === id && m.status === 'active');
     if (!value) invalid('Ученик не состоит в группе', 404);
@@ -24,6 +25,18 @@ export function registerGroupParticipation(app, {handle, manageGroup, lessons, s
     return {from, mode:body.mode, slots:body.mode === 'all' ? [] : slots};
   };
   const base = '/api/learning-groups/:groupId';
+  app.put(`${base}/members/:studentId/homework-track`, handle((req,res) => {
+    const group = manageGroup(req,res,req.params.groupId); if (!group) return;
+    if (group.status === 'completed') invalid('Группа завершена',409);
+    const current = member(group,req.params.studentId);
+    const value = req.body?.studyTrack;
+    if (!['all','ege','python'].includes(value)) invalid('Выберите направление домашки');
+    const updatedAt = new Date().toISOString();
+    const updated = {...group,members:group.members.map(m=>m.studentId===current.studentId ? {...m,
+      homeworkStudyTrack:normalizeGroupHomeworkTrack(value),homeworkStudyTrackUpdatedAt:updatedAt} : m),updatedAt};
+    saveGroup(updated); syncHomework?.(current.studentId); notify(updated);
+    res.json({member:updated.members.find(m=>m.studentId===current.studentId)});
+  }));
   app.get(`${base}/participation`, handle((req,res) => {
     const group = manageGroup(req,res,req.params.groupId); if (!group) return;
     res.set('Cache-Control','no-store').json({slots:participationSlots(group,lessons())});
