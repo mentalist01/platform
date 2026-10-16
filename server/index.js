@@ -62,6 +62,7 @@ import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecor
 import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallengeCookie, setTrustedBrowserCookie } from './accountSecurity.js';
 import path from 'path';
 import fs from 'fs';
+import { createPythonCourseGiftStore, registerPythonCourseGiftRoutes } from './pythonCourseGift.js';
 import crypto from 'crypto';
 import { canAutoStartLearningVoiceLesson, getLearningVoiceChannels, MAX_CUSTOM_VOICE_CHANNELS, normalizeVoiceChannelName } from './learningVoiceChannels.js';
 import { createLessonReplayEventLog } from './lessonReplayEventLog.js';
@@ -22656,6 +22657,9 @@ const guestMeetingRouteOptions = {
   },
 };
 registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: true });
+const pythonCourseGiftStore = createPythonCourseGiftStore({ filePath: path.join(dataDir, 'python-course-gifts.json') });
+const pythonCourseGiftOptions = { store: pythonCourseGiftStore, readTests: readTestsDbForTeacher, fallbackTasks: LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS, uploadsDir };
+registerPythonCourseGiftRoutes(app, { ...pythonCourseGiftOptions, publicRoutes: true });
 
 app.use('/api', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
@@ -22691,6 +22695,7 @@ app.use('/api', (req, res, next) => {
 });
 
 registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: false });
+registerPythonCourseGiftRoutes(app, pythonCourseGiftOptions);
 
 registerLearningSubscriptionRoutes(app, learningSubscriptions, {
   student: id => findStudentById(id),

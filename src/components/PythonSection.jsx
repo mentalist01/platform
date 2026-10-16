@@ -9,6 +9,7 @@ import CoinGuideIcon from './CoinGuideTooltip';
 import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
 import PythonTestModal from './PythonTestModal';
+import PythonCourseGiftShare from './PythonCourseGiftShare';
 import { normalizePythonHomeworkNumbers } from '../utils/pythonHomeworkLaunch.js';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import StudentSearchSelect from './StudentSearchSelect';
@@ -1987,6 +1988,7 @@ const PythonSection = ({
                 <p className="python-learning-subtitle">Темы курса и подготовка к заданиям ЕГЭ — в одном понятном маршруте.</p>
               </div>
             </div>
+            {role === 'teacher' && <PythonCourseGiftShare />}
           </header>
           <div className="python-learning-teacher-empty">
             <span className="python-learning-teacher-empty__icon" aria-hidden="true">
@@ -2032,6 +2034,7 @@ const PythonSection = ({
                 <p className="python-learning-subtitle">Темы курса и подготовка к заданиям ЕГЭ — в одном понятном маршруте.</p>
               </div>
             </div>
+            {role === 'teacher' && <PythonCourseGiftShare />}
             {!(groupMode&&role==='teacher')&&<div className="python-learning-score-summary">
               <div
                 className="python-learning-score-ring"

@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+test('real server exposes anonymous course content while management and pupil records remain protected', { timeout: 45_000 }, async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan-gift-integration-'));
+  const data = path.join(root, 'data'); fs.mkdirSync(data);
+  const write = (name, value) => fs.writeFileSync(path.join(data, name + '.json'), JSON.stringify(value));
+  write('teachers', [{ id: 'teacher', name: 'Иван', code: '110001' }]);
+  write('students', [{ id: 'pupil', teacherId: 'teacher', name: 'PRIVATE_PUPIL', code: '110101', grade: '11' }]);
+  write('progress', { pupil: { schedule: [], homeworks: [], mockAttempts: {} } });
+  write('tests', { __pythonTaskCatalog: [{ id: 101, number: 101, title: 'Ввод', sectionId: 'topics' }], 101: { python: [{ id: 'hello', title: 'Приветствие', question: 'Выведите Hello', tests: [{ input: '', output: 'Hello' }] }] } });
+  const port = await new Promise(resolve => { const probe = net.createServer(); probe.listen(0, '127.0.0.1', () => { const port = probe.address().port; probe.close(() => resolve(port)); }); });
+  let logs = '';
+  const child = spawn(process.execPath, ['server/index.js'], { cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), env: { ...process.env, PORT: String(port), NODE_ENV: 'test', PLATFORM_DATA_DIR: data, PLATFORM_UPLOADS_DIR: path.join(root, 'uploads'), PLATFORM_JSON_BACKUPS_DIR: path.join(root, 'backups'), COLLAB_PERSISTENCE: '0', DISABLE_STARTUP_XP_REBALANCE: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.on('data', value => { logs += value; }); child.stderr.on('data', value => { logs += value; });
+  t.after(async () => { if (child.exitCode === null) { const stopped = new Promise(resolve => child.once('exit', resolve)); child.kill(); await Promise.race([stopped, new Promise(resolve => setTimeout(resolve, 1500))]); if (child.exitCode === null) child.kill('SIGKILL'); } fs.rmSync(root, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${port}`;
+  let ready = false;
+  for (let i = 0; i < 200; i++) { if (child.exitCode !== null) throw Error(logs); try { ready = (await fetch(base + '/api/client-build-version')).ok; } catch { /* Wait for startup. */ } if (ready) break; await new Promise(resolve => setTimeout(resolve, 100)); }
+  assert.ok(ready, logs);
+  const login = async code => { const response = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) }); assert.equal(response.status, 200); return response.json(); };
+  const teacher = await login('110001'), pupil = await login('110101');
+  const update = token => fetch(base + '/api/python-course-gift', { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
+  assert.equal((await update(pupil.token)).status, 403);
+  assert.equal((await fetch(base + '/api/python-course-gift')).status, 401);
+  const created = await update(teacher.token); assert.equal(created.status, 200);
+  const { path: sharePath } = await created.json();
+  const before = fs.readFileSync(path.join(data, 'progress.json'), 'utf8');
+  const response = await fetch(base + sharePath.replace('/python-gift/', '/api/python-course-gifts/'));
+  assert.equal(response.status, 200); assert.equal(response.headers.get('set-cookie'), null);
+  const course = await response.json(); assert.equal(course.tasks[0].entry.python[0].id, 'hello');
+  assert.doesNotMatch(JSON.stringify(course), /PRIVATE_PUPIL|110001|110101|authToken|teacherId/);
+  assert.equal((await fetch(base + '/api/students')).status, 401);
+  assert.equal((await fetch(base + '/api/tests')).status, 401);
+  assert.equal((await fetch(base + '/api/session', { headers: { Authorization: `Bearer ${pupil.token}` } })).status, 200);
+  assert.equal(fs.readFileSync(path.join(data, 'progress.json'), 'utf8'), before);
+});

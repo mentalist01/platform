@@ -9,7 +9,8 @@ import vm from 'node:vm';
 // Execute the actual generated worker and its Python wrapper. CPython replaces
 // only the WASM runtime; stdout/stderr callbacks and result assembly stay real.
 const app = fs.readFileSync(new URL('../App.jsx', import.meta.url), 'utf8');
-const factory = app.slice(app.indexOf('const createPyodideWorker ='), app.indexOf('const INITIAL_TEST_DB ='));
+const sharedWorker = fs.readFileSync(new URL('./createPyodideWorker.js', import.meta.url), 'utf8');
+const factory = sharedWorker.slice(sharedWorker.indexOf('export const createPyodideWorker =')).replace(/^export /, '');
 const fallbackStart = app.indexOf('  const runPythonInMainThread = async (source, inputValue, runtimeFiles = []) => {');
 const fallbackFactory = app.slice(fallbackStart, app.indexOf('  const runPythonCode =', fallbackStart));
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'python-worker-input-'));

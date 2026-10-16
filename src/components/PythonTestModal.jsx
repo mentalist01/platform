@@ -288,10 +288,13 @@ const PythonTestModal = ({
   lessonTopics = [],
   onSelectLessonTopic,
   explanationBoard = null,
+  guestSession = null,
+  guestTheoryOverride = null,
   reviewMode = false,
   reviewCycle = '',
   onPracticeUpdated,
 }) => {
+  const persistence = guestSession || api;
   const monacoTheme = resolveMonacoColorTheme(theme);
   const documentTheme = typeof document !== 'undefined'
     ? document.documentElement?.getAttribute('data-theme')
@@ -377,6 +380,7 @@ const PythonTestModal = ({
   const currentMastery = progress[task.id] || 0;
   const taskEntry = useMemo(() => getPythonTaskEntry(testDb, task?.number), [testDb, task?.number]);
   const subsectionModel = useMemo(() => buildPythonSubsectionModel(taskEntry, PYTHON_LEVEL_ID), [taskEntry, PYTHON_LEVEL_ID]);
+  const theorySourceEntry = useMemo(() => guestSession && guestTheoryOverride ? { pythonTheory: guestTheoryOverride } : taskEntry, [taskEntry, guestSession, guestTheoryOverride]);
   const collabBaseRoomId = String(codeSyncRoomId || '').trim();
   const collabWsUrl = useMemo(() => getCollabWsUrl(), []);
   const localCollabName = useMemo(() => userName||'Ученик', [userName]);
@@ -447,7 +451,7 @@ const PythonTestModal = ({
       return undefined;
     }
     let cancelled = false;
-    api.getQuestionDifficulties(task.number, PYTHON_LEVEL_ID)
+    persistence.getQuestionDifficulties(task.number, PYTHON_LEVEL_ID)
       .then((payload) => {
         if (cancelled) return;
         setQuestionDifficultyById(
@@ -458,15 +462,15 @@ const PythonTestModal = ({
         if (!cancelled) setQuestionDifficultyById({});
       });
     return () => { cancelled = true; };
-  }, [task?.number, PYTHON_LEVEL_ID]);
+  }, [task?.number, PYTHON_LEVEL_ID, persistence]);
   const activeQuestionCodeLoaded = Boolean(questionCodeById?.[activeQuestionId]?.loaded);
   const collabRoomId = useMemo(() => {
-    if (reviewMode || !collabBaseRoomId || !task?.number || !activeQuestionId) return '';
+    if (guestSession || reviewMode || !collabBaseRoomId || !task?.number || !activeQuestionId) return '';
     return `py-collab:${collabBaseRoomId}:${task.number}:${PYTHON_LEVEL_ID}:${activeQuestionId}`;
-  }, [collabBaseRoomId, task?.number, PYTHON_LEVEL_ID, activeQuestionId, reviewMode, reviewCycle]);
+  }, [collabBaseRoomId, task?.number, PYTHON_LEVEL_ID, activeQuestionId, reviewMode, reviewCycle, guestSession]);
   const theoryVariantsForVisibility = useMemo(
-    () => resolveTheoryVariantsForSubsection(taskEntry, selectedSubsectionId || PYTHON_DEFAULT_SUBSECTION_ID),
-    [taskEntry, selectedSubsectionId]
+    () => resolveTheoryVariantsForSubsection(theorySourceEntry, selectedSubsectionId || PYTHON_DEFAULT_SUBSECTION_ID),
+    [theorySourceEntry, selectedSubsectionId]
   );
   useEffect(() => {
     setActiveTheoryType((prevType) => {
@@ -754,7 +758,7 @@ const PythonTestModal = ({
     }
     setQuestionCodeLoadingById((prev) => ({ ...(prev || {}), [key]: true }));
     try {
-      const payload = await api.getQuestionCode(studentId, task.number, PYTHON_LEVEL_ID, key);
+      const payload = await persistence.getQuestionCode(studentId, task.number, PYTHON_LEVEL_ID, key);
       const remoteCodeRaw = typeof payload?.code === 'string' ? payload.code : '';
       const remoteCode = collapseDuplicatedCode(remoteCodeRaw);
       const remoteInput = typeof payload?.input === 'string' ? payload.input : '';
@@ -864,7 +868,7 @@ const PythonTestModal = ({
     const sentVersion = getQuestionCodeVersion(key);
     setQuestionCodeSavingById((prev) => ({ ...(prev || {}), [key]: true }));
     try {
-      const payload = await api.saveQuestionCode(studentId, task.number, PYTHON_LEVEL_ID, key, {
+      const payload = await persistence.saveQuestionCode(studentId, task.number, PYTHON_LEVEL_ID, key, {
         code: entry.code,
         input: entry.input,
       });
@@ -1097,7 +1101,7 @@ const PythonTestModal = ({
     setTestResults([]);
     setRunnerError('');
     if (studentId) {
-      api.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
+      persistence.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
         .then((payload) => {
           if (cancelled) return;
           const loadedIds = new Set((Array.isArray(payload) ? payload : payload?.ids || []).map(String));
@@ -1117,7 +1121,7 @@ const PythonTestModal = ({
           }
         })
         .catch((err) => console.error(err));
-      api.getAnswerHistory(studentId, task.number, PYTHON_LEVEL_ID)
+      persistence.getAnswerHistory(studentId, task.number, PYTHON_LEVEL_ID)
         .then((payload) => {
           if (cancelled) return;
           setAnswerHistoryById(
@@ -1130,7 +1134,7 @@ const PythonTestModal = ({
       setAnswerHistoryLoading(false);
     }
     return () => { cancelled = true; };
-  }, [task?.number, subsectionModel, studentId]);
+  }, [task?.number, subsectionModel, studentId, persistence]);
 
   useEffect(() => {
     if (!questions.length) return;
@@ -1702,12 +1706,12 @@ const PythonTestModal = ({
 
       if (!shouldSubmit && studentId && hasExpectedOutputs) {
         try {
-          await api.solveQuestion(solvePayload);
+          await persistence.solveQuestion(solvePayload);
         } catch {
           // An unsuccessful check is expected here; the server still records the attempt.
         }
         try {
-          const history = await api.getAnswerHistory(studentId, task.number, PYTHON_LEVEL_ID);
+          const history = await persistence.getAnswerHistory(studentId, task.number, PYTHON_LEVEL_ID);
           setAnswerHistoryById(
             history && typeof history === 'object' && !Array.isArray(history) ? history : {}
           );
@@ -1720,7 +1724,7 @@ const PythonTestModal = ({
       if (shouldSubmit) {
         if (studentId) {
           try {
-            const resp = await api.solveQuestion(solvePayload);
+            const resp = await persistence.solveQuestion(solvePayload);
             if (reviewMode) setReviewSolvedIds(prev => new Set([...prev, currentId]));
             setSolvedIds((prev) => {
               const next = new Set(prev);
@@ -1729,7 +1733,7 @@ const PythonTestModal = ({
             });
             setSolvedCodeById((prev) => ({ ...prev, [currentId]: currentCode }));
             getActiveQuestionSolveDurationMs.clear?.();
-            api.getQuestionDifficulties(task.number, PYTHON_LEVEL_ID)
+            persistence.getQuestionDifficulties(task.number, PYTHON_LEVEL_ID)
               .then((payload) => {
                 setQuestionDifficultyById(
                   payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
@@ -1740,7 +1744,7 @@ const PythonTestModal = ({
               if (resp?.streak) {
                 onStreakSaved(resp.streak);
               } else {
-                api.getStudentData(studentId)
+                persistence.getStudentData(studentId)
                   .then((data) => {
                     if (data?.streak) onStreakSaved(data.streak);
                   })
@@ -1925,11 +1929,11 @@ const PythonTestModal = ({
   const solvedVisibleCount = visibleQuestionItems.reduce((count, item) => (
     visibleSolvedIds.has(String(item.question?.id ?? item.questionIndex)) ? count + 1 : count
   ), 0);
-  const displayedMastery = reviewMode
+  const displayedMastery = (reviewMode || guestSession)
     ? Math.round(solvedVisibleCount / Math.max(1, visibleQuestionItems.length) * 100)
     : currentMastery;
   const activeTheorySubsectionId = activeSubsection?.id || PYTHON_DEFAULT_SUBSECTION_ID;
-  const theoryVariants = resolveTheoryVariantsForSubsection(taskEntry, activeTheorySubsectionId);
+  const theoryVariants = resolveTheoryVariantsForSubsection(theorySourceEntry, activeTheorySubsectionId);
   const availableTheoryTypes = getTheoryVariantList(theoryVariants);
   const theoryType = pickTheoryVariantType(theoryVariants, activeTheoryType);
   const theory = theoryType ? theoryVariants[theoryType] : null;
@@ -1995,7 +1999,7 @@ const PythonTestModal = ({
   };
   const codeEditorHeight = isMobileViewport && !focusMode ? '320px' : '100%';
   const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
-  const RealtimeStatusIcon = realtimeStatus === 'connected'
+  const RealtimeStatusIcon = guestSession ? FolderOpen : realtimeStatus === 'connected'
     ? Wifi
     : (realtimeStatus === 'connecting' ? CircleDashed : WifiOff);
   const saveStateLabel = questionCodeLoading
@@ -2197,7 +2201,7 @@ const PythonTestModal = ({
               <div className={`python-runtime-progress-card rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
                 <div className="flex items-center justify-between gap-2.5">
                   <div className="python-runtime-progress-summary flex items-center gap-1.5">
-                    <span className={`python-runtime-progress-label text-[10px] font-semibold ${mutedTextClass}`}>{reviewMode ? 'Повторено' : 'Прогресс темы'}</span>
+                    <span className={`python-runtime-progress-label text-[10px] font-semibold ${mutedTextClass}`}>{guestSession ? 'Прогресс подраздела' : reviewMode ? 'Повторено' : 'Прогресс темы'}</span>
                     <span className={`python-runtime-progress-count text-[11px] font-bold ${secondaryTextClass}`}>
                       {`${solvedVisibleCount} / ${visibleQuestionItems.length || 0}`}
                     </span>
@@ -2207,7 +2211,7 @@ const PythonTestModal = ({
                 <div
                   className={`mt-1.5 h-1.5 overflow-hidden rounded-full ${isDarkTheme ? 'bg-slate-700/70' : 'bg-slate-200/80'}`}
                   role="progressbar"
-                  aria-label={reviewMode ? 'Прогресс повторения' : 'Прогресс темы'}
+                  aria-label={guestSession ? 'Прогресс подраздела' : reviewMode ? 'Прогресс повторения' : 'Прогресс темы'}
                   aria-valuemin="0"
                   aria-valuemax="100"
                   aria-valuenow={Math.max(0, Math.min(100, displayedMastery))}
@@ -2742,9 +2746,9 @@ const PythonTestModal = ({
               </div>
               <div className="python-runtime-editor-controls flex min-w-0 flex-wrap items-center gap-1.5">
                 <div className="python-runtime-editor-statuses flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span data-state={realtimeStatus} title={reviewMode ? 'Черновик повторения на этом устройстве' : 'Состояние совместного редактора'} className={`python-runtime-status python-runtime-status--realtime inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${realtimeStateClass}`}>
+                  <span data-state={realtimeStatus} title={guestSession ? 'Код и прогресс сохраняются только в этом браузере' : reviewMode ? 'Черновик повторения на этом устройстве' : 'Состояние совместного редактора'} className={`python-runtime-status python-runtime-status--realtime inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${guestSession ? softCardClass : realtimeStateClass}`}>
                     <RealtimeStatusIcon size={11} className={realtimeStatus === 'connecting' ? 'animate-spin' : ''} />
-                    {reviewMode ? 'Самостоятельное повторение' : realtimeStatusLabel}
+                    {guestSession ? 'На этом устройстве' : reviewMode ? 'Самостоятельное повторение' : realtimeStatusLabel}
                   </span>
                   <span data-state={questionCodeDirty ? 'dirty' : ((questionCodeSaving || questionCodeLoading) ? 'saving' : 'saved')} title={questionCodeUpdatedAtLabel ? `Последнее сохранение: ${questionCodeUpdatedAtLabel}` : 'Код сохраняется автоматически'} className={`python-runtime-status python-runtime-status--save inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${saveStateClass}`}>
                     <CheckCircle2 size={11} />
@@ -2781,7 +2785,7 @@ const PythonTestModal = ({
                 </button>
               </div>
             </div>
-            {sharedRunLabel && (
+            {!guestSession && sharedRunLabel && (
               <div className={`mt-3 rounded-2xl border px-3 py-2 text-xs ${isDarkTheme ? 'border-sky-400/20 bg-sky-500/10 text-sky-100' : 'border-sky-200 bg-sky-50 text-sky-700'}`}>
                 {sharedRunLabel}
                 {sharedRunTimeLabel ? ` • ${sharedRunTimeLabel}` : ''}
@@ -2801,7 +2805,7 @@ const PythonTestModal = ({
                   beforeMount={ensureMonacoColorTheme}
                   defaultValue={collabRoomId ? '' : resolvedCode}
                   onMount={handleEditorMount}
-                  onChange={reviewMode ? value => {
+                  onChange={(reviewMode || guestSession) ? value => {
                     setQuestionCodeEntry(currentId, { code: value || '' });
                     bumpQuestionCodeVersion(currentId);
                     setQuestionCodeDirty(currentId, true);
