@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, Check, ChevronRight, Code2, Gift, Play, ShieldCheck } from 'lucide-react';
 import PythonTestModal from './PythonTestModal';
 import { buildPythonSubsectionModel } from '../utils/pythonSubsections.js';
+import { pythonGiftTopicTheory, pythonGiftTheoryStart } from '../utils/pythonGiftTheory.js';
 import { createPythonGiftSession } from '../utils/pythonGiftProgress.js';
 import { createPyodideWorker } from '../python/createPyodideWorker.js';
 import './PythonGiftCourse.css';
@@ -53,6 +54,11 @@ export default function PythonGiftCoursePage() {
   const task = course?.tasks.find(item => item.number === activeNumber);
   const model = useMemo(() => buildPythonSubsectionModel(task?.entry, 'python', { includeEmptySections: true }), [task]);
   const solved = session?.getSolvedIds(task?.number) || [];
+  const topicTheory = pythonGiftTopicTheory(task?.entry);
+  const openTheory = (sectionId = '') => {
+    const start = pythonGiftTheoryStart(model, sectionId);
+    open(task, start.index, start.subsectionId, true, sectionId ? task.entry.pythonTheoryBySubsection[sectionId] : topicTheory);
+  };
   const total = course?.tasks.reduce((sum, item) => sum + item.questionCount, 0) || 0;
   const done = course?.tasks.reduce((sum, item) => sum + session.getSolvedIds(item.number).length, 0) || 0;
   const open = (item, index, sectionId, theory = false, theorySource = null) => setLaunch({ task: item, index, sectionId, theory, theorySource });
@@ -78,8 +84,8 @@ export default function PythonGiftCoursePage() {
           <aside className="gift-navigation"><div className="gift-navigation-title">ТВОЙ МАРШРУТ <span>{done} / {total}</span></div><div className="gift-overall-progress"><span style={{ width: `${total ? 100 * done / total : 0}%` }} /></div><nav aria-label="Темы Python">{course.tasks.map((item, index) => <button key={item.number} className={item.number === task?.number ? 'is-active' : ''} aria-current={item.number === task?.number ? 'step' : undefined} onClick={() => setActiveNumber(item.number)}><span className="gift-topic-number">{progress[item.id] === 100 ? <Check size={16} /> : String(index + 1).padStart(2, '0')}</span><span><b>{item.title.replace(/^Python\s*/i, '')}</b><small>{session.getSolvedIds(item.number).length} из {item.questionCount} задач</small></span><ChevronRight size={16} /></button>)}</nav><p className="gift-save-note">Код и прогресс сохраняются в этом браузере. Возвращайся по этой же ссылке на этом устройстве.</p></aside>
           <div className="gift-content">
             {task ? <><header className="gift-topic-header"><span className="gift-eyebrow">ШАГ {course.tasks.indexOf(task) + 1} ИЗ {course.tasks.length}</span><h2>{task.title.replace(/^Python\s*/i, '')}</h2><p>Разбери тему и закрепи её на практике. Задачи можно открывать в любом порядке.</p></header>
-              {Object.keys(task.entry.pythonTheory || {}).length > 0 && <button className="gift-theory gift-topic-theory" onClick={() => open(task, 0, model.questionSectionByIndex.get(0) || '__default__', true, task.entry.pythonTheory)}><span><Play size={19} /><b>Объяснение темы</b></span><span>Смотреть и разбираться <ArrowRight size={16} /></span></button>}
-              {model.subsections.filter(section => section.count || hasTheory(task.entry, section.id)).map(section => <section className="gift-subsection" key={section.id}><header><div><Code2 size={18} /><h3>{section.isDefault ? 'Практика' : section.title}</h3></div><span>{section.items.filter(item => solved.includes(String(item.question.id))).length} / {section.count}</span></header><div className="gift-subsection-body">{hasTheory(task.entry, section.id) && <button className="gift-theory" onClick={() => open(task, section.questionIndexes[0] || 0, section.id, true)}><span><Play size={18} /><b>Сначала разберёмся в теме</b></span><span>Открыть объяснение <ArrowRight size={16} /></span></button>}<div className="gift-questions">{section.items.map(item => <button key={item.key} className={solved.includes(String(item.question.id)) ? 'is-solved' : ''} onClick={() => open(task, item.questionIndex, section.id)}><span>{solved.includes(String(item.question.id)) ? <Check size={17} /> : `№${item.globalNumber}`}</span><b>{item.question.title || `Задача ${item.globalNumber}`}</b><ArrowRight size={16} /></button>)}</div></div></section>)}</> : <div className="gift-message"><h2>Преподаватель скоро добавит материалы</h2></div>}
+              {Object.keys(topicTheory).length > 0 && <button className="gift-theory gift-topic-theory" onClick={() => openTheory()}><span><Play size={19} /><b>Объяснение темы</b></span><span>Смотреть и разбираться <ArrowRight size={16} /></span></button>}
+              {model.subsections.filter(section => section.count || (!section.isDefault && hasTheory(task.entry, section.id))).map(section => <section className="gift-subsection" key={section.id}><header><div><Code2 size={18} /><h3>{section.isDefault ? 'Практика' : section.title}</h3></div><span>{section.items.filter(item => solved.includes(String(item.question.id))).length} / {section.count}</span></header><div className="gift-subsection-body">{!section.isDefault && hasTheory(task.entry, section.id) && <button className="gift-theory" onClick={() => openTheory(section.id)}><span><Play size={18} /><b>Сначала разберёмся в теме</b></span><span>Открыть объяснение <ArrowRight size={16} /></span></button>}<div className="gift-questions">{section.items.map(item => <button key={item.key} className={solved.includes(String(item.question.id)) ? 'is-solved' : ''} onClick={() => open(task, item.questionIndex, section.id)}><span>{solved.includes(String(item.question.id)) ? <Check size={17} /> : `№${item.globalNumber}`}</span><b>{item.question.title || `Задача ${item.globalNumber}`}</b><ArrowRight size={16} /></button>)}</div></div></section>)}</> : <div className="gift-message"><h2>Преподаватель скоро добавит материалы</h2></div>}
           </div>
         </section>
         <footer className="gift-footer">Иван на сотку <span>Маленькие шаги. Настоящие навыки.</span></footer>
