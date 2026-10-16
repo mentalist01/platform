@@ -476,4 +476,3 @@ export const createPyodideWorker = () => {
   URL.revokeObjectURL(url);
   return worker;
 };
-
