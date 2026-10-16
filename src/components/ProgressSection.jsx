@@ -39,7 +39,6 @@ import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
 import MockExamTimerConfirmDialog from './MockExamTimerConfirmDialog';
-import RandomMockGenerator from './RandomMockGenerator';
 import MonthlyMockAssignmentCheckbox from './MonthlyMockAssignmentCheckbox';
 import MonthlyMockReviewEditor from './MonthlyMockReviewEditor';
 import { getMonthlyMockMonth } from '../utils/monthlyMockExam';
@@ -770,7 +769,6 @@ const ProgressSection = ({
   const mockAttemptRequestIdRef = useRef(0);
   const mockAnalysisRequestIdRef = useRef(0);
   const mockAttemptsOwnerRef = useRef('');
-  const randomMockRequestRef = useRef({ requestId: '', levelId: '' });
   const timerChestFlightTimersRef = useRef([]);
   const {
     confirmationRequest: timerConfirmationRequest,
@@ -2589,6 +2587,10 @@ const ProgressSection = ({
 
   const handleOpenMockExam = async (exam, options = {}) => {
     if (!exam) return;
+    if (role === 'student' && exam.canStart === false) {
+      setMockExamsError('Попросите преподавателя задать этот пробник в домашку.');
+      return;
+    }
     const attemptOwnerKey = String(effectiveStudentId || '').trim();
     const cacheBelongsToStudent = mockAttemptsOwnerRef.current === attemptOwnerKey;
     const cachedAttempt = cacheBelongsToStudent ? mockAttemptsByExam?.[exam.id] : null;
@@ -2768,57 +2770,6 @@ const ProgressSection = ({
         setStartingMockExamId(null);
       }
     }
-  };
-
-  const handleGenerateRandomMockExam = ({ signal, levelId = 'basic' } = {}) => {
-    if (role !== 'student') {
-      return Promise.reject(new Error('Персональный пробник доступен только ученику.'));
-    }
-    const normalizedLevelId = levelId === 'advanced' ? 'advanced' : 'basic';
-    if (randomMockRequestRef.current.levelId !== normalizedLevelId) {
-      randomMockRequestRef.current = { requestId: '', levelId: normalizedLevelId };
-    }
-    if (!randomMockRequestRef.current.requestId) {
-      randomMockRequestRef.current.requestId = globalThis.crypto?.randomUUID?.()
-        || `random-mock-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
-    return api.createRandomMockExam(randomMockRequestRef.current.requestId, {
-      signal,
-      levelId: normalizedLevelId,
-    });
-  };
-
-  const handleRandomMockGenerated = (result) => {
-    const exam = result?.exam;
-    if (!exam?.id) return;
-    const removedExamIds = new Set(
-      (Array.isArray(result?.removedExamIds) ? result.removedExamIds : [])
-        .map((examId) => String(examId || '').trim())
-        .filter(Boolean)
-    );
-    setMockExams((previous) => [
-      exam,
-      ...(Array.isArray(previous) ? previous : []).filter((item) => (
-        String(item?.id || '') !== String(exam.id)
-        && !removedExamIds.has(String(item?.id || ''))
-      )),
-    ]);
-    setMockAttemptsByExam((previous) => {
-      const next = { ...(previous || {}) };
-      delete next[String(exam.id)];
-      removedExamIds.forEach((examId) => delete next[examId]);
-      return next;
-    });
-    randomMockRequestRef.current = { requestId: '', levelId: '' };
-    setMockExamsError('');
-  };
-
-  const handleStartRandomMockExam = async (result) => {
-    const exam = result?.exam;
-    if (!exam?.id) throw new Error('Не удалось открыть собранный пробник.');
-    await handleOpenMockExam(exam, {
-      throwOnError: true,
-    });
   };
 
   const handleRestoreMockTimerRewards = async (exam) => {
@@ -5144,23 +5095,13 @@ const ProgressSection = ({
                         <Sparkles aria-hidden="true" size={13} /> План на сегодня
                       </div>
                       <h2 id="mock-next-step-title" className="mock-dashboard-v2__title mt-1 text-lg font-black">Ваш следующий шаг</h2>
-                      <p className="mock-dashboard-v2__subtitle mt-0.5 text-xs">Продолжите начатый вариант или соберите тренировочный под свой уровень.</p>
+                      <p className="mock-dashboard-v2__subtitle mt-0.5 text-xs">Пройдите пробник месяца или продолжите пробник, назначенный преподавателем.</p>
                     </div>
                   </header>
 
-                  <RandomMockGenerator
-                    onGenerate={handleGenerateRandomMockExam}
-                    onGenerated={handleRandomMockGenerated}
-                    onStart={handleStartRandomMockExam}
-                    getSummary={(result) => ({
-                      newCount: result?.summary?.freshTaskCount ?? null,
-                      repeatCount: result?.summary?.repeatTaskCount ?? null,
-                      totalCount: result?.summary?.taskCount ?? null,
-                      fallbackCount: result?.summary?.fallbackTaskCount ?? null,
-                    })}
-                    title="Собрать персональный пробник"
-                    description="Подберём задания выбранного уровня по вашей истории решений."
-                  />
+                  <p className="rounded-xl border border-violet-300 bg-white p-3 text-sm text-slate-800">
+                    Здесь доступны пробник месяца и пробники из вашей домашки. Хотите пройти другой — попросите преподавателя назначить его.
+                  </p>
 
                   <div className="mock-dashboard-v2 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(420px,0.9fr)]">
                     <div className="mock-command-focus mock-dashboard-primary flex min-w-0 flex-col rounded-[20px] border p-4">
@@ -5189,7 +5130,7 @@ const ProgressSection = ({
                                   ? `${studentMockOverview.focusDescription} · следующее задание №${studentMockOverview.focusTaskLabel}`
                                   : studentMockOverview.focusDescription
                               )
-                              : 'Выше можно собрать личный вариант выбранного уровня — нерешённые будут в приоритете.'}
+                              : 'Попросите преподавателя назначить пробник в домашку.'}
                           </div>
                         </div>
                       </div>
@@ -5206,7 +5147,7 @@ const ProgressSection = ({
                             ? (focusMockStats?.hasStarted
                                 ? 'Прогресс сохранён — продолжите с нужного места'
                                 : 'Начните с первого задания — прогресс сохранится автоматически')
-                            : 'Если новых задач не останется, добавим материал на повторение'}
+                            : 'Новый пробник появится после назначения преподавателем'}
                         </span>
                         {focusMockExam && (
                           <Button

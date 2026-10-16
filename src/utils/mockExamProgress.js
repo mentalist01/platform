@@ -1,5 +1,6 @@
 import { getAcademicYearMeta } from './homeworkStats.js';
 import { resolveMockExamForAttempt } from './mockExamVersioning.js';
+import { isAssignedMockAttempt } from './mockExamAssignment.js';
 
 const PRIMARY_TO_SECONDARY = {
   1: 7,
@@ -157,6 +158,8 @@ export const buildMockExamProgressEntries = ({
   studentData = {},
   mockExams = [],
   mockAttemptsByExam = {},
+  assignedOnly = false,
+  teacherId = '',
 } = {}) => {
   const examById = (Array.isArray(mockExams) ? mockExams : []).reduce((result, exam) => {
     const examId = normalizeText(exam?.id);
@@ -193,6 +196,7 @@ export const buildMockExamProgressEntries = ({
       const exam = Object.keys(frozenTasks).length > 0
         ? { ...(examById[examId] || {}), tasks: frozenTasks }
         : (examById[examId] || null);
+      if (assignedOnly && !isAssignedMockAttempt({ examId, exam, attempt: result, studentData, teacherId })) return null;
       const scope = getAttemptScope(exam, scoreAttempt);
       if (scope.isPartial) return null;
       const resultId = normalizeText(result.resultId ?? result.id)
@@ -235,6 +239,7 @@ export const buildMockExamProgressEntries = ({
       const timerFinishedAt = normalizeText(attempt.timerFinishedAt);
       if (mode === 'timer' && !timerFinishedAt) return null;
       const exam = resolveMockExamForAttempt(examById[examId] || null, attempt);
+      if (assignedOnly && !isAssignedMockAttempt({ examId, exam: examById[examId] || exam, attempt, studentData, teacherId })) return null;
       const scope = getAttemptScope(exam, attempt);
       if (scope.isPartial) return null;
       if (mode !== 'timer') {

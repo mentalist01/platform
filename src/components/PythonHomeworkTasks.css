@@ -1,14 +1,29 @@
-.python-homework-tasks{display:grid;gap:10px;width:100%;min-width:0;max-height:360px;overflow:auto;padding:2px 4px 2px 0;scrollbar-width:thin;scrollbar-color:#c4b5fd transparent}
-.python-homework-tasks__section{overflow:hidden;border:1px solid rgb(var(--ink)/.09);border-radius:13px;background:rgb(var(--surface)/.9)}
-.python-homework-tasks__section header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;padding:10px 12px;border-bottom:1px solid rgb(var(--ink)/.06);background:rgb(var(--surface-soft));color:rgb(var(--ink));font-size:12px}
-.python-homework-tasks__section header>span{display:flex;align-items:center;gap:7px}
-.python-homework-tasks__section header svg{color:#8b5cf6}
-.python-homework-tasks__section header small{color:rgb(var(--ink-soft));font-size:10px;font-weight:600}
-.python-homework-tasks__list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:6px;padding:8px}
-.python-homework-tasks__item{display:flex;align-items:center;gap:8px;min-width:0;min-height:37px;border:1px solid rgb(var(--ink)/.1);border-radius:9px;background:rgb(var(--surface));padding:7px 9px;text-align:left;color:rgb(var(--ink));font-size:11px;line-height:1.4}
-.python-homework-tasks__item b{align-self:flex-start;flex:none;min-width:29px;color:#8b5cf6;font-size:10px}
-.python-homework-tasks__item span{min-width:0;overflow-wrap:anywhere;flex:1;font-weight:600}
-button.python-homework-tasks__item{cursor:pointer}
-button.python-homework-tasks__item:hover{border-color:#a78bfa;background:rgb(var(--surface-soft))}
-.python-homework-tasks__item.is-solved{border-color:#6ee7b7;background:rgb(16 185 129/.08)}
-.python-homework-tasks__item.is-solved b,.python-homework-tasks__item.is-solved svg{color:#059669}
+.python-homework-tasks{display:grid;gap:14px;width:100%;min-width:0;max-height:480px;overflow:auto;padding:3px 8px 4px 2px;scrollbar-width:thin;scrollbar-color:#a78bfa transparent}
+.python-homework-tasks__section{overflow:hidden;border:1px solid #c9bedf;border-radius:15px;background:#f2eff8;box-shadow:0 2px 4px rgb(48 30 83/.04)}
+.python-homework-tasks__heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;background:#38245f;color:#fff}
+.python-homework-tasks__title{display:flex;align-items:center;gap:9px;min-width:0;font-size:14px;line-height:1.4}
+.python-homework-tasks__title strong{overflow-wrap:anywhere;font-weight:700}
+.python-homework-tasks__title svg{flex:none;color:#ddd1ff}
+.python-homework-tasks__count{display:inline-flex;align-items:center;gap:5px;flex:none;padding:4px 9px;border:1px solid #80699f;border-radius:7px;color:#fff;font-size:11px;font-weight:600;line-height:1.5}
+.python-homework-tasks__count.is-complete{background:#d1fae5;border-color:#a7f3d0;color:#065f46}
+.python-homework-tasks__list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(245px,100%),1fr));gap:9px;padding:12px}
+.python-homework-tasks__item{display:flex;align-items:center;gap:10px;min-width:0;min-height:58px;border:1px solid #c9c4d6;border-radius:10px;background:#fff;padding:10px;text-align:left;color:#192235;font-size:13px;line-height:1.45;box-shadow:0 1px 2px rgb(25 34 53/.04)}
+.python-homework-tasks__number{display:flex;align-items:center;justify-content:center;flex:none;min-width:37px;min-height:34px;padding:3px 5px;border-radius:7px;background:#ede6ff;color:#5b21b6;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+.python-homework-tasks__item>span{min-width:0;overflow-wrap:anywhere;flex:1;font-weight:600}
+.python-homework-tasks__open{flex:none;color:#68419e}
+button.python-homework-tasks__item{cursor:pointer;transition:border-color .15s,background .15s}
+button.python-homework-tasks__item:hover{border-color:#7c3aed;background:#faf7ff}
+.python-homework-tasks:focus-visible,button.python-homework-tasks__item:focus-visible{outline:3px solid #7c3aed;outline-offset:2px}
+.python-homework-tasks__item.is-solved{border-color:#6bb79b;background:#ecfdf5;color:#164b3c}
+.python-homework-tasks__item.is-solved .python-homework-tasks__number{background:#bbf7d0;color:#166534}
+.python-homework-tasks__status{flex:none;color:#047857}
+html[data-theme='dark'] .python-homework-tasks__section{background:#201d30;border-color:#6d5a8a}
+html[data-theme='dark'] .python-homework-tasks__heading{background:#49316f}
+html[data-theme='dark'] .python-homework-tasks__item{background:#2b293b;color:#f1eef9;border-color:#696178}
+html[data-theme='dark'] .python-homework-tasks__number{background:#493466;color:#eadbff}
+html[data-theme='dark'] .python-homework-tasks__open{color:#d7baff}
+html[data-theme='dark'] button.python-homework-tasks__item:hover{background:#3c3154;border-color:#b999f6}
+html[data-theme='dark'] .python-homework-tasks__item.is-solved{background:#183d32;border-color:#58ac89;color:#e4fff2}
+html[data-theme='dark'] .python-homework-tasks__item.is-solved .python-homework-tasks__number{background:#285b44;color:#c6ffdf}
+html[data-theme='dark'] .python-homework-tasks__status{color:#84e8ba}
+@media(max-width:540px){.python-homework-tasks__heading{padding:11px 12px;gap:8px}.python-homework-tasks__list{padding:9px;gap:8px}.python-homework-tasks__title{font-size:13px}.python-homework-tasks__item{min-height:54px}}

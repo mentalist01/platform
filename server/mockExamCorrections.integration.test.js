@@ -93,7 +93,10 @@ test('mock exams accept answer variants and teacher corrections update the froze
   }]));
   fs.writeFileSync(path.join(dataDir, 'tests.json'), '{}');
   fs.writeFileSync(path.join(dataDir, 'progress.json'), JSON.stringify({
-    'student-a': { xpTotal: 0, coinsTotal: 0, solvedByTask: {}, solvedEvents: [] },
+    'student-a': { xpTotal: 0, coinsTotal: 0, solvedByTask: {}, solvedEvents: [], homeworks: [{
+      id: 'teacher-mock-homework', issuedAt: now,
+      goals: ['exam-a', 'exam-games', 'exam-versioned'].map(mockExamId => ({ type: 'mock', mockExamId, mode: 'classic' })),
+    }] },
   }));
   fs.writeFileSync(path.join(dataDir, 'mock-exams.json'), JSON.stringify([{
     id: 'exam-a',

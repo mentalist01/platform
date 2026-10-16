@@ -169,6 +169,10 @@ test('catalog changes preserve homework history and support assignment, solving,
     assert.equal(finalData.notesByTask['13'], 'Сохранить заметку');
     assert.ok(finalData.solvedEvents.some((entry) => entry.id === 'old-solve' && entry.taskNumber === 23));
     assert.deepEqual(finalData.homeworks.find((entry) => entry.id === 'old-homework').goals.map((goal) => goal.taskNumber), [10, 13]);
+    await request('/api/student-next-lesson', teacher, 'PATCH', {
+      studentId: 'student-catalog', daysToComplete: 7,
+      goals: [{ type: 'mock', mockExamId: 'source-format', mode: 'classic' }],
+    });
     const mockResult = await request('/api/mock-exams/attempt', student, 'PUT', {
       studentId: 'student-catalog', examId: 'source-format', mode: 'classic',
       answers: { 10: ['a', 'b'], 6: ['42', ...Array(19).fill('')] },

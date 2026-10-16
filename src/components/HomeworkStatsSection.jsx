@@ -267,6 +267,7 @@ const HomeworkStatsSection = ({
     nowMs: referenceNowMs,
   }), [homeworks, mockAttemptsByExam, mockExams, referenceNowMs, studentData, testsDb]);
   const mockExamProgressEntries = useMemo(() => buildMockExamProgressEntries({
+    assignedOnly: true,
     studentData,
     mockExams,
     mockAttemptsByExam,

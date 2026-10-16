@@ -74,7 +74,7 @@ globalThis.Date = class extends RealDate {
     assert.equal((await listed(otherTeacher)).find(entry => entry.id === 'scheduled').monthlyPublicationDay, 1);
     for (const token of [student, groupStudent]) {
       assert.ok(!(await listed(token)).some(entry => entry.id === 'scheduled'));
-      assert.ok((await listed(token)).some(entry => entry.id === 'ordinary'));
+      assert.ok(!(await listed(token)).some(entry => entry.id === 'ordinary'), 'unassigned ordinary exams are not available for self-start');
       const monthly = await status(token);
       assert.equal(monthly.assignment, null);
       assert.equal(monthly.publicationPending, true);
@@ -110,7 +110,7 @@ globalThis.Date = class extends RealDate {
     assert.equal(stored('mock-exams')[0].monthlyPublicationDays['teacher-b'][month], 1);
     await json(await mark(teacher, 'replacement', 28, false));
     assert.equal((await status(student)).publicationPending, false);
-    assert.ok((await listed(student)).some(entry => entry.id === 'replacement'), 'removing monthly designation restores ordinary access');
+    assert.ok(!(await listed(student)).some(entry => entry.id === 'replacement'), 'removing monthly designation requires a homework assignment to start');
     assert.deepEqual(stored('progress').a.homeworks, previousProgress.a.homeworks);
   } finally {
     if (child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; }
