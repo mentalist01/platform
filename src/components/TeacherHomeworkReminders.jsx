@@ -3,8 +3,9 @@ import { BookOpen, ArrowRight, Check } from 'lucide-react';
 import { homeworkReminders } from '../services/homeworkReminders';
 import './TeacherHomeworkReminders.css';
 import TeacherParentReportReminder from './TeacherParentReportReminder';
+import TeacherHomeworkNotes, { HomeworkLessonNotePreview } from './TeacherHomeworkNotes';
 
-export function HomeworkReminderCard({ reminder, count = 1, busy = false, error = '', onOpen, onDismiss }) {
+export function HomeworkReminderCard({ reminder, teacherId = '', count = 1, busy = false, error = '', onOpen, onDismiss }) {
   const date = new Date(reminder.endedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
   return <aside className="teacher-homework-reminder" role="status" aria-live="polite">
     <div className="teacher-homework-reminder__heading"><span><BookOpen size={19} /></span>
@@ -12,6 +13,7 @@ export function HomeworkReminderCard({ reminder, count = 1, busy = false, error 
       {count > 1 && <span className="teacher-homework-reminder__count">+{count - 1}</span>}
     </div>
     <p>Урок завершён, новой домашки пока нет.</p>
+    <HomeworkLessonNotePreview teacherId={teacherId} studentId={reminder.studentId} groupId={reminder.groupId} compact />
     {error && <p className="teacher-homework-reminder__error" role="alert">{error}</p>}
     <div className="teacher-homework-reminder__actions">
       <button type="button" disabled={busy} onClick={onOpen}>Перейти задать <ArrowRight size={16} /></button>
@@ -20,7 +22,7 @@ export function HomeworkReminderCard({ reminder, count = 1, busy = false, error 
   </aside>;
 }
 
-export default function TeacherHomeworkReminders({ userId, onOpen, students, onStudentUpdated, paused = false }) {
+export default function TeacherHomeworkReminders({ userId, onOpen, students, onStudentUpdated, paused = false, noteContext = {} }) {
   const [reminders, setReminders] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -62,8 +64,9 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
     } catch (failure) { if (alive.current) setError(failure.message || 'Не удалось сохранить ответ. Повторите.'); }
     finally { if (alive.current) setBusy(false); }
   };
-  return <><TeacherParentReportReminder userId={userId} students={students} onStudentUpdated={onStudentUpdated} paused={paused} showEntry={!reminder} />
-    {reminder && !paused && <HomeworkReminderCard reminder={reminder} count={visible.length} busy={busy} error={error}
+  return <><TeacherHomeworkNotes teacherId={userId} students={students} groups={noteContext.groups} activeStudentId={noteContext.studentId} activeGroupId={noteContext.groupId} visible={paused} />
+    <TeacherParentReportReminder userId={userId} students={students} onStudentUpdated={onStudentUpdated} paused={paused} showEntry={!reminder} />
+    {reminder && !paused && <HomeworkReminderCard reminder={reminder} teacherId={userId} count={visible.length} busy={busy} error={error}
     onDismiss={dismiss} onOpen={() => {
       onOpen?.(reminder);
       setError('');

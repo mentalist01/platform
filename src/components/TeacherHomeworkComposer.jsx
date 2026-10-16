@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { HomeworkLessonNotePreview } from './TeacherHomeworkNotes';
+import { appendHomeworkNote } from '../utils/teacherHomeworkNotes';
 import { formatClassicTaskNumber, getClassicTask } from '../data/classicTaskRuntime';
 import {
   ArrowLeft,
@@ -1341,6 +1343,8 @@ const TeacherHomeworkComposer = ({
               )}
 
               <div className="space-y-5">
+                <HomeworkLessonNotePreview teacherId={teacherId} studentId={isGroupTarget ? '' : studentId} groupId={isGroupTarget ? groupId : ''}
+                  onAppend={text => onChangeForm?.({ homeWork: appendHomeworkNote(form?.homeWork, text) })} />
                 <label className="block">
                   <span className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-[rgb(var(--ink-soft))]">
                     <FileText size={14} /> Текст и дополнительные пункты

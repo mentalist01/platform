@@ -1,4 +1,4 @@
-.teacher-homework-reminder { position: fixed; right: 24px; bottom: 24px; z-index: 85; width: min(410px, calc(100vw - 32px)); padding: 20px; color: #253049; background: #fff; border: 1px solid #e3d8ff; border-radius: 22px; box-shadow: 0 12px 45px #47247c25; }
+.teacher-homework-reminder { position: fixed; right: 24px; bottom: 24px; z-index: 85; width: min(410px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; padding: 20px; color: #253049; background: #fff; border: 1px solid #e3d8ff; border-radius: 22px; box-shadow: 0 12px 45px #47247c25; }
 .teacher-homework-reminder__heading { display: flex; align-items: center; gap: 12px; }
 .teacher-homework-reminder__heading > div { min-width: 0; overflow-wrap: anywhere; }
 .teacher-homework-reminder__heading > span:first-child { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: 13px; color: #8243ef; background: #f3ecff; }
@@ -14,4 +14,4 @@
 .teacher-homework-reminder .teacher-homework-reminder__error { color: #d32655; font-size: 12px; }
 html[data-theme="dark"] .teacher-homework-reminder, .dark .teacher-homework-reminder { background: #222337; border-color: #514067; color: #eef0fb; }
 html[data-theme="dark"] .teacher-homework-reminder small, .dark .teacher-homework-reminder small { color: #b1b4cd; }
-@media (max-width: 640px) { .teacher-homework-reminder { right: 16px; bottom: 80px; padding: 16px; } }
+@media (max-width: 640px) { .teacher-homework-reminder { right: 16px; bottom: 80px; max-height: calc(100dvh - 96px); padding: 16px; } }

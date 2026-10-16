@@ -2491,6 +2491,7 @@ const normalizeStoredOpenTask = (entry) => {
     questionIndex,
     subsectionId,
     openTheory: pythonTask && entry.openTheory === true,
+    personalWork: pythonTask && (entry.personalWork === true || (Array.isArray(entry.targetQuestions) && entry.targetQuestions.length > 0)),
     theoryType: pythonTask ? theoryType : null,
   };
 };
@@ -25279,7 +25280,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       )}
       {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherRescheduleInbox userId={user.id} showEmpty={isTeacherNotificationsTabOpen} /></React.Suspense>}
       {user.role === 'teacher' && <React.Suspense fallback={null}><RecordingHealthWarning key={user.id} recorder={desktopRecorder} active={callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive} /></React.Suspense>}
-      {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherHomeworkReminders key={user.id} userId={user.id} students={studentsWithNicknames} onStudentUpdated={handleStudentUpdated} onOpen={handleHomeworkReminderOpen} paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || isCallSessionActive || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status))} /></React.Suspense>}
+      {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherHomeworkReminders key={user.id} userId={user.id} students={studentsWithNicknames} onStudentUpdated={handleStudentUpdated} onOpen={handleHomeworkReminderOpen} noteContext={{studentId:activeStudentId,groupId:activeLearningLesson?.groupId,groups:lessonTargetGroups}} paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || isCallSessionActive || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status))} /></React.Suspense>}
       {user.role === 'student' && !studentTourActive && (
         <StudentNotificationsCenter
           user={user}
@@ -26539,7 +26540,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                                 <>
                                   {isPythonGoal ? <React.Suspense fallback={<span>Загружаем разделы Python…</span>}>
                                     <PythonHomeworkTasks taskEntry={goalTestsDb?.[String(goal.taskNumber)]} levelId={goal.levelId} items={goal.targetStatus}
-                                      onOpenQuestion={number => handleOpenTask(goal.taskNumber, goal.levelId, [number])} />
+                                      onOpenQuestion={number => handleOpenTask(goal.taskNumber, goal.levelId, goal.targetNumbers, { questionIndex: number - 1 })} />
                                   </React.Suspense> : <div className="student-goal-summary__target-list">
                                     {goal.targetStatus.map((item) => (
                                       <span

@@ -3534,7 +3534,7 @@ const ScheduleSection = ({
                 <div className="student-today-homework__goal-controls mt-3 flex flex-wrap items-end justify-between gap-3">
                   {isPythonTaskNumber(goalView.taskNumber) ? (
                     <PythonHomeworkTasks taskEntry={testsDb?.[String(goalView.taskNumber)]} levelId={goalView.levelId} items={targetItems}
-                      onOpenQuestion={onOpenTask ? number => onOpenTask(goalView.taskNumber, goalView.levelId, [number]) : undefined} />
+                      onOpenQuestion={onOpenTask ? number => onOpenTask(goalView.taskNumber, goalView.levelId, goalView.targetNumbers, { questionIndex: number - 1 }) : undefined} />
                   ) : <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                     {targetItems.map((item) => {
                       const itemLabel = item.num ?? item.label ?? item.taskKey;
@@ -4360,7 +4360,7 @@ const ScheduleSection = ({
                   </div>
                   {goalView.targetNumbers.length > 0 && (isPythonTaskNumber(goalView.taskNumber) ? (
                     <PythonHomeworkTasks taskEntry={testsDb?.[String(goalView.taskNumber)]} levelId={goalView.levelId} items={goalView.targetStatus}
-                      onOpenQuestion={onOpenTask ? number => onOpenTask(goalView.taskNumber, goalView.levelId, [number]) : undefined} />
+                      onOpenQuestion={onOpenTask ? number => onOpenTask(goalView.taskNumber, goalView.levelId, goalView.targetNumbers, { questionIndex: number - 1 }) : undefined} />
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
                       {goalView.targetStatus.map((item) => (

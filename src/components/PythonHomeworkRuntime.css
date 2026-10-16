@@ -1,0 +1,66 @@
+.python-homework-badge{display:inline-flex;align-items:center;justify-content:center;gap:4px;width:max-content;max-width:100%;padding:3px 7px;border:1px solid #f4bd47;border-radius:6px;background:#fff0bc;color:#75420c;font-size:10px;font-weight:800;line-height:1.2;white-space:nowrap}
+.python-homework-badge svg{flex:none}
+.python-homework-badge.is-complete{border-color:#8ad1b0;background:#d7f8e7;color:#176044}
+.python-homework-badge.is-animated svg{animation:python-homework-pointer 1.25s ease-in-out 3}
+@keyframes python-homework-pointer{0%,100%{transform:translate(0,0)}50%{transform:translate(-2px,2px)}}
+.python-runtime-modal-shell--solve .python-homework-guide{display:flex;align-items:center;gap:9px;flex-wrap:wrap;flex:none;margin:3px 0 5px;padding:7px 11px;border:1px solid #efcc7c;border-radius:12px;background:#fff9e8;color:#6e4212;font-size:11px;line-height:1.4}
+.python-homework-guide strong{font-weight:800}
+.python-homework-guide__hint{color:#806845}
+.python-homework-guide button{margin-left:auto;display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid #deb663;border-radius:8px;background:white;color:#75420c;font:inherit;font-weight:700}
+.python-homework-guide button:focus-visible{outline:3px solid #a16207;outline-offset:2px}
+.python-runtime-modal-shell--solve .python-homework-section-count{margin-left:5px;padding:1px 5px;border-radius:4px;background:#ffebb0;color:#75420c!important;font-size:9px;font-weight:800;white-space:nowrap}
+.python-runtime-modal-shell--solve .python-runtime-task-strip[data-homework-list='true'] .python-runtime-task-chip{height:58px!important}
+.python-runtime-modal-shell--solve .python-runtime-task-chip[data-homework='true'][data-current='false'][data-solved='false']{border-color:#e8be66!important;background:#fff9e8!important}
+.python-runtime-task-chip__copy{display:flex;min-width:0;flex:1;flex-direction:column;align-items:flex-start;gap:3px}
+.python-runtime-task-chip__title{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.python-runtime-modal-shell--solve .python-runtime-task-chip .python-homework-badge,.python-runtime-modal-shell--solve .python-runtime-task-chip .python-homework-badge *{color:#75420c!important}
+.python-runtime-modal-shell--solve .python-runtime-task-chip .python-homework-badge.is-complete,.python-runtime-modal-shell--solve .python-runtime-task-chip .python-homework-badge.is-complete *{color:#176044!important}
+.python-runtime-focus-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid var(--rt-border,#d8d7e7);border-radius:10px;background:var(--rt-card,white);color:var(--rt-text,#29213c);font-size:11px;font-weight:700;white-space:nowrap}
+.python-runtime-focus-button:hover{border-color:#9a78e0;background:var(--rt-purple-soft,#f3edff)}
+.python-runtime-modal-shell--solve .python-runtime-header-layout{grid-template-columns:minmax(0,1fr) minmax(160px,.75fr) 108px auto!important}
+@media(max-width:899px){.python-runtime-modal-shell--solve .python-runtime-header-layout{grid-template-columns:minmax(0,1fr) auto!important}.python-runtime-modal-shell--solve .python-runtime-progress-card{display:none!important}.python-runtime-modal-shell--solve .python-runtime-topic-summary{grid-column:1!important;grid-row:1!important}.python-runtime-modal-shell--solve .python-explanation-task-actions{grid-column:2!important;grid-row:1!important}.python-runtime-modal-shell--solve .python-runtime-overview-card{grid-column:1 / -1!important;grid-row:2!important;padding-block:4px!important}}
+.python-runtime-focus-button:focus-visible{outline:3px solid #8b5cf6;outline-offset:2px}
+.python-runtime-focus-bar{display:flex;align-items:center;gap:10px;flex:none;min-height:38px;padding:3px 6px 6px;color:var(--rt-text,#29213c)}
+.python-runtime-focus-bar>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.python-runtime-focus-bar>.python-runtime-focus-button{margin-left:auto}
+.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-modal-header{display:none!important}
+.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-task-navigation{display:none!important}
+.python-runtime-modal-shell--solve[data-focus='true'] .python-homework-guide{display:none!important}
+.python-runtime-focus-tabs{display:none}
+.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-workspace{min-height:0!important;overflow:hidden!important}
+.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-workspace-grid{display:grid!important;height:100%!important;min-height:0!important;overflow:hidden!important}
+.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-question-panel,
+.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-editor-panel,
+.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-tests-panel{min-height:0!important;height:100%!important}
+@media(min-width:700px){
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-briefing-column{grid-column:1!important;grid-row:1!important;min-height:0!important;height:100%!important;overflow:hidden!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-resizer{display:block!important;grid-column:2!important;grid-row:1 / span 2!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-editor-column{grid-column:3!important;grid-row:1 / span 2!important;min-height:0!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-tests-column{grid-column:1!important;grid-row:2!important;min-height:0!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-footer>div{flex-direction:row!important;align-items:center!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-footer-actions{flex-direction:row!important;width:auto!important}
+}
+@media(min-width:700px) and (max-height:500px){.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-footer-note{display:none!important}.python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-footer{padding-block:5px!important}}
+@media(max-width:699px),(max-width:1099px) and (max-height:499px){
+  .python-runtime-focus-tabs{display:flex;flex:none;gap:5px;padding:0 5px 7px}
+  .python-runtime-focus-tabs button{flex:1;min-height:34px;border:1px solid var(--rt-border,#d8d7e7);border-radius:9px;background:var(--rt-card,white);color:var(--rt-secondary,#645776);font-size:12px;font-weight:700}
+  .python-runtime-focus-tabs button[aria-selected='true']{border-color:#7644df;background:#7644df;color:white}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-workspace-grid{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-workspace-grid>div{grid-column:1!important;grid-row:1!important;min-height:0!important;height:100%!important}
+  .python-runtime-modal-shell--solve[data-focus='true'][data-focus-pane='code'] .python-runtime-briefing-column,
+  .python-runtime-modal-shell--solve[data-focus='true'][data-focus-pane='code'] .python-runtime-tests-column,
+  .python-runtime-modal-shell--solve[data-focus='true'][data-focus-pane='question'] .python-runtime-editor-column,
+  .python-runtime-modal-shell--solve[data-focus='true'][data-focus-pane='question'] .python-runtime-tests-column,
+  .python-runtime-modal-shell--solve[data-focus='true'][data-focus-pane='tests'] .python-runtime-briefing-column,
+  .python-runtime-modal-shell--solve[data-focus='true'][data-focus-pane='tests'] .python-runtime-editor-column{display:none!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-footer-note{display:none!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-footer-actions{flex-direction:row!important;width:100%!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-footer-actions button{flex:1;width:auto!important;min-width:0!important;padding-inline:8px!important}
+  .python-runtime-modal-shell--solve[data-focus='true'] .python-runtime-footer>div{gap:5px!important}
+}
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-homework-guide{border-color:#8b682d;background:#352a19;color:#ffe1a0}
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-homework-guide__hint{color:#d3bc91}
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-homework-guide button{border-color:#8b682d;background:#48351d;color:#ffe1a0}
+.python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-task-chip[data-homework='true'][data-current='false'][data-solved='false']{border-color:#a77e35!important;background:#392e1e!important;color:#ffe9bb!important}
+@media(max-width:599px){.python-homework-guide__hint{display:none}.python-runtime-modal-shell--solve .python-homework-guide{gap:5px;padding:6px 8px}.python-runtime-focus-button{min-height:36px}.python-runtime-focus-bar{gap:5px}.python-runtime-focus-bar .python-homework-badge{display:none}}
+@media(prefers-reduced-motion:reduce){.python-homework-badge.is-animated svg{animation:none}}

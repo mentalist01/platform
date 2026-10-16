@@ -3,6 +3,8 @@ import RutubeChapterPlayer from './RutubeChapterPlayer';
 import { videoChapterMetadata } from '../utils/videoChapters';
 import { PythonExplanationBoardButton } from './PythonExplanationBoard';
 import PythonLessonToolbar from './PythonLessonToolbar';
+import PythonHomeworkBadge from './PythonHomeworkBadge';
+import { normalizePythonHomeworkNumbers, firstUnsolvedPythonHomeworkIndex } from '../utils/pythonHomeworkLaunch.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from './SelfHostedMonacoEditor';
@@ -18,6 +20,7 @@ import {
   FileText,
   FolderOpen,
   Maximize2,
+  Minimize2,
   PictureInPicture2,
   PlayCircle,
   RefreshCcw,
@@ -254,6 +257,7 @@ const PythonTestModal = ({
   studentId,
   testDb,
   initialQuestionIndex,
+  homeworkQuestionNumbers = [],
   initialSubsectionId,
   initialShowTheory = false,
   initialTheoryType = '',
@@ -295,6 +299,11 @@ const PythonTestModal = ({
   const isDarkTheme = normalizeTheme(theme || documentTheme) === THEME_DARK;
   const [questions, setQuestions] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [focusMode, setFocusMode] = useState(false);
+  const [focusPane, setFocusPane] = useState('code');
+  const focusFullscreenRef = useRef(null);
+  const focusToggleRef = useRef(null);
+  const homeworkStartPendingRef = useRef(false);
   const [selectedSubsectionId, setSelectedSubsectionId] = useState(PYTHON_DEFAULT_SUBSECTION_ID);
   const [solvedIds, setSolvedIds] = useState(new Set());
   const [reviewSolvedIds, setReviewSolvedIds] = useState(new Set());
@@ -358,6 +367,7 @@ const PythonTestModal = ({
   const saveTimerRef = useRef(null);
   const workspaceGridRef = useRef(null);
   const initialQuestionIndexRef = useRef(initialQuestionIndex);
+  const initialHomeworkNumbersRef = useRef(homeworkQuestionNumbers);
   const initialSubsectionIdRef = useRef(initialSubsectionId);
   const initialShowTheoryRef = useRef(Boolean(initialShowTheory));
   const initialTheoryTypeRef = useRef(String(initialTheoryType || '').trim());
@@ -384,6 +394,37 @@ const PythonTestModal = ({
   const visibleSolvedIds = useMemo(() => reviewMode
     ? new Set([...reviewSolvedIds, ...getPythonReviewSolvedIds(answerHistoryById, reviewCycle)])
     : solvedIds, [reviewMode, reviewSolvedIds, answerHistoryById, reviewCycle, solvedIds]);
+  const homeworkNumbers = useMemo(() => reviewMode ? [] : normalizePythonHomeworkNumbers(homeworkQuestionNumbers, questions.length), [homeworkQuestionNumbers, questions.length, reviewMode]);
+  const homeworkNumberSet = useMemo(() => new Set(homeworkNumbers), [homeworkNumbers]);
+  const homeworkSolvedCount = homeworkNumbers.filter(number => visibleSolvedIds.has(String(questions[number - 1]?.id ?? ''))).length;
+
+  const leaveFocus = useCallback(() => {
+    setFocusMode(false);
+    if (document.fullscreenElement && document.fullscreenElement === focusFullscreenRef.current) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+    requestAnimationFrame(() => focusToggleRef.current?.focus());
+  }, []);
+  const enterFocus = () => {
+    setFocusPane('code');
+    setFocusMode(true);
+    if (document.fullscreenEnabled && !document.fullscreenElement) {
+      focusFullscreenRef.current?.requestFullscreen?.().catch(() => {});
+    }
+  };
+  useEffect(() => {
+    if (!focusMode) return;
+    const onEscape = event => {
+      if (event.key === 'Escape' && !event.defaultPrevented && !showTheory && !expandedImage) leaveFocus();
+    };
+    const onFullscreenChange = () => { if (!document.fullscreenElement) setFocusMode(false); };
+    window.addEventListener('keydown', onEscape);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => {
+      window.removeEventListener('keydown', onEscape);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+    };
+  }, [focusMode, showTheory, expandedImage, leaveFocus]);
   const activeQuestionAlreadySolved = visibleSolvedIds.has(activeQuestionId)
     || (!reviewMode && activeQuestionHistory.some((entry) => entry?.correct === true));
   const activeQuestionTimerKey = activeQuestionId
@@ -986,6 +1027,7 @@ const PythonTestModal = ({
 
   useEffect(() => {
     const list = Array.isArray(subsectionModel.questions) ? subsectionModel.questions : [];
+    let cancelled = false;
     const seededQuestionIndex = initialQuestionIndexRef.current;
     const seededSubsectionId = initialSubsectionIdRef.current;
     const parsedInitialQuestionIndex = Number(seededQuestionIndex);
@@ -1004,6 +1046,10 @@ const PythonTestModal = ({
       ));
       if (subsectionQuestionIndex >= 0) rawIndex = subsectionQuestionIndex;
     }
+    const homeworkTargets = normalizePythonHomeworkNumbers(initialHomeworkNumbersRef.current, list.length);
+    const selectFirstPending = !Number.isFinite(rawIndex) && homeworkTargets.length > 0;
+    homeworkStartPendingRef.current = selectFirstPending;
+    if (selectFirstPending) rawIndex = firstUnsolvedPythonHomeworkIndex(list, homeworkTargets);
     if (!Number.isFinite(rawIndex) && typeof window !== 'undefined') {
       try {
         rawIndex = Number(window.localStorage.getItem(getQuestionIndexKey()));
@@ -1053,6 +1099,13 @@ const PythonTestModal = ({
     if (studentId) {
       api.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
         .then((payload) => {
+          if (cancelled) return;
+          const loadedIds = new Set((Array.isArray(payload) ? payload : payload?.ids || []).map(String));
+          if (homeworkStartPendingRef.current) {
+            homeworkStartPendingRef.current = false;
+            const firstPending = firstUnsolvedPythonHomeworkIndex(list, homeworkTargets, loadedIds);
+            if (firstPending >= 0) setCurrentIndex(firstPending);
+          }
           if (Array.isArray(payload)) {
             setSolvedIds(new Set(payload.map((id) => String(id))));
             setSolvedCodeById({});
@@ -1066,15 +1119,17 @@ const PythonTestModal = ({
         .catch((err) => console.error(err));
       api.getAnswerHistory(studentId, task.number, PYTHON_LEVEL_ID)
         .then((payload) => {
+          if (cancelled) return;
           setAnswerHistoryById(
             payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
           );
         })
-        .catch(() => setAnswerHistoryById({}))
-        .finally(() => setAnswerHistoryLoading(false));
+        .catch(() => { if (!cancelled) setAnswerHistoryById({}); })
+        .finally(() => { if (!cancelled) setAnswerHistoryLoading(false); });
     } else {
       setAnswerHistoryLoading(false);
     }
+    return () => { cancelled = true; };
   }, [task?.number, subsectionModel, studentId]);
 
   useEffect(() => {
@@ -1763,6 +1818,7 @@ const PythonTestModal = ({
   };
 
   const handleNext = () => {
+    homeworkStartPendingRef.current = false;
     if (followingTeacher) return;
     if (Number.isFinite(nextQuestionIndex)) {
       const nextSubsection = visibleSubsections.find((section) => section.questionIndexes.includes(nextQuestionIndex));
@@ -1937,7 +1993,7 @@ const PythonTestModal = ({
     formatOnType: true,
     formatOnPaste: true
   };
-  const codeEditorHeight = isMobileViewport ? '320px' : '100%';
+  const codeEditorHeight = isMobileViewport && !focusMode ? '320px' : '100%';
   const realtimeStatusLabel = buildRealtimeStatusLabel(realtimeStatus);
   const RealtimeStatusIcon = realtimeStatus === 'connected'
     ? Wifi
@@ -2028,7 +2084,7 @@ const PythonTestModal = ({
     : 'border-sky-100 bg-[#f2f8ff] text-slate-500';
   const hasSupportSidebarContent = Boolean(screenshots.length || extraFiles.length);
   const showPresenceChip = realtimePeerCount > 0;
-  const isWideWorkspace = viewportWidth >= 1100;
+  const isWideWorkspace = viewportWidth >= 1100 || (focusMode && viewportWidth >= 700 && viewportHeight >= 500);
   const isCompactRuntimeViewport = viewportWidth < 1500 || viewportHeight < 820;
   const isVeryCompactRuntimeViewport = viewportWidth < 1200 || viewportHeight < 760;
   const isDenseQuestionNav = visibleQuestionItems.length >= 10;
@@ -2057,8 +2113,10 @@ const PythonTestModal = ({
           ));
   const workspaceGridStyle = isWideWorkspace
     ? {
-        gridTemplateColumns: `clamp(400px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 820px) 12px minmax(520px, 1fr)`,
-        gridTemplateRows: workspaceGridRowTemplate,
+        gridTemplateColumns: focusMode
+          ? `minmax(230px, ${(workspaceSplitRatio * 100).toFixed(2)}%) 12px minmax(0, 1fr)`
+          : `clamp(400px, ${(workspaceSplitRatio * 100).toFixed(2)}%, 820px) 12px minmax(520px, 1fr)`,
+        gridTemplateRows: focusMode ? 'minmax(0, 60fr) minmax(0, 40fr)' : workspaceGridRowTemplate,
       }
     : undefined;
   const handleSelectSubsection = (subsectionId) => {
@@ -2079,8 +2137,8 @@ const PythonTestModal = ({
   };
 
   const modal = (
-    <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
-      <div data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className={`python-runtime-modal-shell python-runtime-modal-shell--solve surface-card modal-card modal-card--fullscreen flex flex-col rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
+    <div ref={focusFullscreenRef} className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
+      <div data-focus={focusMode ? 'true' : 'false'} data-focus-pane={focusPane} data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className={`python-runtime-modal-shell python-runtime-modal-shell--solve surface-card modal-card modal-card--fullscreen flex flex-col rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
         {reviewMode && <div className="shrink-0 border-b border-violet-200 bg-violet-50 px-4 py-2 text-xs text-violet-800"><strong>Повторение Python</strong> · Напишите решение заново. Черновик повторения сохраняется отдельно на этом устройстве; прошлый прогресс сохранён.</div>}
         <div className="min-h-0 w-full flex-1 overflow-hidden">
           <div
@@ -2090,6 +2148,21 @@ const PythonTestModal = ({
                 : 'p-1.5 sm:p-2 md:p-2.5 lg:p-3'
             }`}
           >
+        {focusMode && <><div className="python-runtime-focus-bar">
+          <strong>{currentQuestion?.title || task.title}</strong>
+          {homeworkNumberSet.has(currentIndex + 1) && <PythonHomeworkBadge complete={isSolved} />}
+          <button type="button" className="python-runtime-focus-button" onClick={leaveFocus} title="Вернуть тему и список задач · Esc"><Minimize2 size={15} /> Выйти из фокуса</button>
+        </div><div className="python-runtime-focus-tabs" role="tablist" aria-label="Панели решения">
+          {[['question','Условие'],['code','Код'],['tests',`Тесты · ${passedTestCount}/${testsToShow.length}`]].map(([pane,label], index) => <button key={pane} type="button" role="tab" aria-selected={focusPane === pane} tabIndex={focusPane === pane ? 0 : -1}
+            onKeyDown={event => {
+              const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+              if (!direction && !['Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + direction + 3) % 3;
+              setFocusPane(['question', 'code', 'tests'][next]);
+              event.currentTarget.parentElement.children[next]?.focus();
+            }} onClick={() => setFocusPane(pane)}>{label}</button>)}
+        </div></>}
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
           {lessonWorkspace && <PythonLessonToolbar name={lessonWorkspace.name || groupName}
             connected={lessonWorkspace.connected} followingTeacher={followingTeacher} tasks={lessonTopics}
@@ -2150,6 +2223,7 @@ const PythonTestModal = ({
                 <span className={`text-sm font-black ${primaryTextClass}`}>{`${currentQuestionDisplayIndex} / ${totalVisibleQuestions}`}</span>
               </div>
               <div className="python-explanation-task-actions">
+              <button ref={focusToggleRef} type="button" className="python-runtime-focus-button" onClick={enterFocus} title="Оставить условие, код и тесты"><Maximize2 size={15} /> На весь экран</button>
               <PythonExplanationBoardButton board={explanationBoard} />
               <button
                 type="button"
@@ -2163,6 +2237,15 @@ const PythonTestModal = ({
             </div>
           </div>
 
+          {homeworkNumbers.length > 0 && <div className="python-homework-guide" aria-label="Прогресс домашки в теме">
+            <PythonHomeworkBadge animate />
+            <strong>{homeworkSolvedCount} из {homeworkNumbers.length} выполнено</strong>
+            <span className="python-homework-guide__hint">Другие задачи тоже можно решать</span>
+            {homeworkSolvedCount < homeworkNumbers.length && <button type="button" disabled={followingTeacher} onClick={() => {
+              homeworkStartPendingRef.current = false;
+              setCurrentIndex(firstUnsolvedPythonHomeworkIndex(questions, homeworkNumbers, visibleSolvedIds));
+            }}>К задаче из ДЗ <ChevronRight size={13} /></button>}
+          </div>}
           <div className="python-runtime-task-navigation python-runtime-navigation-stack grid gap-1">
             {showSubsectionNav && (
               <div className={`python-runtime-subsection-strip rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
@@ -2179,7 +2262,7 @@ const PythonTestModal = ({
                     <button
                       key={`py-subsection-${section.id}`}
                       type="button"
-                      onClick={() => handleSelectSubsection(section.id)}
+                      onClick={() => { homeworkStartPendingRef.current = false; handleSelectSubsection(section.id); }}
                       disabled={followingTeacher}
                       data-current={section.id === activeSubsection?.id ? 'true' : 'false'}
                       className={`python-runtime-chip python-runtime-subsection-chip ${subsectionChipSizeClass} shrink-0 rounded-[16px] border text-left text-[11px] font-semibold transition-all ${
@@ -2193,7 +2276,9 @@ const PythonTestModal = ({
                       <span className="python-runtime-subsection-number">{String(sectionIndex + 1).padStart(2, '0')}</span>
                       <span className="python-runtime-subsection-copy">
                         <span className="python-runtime-subsection-title">{section.title}</span>
-                        <span className="python-runtime-subsection-count">{`${section.count} задач`}</span>
+                        <span className="python-runtime-subsection-count">{`${section.count} задач`}
+                          {section.items.some(item => homeworkNumberSet.has(item.questionIndex + 1)) && <span className="python-homework-section-count">ДЗ · {section.items.filter(item => homeworkNumberSet.has(item.questionIndex + 1)).length}</span>}
+                        </span>
                       </span>
                     </button>
                   ))}
@@ -2202,7 +2287,7 @@ const PythonTestModal = ({
               </div>
             )}
 
-              <div data-dense={isDenseQuestionNav ? 'true' : 'false'} data-nested={showSubsectionNav ? 'true' : 'false'} className={`python-runtime-task-strip rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
+              <div data-homework-list={visibleQuestionItems.some(item => homeworkNumberSet.has(item.questionIndex + 1)) ? 'true' : 'false'} data-dense={isDenseQuestionNav ? 'true' : 'false'} data-nested={showSubsectionNav ? 'true' : 'false'} className={`python-runtime-task-strip rounded-[18px] border ${isCompactRuntimeViewport ? 'p-1' : 'p-1.5'} ${softCardClass}`}>
               {showSubsectionNav && (
                 <div className="python-runtime-task-context">
                   <ChevronRight size={14} />
@@ -2223,6 +2308,7 @@ const PythonTestModal = ({
                   const qId = String(item.question?.id ?? item.questionIndex);
                   const solved = visibleSolvedIds.has(qId);
                   const isCurrent = item.questionIndex === currentIndex;
+                  const inHomework = homeworkNumberSet.has(item.questionIndex + 1);
                   const buttonClass = isCurrent
                     ? (solved
                         ? (isDarkTheme
@@ -2243,10 +2329,12 @@ const PythonTestModal = ({
                     <button
                       key={`py-question-${qId}`}
                       type="button"
-                      onClick={() => setCurrentIndex(item.questionIndex)}
+                      onClick={() => { homeworkStartPendingRef.current = false; setCurrentIndex(item.questionIndex); }}
                       disabled={followingTeacher}
                       data-current={isCurrent ? 'true' : 'false'}
                       data-solved={solved ? 'true' : 'false'}
+                      data-homework={inHomework ? 'true' : 'false'}
+                      aria-label={`Задача №${item.questionIndex + 1}: ${label}${inHomework ? '. Из домашки' : ''}${solved ? '. Выполнено' : ''}`}
                       aria-current={isCurrent ? 'step' : undefined}
                       className={`python-runtime-chip python-runtime-task-chip rounded-[14px] border text-left transition-all ${
                         isDenseQuestionNav ? 'w-full min-w-0 px-1.5 py-1' : 'shrink-0 min-w-[136px] px-2 py-1.5'
@@ -2263,9 +2351,12 @@ const PythonTestModal = ({
                                 ? 'border-slate-600/70 bg-slate-700/55 text-slate-300'
                                 : 'border-slate-200 bg-slate-50 text-slate-600')
                         } ${useDenseTaskChips ? 'h-6 w-6 rounded-[9px] text-[9px]' : 'mt-0.5 h-7 w-7 rounded-[10px] text-[10px]'}`}>
-                          {solved ? <CheckCircle2 size={14} /> : item.localNumber}
+                          {solved ? <CheckCircle2 size={14} /> : homeworkNumbers.length ? item.questionIndex + 1 : item.localNumber}
                         </div>
-                        <div className={`${isDenseQuestionNav ? 'text-[12px]' : 'text-[13px]'} min-w-0 flex-1 truncate font-semibold`}>{label}</div>
+                        <div className={`python-runtime-task-chip__copy ${isDenseQuestionNav ? 'text-[12px]' : 'text-[13px]'} font-semibold`}>
+                          <span className="python-runtime-task-chip__title">{label}</span>
+                          {inHomework && <PythonHomeworkBadge compact complete={solved} />}
+                        </div>
                       </div>
                     </button>
                   );
@@ -2291,6 +2382,7 @@ const PythonTestModal = ({
                 <div className="min-w-0">
                   <div className="python-runtime-section-tags flex flex-wrap items-center gap-1.5">
                     <span className={`python-runtime-section-label text-[9px] font-bold uppercase tracking-[0.14em] ${overlineTextClass}`}>Условие</span>
+                    {homeworkNumberSet.has(currentIndex + 1) && <PythonHomeworkBadge complete={isSolved} animate />}
                   </div>
                   <div className={`mt-0.5 truncate text-sm font-bold ${primaryTextClass}`}>
                     {currentQuestion?.title || `Задача ${currentQuestionDisplayIndex}`}
@@ -2636,7 +2728,7 @@ const PythonTestModal = ({
               </div>
             )}
 
-            <div className="min-h-0 min-[1100px]:col-start-3 min-[1100px]:row-span-2">
+            <div className="python-runtime-editor-column min-h-0 min-[1100px]:col-start-3 min-[1100px]:row-span-2">
           <div className={`python-runtime-editor-panel h-full rounded-[30px] border p-3.5 md:p-4 ${elevatedCardClass} min-h-0 flex flex-col`}>
             <div className="python-runtime-editor-toolbar flex flex-col gap-2.5 2xl:flex-row 2xl:items-center 2xl:justify-between">
               <div className="python-runtime-panel-title-group flex min-w-0 items-center gap-2.5">
@@ -2726,7 +2818,7 @@ const PythonTestModal = ({
           </div>
             </div>
 
-            <div className="min-h-0 min-[1100px]:col-start-1 min-[1100px]:row-start-2">
+            <div className="python-runtime-tests-column min-h-0 min-[1100px]:col-start-1 min-[1100px]:row-start-2">
           <div className={`python-runtime-tests-panel h-full rounded-[30px] border p-3.5 md:p-4 ${elevatedCardClass} min-h-0 flex flex-col`}>
             <div className="python-runtime-panel-heading flex items-center justify-between gap-3">
               <div className="python-runtime-panel-title-group flex min-w-0 items-center gap-2.5">

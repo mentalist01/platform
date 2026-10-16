@@ -9,6 +9,7 @@ import CoinGuideIcon from './CoinGuideTooltip';
 import ProgressReviewModal from './ProgressReviewModal';
 import PythonReviewModal from './PythonReviewModal';
 import PythonTestModal from './PythonTestModal';
+import { normalizePythonHomeworkNumbers } from '../utils/pythonHomeworkLaunch.js';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
@@ -460,6 +461,7 @@ const PythonSection = ({
   const [activePracticeReview, setActivePracticeReview] = useState(null);
   const [reviewTask, setReviewTask] = useState(null);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(null);
+  const [activeHomeworkNumbers, setActiveHomeworkNumbers] = useState([]);
   const [activeSubsectionId, setActiveSubsectionId] = useState(null);
   const [activeTheoryLaunch, setActiveTheoryLaunch] = useState(null);
   const [studentData, setStudentData] = useState({ progress: {} });
@@ -538,6 +540,7 @@ const PythonSection = ({
   useEffect(() => {
     setReviewTask(null);
     setActiveTask(null);
+    setActiveHomeworkNumbers([]);
     setActiveQuestionIndex(null);
     setActiveSubsectionId(null);
     setActiveTheoryLaunch(null);
@@ -551,7 +554,7 @@ const PythonSection = ({
     const command=remoteGroupTask;if(role!=="student"||!command)return;
     if(!command.open){setActiveTask(null);return;}
     const task=taskList.find(t=>Number(t.number)===Number(command.taskNumber));if(!task)return;
-    setActivePracticeReview(null);setActiveTask(task);setActiveQuestionIndex(command.questionIndex);setActiveSubsectionId(null);
+    setActivePracticeReview(null);setActiveHomeworkNumbers([]);setActiveTask(task);setActiveQuestionIndex(command.questionIndex);setActiveSubsectionId(null);
   },[role,remoteGroupTask,taskList]);
 
   const followingTeacher = role === 'student' && groupWorkspace.teacherPresent && Boolean(remoteGroupTask?.open);
@@ -563,6 +566,7 @@ const PythonSection = ({
     const task = taskList.find(item => Number(item.number) === Number(number));
     if (!task || followingTeacher) return;
     setActiveQuestionIndex(0);
+    setActiveHomeworkNumbers([]);
     setActiveSubsectionId(null);
     setActiveTheoryLaunch(null);
     setActivePracticeReview(null);
@@ -637,6 +641,7 @@ const PythonSection = ({
     setActiveTaskSectionId(String(target.sectionId || 'topics'));
     setActivePracticeReview(null);
     setActiveTask(target);
+    setActiveHomeworkNumbers(normalizePythonHomeworkNumbers(openTask.targetQuestions));
     setActiveSubsectionId(String(openTask.subsectionId || '').trim() || null);
     setActiveTheoryLaunch(openTask.openTheory === true
       ? {
@@ -663,12 +668,13 @@ const PythonSection = ({
     onTaskStateChange?.({
       taskNumber: activeTask.number,
       levelId: PYTHON_LEVEL_ID,
-      targetQuestions: null,
+      targetQuestions: activeHomeworkNumbers.length ? activeHomeworkNumbers : null,
       section: 'python',
       questionIndex: Number.isFinite(activeQuestionIndex) ? activeQuestionIndex : null,
       subsectionId: String(activeSubsectionId || '').trim() || null,
+      personalWork: activeHomeworkNumbers.length > 0 || groupWorkspace.personalWork,
     });
-  }, [activeTask, activeQuestionIndex, activeSubsectionId, role, PYTHON_LEVEL_ID, onTaskStateChange, openTask]);
+  }, [activeTask, activeQuestionIndex, activeSubsectionId, activeHomeworkNumbers, groupWorkspace.personalWork, role, PYTHON_LEVEL_ID, onTaskStateChange, openTask]);
 
   useEffect(() => {
     if (!activeTask) return;
@@ -765,6 +771,7 @@ const PythonSection = ({
   })), [taskList, practiceStats, progressMap, testsDb, PYTHON_LEVEL_ID]);
   const openPythonPractice = (task) => {
     if (role === 'teacher') { setReviewTask(task); return; }
+    setActiveHomeworkNumbers([]);
     const stats = practiceStats[task.number];
     setActiveTaskSectionId(String(task.sectionId || 'topics'));
     setActiveQuestionIndex(getPythonReviewQuestionIndex({ task, testsDb, studentData, stats }));
@@ -1627,6 +1634,7 @@ const PythonSection = ({
     }
     if (isPythonReviewDue(practiceItems.find(item => item.task.id === focusTask.id)?.indicator)) { openPythonPractice(focusTask); return; }
     setActivePracticeReview(null);
+    setActiveHomeworkNumbers([]);
     setActiveQuestionIndex(null);
     setActiveSubsectionId(null);
     setActiveTheoryLaunch(null);
@@ -1833,6 +1841,7 @@ const PythonSection = ({
       if (role === 'teacher') { openLessonTopic(task.number); return; }
       if (isPythonReviewDue(practiceIndicator)) { openPythonPractice(task); return; }
       setActivePracticeReview(null);
+      setActiveHomeworkNumbers([]);
       setActiveQuestionIndex(null);
       setActiveSubsectionId(null);
       setActiveTheoryLaunch(null);
@@ -2247,6 +2256,7 @@ const PythonSection = ({
                         e.stopPropagation();
                         if (isPythonReviewDue(practiceItems.find(item => item.task.id === node.task.id)?.indicator)) { openPythonPractice(node.task); return; }
                         setActivePracticeReview(null);
+                        setActiveHomeworkNumbers([]);
                         setActiveQuestionIndex(null);
                         setActiveSubsectionId(null);
                         setActiveTheoryLaunch(null);
@@ -2975,6 +2985,7 @@ const PythonSection = ({
           onPracticeUpdated={() => { if (studentId) api.getStudentData(studentId).then(data => setStudentData(normalizeLoadedStudentData(data))).catch(() => {}); }}
           onClose={() => {
             setActiveTask(null);
+            setActiveHomeworkNumbers([]);
             setActivePracticeReview(null);
             setActiveQuestionIndex(null);
             setActiveSubsectionId(null);
@@ -2983,6 +2994,7 @@ const PythonSection = ({
           progress={progressMap}
           studentId={studentId}
           testDb={testsDb}
+          homeworkQuestionNumbers={activePracticeReview || followingTeacher ? [] : activeHomeworkNumbers}
           initialQuestionIndex={activeQuestionIndex}
           initialSubsectionId={activeSubsectionId}
           initialShowTheory={Boolean(activeTheoryLaunch?.open)}
