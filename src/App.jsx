@@ -251,6 +251,7 @@ const StudentAvailabilityPrompt = React.lazy(() => import('./components/StudentA
 const StudentHomeworkResources = React.lazy(() => import('./components/StudentHomeworkResources.jsx'));
 const loadGroupTelemostSection = () => import('./components/GroupTelemostSection');
 const GroupVoiceChannels = React.lazy(() => import('./components/GroupVoiceChannels'));
+const GroupLessonFinishButton = React.lazy(() => import('./components/GroupLessonFinishButton.jsx'));
 const loadTeacherCalendarSection = () => import('./components/TeacherCalendarSection');
 const loadTeacherFinanceSection = () => import('./components/TeacherFinanceSection');
 const loadTeacherLessonStartPrompt = () => import('./components/TeacherLessonStartPrompt');
@@ -21883,6 +21884,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     view,
   ]);
 
+  const prepareLearningGroupFinish = useCallback(async () => {
+    if (activeLearningLesson?.callProvider === 'telemost') {
+      await stopTelemostAudioCapture();
+      await finishLessonReplayNow();
+    }
+  }, [activeLearningLesson?.callProvider,stopTelemostAudioCapture,finishLessonReplayNow]);
+
+  const handleLearningGroupFinished = useCallback((lesson) => {
+    setActiveLearningLesson(current => current?.lessonId === lesson.id
+      ? {...current,status:lesson.status,replayActive:false,readOnly:true,notStarted:false} : current);
+    setTelemostLessonFinishError('');
+    window.dispatchEvent(new Event('learning-groups-changed'));
+  }, []);
+
   const handleLeaveLearningGroupLesson = useCallback(() => {
     setActiveLearningLesson(null);
     navigateToView(user.role === 'teacher' ? 'groups' : 'schedule');
@@ -25781,7 +25796,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           {user.role === 'teacher' && <div data-homework-notes-dock="fallback" className="teacher-homework-notes-dock teacher-homework-notes-dock--fallback" />}
           {user.role === 'teacher' && lessonQuickNavIds.includes(view) && (
             <div className="mb-2 rounded-2xl border border-violet-200/80 bg-white/95 px-3 py-2.5 shadow-sm">
-              <div className="grid gap-2 sm:grid-cols-[auto_minmax(240px,420px)_auto] sm:items-center">
+              <div className="grid gap-2 lg:grid-cols-[auto_minmax(180px,420px)_auto] lg:items-center">
                 <label
                   htmlFor="lesson-target-select"
                   className="text-[11px] font-bold uppercase tracking-[0.12em] text-violet-700"
@@ -25813,6 +25828,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 />
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <div data-homework-notes-dock="lesson" className="teacher-homework-notes-dock" />
+                  {activeLearningLesson && <React.Suspense fallback={null}><GroupLessonFinishButton
+                    key={activeLearningLesson.lessonId} lesson={activeLearningLesson} role={user.role}
+                    beforeFinish={prepareLearningGroupFinish} onFinished={handleLearningGroupFinished}
+                  /></React.Suspense>}
                   {(lessonTargetSelectionLoading || lessonTargetGroupsLoading) && (
                     <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-600">
                       <RefreshCcw size={14} className="animate-spin" /> Обновляем
