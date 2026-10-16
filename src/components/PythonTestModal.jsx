@@ -2143,6 +2143,7 @@ const PythonTestModal = ({
   const modal = (
     <div ref={focusFullscreenRef} className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
       <div data-focus={focusMode ? 'true' : 'false'} data-focus-pane={focusPane} data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className={`python-runtime-modal-shell python-runtime-modal-shell--solve surface-card modal-card modal-card--fullscreen flex flex-col rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
+        {!guestSession && <div data-homework-notes-dock="workspace" className="teacher-homework-notes-dock teacher-homework-notes-dock--workspace" />}
         {reviewMode && <div className="shrink-0 border-b border-violet-200 bg-violet-50 px-4 py-2 text-xs text-violet-800"><strong>Повторение Python</strong> · Напишите решение заново. Черновик повторения сохраняется отдельно на этом устройстве; прошлый прогресс сохранён.</div>}
         <div className="min-h-0 w-full flex-1 overflow-hidden">
           <div

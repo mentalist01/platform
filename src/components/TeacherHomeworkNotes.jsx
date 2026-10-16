@@ -23,10 +23,18 @@ export function HomeworkLessonNotePreview({ teacherId, studentId, groupId, onApp
   </details>;
 }
 
-const clampPosition = ({ x, y }, height = 340) => ({
+const clampPosition = ({ x, y }) => ({
   x: Math.max(8, Math.min(x, window.innerWidth - Math.min(330, window.innerWidth - 16) - 8)),
-  y: Math.max(8, Math.min(y, Math.max(8, window.innerHeight - Math.min(height, window.innerHeight - 16) - 8))),
+  y: Math.max(8, Math.min(y, Math.max(8, window.innerHeight - 104))),
 });
+
+const DOCK_SELECTOR = '[data-homework-notes-dock]';
+const findNotesDock = () => {
+  const root = document.fullscreenElement || document;
+  return root.querySelector('[data-homework-notes-dock="workspace"]')
+    || root.querySelector('[data-homework-notes-dock="lesson"]')
+    || root.querySelector('[data-homework-notes-dock="fallback"]');
+};
 
 function NoteEditor({ teacherId, target, label }) {
   const { text, saveText, storageFailed } = useTeacherHomeworkNote(teacherId, target);
@@ -51,26 +59,44 @@ export default function TeacherHomeworkNotes({ teacherId, students = [], groups 
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState(null);
   const [portalHost, setPortalHost] = useState(() => document.fullscreenElement || document.body);
+  const [dock, setDock] = useState(findNotesDock);
+  const dockRef = useRef(dock);
   const panelRef = useRef(null);
   const dragRef = useRef(null);
   useEffect(() => {
-    const resize = () => setPosition(current => current ? clampPosition(current, panelRef.current?.offsetHeight) : null);
-    const fullscreen = () => { setPortalHost(document.fullscreenElement || document.body); resize(); };
+    const resize = () => setPosition(current => current ? clampPosition(current) : null);
+    const updateDock = () => { const next = findNotesDock(); dockRef.current = next; setDock(next); };
+    const fullscreen = () => { setOpen(false); setPortalHost(document.fullscreenElement || document.body); updateDock(); resize(); };
+    const observer = new MutationObserver(records => {
+      // Ignore editor text, board strokes and the note itself. Only mounting or
+      // removing a reserved toolbar slot can change where the trigger belongs.
+      if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1
+        && (node.matches(DOCK_SELECTOR) || node.querySelector(DOCK_SELECTOR) || (dockRef.current && node.contains(dockRef.current)))))) updateDock();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    updateDock();
     window.addEventListener('resize', resize);
     document.addEventListener('fullscreenchange', fullscreen);
-    return () => { window.removeEventListener('resize', resize); document.removeEventListener('fullscreenchange', fullscreen); };
+    return () => { observer.disconnect(); window.removeEventListener('resize', resize); document.removeEventListener('fullscreenchange', fullscreen); };
   }, []);
   const target = options.some(option => option.key === chosenTarget) ? chosenTarget : options[0]?.key || '';
   const label = options.find(option => option.key === target)?.label || 'Выберите ученика';
   if (!visible && !open) return null;
-  return createPortal(open ? <aside ref={panelRef} className="teacher-homework-notes" aria-label="Заметки к домашке" style={position ? { left: position.x, top: position.y, right: 'auto' } : undefined}>
+  return <>{visible && dock && createPortal(<button type="button" className="teacher-homework-notes-trigger" aria-expanded={open} onClick={event => {
+    if (!open && !position) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      setPosition(clampPosition({ x: rect.left - 350, y: rect.bottom + 72 }));
+    }
+    setOpen(current => !current);
+  }} title="Записать, что задать после урока"><PencilLine size={16} /> К домашке</button>, dock)}
+  {open && createPortal(<aside ref={panelRef} className="teacher-homework-notes" aria-label="Заметки к домашке" style={position ? { left: position.x, top: position.y, right: 'auto', maxHeight: `calc(100dvh - ${position.y + 8}px)` } : undefined}>
     <header onPointerDown={event => {
       if (event.target.closest('button') || event.button !== 0) return;
       const rect = panelRef.current.getBoundingClientRect();
       dragRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top };
       event.currentTarget.setPointerCapture(event.pointerId);
     }} onPointerMove={event => {
-      if (dragRef.current) setPosition(clampPosition({ x: event.clientX - dragRef.current.x, y: event.clientY - dragRef.current.y }, panelRef.current?.offsetHeight));
+      if (dragRef.current) setPosition(clampPosition({ x: event.clientX - dragRef.current.x, y: event.clientY - dragRef.current.y }));
     }} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }}>
       <StickyNote size={17} /><strong>К домашке</strong><GripHorizontal size={16} aria-hidden="true" />
       <button type="button" onClick={() => setOpen(false)} aria-label="Свернуть заметки к домашке"><Minus size={18} /></button>
@@ -82,6 +108,6 @@ export default function TeacherHomeworkNotes({ teacherId, students = [], groups 
       </select></label>
       {target && <NoteEditor key={`${teacherId}:${target}`} teacherId={teacherId} target={target} label={label} />}
     </div>
-  </aside> : <button type="button" className="teacher-homework-notes-trigger" onClick={() => setOpen(true)} title="Записать, что задать после урока"><PencilLine size={16} /> К домашке</button>, portalHost);
+  </aside>, portalHost)}</>;
 }
 

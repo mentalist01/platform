@@ -1,4 +1,4 @@
-.teacher-homework-notes-trigger{position:fixed;right:16px;top:150px;z-index:1201;display:flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid #dfbd6e;border-radius:12px;background:#fff5d5;color:#694312;box-shadow:0 4px 16px #38250818;font-size:12px;font-weight:750}
+.teacher-homework-notes-trigger{position:static;display:inline-flex;flex-shrink:0;white-space:nowrap;cursor:pointer;align-items:center;gap:7px;padding:9px 12px;border:1px solid #dfbd6e;border-radius:12px;background:#fff5d5;color:#694312;box-shadow:0 4px 16px #38250818;font-size:12px;font-weight:750}
 .teacher-homework-notes{position:fixed;right:16px;top:clamp(8px,calc(100dvh - 360px),120px);z-index:1202;width:min(330px,calc(100vw - 16px));max-height:calc(100dvh - 16px);display:flex;flex-direction:column;overflow:hidden;border:1px solid #d6b46c;border-radius:17px;background:#fffcf1;color:#3c2b18;box-shadow:0 12px 40px #3320132b}
 .teacher-homework-notes header{display:flex;flex:none;align-items:center;gap:8px;padding:10px 12px;background:#ffedb7;border-bottom:1px solid #e8cd90;cursor:move;touch-action:none;user-select:none}
 .teacher-homework-notes header strong{font-size:14px}.teacher-homework-notes header>svg:nth-last-child(2){margin-left:auto;color:#947744}
@@ -14,4 +14,9 @@
 .homework-note-preview.is-compact{margin:12px 0}.homework-note-preview small[role=alert]{color:#b32637}
 html[data-theme=dark] .teacher-homework-notes,html[data-theme=dark] .homework-note-preview{background:#322b20;border-color:#7e653a;color:#ffe3a5}html[data-theme=dark] .teacher-homework-notes-trigger,html[data-theme=dark] .teacher-homework-notes header{background:#493820;color:#ffe3a5;border-color:#8b6b30}
 html[data-theme=dark] .teacher-homework-notes select,html[data-theme=dark] .teacher-homework-notes textarea{background:#211e19;color:#f8ecd6;border-color:#726044}html[data-theme=dark] .teacher-homework-notes__hint,html[data-theme=dark] .teacher-homework-notes footer,html[data-theme=dark] .teacher-homework-notes__recipient>span{color:#cdbb99}
-@media(max-width:599px){.teacher-homework-notes-trigger{top:110px;right:8px;padding:8px}.teacher-homework-notes{top:clamp(8px,calc(100dvh - 360px),85px);right:8px}}
+@media(max-width:599px){.teacher-homework-notes-trigger{padding:8px}.teacher-homework-notes{top:clamp(8px,calc(100dvh - 360px),85px);right:8px}}
+
+.teacher-homework-notes-dock{display:flex;align-items:center;justify-content:flex-end;flex:none;gap:8px;min-width:0}
+.teacher-homework-notes-dock:empty{display:none}
+.teacher-homework-notes-dock--fallback:not(:empty){margin-bottom:8px}
+.teacher-homework-notes-dock--workspace:not(:empty){position:relative;z-index:2;padding:6px 12px;flex-shrink:0}

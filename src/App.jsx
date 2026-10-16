@@ -10644,6 +10644,7 @@ export const CollabSection = ({
 
   return (
     <div ref={collabRootRef} className={collabShellClass} style={collabShellStyle}>
+      {isCollabFullscreen && isTeacher && <div data-homework-notes-dock="workspace" className="teacher-homework-notes-dock teacher-homework-notes-dock--workspace" />}
       {collabSaveNoticeOverlay}
       {isCollabFullscreen && (
         <>
@@ -18276,6 +18277,7 @@ export const BoardCanvasSection = ({
         }
       }}
     >
+      {isFullscreen && isTeacher && <div data-homework-notes-dock="workspace" className="teacher-homework-notes-dock teacher-homework-notes-dock--workspace" />}
       {!isSandbox && isTeacher && !isGroupLesson && !activeStudentId && !pages?.liveRoomId && (
         <div className="mb-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
@@ -25776,6 +25778,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               </div>
             </div>
           )}
+          {user.role === 'teacher' && <div data-homework-notes-dock="fallback" className="teacher-homework-notes-dock teacher-homework-notes-dock--fallback" />}
           {user.role === 'teacher' && lessonQuickNavIds.includes(view) && (
             <div className="mb-2 rounded-2xl border border-violet-200/80 bg-white/95 px-3 py-2.5 shadow-sm">
               <div className="grid gap-2 sm:grid-cols-[auto_minmax(240px,420px)_auto] sm:items-center">
@@ -25808,11 +25811,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   emptyText="Ученики и мини-группы не найдены"
                   className="h-9 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:cursor-wait disabled:opacity-70"
                 />
-                {(lessonTargetSelectionLoading || lessonTargetGroupsLoading) && (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-600">
-                    <RefreshCcw size={14} className="animate-spin" /> Обновляем
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div data-homework-notes-dock="lesson" className="teacher-homework-notes-dock" />
+                  {(lessonTargetSelectionLoading || lessonTargetGroupsLoading) && (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-violet-600">
+                      <RefreshCcw size={14} className="animate-spin" /> Обновляем
+                    </span>
+                  )}
+                </div>
               </div>
               {lessonTargetError && (
                 <div className="mt-2 flex items-start gap-2 text-xs font-semibold text-rose-600">
