@@ -12604,7 +12604,7 @@ export const BoardCanvasSection = ({
   },[summonedNavigation,cancelViewportAnimation]);
 
   useEffect(() => {
-    if (!summonedNavigation || !boardSynced || providerRef.current?.roomname !== liveRoomId) return undefined;
+    if (!summonedNavigation || !boardSynced || !providerRef.current?.synced || providerRef.current.roomname !== liveRoomId) return undefined;
     return acknowledgeBoardNavigation?.(summonedNavigation);
   },[summonedNavigation,acknowledgeBoardNavigation,boardSynced,liveRoomId]);
 

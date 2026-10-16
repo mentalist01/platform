@@ -113,15 +113,13 @@ function PagedBoardWorkspace(props) {
     summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,...viewport},targetIds);
   },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId]);
   const acknowledgeNavigation=useCallback(command=>{
-    if(teacher || !command?.id || command.id!==lastCommand.current)return undefined;
-    // The canvas calls only after its new page has synced; acknowledge after paint.
-    let secondFrame=0;
-    const firstFrame=window.requestAnimationFrame(()=>{
-      secondFrame=window.requestAnimationFrame(()=>{lastApplied.current=command.id;publish();});
-    });
-    return()=>{window.cancelAnimationFrame(firstFrame);if(secondFrame)window.cancelAnimationFrame(secondFrame);};
-  },[teacher,publish]);
-  const summonMessage={queued:'Восстанавливаем связь — призыв отправится автоматически',waiting:group && !boardStudentId?'Призыв отправлен — ждём перемещения учеников':'Призыв отправлен — ждём перемещения ученика',sent:'Призыв отправлен',confirmed:group && !boardStudentId?'Ученики перемещены к вам':'Ученик перемещён к вам',expired:'Связь не восстановилась. Повторите призыв после подключения',unconfirmed:'Ученик пока не подтвердил призыв. Проверьте, открыта ли у него доска'}[summonState.phase];
+    if(teacher || !command?.id || command.id!==lastCommand.current || command.id===lastApplied.current
+      || command.pageId!==pageId || command.studentId!==boardStudentId)return;
+    // The canvas has applied the viewport and synced the destination room.
+    // Background tabs may suspend animation frames; delivery must not wait for paint.
+    lastApplied.current=command.id;publish();
+  },[teacher,publish,pageId,boardStudentId]);
+  const summonMessage={queued:'Восстанавливаем связь — призыв отправится автоматически',waiting:group && !boardStudentId?'Призыв отправлен — ждём перемещения учеников':'Призыв отправлен — ждём перемещения ученика',sent:'Призыв отправлен',confirmed:group && !boardStudentId?'Ученики перемещены к вам':'Ученик перемещён к вам',expired:'Связь не восстановилась. Повторите призыв после подключения',unconfirmed:group && !boardStudentId?'Не удалось проверить перемещение всех учеников. Проверьте, открыты ли у них доски и есть ли связь':'Нет ответа от доски ученика. Проверьте, открыта ли она и есть ли связь'}[summonState.phase];
   const page=pages.find(p=>p.id===pageId)||pages[0],index=pages.findIndex(p=>p.id===pageId);
   const uniquePeers=Array.from(new Map(peers.map(p=>[p.userId,p])).values());
   const label=p=>`${p.name || 'Участник'} — ${pages.find(page=>page.id===p.pageId)?.title || 'Страница'}${group ? (p.studentId?' · личная доска':' · общая доска') : ''}`;
