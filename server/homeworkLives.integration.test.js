@@ -10,8 +10,9 @@ test('real API isolates teacher/student lives, protects mutations and keeps prog
   const f=await createGroupHomeworkFixture(undefined,(write,data)=>{
     const store=new HomeworkLivesStore(path.join(data,'homework-lives.json'),{now:()=>now-4*86400000});store.configure('teacher-a',true);
     const students=JSON.parse(fs.readFileSync(path.join(data,'students.json'),'utf8')).map(s=>({...s,createdAt:new Date(now-90*86400000).toISOString()}));write('students',students);
-    const entry=id=>({id,issuedAt,dueAt,homeWork:'Python + ЕГЭ',goals:[{type:'task',taskNumber:101,levelId:'python',targetQuestions:[1],targetQuestionIds:['python-question']},{type:'task',taskNumber:4,levelId:'basic',targetQuestions:[1],targetQuestionIds:['ege-question']}]});
-    write('progress',Object.fromEntries(['student-a','student-b'].map(id=>[id,{homeworks:['a','b','c'].map(entry),solvedByTask:{101:{python:{solved:['python-question'],answerHistory:{'python-question':[{submittedAt:new Date(now-2*86400000).toISOString(),correct:true}]}}}}}])));
+    const entry=id=>({id,issuedAt,dueAt,homeWork:'Python + ЕГЭ',goals:[{type:'task',taskNumber:4,levelId:'basic',targetQuestions:[1,2],targetQuestionIds:['ege-question','ege-second']}]});
+    write('tests',{4:{basic:[{id:'ege-question',answer:'17'},{id:'ege-second',answer:'18'}]}});
+    write('progress',Object.fromEntries(['student-a','student-b'].map(id=>[id,{homeworks:['a','b','c'].map(entry),solvedByTask:{4:{basic:{solved:['ege-question'],answerHistory:{'ege-question':[{submittedAt:new Date(now-2*86400000).toISOString(),correct:true}]}}}}}])));
   });
   try{
     const teacher=f.tokens['teacher-a'],other=f.tokens['teacher-b'],pupil=f.tokens['student-a'];

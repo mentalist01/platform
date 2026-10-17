@@ -142,27 +142,75 @@ test('optional, deleted and unscheduled work never consumes hearts',t=>{
   c.evaluate=()=>assert.fail('Excluded homework was measured');assert.equal(store.status(student,c).remaining,3);
 });
 
-const testsDb={101:{python:[{id:'py-1'},{id:'py-2'}]},4:{basic:[{id:'ege-1'}]}};
+const testsDb={5:{basic:[{id:'py-1'},{id:'py-2'}]},4:{basic:[{id:'ege-1'}]}};
 const goal=(number,ids,optional=false)=>({type:'task',taskNumber:number,levelId:number>=100?'python':'basic',targetQuestionIds:ids,targetQuestions:ids.map((_,i)=>i+1),assignmentTier:optional?'optional':'required'});
-const homework={id:'python',issuedAt:'2026-10-02T10:00:00Z',dueAt:'2026-10-09T17:00:00Z',goals:[goal(101,['py-1','py-2'])]};
+const homework={id:'python',issuedAt:'2026-10-02T10:00:00Z',dueAt:'2026-10-09T17:00:00Z',goals:[goal(5,['py-1','py-2'])]};
 const now=instant('10-14T10:00:00Z');
 const result=data=>homeworkDeadlineResult(homework,data,testsDb,[],now);
-test('Python and EGE assignments have independent deadline windows; optional goals are excluded',()=>{
-  const data={homeworks:[homework,{...assigned('ege'),issuedAt:'2026-10-03T10:00:00Z'}],solvedByTask:{101:{python:{solved:['py-1'],answerHistory:{'py-1':[{correct:true,submittedAt:'2026-10-08T10:00:00Z'}]}}}}};
+test('Independent EGE assignments have independent deadline windows; optional goals are excluded',()=>{
+  const data={homeworks:[homework,{...assigned('ege'),issuedAt:'2026-10-03T10:00:00Z'}],solvedByTask:{5:{basic:{solved:['py-1'],answerHistory:{'py-1':[{correct:true,submittedAt:'2026-10-08T10:00:00Z'}]}}}}};
   assert.equal(result(data).percent,50);
   assert.equal(homeworkDeadlineResult({...homework,goals:[...homework.goals,goal(4,['ege-1'],true)]},data,testsDb,[],now).percent,50);
 });
 test('late success does not change the result at deadline and estimated legacy success is not punished',()=>{
-  const late={solvedByTask:{101:{python:{solved:['py-1'],answerHistory:{'py-1':[{correct:true,submittedAt:'2026-10-10T10:00:00Z'}]}}}}};
+  const late={solvedByTask:{5:{basic:{solved:['py-1'],answerHistory:{'py-1':[{correct:true,submittedAt:'2026-10-10T10:00:00Z'}]}}}}};
   assert.equal(result(late).percent,0);
-  assert.equal(result({solvedByTask:{101:{python:{solved:['py-1']}}}}).reliable,false);
-  assert.equal(result({solvedByTask:{101:{python:{solved:['py-1'],answerHistory:{'py-1':[{correct:true,submittedAt:'2026-09-28T10:00:00Z'}]}}}}}).percent,50);
+  assert.equal(result({solvedByTask:{5:{basic:{solved:['py-1']}}}}).reliable,false);
+  assert.equal(result({solvedByTask:{5:{basic:{solved:['py-1'],answerHistory:{'py-1':[{correct:true,submittedAt:'2026-09-28T10:00:00Z'}]}}}}}).percent,50);
 });
 test('removed question targets require manual review rather than counting the remaining question as a full homework',()=>{
-  assert.equal(homeworkDeadlineResult(homework,{}, {101:{python:[{id:'py-1'}]}},[],now).reliable,false);
+  assert.equal(homeworkDeadlineResult(homework,{}, {5:{basic:[{id:'py-1'}]}},[],now).reliable,false);
 });
 test('a finished mock with one answer out of four counts as 25%, not as full completion',()=>{
   const h={...homework,goals:[{type:'mock',mockExamId:'exam',targetTaskKeys:['1','2','3','4']}]};
   const data={mockAttempts:{exam:{homeworkId:'python',status:'finished',finishedAt:'2026-10-08T10:00:00Z',updatedAt:'2026-10-08T10:00:00Z',answers:{1:'answer'}}}};
   assert.equal(homeworkDeadlineResult(h,data,testsDb,[],now).percent,25);
+});
+
+test('Python-only, legacy and theory homework never consumes hearts, while mixed work measures EGE only', t => {
+  const {store, context} = fixture(t);
+  const py={...assigned('practice',0),studyTrack:'python',goals:[goal(101,['py-1'])]};
+  const c=context([py,{...py,id:'legacy',goals:[],taskNumber:101,levelId:'python'}, {...py,id:'theory',goals:[],checklistItems:[{text:'Watch'}]}]);
+  c.evaluate=()=>assert.fail('Python practice must not be graded');
+  assert.equal(store.status(student,c).remaining,3);
+  assert.deepEqual(store.status(student,c).history,[]);
+  assert.equal(homeworkDeadlineResult(py,{},testsDb,[],now),null);
+  const mixed={...py,id:'mixed',goals:[goal(101,['missing-snapshot']),goal(4,['ege-1'])]};
+  assert.equal(homeworkDeadlineResult(mixed,{},testsDb,[],now).percent,0);
+  const done={solvedByTask:{4:{basic:{solved:['ege-1'],answerHistory:{'ege-1':[{correct:true,submittedAt:'2026-10-08T10:00Z'}]}}}}};
+  assert.equal(homeworkDeadlineResult(mixed,done,testsDb,[],now).percent,100);
+  assert.equal(homeworkDeadlineResult({...mixed,goals:[goal(101,['py-1']),goal(4,['ege-1'],true)]},done,testsDb,[],now),null);
+});
+
+test('old Python damage is waived once, restores hearts and cancels a false conversation alert', t => {
+  const {store,context}=fixture(t);
+  const h={...assigned('py-old',0),studyTrack:'python'};
+  const row=store.record(student);
+  row.months['2026-10']={plannedCount:4,events:{'py-old':{id:'py-old',loss:2,reliable:true,percent:0,dueAt:h.dueAt},ege:{id:'ege',loss:1,reliable:true,percent:50,dueAt:h.dueAt}},review:{month:'2026-10',createdAt:'2026-10-11'}};
+  store.save();
+  const c=context([h]);c.evaluate=()=>assert.fail('Old Python must not be re-graded');
+  const corrected=store.status(student,c);
+  assert.equal(corrected.remaining,2);
+  assert.deepEqual(corrected.pendingReviews,[]);
+  assert.equal(corrected.history.find(e=>e.id==='py-old').waivedById,'python-practice-policy');
+  assert.equal(corrected.history.find(e=>e.id==='ege').deducted,1);
+  const saved=fs.readFileSync(store.file,'utf8');
+  assert.equal(store.status(student,c).remaining,2);
+  assert.equal(fs.readFileSync(store.file,'utf8'),saved);
+});
+
+test('mixed historical deductions are recalculated for EGE once and never grow retroactively', t => {
+  const {store,context}=fixture(t);
+  for (const [id,newPercent,expectedLoss] of [['restore',100,0],['no-extra-punishment',0,1]]) {
+    const pupil={...student,id};const h={...assigned(id,50),goals:[goal(101,['py-1']),goal(4,['ege-1'])]};
+    const row=store.record(pupil);
+    row.months['2026-10']={plannedCount:4,events:{[id]:{id,loss:1,reliable:true,percent:50,totalCount:2,completedCount:1,dueAt:h.dueAt}}};store.save();
+    const c=context([h]);let calls=0;c.evaluate=()=>{calls++;return{reliable:true,percent:newPercent,totalCount:1,completedCount:newPercent/100};};
+    const status=store.status(pupil,c);
+    assert.equal(status.remaining,3-expectedLoss);
+    assert.equal(status.history[0].previousAssessment.percent,50);
+    assert.equal(status.history[0].percent,newPercent);
+    assert.equal(status.history[0].totalCount,1);
+    store.status(pupil,c);assert.equal(calls,1);
+  }
 });

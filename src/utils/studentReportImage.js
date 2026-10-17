@@ -135,7 +135,7 @@ export async function createStudentReportCanvas({ report, text, studentName, mon
   const metrics = report?.metrics || {};
   const metricData = [
     { value: String(metrics.lessons?.count ?? 0), label: 'Занятия', fill: '#eaf5ff' },
-    { value: metrics.homework?.averagePercent == null ? '—' : `${metrics.homework.averagePercent}%`, label: 'Домашка', fill: '#eaf9f2', note: metrics.homework?.averagePercent == null ? 'пока нет результата' : 'среднее выполнение' },
+    { value: metrics.homework?.averagePercent == null ? '—' : `${metrics.homework.averagePercent}%`, label: 'Домашка', fill: '#eaf9f2', note: metrics.homework?.averagePercent == null ? (metrics.homework?.pythonPracticeCount ? 'Python — практика без оценки' : 'пока нет результата') : 'выполнение домашки по ЕГЭ' },
     { value: metrics.mocks?.latestScore == null ? '—' : String(metrics.mocks.latestScore), label: 'Пробник', fill: '#f1ecff', note: metrics.mocks?.latestScore == null ? 'пока нет результата' : 'баллов' },
   ];
   const metricWidth = (CONTENT_WIDTH - 32) / 3;

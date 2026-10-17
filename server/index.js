@@ -117,6 +117,7 @@ import {
 } from '../src/utils/monthlyMockExam.js';
 import {
   buildHomeworkStatistics,
+  homeworkAssessmentEntries,
   isHomeworkReadyForOverallStatistics,
   summarizeHomeworkStatistics,
 } from '../src/utils/homeworkStats.js';
@@ -37028,7 +37029,7 @@ app.get('/api/parent/overview', async (req, res) => {
       mockExams,
       mockAttemptsByExam,
     });
-    const reliableParentHomeworkEntries = homeworkEntries.filter(isReliableParentHomeworkEntry);
+    const reliableParentHomeworkEntries = homeworkAssessmentEntries(homeworkEntries).filter(isReliableParentHomeworkEntry);
     const measurableParentHomeworkEntries = reliableParentHomeworkEntries.filter(
       (entry) => Number(entry.totalCount) > 0
     );

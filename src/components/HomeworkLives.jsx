@@ -56,7 +56,7 @@ export function HomeworkLivesRules({ data }) {
   const settlingIn = data.adapting;
   return <>
     <h3>Три жизни на месяц</h3>
-    <p>После срока сдачи невыполненная часть обязательной домашки уменьшает запас. Дополнительные задания не учитываются.</p>
+    <p>После срока сдачи невыполненная часть обязательной домашки по ЕГЭ уменьшает запас. Python — практика для разбора на уроке: сердца за неё не списываются. Дополнительные задания тоже не учитываются.</p>
     <p>Твой план: <b>{data.plannedCount} домашних работ в месяц</b>. За полностью пропущенную работу — до <b>{formatLives(data.maxLossPerHomework)} жизни</b>. Если выполнена половина — списывается половина этой суммы.</p>
     {settlingIn && <p className="homework-lives-rules__adaptation">Сейчас вводный период. Первые списания — за работы, выданные с {dateLabel(data.effectiveSince)}.</p>}
     <h4>Если все сердца закончатся</h4>
@@ -108,7 +108,7 @@ export function HomeworkLivesBadgeView({ data, error = '' }) {
       <button type="button" className="homework-lives-rules__close" aria-label="Закрыть правила" onClick={hide}><X size={17} /></button>
       <HomeworkLivesRules data={data} />
       {data.history.length > 0 && <div className="homework-lives-rules__last"><b>Последняя проверка</b><span>{data.history[0].title}</span>
-        <small>{data.history[0].waivedAt ? 'Списание отменено преподавателем' : !data.history[0].reliable ? 'Преподавателю нужно проверить результат' : `${Math.round(data.history[0].percent)}% к сроку сдачи · −${formatLives(data.history[0].deducted)} жизни`}</small></div>}
+        <small>{data.history[0].waivedAt ? (data.history[0].waivedById === 'python-practice-policy' ? 'Python: сердца не списываются' : 'Списание отменено преподавателем') : !data.history[0].reliable ? 'Преподавателю нужно проверить результат' : `${Math.round(data.history[0].percent)}% к сроку сдачи · −${formatLives(data.history[0].deducted)} жизни`}</small></div>}
     </section>, document.body)}
   </div>;
 }
@@ -129,14 +129,14 @@ export function TeacherHomeworkLivesPanel({ studentId, studentName = '' }) {
   };
   if (!studentId || (!data&&!error)) return null;
   if (!data) return <div className="homework-lives-panel"><p role="alert">{error}</p></div>;
-  if (!data.enabled) return <section className="homework-lives-panel"><b>Три жизни за выполнение домашки</b><p>Система будет включена для ваших учеников. Старые домашки не отнимут жизни.</p>
+  if (!data.enabled) return <section className="homework-lives-panel"><b>Три жизни за выполнение домашки по ЕГЭ</b><p>Система будет включена для ваших учеников. Старые домашки не отнимут жизни.</p>
     {(actionError||error)&&<p role="alert">{actionError||error}</p>}<button type="button" disabled={busy} onClick={()=>act('/settings',{enabled:true},'PATCH')}>Включить систему жизней</button></section>;
   const planMonth=data.planLocked?nextLivesMonth(data.month):data.month;
   return <section className="homework-lives-panel" aria-label="Жизни ученика">
     <div className="homework-lives-panel__heading"><div><b>Жизни{studentName ? ` · ${studentName}` : ' ученика'}</b><small>Восстановление {dateLabel(data.resetsAt)}</small></div><PixelLives remaining={data.remaining} size="small" /><strong>{formatLives(data.remaining)} / 3</strong></div>
-    <div className="homework-lives-panel__plan"><label>План ДЗ · {monthLabel(planMonth)}<input type="number" min="1" max="60" value={count} onChange={event=>setCount(Number(event.target.value))} /></label>
+    <div className="homework-lives-panel__plan"><label>План ДЗ по ЕГЭ · {monthLabel(planMonth)}<input type="number" min="1" max="60" value={count} onChange={event=>setCount(Number(event.target.value))} /></label>
       <button type="button" disabled={busy||!Number.isInteger(count)||count<1||count>60} onClick={()=>act(`/${encodeURIComponent(studentId)}/plan`,{count,month:planMonth})}>Сохранить план</button></div>
-    <small>Текущий план: {data.plannedCount}. Полностью пропущенная работа — до {formatLives(data.maxLossPerHomework)} жизни. План действует и в следующих месяцах, пока вы его не измените.</small>
+    <small>Текущий план по ЕГЭ: {data.plannedCount}. Полностью пропущенная работа — до {formatLives(data.maxLossPerHomework)} жизни. План действует и в следующих месяцах, пока вы его не измените.</small>
     {data.planLocked&&<small>Текущий месяц уже рассчитан: новый план начнёт действовать со следующего.</small>}
     {data.pendingReviews.map(review=><div className="homework-lives-panel__review" key={review.month}><div><b>Нужен разговор</b><small>Жизни закончились · {monthLabel(review.month)}</small></div>
       <React.Suspense fallback={null}><StudentParentContact studentId={studentId} studentName={studentName} compact /></React.Suspense>

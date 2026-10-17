@@ -586,7 +586,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
   const homeworkAveragePercent = Number(homeworkSummary.averagePercent) || 0;
   const fullyCompletedHomeworkCount = Number(homeworkSummary.fullyCompletedCount) || 0;
   const homeworkOverallCount = Math.max(0, Number(homeworkSummary.homeworkCount) || 0);
-  const hasEnoughHomeworkHistory = homeworkEntries.length >= 3;
+  const hasEnoughHomeworkHistory = homeworkOverallCount >= 3;
   const homeworkHabit = !hasEnoughHomeworkHistory
     ? 'Пока мало данных'
     : homeworkAveragePercent >= 100
@@ -1754,15 +1754,15 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             icon={CheckCircle2}
             eyebrow="И последнее"
             title="Домашняя работа"
-            description="Учитываются выполненные работы и работы после срока, выданные с 29 июня 2026 года."
+            description="Оценка только по ЕГЭ: выполненные работы и работы после срока, выданные с 29 июня 2026 года. Python — практика для разбора на уроке, без оценки."
             dark={dark}
             tone="emerald"
           />
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
               {
-                label: 'Среднее выполнение',
-                value: `${Number(homeworkSummary.averagePercent) || 0}%`,
+                label: 'Выполнение по ЕГЭ',
+                value: homeworkOverallCount > 0 ? `${homeworkAveragePercent}%` : '—',
                 className: dark
                   ? 'border-violet-800 bg-violet-950/40'
                   : 'border-violet-200 bg-violet-50',

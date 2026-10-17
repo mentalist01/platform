@@ -1,5 +1,7 @@
 import { homeworkPracticeText, lessonTopicWithNumbers, monthlyHomeworkPractice } from './studentMonthlyPractice.js';
 import { composeParentReportFocus, inferStudentReportFocus } from './studentReportFocus.js';
+import { homeworkAssessmentEntries } from './homeworkStats.js';
+import { hasPythonHomeworkPractice } from './homeworkAssessment.js';
 
 const REPORT_TIME_ZONE = 'Europe/Moscow';
 
@@ -479,11 +481,12 @@ const buildStudentFacingText = ({
         pickPhrase,
       }));
   } else {
-    lines.push('', 'Домашних заданий в этом месяце не было.');
+    lines.push('', metrics.homework.pythonPracticeCount ? 'По Python попробуй сначала решить задачи сам, а то, что не получится, разберём вместе на уроке.' : 'Домашних заданий в этом месяце не было.');
   }
 
   const practiceText = homeworkPracticeText(metrics.homework.practice, { studentAudience: true, solved: getStudentGrammar(studentName).solved });
   if (practiceText) lines.push('', practiceText);
+  if (metrics.homework.pythonPracticeCount && metrics.homework.assignedCount) lines.push('', 'Задачи по Python — практика перед уроком. То, что не получится самостоятельно, разберём вместе; на оценку выполнения домашней работы по ЕГЭ это не влияет.');
   if (metrics.mocks.count > 0) {
     lines.push('', buildStudentMockJourneyText({ mocks: metrics.mocks, pickPhrase }));
   } else {
@@ -533,10 +536,12 @@ export const buildStudentMonthlyReport = ({
     month: 'long',
   }).format(new Date(Date.UTC(reportYear, reportMonthNumber - 1, 15, 12)));
   const messageMonthLabel = reportYear === currentYear ? monthName : `${monthName} ${reportYear} года`;
-  const homeworks = (Array.isArray(homeworkEntries) ? homeworkEntries : [])
+  const assessmentEntries = homeworkAssessmentEntries(homeworkEntries);
+  const pythonPracticeCount = (Array.isArray(homeworkEntries) ? homeworkEntries : []).filter(entry => getHomeworkMonthKey(entry) === normalizedMonth && hasPythonHomeworkPractice(entry)).length;
+  const homeworks = assessmentEntries
     .filter((entry) => getHomeworkMonthKey(entry) === normalizedMonth);
   const previousMonthKey = getPreviousMonthKey(normalizedMonth);
-  const previousMonthHomeworks = (Array.isArray(homeworkEntries) ? homeworkEntries : [])
+  const previousMonthHomeworks = assessmentEntries
     .filter((entry) => getHomeworkMonthKey(entry) === previousMonthKey);
   const lessons = (Array.isArray(lessonEntries) ? lessonEntries : [])
     .filter((entry) => normalizeText(entry?.dayKey).slice(0, 7) === normalizedMonth)
@@ -603,6 +608,7 @@ export const buildStudentMonthlyReport = ({
     },
     homework: {
       assignedCount: homeworks.length,
+      pythonPracticeCount,
       completedCount: completedHomeworks.length,
       onTimeCount: completedHomeworks.filter((entry) => entry?.completedOnTime === true).length,
       lateCount: completedHomeworks.filter((entry) => entry?.completedOnTime === false).length,
@@ -678,11 +684,12 @@ export const buildStudentMonthlyReport = ({
       ? 'По домашней работе за этот месяц пока нет результата.'
       : buildHomeworkProgressText({ studentName, averagePercent: metrics.homework.averagePercent, pickPhrase }));
   } else {
-    lines.push('', 'Домашних заданий в этом месяце не было.');
+    lines.push('', metrics.homework.pythonPracticeCount ? 'По Python сначала предлагаю попробовать задачи самостоятельно. То, что пока не получается, разбираем вместе на уроке: здесь не требуется сразу решить всё без помощи.' : 'Домашних заданий в этом месяце не было.');
   }
 
   const practiceText = homeworkPracticeText(metrics.homework.practice, { studentName, solved: grammar.solved });
   if (practiceText) lines.push('', practiceText);
+  if (metrics.homework.pythonPracticeCount && metrics.homework.assignedCount) lines.push('', 'Задачи по Python — практика перед уроком. То, что не получится самостоятельно, разберём вместе; на оценку выполнения домашней работы по ЕГЭ это не влияет.');
   if (metrics.mocks.count === 0) {
     lines.push('', 'Пробника в этом месяце пока не было.');
   } else {

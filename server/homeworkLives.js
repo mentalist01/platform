@@ -5,6 +5,7 @@ import { isOptionalHomeworkGoal } from '../src/utils/homeworkAssignmentTier.js';
 import { buildHomeworkStatistics } from '../src/utils/homeworkStats.js';
 import { isMockAttemptForHomework } from '../src/utils/homeworkComposer.js';
 import { filterCancelledGroupEgeGoals } from '../src/utils/groupHomeworkCancellations.js';
+import { hasPythonHomeworkPractice, isPythonHomeworkGoal, isPythonPracticeHomework } from '../src/utils/homeworkAssessment.js';
 
 export const MAX_HOMEWORK_LIVES = 3;
 export const MONTHLY_HOMEWORK_DAMAGE = 8;
@@ -28,6 +29,7 @@ export function estimateHomeworkPlan(schedule = [], month, isAssigned = () => tr
   const weekly = new Set(), dated = new Set();
   for (const entry of schedule) {
     if (entry?.isTrial || entry?.trial || !isAssigned(entry, month)) continue;
+    if (isPythonPracticeHomework(entry) || /^(?:python|питон)$/iu.test(text(entry?.subject))) continue;
     if (entry.repeatUntil && entry.repeatUntil < `${month}-01`) continue;
     if (entry.repeatFrom && entry.repeatFrom.slice(0, 7) > month) continue;
     if (entry.date) {
@@ -43,9 +45,9 @@ export function estimateHomeworkPlan(schedule = [], month, isAssigned = () => tr
 // truncate its completion window. Untimestamped legacy successes need a human
 // check rather than inventing a deadline result.
 export function homeworkDeadlineResult(homework, data, testsDb, mockExams, nowMs) {
-  if (homework.learningEgeCarryover === true) return null;
+  if (homework.learningEgeCarryover === true || isPythonPracticeHomework(homework)) return null;
   const allGoals = Array.isArray(homework.goals) ? homework.goals : [];
-  const goals = filterCancelledGroupEgeGoals(homework).filter(goal => !isOptionalHomeworkGoal(goal));
+  const goals = filterCancelledGroupEgeGoals(homework).filter(goal => !isOptionalHomeworkGoal(goal) && !isPythonHomeworkGoal(goal));
   if (allGoals.length && !goals.length) return null;
   if (goals.some(goal => goal.type !== 'mock' && !text(goal.mockExamId)
     && !(Array.isArray(goal.targetQuestionIds) && goal.targetQuestionIds.some(Boolean)))) {
@@ -155,14 +157,15 @@ export class HomeworkLivesStore {
     for (const homework of (context.homeworks || []).slice().sort((a, b) => time(a.dueAt) - time(b.dueAt))) {
       if (homework.learningEgeCarryover === true) continue;
       const issued = time(homework.issuedAt), due = time(homework.dueAt), id = text(homework.id);
-      if (context.isHomeworkRequired?.(homework) === false) {
+      const practiceOnly = isPythonPracticeHomework(homework);
+      if (practiceOnly || context.isHomeworkRequired?.(homework) === false) {
         // Correct a stale post-transfer check as well as preventing a new one.
         // Use current membership, even if the personal homework projection
         // has not been refreshed yet. Keep the event for the audit history.
         const period = Object.values(row.months).find(period => period.events[id]);
         if (period && !period.events[id].waivedAt) {
           Object.assign(period.events[id], { waivedAt: new Date(now).toISOString(),
-            waiverReason: context.homeworkExemptionReason?.(homework) || 'Задание прежней группы отменено при выходе до срока сдачи', waivedById: context.homeworkExemptionReason?.(homework) ? 'group-homework-track' : 'group-membership' });
+            waiverReason: practiceOnly ? 'Python — практика для разбора на уроке, без списания сердец' : context.homeworkExemptionReason?.(homework) || 'Задание прежней группы отменено при выходе до срока сдачи', waivedById: practiceOnly ? 'python-practice-policy' : context.homeworkExemptionReason?.(homework) ? 'group-homework-track' : 'group-membership' });
           if (period.review && this.balance(period) > 1e-5) period.review.cancelledAt = new Date(now).toISOString();
           changed = true;
         }
@@ -172,7 +175,10 @@ export class HomeworkLivesStore {
         || homework.deletedAt || ['draft', 'cancelled', 'voided'].includes(homework.status) || homework.assignmentTier === 'optional') continue;
       const month = livesMonth(due);
       let period = row.months[month];
-      if (period?.events[id]) continue;
+      const existing = period?.events[id];
+      const correctMixedAssessment = existing && !existing.waivedAt
+        && hasPythonHomeworkPractice(homework) && existing.assessmentPolicy !== 'ege-only-v1';
+      if (existing && !correctMixedAssessment) continue;
       const result = context.evaluate(homework);
       if (!result) continue;
       if (!period) {
@@ -180,7 +186,22 @@ export class HomeworkLivesStore {
         period = row.months[month] = { plannedCount: validCount(plannedCount) ? plannedCount : 4, events: {} };
       }
       const percent = Math.max(0, Math.min(100, Number(result.percent) || 0));
-      period.events[id] = { id, title: homeworkTitle(homework), dueAt: new Date(due).toISOString(),
+      if (correctMixedAssessment) {
+        const loss = result.reliable ? round((1 - percent / 100) * MONTHLY_HOMEWORK_DAMAGE / period.plannedCount) : 0;
+        Object.assign(existing, {
+          previousAssessment: { percent: existing.percent, loss: existing.loss, reliable: existing.reliable,
+            totalCount: existing.totalCount, completedCount: existing.completedCount },
+          assessmentPolicy: 'ege-only-v1', correctedAt: new Date(now).toISOString(),
+          correctionReason: 'Python исключён из оценки домашней работы; прежнее списание не увеличивается',
+          percent: result.reliable ? percent : null, reliable: result.reliable === true,
+          totalCount: result.totalCount || 0, completedCount: result.completedCount || 0,
+          loss: Math.min(Number(existing.loss) || 0, loss), reason: result.reason || '',
+        });
+        if (period.review && this.balance(period) > 1e-5) period.review.cancelledAt = new Date(now).toISOString();
+        changed = true;
+        continue;
+      }
+      period.events[id] = { id, assessmentPolicy: 'ege-only-v1', title: homeworkTitle(homework), dueAt: new Date(due).toISOString(),
         sequence: Object.keys(period.events).length,
         recordedAt: new Date(now).toISOString(), reliable: result.reliable === true,
         percent: result.reliable ? percent : null, totalCount: result.totalCount || 0, completedCount: result.completedCount || 0,

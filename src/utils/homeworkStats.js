@@ -1,5 +1,6 @@
 import { isMockAttemptForHomework, resolveHomeworkTaskTargetDescriptors } from './homeworkComposer.js';
 import { mergeGroupHomeworkCarryover } from './groupHomeworkCarryover.js';
+import { isPythonHomeworkGoal, isPythonPracticeHomework } from './homeworkAssessment.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -523,10 +524,13 @@ export const buildHomeworkStatistics = ({
 
   return sorted.map((prepared, chronologicalIndex) => {
     const { entry, issuedAtMs } = prepared;
-    const nextIssuedAtMs = sorted[chronologicalIndex + 1]?.issuedAtMs ?? null;
+    const practiceOnly = isPythonPracticeHomework(entry);
+    const nextAssessment = sorted.slice(chronologicalIndex + 1)
+      .find(item => !isPythonPracticeHomework(item.entry));
+    const nextIssuedAtMs = nextAssessment?.issuedAtMs ?? null;
     const windowStartMs = entry.learningEgeCarryover ? asTimestamp(entry.carryoverOriginalIssuedAt) ?? issuedAtMs : issuedAtMs;
     const groupHomework = entry.source === 'learning-group';
-    const windowEndMs = !groupHomework && !entry.learningEgeCarryover && nextIssuedAtMs != null && nextIssuedAtMs > (issuedAtMs ?? Number.NEGATIVE_INFINITY)
+    const windowEndMs = !groupHomework && !practiceOnly && !entry.learningEgeCarryover && nextIssuedAtMs != null && nextIssuedAtMs > (issuedAtMs ?? Number.NEGATIVE_INFINITY)
       ? nextIssuedAtMs
       : safeNowMs + 1;
     const dueAtMs = resolveHomeworkDueAtMs(entry, issuedAtMs);
@@ -558,8 +562,8 @@ export const buildHomeworkStatistics = ({
               windowEndMs,
               checkpointMs,
               dueAtMs,
-              isLatest,
-              useCurrentProgress: groupHomework,
+              isLatest: isLatest || (!practiceOnly && !nextAssessment),
+              useCurrentProgress: groupHomework || isPythonHomeworkGoal(goal),
             })
       ))
       .filter(Boolean);
@@ -579,6 +583,8 @@ export const buildHomeworkStatistics = ({
     return {
       id: normalizeText(entry?.id) || normalizeText(entry?.issuedAt) || `homework-${chronologicalIndex + 1}`,
       number: chronologicalIndex + 1,
+      studyTrack: entry.studyTrack || '',
+      practiceOnly,
       title: getHomeworkTitle(entry, chronologicalIndex),
       issuedAt: issuedAtMs == null ? '' : new Date(issuedAtMs).toISOString(),
       dueAt: dueAtMs == null ? '' : new Date(dueAtMs).toISOString(),
@@ -606,8 +612,42 @@ export const buildHomeworkStatistics = ({
   });
 };
 
+// Keep original task progress intact. Only this projection is used for grades,
+// report percentages and the assessment timeline, including mixed assignments.
+export const getHomeworkAssessment = entry => {
+  if (!entry || entry.practiceOnly || isPythonPracticeHomework(entry)) return null;
+  const allGoals = Array.isArray(entry.goals) ? entry.goals : [];
+  if (!allGoals.some(isPythonHomeworkGoal)) return entry;
+  const goals = allGoals.filter(goal => !isPythonHomeworkGoal(goal));
+  const items = goals.flatMap(goal => goal.items || []);
+  const summary = summarizeItems(items);
+  const checkpoint = summarizeItems(items, 'checkpointState');
+  const times = items.map(item => typeof item.completedAt === 'number' && Number.isFinite(item.completedAt)
+    ? item.completedAt : asTimestamp(item.completedAt)).filter(value => value != null);
+  const completedAtMs = summary.percent === 100 && times.length ? Math.max(...times) : null;
+  const dueAtMs = asTimestamp(entry.dueAt);
+  return {
+    ...entry, ...summary, goals,
+    checklist: { totalCount: 0, completedCount: 0, items: [] },
+    status: getEntryStatus(summary),
+    estimated: goals.some(goal => goal.estimated),
+    isOverdue: entry.isOverdue && summary.percent !== 100,
+    completedAt: completedAtMs == null ? '' : new Date(completedAtMs).toISOString(),
+    completedOnTime: summary.percent === 100 && (completedAtMs == null || dueAtMs == null ? null : completedAtMs <= dueAtMs),
+    lateCompletedCount: items.filter(item => item.completedLate).length,
+    totalWrongAttempts: items.reduce((sum, item) => sum + (Number(item.wrongCount) || 0), 0),
+    checkpointPercent: checkpoint.percent,
+    checkpointCompletedCount: checkpoint.completedCount,
+    checkpointWrongCount: checkpoint.wrongCount,
+  };
+};
+
+export const homeworkAssessmentEntries = (entries = []) => (
+  (Array.isArray(entries) ? entries : []).map(getHomeworkAssessment).filter(Boolean)
+);
+
 export const summarizeHomeworkStatistics = (entries = []) => {
-  const measurable = (Array.isArray(entries) ? entries : []).filter((entry) => entry.totalCount > 0);
+  const measurable = homeworkAssessmentEntries(entries).filter((entry) => entry.totalCount > 0);
   const averagePercent = measurable.length > 0
     ? clampPercent(
         measurable.reduce((sum, entry) => sum + (Number(entry.percent) || 0), 0) / measurable.length
@@ -640,6 +680,7 @@ export const summarizeHomeworkStatistics = (entries = []) => {
 };
 
 export const isHomeworkReadyForOverallStatistics = (entry, nowMs = Date.now()) => {
+  entry = getHomeworkAssessment(entry);
   if (!entry || Number(entry.totalCount) <= 0) return false;
   if (Number(entry.percent) >= 100) return true;
   if (entry.isOverdue === true) return true;

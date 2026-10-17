@@ -19,6 +19,7 @@ import {
 import {
   HOMEWORK_STAT_STATE,
   buildHomeworkStatistics,
+  homeworkAssessmentEntries,
   summarizeHomeworkStatistics,
 } from '../utils/homeworkStats';
 import { buildMockExamProgressEntries } from '../utils/mockExamProgress';
@@ -258,7 +259,7 @@ const HomeworkStatsSection = ({
   const detailRef = useRef(null);
   const homeworkButtonRefs = useRef(new Map());
   const [referenceNowMs] = useState(() => Date.now());
-  const statistics = useMemo(() => buildHomeworkStatistics({
+  const allStatistics = useMemo(() => buildHomeworkStatistics({
     homeworks,
     studentData,
     testsDb: testsDb || {},
@@ -266,6 +267,7 @@ const HomeworkStatsSection = ({
     mockAttemptsByExam,
     nowMs: referenceNowMs,
   }), [homeworks, mockAttemptsByExam, mockExams, referenceNowMs, studentData, testsDb]);
+  const statistics = useMemo(() => homeworkAssessmentEntries(allStatistics), [allStatistics]);
   const mockExamProgressEntries = useMemo(() => buildMockExamProgressEntries({
     assignedOnly: true,
     studentData,
@@ -274,14 +276,14 @@ const HomeworkStatsSection = ({
   }), [mockAttemptsByExam, mockExams, studentData]);
   const yearOptions = useMemo(() => {
     const byKey = new Map();
-    statistics.forEach((entry) => {
+    allStatistics.forEach((entry) => {
       if (entry.academicYear?.key) byKey.set(entry.academicYear.key, entry.academicYear);
     });
     mockExamProgressEntries.forEach((entry) => {
       if (entry.academicYear?.key) byKey.set(entry.academicYear.key, entry.academicYear);
     });
     return Array.from(byKey.values()).sort((left, right) => right.startYear - left.startYear);
-  }, [mockExamProgressEntries, statistics]);
+  }, [mockExamProgressEntries, allStatistics]);
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedHomeworkId, setSelectedHomeworkId] = useState('');
   const resolvedSelectedYear = (
@@ -325,7 +327,7 @@ const HomeworkStatsSection = ({
     ? filteredStatistics.findIndex((entry) => entry.id === selectedHomework.id)
     : -1;
   const estimatedHistory = filteredStatistics.some((entry) => entry.estimated);
-  const showMethodNote = estimatedHistory || filteredStatistics.length > 1;
+  const showMethodNote = estimatedHistory || allStatistics.length > 0;
   const trendPositive = summary.trend >= 0;
   const TrendIcon = trendPositive ? TrendingUp : TrendingDown;
   const selectHomework = (entry, { focusButton = false, revealDetails = false } = {}) => {
@@ -426,7 +428,7 @@ const HomeworkStatsSection = ({
               Учебная аналитика
             </div>
             <h3 className={`mt-3 text-2xl font-black tracking-tight md:text-[28px] ${dark ? 'text-white' : 'text-slate-950'}`}>
-              История выполнения
+              Домашняя работа по ЕГЭ
             </h3>
             <p className={`mt-1 max-w-2xl text-xs leading-relaxed md:text-sm ${
               dark ? 'text-slate-400' : 'text-slate-500'
@@ -481,12 +483,12 @@ const HomeworkStatsSection = ({
             <div>
               <strong className={`block ${dark ? 'text-white' : 'text-slate-900'}`}>
                 {filteredStatistics.length === 0
-                  ? 'В выбранном периоде нет домашних работ'
+                  ? 'В выбранном периоде нет домашки по ЕГЭ'
                   : 'В выбранном периоде пока нечего сравнивать'}
               </strong>
               <span className="mt-0.5 block text-xs leading-relaxed">
                 {filteredStatistics.length === 0
-                  ? 'Можно смотреть динамику пробников за этот учебный год.'
+                  ? 'Python остаётся практикой без оценки. Прогресс по нему виден в домашке и разделе «Изучение Python». Можно также посмотреть динамику пробников.'
                   : 'Домашние работы есть, но в них нет заданий с доступной автоматической проверкой.'}
               </span>
             </div>
@@ -505,7 +507,7 @@ const HomeworkStatsSection = ({
             </span>
             <div className={`pr-9 text-[11px] font-extrabold uppercase tracking-[0.1em] ${
               dark ? 'text-indigo-300' : 'text-indigo-600'
-            }`}>Среднее по ДЗ</div>
+            }`}>Среднее по ЕГЭ</div>
             <div className="mt-1 flex items-end justify-between gap-2">
               <strong className={`text-2xl font-black ${dark ? 'text-indigo-100' : 'text-indigo-700'}`}>
                 {summary.homeworkCount > 0 ? `${summary.averagePercent}%` : '—'}
@@ -1137,8 +1139,9 @@ const HomeworkStatsSection = ({
           }`}>
             <Info size={14} className="mt-0.5 shrink-0 text-indigo-500" />
             <span>
-              Статистика собрана по журналу попыток и периодам между выдачами ДЗ. Если сроки
-              пересекались или старых событий уже нет в журнале, отдельные значения могут быть приблизительными.
+              Здесь оценивается домашняя работа по ЕГЭ. Python — практика перед разбором на уроке:
+              она не снижает средний процент и не тратит сердца. Прогресс по задачам сохранён в домашке и разделе «Изучение Python».
+              Если у старых решений нет даты, отдельные значения могут быть приблизительными.
             </span>
           </div>
         )}
