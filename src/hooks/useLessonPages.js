@@ -16,6 +16,7 @@ export function useLessonPages(room,role,userId) {
     Promise.all([loadYjsRuntime(),requestLessonPages(room,undefined,abort.signal)]).then(([runtime,result])=>{
       if(abort.signal.aborted)return;
       setState({pages:result.pages,connected:false,canEdit:result.canEdit,error:''});
+      if(result.defaultPageId)select(current=>result.pages.some(p=>p.id===current)?current:result.defaultPageId);
       doc=new runtime.Y.Doc();provider=new runtime.WebsocketProvider(getCollabWsUrl(),bookRoom,doc,{params:{_auth:getStoredAuthToken()},disableBc:true});
       const changed=()=>{if(!provider.synced)return;const pages=boardPagesList(doc.getMap('pages'));setState(old=>({...old,pages,connected:provider.wsconnected&&provider.synced}));};
       const controls=()=>{if(role==='teacher'||role==='admin')return;const target=boardPageSummonTarget(doc.getMap('pageControl').get('summon'),userId,boardPagesList(doc.getMap('pages')));if(target&&target.id!==lastCommand){lastCommand=target.id;select(target.pageId);}};

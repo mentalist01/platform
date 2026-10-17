@@ -1,3 +1,4 @@
+import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
 import {createHash, randomUUID} from 'node:crypto';
 import {boardPagesList, FIRST_BOARD_PAGE_ID, MAX_BOARD_PAGES} from '../src/utils/boardPages.js';
 import {COLLAB_CODE_PAGES_KEY, COLLAB_CODE_PAGES_DELETED_KEY, COLLAB_CODE_PAGE_ALIASES_KEY,
@@ -15,6 +16,7 @@ export function lessonPageRooms(target) {
   if(!target||!['board','board-private','collab','collab-private'].includes(target.kind))return null;
   const codeRoom=target.kind.startsWith('collab')?target.roomId:'';
   if(target.targetType==='student')return {book:`board-${target.teacherId}-${target.studentId}~pages`,codes:[`collab-${target.teacherId}-${target.studentId}`],codeRoom};
+  if(target.groupNotebook)return {book:groupNotebookBoard(target.groupId)+'~pages',codes:[groupNotebookCode(target.groupId),...target.participantIds.map(id=>groupNotebookCode(target.groupId,id))],codeRoom};
   const lesson=target.session;
   if(!lesson?.id)return null;
   const participants=lesson.participantIdsSnapshot||lesson.participantIds||[];
@@ -101,7 +103,7 @@ export function createLessonPageCatalog({loadBook,loadCode,saveCode,releaseCode,
       const role=transaction.origin?.learningCollabAuth?.role;
       // Preserve page edits from earlier clients of an individual lesson, and
       // teacher edits in group rooms. Pupils cannot edit the shared group list.
-      if(['teacher','admin'].includes(role)||(role==='student'&&!context.bookRoom.startsWith('board-lesson-'))) {
+      if(['teacher','admin'].includes(role)||(role==='student'&&!context.bookRoom.startsWith('board-lesson-')&&!context.bookRoom.startsWith('board-group-'))) {
         const aliases=doc.getMap(COLLAB_CODE_PAGE_ALIASES_KEY),map=context.book.getMap('pages');
         context.book.transact(()=>{
           for(const id of event.keysChanged) {

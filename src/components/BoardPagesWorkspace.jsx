@@ -7,6 +7,7 @@ import {MAX_BOARD_PAGES,boardPageBookRoom,boardPageRoom,boardPagesList,boardPage
 import './BoardPagesWorkspace.css';
 import BoardSelectionClipboard from './BoardSelectionClipboard.jsx';
 import {useLessonPageSelection} from '../hooks/useLessonPageSelection.js';
+import {groupNotebookBoard} from '../utils/groupNotebook.js';
 import {requestLessonPages} from '../services/lessonPages.js';
 
 const id = () => crypto.randomUUID();
@@ -21,11 +22,12 @@ function PagedBoardWorkspace(props) {
   const {role,userId,userName,teacherId,lessonId,groupId,activeStudentId,readOnly}=canvasProps;
   const teacher=role==='teacher' || role==='admin';
   const group=Boolean(lessonId && groupId);
-  const base=group ? `board-lesson-${lessonId}` : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null);
+  const base=group ? groupNotebookBoard(groupId) : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null);
   const bookRoom=boardPageBookRoom(base);
   const storageKey=bookRoom ? `board-page:${bookRoom}:${role}:${userId}` : '';
   const [initialPage]=useState(()=>{try{return boardPageInitialState(window.localStorage.getItem(storageKey));}catch{return boardPageInitialState(null);}});
   const [pages,setPages]=useState(initialPage.pages);
+  const [catalogReady,setCatalogReady]=useState(!group),[retry,setRetry]=useState(0);
   const [pageId,setPageId]=useLessonPageSelection(bookRoom,role,userId,initialPage.pageId);
   const [studentId,setStudentId]=useState('');
   const boardStudentId=group && (teacher ? (canvasProps.participantIds || []).includes(studentId) : studentId===userId) ? studentId : '';
@@ -46,7 +48,9 @@ function PagedBoardWorkspace(props) {
     if (!bookRoom) return undefined;
     let disposed=false,cleanup;
     const start=async()=>{
-      const [{Y,WebsocketProvider},{createBoardSummonDelivery}]=await Promise.all([loadYjsRuntime(),import('../utils/boardSummonDelivery.js'),requestLessonPages(bookRoom)]);if(disposed)return;
+      const [{Y,WebsocketProvider},{createBoardSummonDelivery},catalog]=await Promise.all([loadYjsRuntime(),import('../utils/boardSummonDelivery.js'),requestLessonPages(bookRoom)]);if(disposed)return;
+      if(group && catalog?.pages?.length){knownPages.current=catalog.pages;setPages(catalog.pages);setPageId(current=>catalog.pages.some(p=>p.id===current)?current:catalog.defaultPageId||catalog.pages[0].id);}
+      setCatalogReady(true);
       const doc=new Y.Doc(),provider=new WebsocketProvider(getCollabWsUrl(),bookRoom,doc,{params:{_auth:getStoredAuthToken() || ''},disableBc:true});
       const map=doc.getMap('pages'),control=doc.getMap('pageControl');
       runtime.current={doc,provider,map,control};
@@ -82,7 +86,7 @@ function PagedBoardWorkspace(props) {
     };
     void start().catch(e=>{if(!disposed)setError(e.message || 'Не удалось подключить страницы');});
     return()=>{disposed=true;cleanup?.();};
-  },[bookRoom,storageKey,teacher,userId,publish,setPageId]);
+  },[bookRoom,storageKey,teacher,userId,publish,setPageId,group,retry]);
   useEffect(()=>{publish();try{if(storageKey && runtime.current?.provider.synced)window.localStorage.setItem(storageKey,pageId);}catch{/* Storage is optional. */}},[pageId,boardStudentId,storageKey,publish]);
   useEffect(()=>{summonDelivery.current?.cancel();},[pageId,boardStudentId]);
   useEffect(()=>{if(!notice)return undefined;const timer=setTimeout(()=>setNotice(''),3500);return()=>clearTimeout(timer);},[notice]);
@@ -146,5 +150,6 @@ function PagedBoardWorkspace(props) {
     {deletedPage&&<div className="board-pages-delete-confirm" role="status">Страница «{deletedPage.title}» убрана. <button type="button" disabled={!connected||pageActionBusy} onClick={async()=>{if(await changePage({action:'restore',id:deletedPage.id})){choose(deletedPage.id);setDeletedPage(null);}}}>Восстановить страницу</button></div>}
     <footer><button type="button" disabled={index<=0} onClick={()=>choose(pages[index-1].id)} aria-label="Предыдущая страница"><ChevronLeft size={18}/></button><span>{index+1} / {pages.length}</span><button type="button" disabled={index>=pages.length-1} onClick={()=>choose(pages[index+1].id)} aria-label="Следующая страница"><ChevronRight size={18}/></button></footer>
   </aside> : null;
+  if(group&&!catalogReady)return <div className="flex min-h-60 flex-col items-center justify-center gap-3 rounded-2xl border border-violet-100 bg-white p-6 text-center" role="status"><PanelLeft size={24} className="text-violet-600"/><strong>{error?'Не удалось открыть тетрадь группы':'Открываем страницы группы…'}</strong>{error?<><p role="alert" className="text-sm text-rose-700">{error}</p><button type="button" className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white" onClick={()=>{setError('');setRetry(n=>n+1);}}>Повторить подключение</button></>:<p className="text-sm text-slate-500">Загружаем сохранённые страницы и записи на доске.</p>}</div>;
   return <Canvas {...canvasProps} pages={{liveRoomId:boardPageRoom(base,pageId,boardStudentId),pageId,boardStudentId,selectWindow:next=>{summonDelivery.current?.cancel();setStudentId(next);setNavigation(null);},summon,canSummon:teacher && !readOnly && channelReady,navigation,summonNotice:!teacher && Boolean(notice),acknowledgeNavigation,header,panel,clipboard:props=><BoardSelectionClipboard {...props} key={base}/>}}/>;
 }

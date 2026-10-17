@@ -12,3 +12,5 @@ test('individual uploads retain the pupil while an explicit group lesson is self
   assert.deepEqual(resolveBoardAssetTarget('student-a', { roomId: 'board-teacher-a-student-a~page~page-1234' }), { lessonId: '', studentId: 'student-a' });
   assert.deepEqual(resolveBoardAssetTarget('student-a', { lessonId: 'lesson-2' }), { lessonId: 'lesson-2', studentId: '' });
 });
+
+test('permanent group notebook uploads use the group room rather than an archived lesson or stale pupil',()=>{assert.deepEqual(resolveBoardAssetTarget('unrelated',{lessonId:'finished-lesson',roomId:'board-group-g~page~restored-page'}),{studentId:'',lessonId:''});});

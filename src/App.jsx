@@ -3,7 +3,8 @@ import LessonFallback from './components/LessonFallback.jsx';
 import BoardMinimap from './components/BoardMinimap.jsx';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
-import { GROUP_SHARED_CODE_ID, groupCodeTabs, groupCodeRoom } from './utils/groupCodeRooms.js';
+import {groupNotebookCode} from './utils/groupNotebook.js';
+import { GROUP_SHARED_CODE_ID, groupCodeTabs } from './utils/groupCodeRooms.js';
 import useGroupCodePresence from './hooks/useGroupCodePresence.js';
 import { hasHomeworkResources } from './utils/homeworkResourcePresence.js';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
@@ -3684,7 +3685,7 @@ export const CollabSection = ({
     ? Boolean(isTeacher && learningParticipantIds.length > 0)
     : Boolean(effectiveStudentId);
   const liveRoomId = isGroupLesson
-    ? groupCodeRoom(learningLessonId, effectiveGroupParticipantId)
+    ? groupNotebookCode(learningGroupId,effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?'':effectiveGroupParticipantId)
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const collabDocumentReady = Boolean(
@@ -21575,6 +21576,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       startsAt,
       durationMinutes,
       telemostUrl: String(lesson?.telemostUrl || '').trim(),
+      groupStatus: lesson?.groupStatus || '',
       status: lessonCompleted ? 'completed' : (lessonStatus || 'scheduled'),
       replayActive: Boolean(lesson?.replayActive) && !readOnly,
       readOnly,
@@ -25839,6 +25841,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   )}
                 </div>
               </div>
+              {activeLearningLesson && ['board','collab'].includes(view) && <p className="mt-2 text-xs font-medium text-slate-500">Тетрадь группы: все страницы и код сохраняются между уроками.</p>}
               {lessonTargetError && (
                 <div className="mt-2 flex items-start gap-2 text-xs font-semibold text-rose-600">
                   <AlertCircle size={14} className="mt-0.5 shrink-0" />
@@ -26532,7 +26535,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               lessonId={activeLearningLesson?.lessonId || ''}
               groupId={activeLearningLesson?.groupId || ''}
               participantIds={activeLearningLesson?.participantIds || []}
-              readOnly={Boolean(activeLearningLesson?.readOnly)}
+              readOnly={activeLearningLesson?.groupId ? activeLearningLesson.groupStatus==='completed' : false}
               theme={theme}
               withStudentId={withStudentId}
               tasks={tasksWithTitles}
@@ -26637,7 +26640,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               lessonId={activeLearningLesson?.lessonId || ''}
               groupId={activeLearningLesson?.groupId || ''}
               participantIds={activeLearningLesson?.participantIds || []}
-              readOnly={Boolean(activeLearningLesson?.readOnly)}
+              readOnly={activeLearningLesson?.groupId ? activeLearningLesson.groupStatus==='completed' : false}
               tasks={tasksWithTitles}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}

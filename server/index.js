@@ -397,6 +397,7 @@ import {
   getAccessCodeRecoveryCandidates,
 } from './accessCodeLookup.js';
 import { BoundedExecutionSlots, SlidingWindowRateLimiter } from './pythonExecutionLimiter.js';
+import {createGroupNotebook} from './groupNotebook.js';
 import {createLessonPageCatalog,lessonPageRooms} from './lessonPageCatalog.js';
 import { buildQuestionDifficultyIndex } from './questionDifficulty.js';
 
@@ -2006,6 +2007,40 @@ const waitForCollabDocumentState = async (requestUrl) => {
   const readyPromise = collabDocReadyPromises.get(ydoc);
   if (readyPromise) await readyPromise;
 };
+const groupNotebook=createGroupNotebook({
+  lessons:async groupId=>{
+    const names=rawCollabPersistence?await rawCollabPersistence.getAllDocNames():[];
+    return readLearningLessonSessionsDb().filter(l=>l.groupId===groupId&&(Date.parse(l.startAt)<=Date.now()
+      ||getBoardSnapshotFilePaths(`board-lesson-${l.id}~pages`).some(f=>fs.existsSync(f))
+      ||getBoardSnapshotFilePaths(`board-lesson-${l.id}`).some(f=>fs.existsSync(f))
+      ||names.some(n=>n===`collab/collab-lesson-${l.id}`||n.startsWith(`collab/collab-lesson-${l.id}~student~`))));
+  },
+  readSource:async(room,kind)=>{
+    const copy=new Y.Doc(),loaded=getLoadedCollabDocEntry(`collab/${room}`)?.doc;
+    if(loaded){await collabDocReadyPromises.get(loaded);Y.applyUpdate(copy,Y.encodeStateAsUpdate(loaded));}
+    else if(kind==='board')loadBoardDocSnapshot(`collab/${room}`,copy);
+    else if(rawCollabPersistence){const source=await rawCollabPersistence.getYDoc(`collab/${room}`);Y.applyUpdate(copy,Y.encodeStateAsUpdate(source));source.destroy();}
+    return copy;
+  },
+  loadTarget:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
+  saveTarget:async(room,doc,kind)=>{
+    if(kind==='board'){if(!flushBoardDocSnapshot(`collab/${room}`,doc))throw Error('Не удалось сохранить восстановленную доску');}
+    else if(rawCollabPersistence)await rawCollabPersistence.storeUpdate(`collab/${room}`,Y.encodeStateAsUpdate(doc));
+  },
+  grantAssets:async(groupId,ids)=>{
+    if(!ids.length)return;
+    const file=path.join(dataDir,'group-notebook-assets.json'),grants=readJsonObjectFileStrict(file),before=grants[groupId]||[];
+    const valid=new Set(readBoardAssetsDb().filter(a=>a.groupId===groupId).map(a=>a.id));
+    const next=[...new Set([...before,...ids.filter(id=>valid.has(id))])];
+    if(next.length!==before.length)writeJsonFileAtomic(file,{...grants,[groupId]:next});
+  },
+  backupSource:async(groupId,room,doc)=>{
+    const directory=path.join(dataDir,'group-notebook-backups',groupId),file=path.join(directory,crypto.createHash('sha256').update(room).digest('hex')+'.bin');
+    if(fs.existsSync(file))return;
+    fs.mkdirSync(directory,{recursive:true});fs.writeFileSync(file,Y.encodeStateAsUpdate(doc),{flag:'wx',mode:0o600});
+  },
+});
+const ensureGroupNotebook=async access=>{if(access.target?.groupNotebook)await groupNotebook.ensure(access.target.group);};
 const lessonPageCatalog=createLessonPageCatalog({
   loadBook:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
   loadCode:async room=>{
@@ -21935,6 +21970,9 @@ const handleUploadRequest = (req, res) => {
   let boardAssetGroup = null;
   const boardAsset = boardAssetGrants.find((entry) => {
     const lessonId = String(entry?.lessonId || '').trim();
+    const notebookGroup=entry.groupId&&LEARNING_GROUPS_ENABLED?getLearningGroupById(entry.groupId):null;
+    if(notebookGroup&&entry.teacherId===notebookGroup.teacherId&&canAccessPythonGroup(req.auth,notebookGroup)
+      &&(readJsonObjectFileStrict(path.join(dataDir,'group-notebook-assets.json'))[notebookGroup.id]||[]).includes(entry.id)){boardAssetGroup=notebookGroup;return true;}
     if(!lessonId&&entry.groupId&&LEARNING_GROUPS_ENABLED){
       const group=getLearningGroupById(entry.groupId);
       if(group&&entry.teacherId===group.teacherId&&canAccessPythonGroup(req.auth,group)){boardAssetGroup=group;return true;}
@@ -23635,11 +23673,12 @@ const handleLessonPages=async(req,res)=>{
     attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
   const scope=access.allowed?lessonPageRooms(access.target):null;
   if(!scope||getLearningSubscriptionRoomError(req.auth,access))return forbid(res);
-  const canEdit=(isTeacherRole(req.auth)||isAdminRole(req.auth))&&access.target?.session?.status!=='completed';
+  const canEdit=(isTeacherRole(req.auth)||isAdminRole(req.auth))&&!access.readOnly;
   if(req.method==='POST'&&!canEdit)return forbid(res);
   try {
+    await ensureGroupNotebook(access);
     const result=req.method==='POST'?await lessonPageCatalog.change(scope,req.body):{book:await lessonPageCatalog.ensure(scope)};
-    return res.json({pages:boardPagesList(result.book.getMap('pages')),bookRoom:scope.book,id:result.id,canEdit});
+    return res.json({pages:boardPagesList(result.book.getMap('pages')),bookRoom:scope.book,id:result.id,canEdit,defaultPageId:result.book.getMap('groupNotebookMeta').get('restoredPageId')||''});
   }catch(error){return res.status(400).json({error:error.message||'Не удалось подготовить страницы занятия'});}
 };
 app.get('/api/lesson-pages',handleLessonPages);
@@ -25080,6 +25119,13 @@ const canRequestIndividualSchedule = studentId => {
 };
 
 const notifyLearningGroupScheduleAccess = group => {
+  // Existing sockets must reauthorize after a roster/status change, including
+  // removed pupils. The permanent notebook is independent of lesson sockets.
+  for(const [name,doc] of getLoadedCollabDocs()||[]) {
+    const room=String(name).split('/').pop();
+    if(![`board-group-${group.id}`,`collab-group-${group.id}`].some(base=>room===base||room.startsWith(base+'~')))continue;
+    for(const connection of doc.conns?.keys()||[])connection.close(1012,'Состав группы изменился');
+  }
   for (const member of group.members || []) {
     notifyScheduleSyncUpdate({ scope: 'learning-group-membership', teacherId: group.teacherId, studentId: member.studentId, entryId: group.id });
   }
@@ -25574,7 +25620,7 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId/code-presence', handleL
   const lesson = ensureLearningLessonAccess(req, res, group, req.params.lessonId, { manage: true });
   if (!lesson) return;
   res.set('Cache-Control', 'no-store');
-  return res.json(groupCodePresence({ docs: yWsUtils.docs, lesson, students: readStudentsDb() }));
+  return res.json(groupCodePresence({ docs: yWsUtils.docs, lesson, students: readStudentsDb(), groupNotebook:true }));
 }));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handleLearningRoute((req, res) => {
@@ -41293,7 +41339,7 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
     let student = null;
     const requestedRoom=String(req.body?.roomId||'');
     const pythonGroupAccess=!requestedLessonId&&requestedRoom&&LEARNING_GROUPS_ENABLED?authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(requestedRoom)}`,auth:req.auth,groups:readLearningGroupsDb()}):null;
-    if(pythonGroupAccess?.target?.targetType==='group'&&pythonGroupAccess.target.kind==='python-board'){
+    if(pythonGroupAccess?.target?.targetType==='group'&&['python-board','board','board-private'].includes(pythonGroupAccess.target.kind)){
       if(!pythonGroupAccess.allowed||pythonGroupAccess.readOnly||!isKnownBoardPage(pythonGroupAccess))return forbid(res);
       learningGroup=pythonGroupAccess.target.group;
     } else if (requestedLessonId) {
@@ -44324,13 +44370,15 @@ server.on('upgrade', (request, socket, head) => {
       rejectUpgrade(socket, statusCode, access.reason || 'Forbidden');
       return;
     }
-    if (!isKnownBoardPage(access)) {
+    if (!access.target?.groupNotebook && !isKnownBoardPage(access)) {
       rejectUpgrade(socket, 403, 'Unknown board page');
       return;
     }
     request.learningCollabAccess = access;
     request.learningCollabAuth = session.user;
     void waitForCollabDocumentState(request.url).then(async() => {
+      await ensureGroupNotebook(access);
+      if(!isKnownBoardPage(access)){rejectUpgrade(socket,403,'Unknown board page');return;}
       const scope=lessonPageRooms(access.target);
       if(scope)await lessonPageCatalog.ensure(scope);
       if (socket.destroyed) return;

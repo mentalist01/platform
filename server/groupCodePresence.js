@@ -2,11 +2,11 @@ import { listCollabCodePages, listCollabSolutions, getCollabSolutionPageId } fro
 
 // Identity comes from the authenticated socket, never from client awareness.
 // Reading private-room presence must not join those rooms or expose their code.
-export function groupCodePresence({ docs, lesson, students }) {
+export function groupCodePresence({ docs, lesson, students, groupNotebook = false }) {
   const participants = new Map((lesson.participantIds || []).map(id => [id, {
     studentId: id, name: students.find(student => student.id === id)?.name || 'Ученик', online: false, locations: [],
   }]));
-  const shared = `collab-lesson-${lesson.id}`;
+  const shared = groupNotebook ? `collab-group-${lesson.groupId}` : `collab-lesson-${lesson.id}`;
   for (const [docName, doc] of docs) {
     const room = String(docName).split('/').pop();
     const owner = room === shared ? '' : room.startsWith(`${shared}~student~`) ? room.slice(`${shared}~student~`.length) : null;

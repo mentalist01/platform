@@ -1,4 +1,5 @@
 import {parseBoardPageRoom} from '../src/utils/boardPages.js';
+import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
 import {pythonExplanationBoardRoom} from '../src/utils/pythonExplanationBoard.js';
 import {pythonGroupBoardRoom,pythonGroupCodeBase} from '../src/utils/pythonGroupWorkspace.js';
 
@@ -370,6 +371,15 @@ export const canAccessPythonGroup = (auth,group,students) => {
 };
 export const resolveLearningRealtimeRoomTarget = ({ roomId, sessions, students, groups } = {}) => {
   for(const group of normalizeCollection(groups,'groups')) {
+    const boardBase=groupNotebookBoard(group.id),codeBase=groupNotebookCode(group.id);
+    for(const [base,kind] of [[boardBase,'board'],[codeBase,'collab']]) {
+      if(!base)continue;
+      const privateStudentId=roomId.startsWith(base+'~student~')?roomId.slice((base+'~student~').length):'';
+      if(roomId!==base&&(!privateStudentId||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/.test(privateStudentId)))continue;
+      const participantIds=[...new Set([...(group.members||[]).map(m=>typeof m==='string'?m:m.studentId||m.id),...normalizeCollection(sessions,'sessions').filter(s=>s.groupId===group.id).flatMap(s=>s.participantIdsSnapshot||s.participantIds||[])].filter(Boolean))];
+      if(privateStudentId&&!participantIds.includes(privateStudentId))continue;
+      return {targetType:'group',groupNotebook:true,kind:privateStudentId?kind+'-private':kind,groupId:group.id,teacherId:group.teacherId,group,participantIds,privateStudentId,roomId};
+    }
     const board=pythonGroupBoardRoom(group.id),prefix=`py-collab:${pythonGroupCodeBase(group.id)}:`;
     if(board&&roomId===board)return {targetType:'group',kind:'python-board',groupId:group.id,teacherId:group.teacherId,group,roomId};
     if(pythonGroupCodeBase(group.id)&&roomId.startsWith(prefix)&&/^\d+:[a-zA-Z0-9._-]+:[a-zA-Z0-9._-]+$/.test(roomId.slice(prefix.length)))
@@ -539,6 +549,7 @@ export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) 
   const readOnly = Boolean(
     access.allowed
     && (access.readOnly || (pageRoom?.book && !['teacher','admin'].includes(role))
+    || (access.target?.groupNotebook && access.target.kind==='collab' && role==='student')
     || (access.target?.targetType === 'lesson' && (
       access.readOnly
       || normalizeText(access.target?.session?.status, 40) === 'completed'
