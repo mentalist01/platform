@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useState } from 'react';
+import FileDownloadLink from './FileDownloadLink';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from './SelfHostedMonacoEditor';
 import { ArrowDownUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, FileSpreadsheet, History, ListChecks, ListPlus, RefreshCcw, X } from 'lucide-react';
@@ -984,7 +985,7 @@ const ProgressReviewModal = ({
                       <p className="mb-2 text-xs font-bold uppercase text-gray-400">Доп. файлы</p>
                       <div className="space-y-2">
                         {extraFiles.map((file, fileIndex) => (
-                          <a
+                          <FileDownloadLink
                             key={file.id || file.url}
                             href={buildDownloadUrl(file.url)}
                             download={file?.name || undefined}
@@ -993,7 +994,7 @@ const ProgressReviewModal = ({
                           >
                             <span className="truncate">{file.name}</span>
                             <Download size={16} className="text-purple-600" />
-                          </a>
+                          </FileDownloadLink>
                         ))}
                       </div>
                     </div>
@@ -1047,7 +1048,7 @@ const ProgressReviewModal = ({
                             const solutionUrl = withStudentId(solution?.url || '', studentId);
                             const savedAt = formatWorkbookSavedAt(solution?.updatedAt);
                             return (
-                              <a
+                              <FileDownloadLink
                                 key={solution?.fileId || `${solution?.attachmentId}-${solution?.slot}`}
                                 href={buildDownloadUrl(solutionUrl)}
                                 download={solution?.name || undefined}
@@ -1070,7 +1071,7 @@ const ProgressReviewModal = ({
                                   <Download size={15} aria-hidden="true" />
                                   Скачать решение
                                 </span>
-                              </a>
+                              </FileDownloadLink>
                             );
                           })}
                         </div>

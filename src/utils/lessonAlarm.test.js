@@ -99,3 +99,19 @@ test('testing audio neither removes upcoming alarms nor stops when another tab o
   assert.equal(nodes[1].stops.length, 2);
   player.dispose();
 });
+
+test('stop from another window cancels a sound test waiting for audio resume', async () => {
+  const { context, nodes } = fakeContext();
+  let finish;
+  context.resume = () => new Promise(resolve => { finish = () => { context.state = 'running'; resolve(); }; });
+  const player = createLessonAlarmPlayer({ createContext: () => context });
+  const pending = player.test();
+  player.stopAll();
+  finish();
+  assert.equal(await pending, false);
+  assert.equal(nodes.length, 0);
+  context.resume = async () => {};
+  assert.equal(await player.test(), true);
+  assert.equal(nodes.length, 1);
+  player.dispose();
+});

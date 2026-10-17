@@ -1,4 +1,5 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import FileDownloadLink from './FileDownloadLink';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import Editor from './SelfHostedMonacoEditor';
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Code2, Copy, Download, FileCode2, FileSpreadsheet, GraduationCap, History, Image, ListChecks, Maximize2, Minimize2, Moon, MoreHorizontal, Music, PanelLeft, PanelTop, PictureInPicture2, PlayCircle, RefreshCcw, Send, Share2, Sun, Terminal, Volume2, VolumeX, X } from 'lucide-react';
@@ -4403,13 +4404,13 @@ const StudentTestModal = ({
                       && ['launching', 'opening'].includes(workbookHelperState.status);
                     return (
                       <div key={attachmentId || file.url} className="inline-flex shrink-0 items-center gap-1">
-                        <a
+                        <FileDownloadLink
                           href={buildDownloadUrl(file.url)}
                           download={file?.name || undefined}
                         >
                           <Download size={14} />
                           <span>{file.name}</span>
-                        </a>
+                        </FileDownloadLink>
                         {canSolve && (
                           <div className="inline-flex shrink-0 flex-wrap items-center gap-1">
                             {workbookSolutions.map((solution) => (
@@ -5095,14 +5096,14 @@ const StudentTestModal = ({
                             : 'border-gray-200 bg-white text-gray-700 hover:border-purple-300 hover:bg-purple-50'
                         }`}
                       >
-                        <a
+                        <FileDownloadLink
                           href={buildDownloadUrl(file.url)}
                           download={file?.name || undefined}
                           className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-1 py-1"
                         >
                           <span className="truncate">{file.name}</span>
                           <Download size={16} className="shrink-0 text-purple-600" />
-                        </a>
+                        </FileDownloadLink>
                         {canSolve && (
                           <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                             {workbookSolutions.map((solution) => (

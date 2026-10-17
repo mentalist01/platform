@@ -1,3 +1,4 @@
+import FileDownloadLink from './FileDownloadLink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, BookOpen, ChevronDown, ChevronUp, Gift, Image as ImageIcon, Paperclip, SendHorizontal, Trash2, X } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
@@ -56,7 +57,7 @@ const NotificationAttachmentPreview = ({ attachment, isImage = false }) => {
   }
 
   return (
-    <a
+    <FileDownloadLink
       href={buildDownloadUrl(href)}
       download={attachment?.name || undefined}
       className="teacher-broadcast-history__attachment teacher-broadcast-history__attachment--file mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 transition hover:border-purple-200 hover:bg-purple-50"
@@ -70,7 +71,7 @@ const NotificationAttachmentPreview = ({ attachment, isImage = false }) => {
         </div>
       </div>
       <Paperclip size={16} className="shrink-0 text-purple-600" />
-    </a>
+    </FileDownloadLink>
   );
 };
 

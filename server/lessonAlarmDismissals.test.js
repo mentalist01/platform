@@ -4,7 +4,8 @@ import express from 'express';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { registerLessonAlarmDismissals } from './lessonAlarmDismissals.js';
+import { EventEmitter } from 'node:events';
+import { registerLessonAlarmDismissals, attachLessonAlarmSocket } from './lessonAlarmDismissals.js';
 
 const NOW = 1_800_000_000_000;
 const fixture = async (t, dataDir) => {
@@ -14,7 +15,7 @@ const fixture = async (t, dataDir) => {
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => { req.auth = { role: req.headers['x-role'] || 'teacher', id: req.headers['x-user'] || 'a' }; next(); });
-  registerLessonAlarmDismissals(app, { dataDir: folder, now: () => NOW, notify: (teacherId, alarm) => events.push({ teacherId, alarm }) });
+  const controller = registerLessonAlarmDismissals(app, { dataDir: folder, now: () => NOW, notify: (teacherId, alarm) => events.push({ teacherId, alarm }) });
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
@@ -25,7 +26,7 @@ const fixture = async (t, dataDir) => {
     });
     return { status: res.status, data: await res.json(), cache: res.headers.get('cache-control') };
   };
-  return { request, events, folder };
+  return { request, events, folder, controller };
 };
 
 test('stopping one teacher account persists through restart and never affects another', async t => {
@@ -59,4 +60,23 @@ test('only authenticated teachers may read or stop their own alarm', async t => 
   for (const stoppedAtMs of [0, -1, '1800000000000', {}, 1.5]) {
     assert.equal((await request({ stoppedAtMs })).status, 400);
   }
+});
+
+test('WebSocket stop uses authenticated teacher identity, persists and acknowledges errors', async t => {
+  const { controller, request, events } = await fixture(t);
+  const ws = new EventEmitter(), messages = [];
+  attachLessonAlarmSocket(ws, { role: 'teacher', id: 'a' }, controller, (_, data) => messages.push(data));
+  assert.equal(messages[0].alarm.stoppedAtMs, 0);
+  ws.emit('message', JSON.stringify({ type: 'lesson-alarm-stop', requestId: 'one', teacherId: 'b', stoppedAtMs: NOW }));
+  assert.equal(messages.at(-1).requestId, 'one');
+  assert.equal(messages.at(-1).teacherId, 'a');
+  assert.equal((await request()).data.stoppedAtMs, NOW);
+  assert.equal((await request(null, { 'x-user': 'b' })).data.stoppedAtMs, 0);
+  assert.equal(events.length, 1);
+  ws.emit('message', JSON.stringify({ type: 'lesson-alarm-stop', requestId: 'bad', stoppedAtMs: 'wrong' }));
+  assert.equal(messages.at(-1).requestId, 'bad');
+  assert.ok(messages.at(-1).error);
+  const pupil = new EventEmitter();
+  attachLessonAlarmSocket(pupil, { role: 'student', id: 'a' }, controller, () => assert.fail('No pupil alarm access'));
+  assert.equal(pupil.listenerCount('message'), 0);
 });

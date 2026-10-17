@@ -1,3 +1,4 @@
+import FileDownloadLink from './FileDownloadLink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, BookOpen, Check, Gift, Megaphone, MessageSquare, Paperclip, X } from 'lucide-react';
 import { api, resolveAuthenticatedUploadsUrl, withStoredAuthToken } from '../services/api';
@@ -45,7 +46,7 @@ const NotificationAttachment = ({ attachment, isImage = false, dark = false }) =
   }
 
   return (
-    <a
+    <FileDownloadLink
       href={buildDownloadUrl(href)}
       download={attachment?.name || undefined}
       className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
@@ -59,7 +60,7 @@ const NotificationAttachment = ({ attachment, isImage = false, dark = false }) =
         <div className="mt-0.5 text-xs text-slate-500">{attachment?.size || ''}</div>
       </div>
       <Paperclip size={16} className="shrink-0 text-purple-600" />
-    </a>
+    </FileDownloadLink>
   );
 };
 

@@ -9,6 +9,7 @@ import {
 } from '../utils/lessonAlarm';
 import { accessAlarmMelody } from '../utils/lessonAlarmMelodyStore';
 import { createLessonAlarmDismissal } from '../utils/lessonAlarmDismissal';
+import { lessonAlarmAccountSync } from '../services/lessonAlarmSync.js';
 
 function readPreferences(userId) {
   try {
@@ -76,7 +77,8 @@ export function useLessonAlarm(teacherId) {
         setItem: (key, value) => localStorage.setItem(key, value),
       },
       loadRemote: () => api.getLessonAlarm(),
-      stopRemote: (stoppedAtMs) => api.stopLessonAlarm(stoppedAtMs),
+      stopRemote: (stoppedAtMs) => lessonAlarmAccountSync.stop(teacherId, stoppedAtMs)
+        .catch(() => api.stopLessonAlarm(stoppedAtMs)),
       onStop: () => player.stopAll(), onChange: () => sync(),
     });
     const refreshDismissal = () => dismissal.refresh().catch(() => {});
@@ -199,6 +201,9 @@ export function useLessonAlarm(teacherId) {
     window.addEventListener('online', restore);
     window.addEventListener('storage', onStorage);
     window.addEventListener('pagehide', release);
+    const unsubscribeAccountSync = lessonAlarmAccountSync.subscribe(teacherId, alarm => {
+      dismissal.receiveEvent({ data: JSON.stringify({ scope: 'lesson-alarm', teacherId, alarm }) });
+    });
     const unsubscribeScheduleSync = subscribeScheduleSync((event) => {
       if (event.type === 'ready') { void refreshDismissal(); return; }
       if (!dismissal.receiveEvent(event)) void refresh();
@@ -218,6 +223,7 @@ export function useLessonAlarm(teacherId) {
       window.removeEventListener('online', restore);
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('pagehide', release);
+      unsubscribeAccountSync();
       dismissal.dispose();
       channel?.close();
       unsubscribeScheduleSync();

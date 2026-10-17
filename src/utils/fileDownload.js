@@ -21,7 +21,10 @@ export const downloadAuthenticatedFile = async ({
   try {
     link.href = objectUrl;
     link.download = fileName;
-    link.rel = 'noopener';
+    // A browser may preview a Blob or ignore download (notably mobile WebViews).
+    // That fallback must never replace the document hosting the lesson.
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
     documentRef.body.appendChild(link);
     link.click();
   } finally {

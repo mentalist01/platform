@@ -67,6 +67,7 @@ export function createLessonAlarmPlayer({ createContext = () => new (globalThis.
   let buffer;
   let customBuffer;
   let disposed = false;
+  let generation = 0;
   const scheduled = new Map();
   const getContext = () => {
     if (disposed) return null;
@@ -86,16 +87,17 @@ export function createLessonAlarmPlayer({ createContext = () => new (globalThis.
     item.gain.disconnect();
     scheduled.delete(id);
   };
-  const stopAll = () => { [...scheduled.keys()].forEach(stop); };
+  const stopAll = () => { generation++; [...scheduled.keys()].forEach(stop); };
   const stopScheduled = () => { [...scheduled.keys()].filter((id) => id !== 'test').forEach(stop); };
   const unlock = () => {
     const audio = getContext();
     // resume is invoked synchronously from the trusted input event.
-    return audio.resume().then(() => { onState(audio.state); return audio.state === 'running'; });
+    if (!audio) return Promise.resolve(false);
+    return audio.resume().then(() => { if (disposed) return false; onState(audio.state); return audio.state === 'running'; });
   };
   const schedule = (alarms, now = Date.now()) => {
     const audio = getContext();
-    if (audio.state !== 'running') return false;
+    if (!audio || audio.state !== 'running') return false;
     const wanted = new Set(alarms.map((alarm) => alarm.id));
     for (const id of scheduled.keys()) if (!wanted.has('test') && !wanted.has(id) && id !== 'test') stop(id);
     for (const alarm of alarms) {
@@ -123,8 +125,9 @@ export function createLessonAlarmPlayer({ createContext = () => new (globalThis.
     return true;
   };
   const test = async () => {
+    const started = generation;
     const ready = await unlock();
-    if (!ready) return false;
+    if (!ready || disposed || generation !== started) return false;
     const now = Date.now();
     schedule([{ id: 'test', dueMs: now, startMs: now + 4_000 }], now);
     return true;

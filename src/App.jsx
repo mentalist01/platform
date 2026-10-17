@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffe
 import LessonFallback from './components/LessonFallback.jsx';
 import BoardMinimap from './components/BoardMinimap.jsx';
 import { subscribeScheduleSync } from './services/scheduleSync';
+import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
 import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
 import {groupNotebookCode} from './utils/groupNotebook.js';
 import { GROUP_SHARED_CODE_ID, groupCodeTabs } from './utils/groupCodeRooms.js';
@@ -262,6 +263,7 @@ const loadSessionManagementSection = () => import('./components/SessionManagemen
 
 const AdminPanel = React.lazy(loadAdminPanel);
 const BoardTabletHost = React.lazy(() => import('./components/BoardTabletHost.jsx'));
+const BoardSummonListener = React.lazy(() => import('./components/BoardSummonListener.jsx'));
 const loadBoardPagesWorkspace = () => import('./components/BoardPagesWorkspace.jsx');
 const BoardPagesWorkspace = React.lazy(loadBoardPagesWorkspace);
 const CallSection = React.lazy(loadCallSection);
@@ -20301,6 +20303,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       try {
         const socket = new WebSocket(chatLiveWsUrl);
         chatLiveSocketRef.current = socket;
+        if (user.role === 'teacher') lessonAlarmAccountSync.attach(socket, user.id);
 
         socket.onmessage = (event) => {
           if (chatLiveSocketRef.current !== socket) return;
@@ -26630,6 +26633,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
               onTelemostLessonStart={applyTelemostLessonReplay}
             />
+          )}
+          {user.role === 'student' && !studentLessonWorkspaceBlocked && (
+            <React.Suspense fallback={null}>
+              <BoardSummonListener teacherId={user.teacherId} userId={user.id}
+                groupId={activeLearningLesson?.groupId || ''}
+                boardVisible={view === 'board'}
+                onOpenBoard={() => navigateToView('board')} />
+            </React.Suspense>
           )}
           {view === 'board' && !studentLessonWorkspaceBlocked && (
             <BoardSection

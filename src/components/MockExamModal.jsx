@@ -1,3 +1,4 @@
+import FileDownloadLink from './FileDownloadLink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -1949,7 +1950,7 @@ const MockExamModal = ({
                     {files.length > 0 && (
                       <div className="mt-5 grid gap-2 sm:grid-cols-2">
                         {files.map((file) => (
-                          <a
+                          <FileDownloadLink
                             key={file.storageName || file.url}
                             href={buildDownloadUrl(file.url)}
                             download={file?.name || undefined}
@@ -1957,7 +1958,7 @@ const MockExamModal = ({
                           >
                             <span className="min-w-0 truncate">{file.name || 'Файл'}</span>
                             <FileDown size={18} className="shrink-0 text-violet-500" />
-                          </a>
+                          </FileDownloadLink>
                         ))}
                       </div>
                     )}

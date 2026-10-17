@@ -65,6 +65,9 @@ function PagedBoardWorkspace(props) {
         setPageId(current=>boardPageAfterChange(previous,next,current));
         setEditing(current=>next.some(p=>p.id===current)?current:'');
         setDeleting(current=>current && next.some(p=>p.id===current.id)?current:null);
+        // The command can arrive before its newly created page is synced.
+        // Re-check it when the manifest catches up instead of losing the click.
+        controls();
       };
       const controls=()=>{
         const command=control.get('summon');if(teacher || command?.id===lastCommand.current)return;

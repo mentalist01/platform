@@ -40,7 +40,7 @@ import { normalizeMockCompletionEvents, mockCompletionNotifications } from './te
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
-import { registerLessonAlarmDismissals } from './lessonAlarmDismissals.js';
+import { registerLessonAlarmDismissals, attachLessonAlarmSocket } from './lessonAlarmDismissals.js';
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { registerStudentParentContacts } from './studentParentContacts.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
@@ -22738,9 +22738,14 @@ app.use('/api', (req, res, next) => {
 registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: false });
 registerPythonCourseGiftRoutes(app, pythonCourseGiftOptions);
 
-registerLessonAlarmDismissals(app, {
+const lessonAlarmDismissals = registerLessonAlarmDismissals(app, {
   dataDir,
   notify: (teacherId, alarm) => {
+    for (const client of notificationClientsBySocket.values()) {
+      if (client.auth?.role === 'teacher' && client.auth.id === teacherId) {
+        sendNotificationPayload(client.ws, { type: 'lesson-alarm-state', teacherId, alarm });
+      }
+    }
     for (const [id, client] of scheduleSyncClients) {
       if (client.role !== 'teacher' || client.teacherId !== teacherId) continue;
       try { writeSseEvent(client.res, 'schedule-sync', { scope: 'lesson-alarm', teacherId, alarm }); }
@@ -44544,6 +44549,7 @@ notificationsWss.on('connection', (ws, _request, user) => {
     isAlive: true,
   };
   notificationClientsBySocket.set(ws, client);
+  attachLessonAlarmSocket(ws, auth, lessonAlarmDismissals, sendNotificationPayload);
 
   sendNotificationPayload(ws, {
     type: 'ready',

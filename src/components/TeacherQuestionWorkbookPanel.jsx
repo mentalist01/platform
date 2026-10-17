@@ -1,3 +1,4 @@
+import FileDownloadLink from './FileDownloadLink';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, FileSpreadsheet, Plus, RefreshCcw, Trash2 } from 'lucide-react';
 import { api, authenticatedUploadsFetch } from '../services/api';
@@ -112,7 +113,7 @@ function WorkbookPanel({ studentId, taskNumber, levelId, questionId, attachments
             <div><strong>{solution.name}</strong><small>{[solution.authorName, savedAt, solution.size].filter(Boolean).join(' · ')}</small></div>
             <div className="teacher-question-workbooks__actions">
               {editable && workbookHelperSupported && solution.canEdit === true && file && <button type="button" onClick={() => void open(file, solution)} disabled={busy}>Продолжить в LibreOffice</button>}
-              <a href={buildDownloadUrl(url.toString())} download={solution.name}><Download size={16} />Скачать</a>
+              <FileDownloadLink href={buildDownloadUrl(url.toString())} download={solution.name}><Download size={16} />Скачать</FileDownloadLink>
               {editable && solution.canEdit === true && <button type="button" onClick={() => void remove(solution)} disabled={busy} title={`Удалить решение ${solution.name}`} aria-label={`Удалить решение ${solution.name}`}><Trash2 size={16} /></button>}
             </div>
           </div>;

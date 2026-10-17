@@ -1,3 +1,4 @@
+import FileDownloadLink from './FileDownloadLink';
 import { LESSON_PRICING_OPTIONS, lessonPricingLabel, isDurationPricing, calculateLessonPrice } from '../utils/lessonPricing.js';
 import MonthlyMockExamBadge from './MonthlyMockExamBadge';
 import { StudentPaceBadge, StudentPaceHistory } from './StudentLessonPace';
@@ -4512,7 +4513,7 @@ const TeacherPanel = ({
                         {q.files.map((file) => {
                           const fileUrl = withUploadsAuthToken(file?.url || (file?.storageName ? `/uploads/${file.storageName}` : ''));
                           return (
-                            <a
+                            <FileDownloadLink
                               key={file.id || file.url || file.storageName}
                               href={buildDownloadUrl(fileUrl)}
                               download={file?.name || undefined}
@@ -4520,7 +4521,7 @@ const TeacherPanel = ({
                             >
                               <span className="truncate">{file.name || 'Файл'}</span>
                               <Download size={16} className="text-purple-600" />
-                            </a>
+                            </FileDownloadLink>
                           );
                         })}
                       </div>

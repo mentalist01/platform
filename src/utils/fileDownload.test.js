@@ -25,6 +25,8 @@ test('authenticated downloads preserve exact spreadsheet bytes, student scope, U
   assert.deepEqual([...new Uint8Array(await fixture.blobs[0].arrayBuffer())], [...bytes]);
   assert.equal(fixture.link.download, 'Задание 9 — решение.xlsx');
   assert.equal(fixture.link.href, 'blob:download-fixture');
+  assert.equal(fixture.link.target, '_blank', 'a browser preview must not replace the lesson document');
+  assert.equal(fixture.link.rel, 'noopener noreferrer');
   assert.equal(fixture.link.clicked, true);assert.equal(fixture.link.removed, true);
   assert.deepEqual(fixture.revoked, []);assert.equal(fixture.timers[0].delay, 60_000);
   fixture.timers[0].callback();assert.deepEqual(fixture.revoked, ['blob:download-fixture']);

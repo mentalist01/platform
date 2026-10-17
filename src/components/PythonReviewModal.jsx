@@ -1,3 +1,4 @@
+import FileDownloadLink from './FileDownloadLink';
 import RutubeViewingHelp from './RutubeViewingHelp';
 import RutubeChapterPlayer from './RutubeChapterPlayer';
 import { videoChapterMetadata } from '../utils/videoChapters';
@@ -2200,7 +2201,7 @@ const PythonReviewModal = ({
               </div>
               <div className="space-y-2">
                 {extraFiles.map((file) => (
-                  <a
+                  <FileDownloadLink
                     key={file.id || file.url}
                     href={buildDownloadUrl(file.url)}
                     download={file?.name || undefined}
@@ -2208,7 +2209,7 @@ const PythonReviewModal = ({
                   >
                     <span className="truncate">{file.name}</span>
                     <Download size={16} className={isDarkTheme ? 'text-violet-300' : 'text-purple-600'} />
-                  </a>
+                  </FileDownloadLink>
                 ))}
               </div>
             </div>

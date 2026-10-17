@@ -1,3 +1,4 @@
+import FileDownloadLink from './FileDownloadLink';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDownUp, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, Download, FileCode2, FileSpreadsheet, History, ListChecks, RefreshCcw, X } from 'lucide-react';
@@ -799,10 +800,10 @@ const TeacherHomeworkReviewModal = ({
                     {extraFiles.length > 0 && (
                       <div className="mb-5 space-y-2 md:mb-6">
                         {extraFiles.map((file, index) => (
-                          <a key={file.id || file.url || index} href={buildDownloadUrl(file.url)} download={file.name || undefined} className="student-test-file flex items-center justify-between gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50">
+                          <FileDownloadLink key={file.id || file.url || index} href={buildDownloadUrl(file.url)} download={file.name || undefined} className="student-test-file flex items-center justify-between gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:border-purple-300 hover:bg-purple-50">
                             <span className="truncate">{file.name || 'Файл к заданию'}</span>
                             <Download size={16} className="text-purple-600" />
-                          </a>
+                          </FileDownloadLink>
                         ))}
                       </div>
                     )}
@@ -855,7 +856,7 @@ const TeacherHomeworkReviewModal = ({
                               const solutionUrl = withStudentId(solution?.url || '', studentId);
                               const savedAt = formatAttemptTime(solution?.updatedAt);
                               return (
-                                <a
+                                <FileDownloadLink
                                   key={solution?.fileId || `${solution?.attachmentId}-${solution?.slot}`}
                                   href={buildDownloadUrl(solutionUrl)}
                                   download={solution?.name || undefined}
@@ -878,7 +879,7 @@ const TeacherHomeworkReviewModal = ({
                                     <Download size={15} aria-hidden="true" />
                                     Скачать
                                   </span>
-                                </a>
+                                </FileDownloadLink>
                               );
                             })}
                           </div>
