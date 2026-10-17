@@ -2,7 +2,7 @@
 // All schedule consumers in a tab must reuse the same long-lived request.
 export const createScheduleSyncChannel = ({ getConnection, createSource }) => {
   const connections = new Map();
-  return (listener) => {
+  return (listener, { events = ['schedule-sync'] } = {}) => {
     const { key, url } = getConnection();
     let entry = connections.get(key);
     if (!entry) {
@@ -14,12 +14,12 @@ export const createScheduleSyncChannel = ({ getConnection, createSource }) => {
     // Separate wrappers let two consumers safely subscribe the same callback.
     const handleEvent = (event) => listener(event);
     entry.subscribers += 1;
-    entry.source.addEventListener('schedule-sync', handleEvent);
+    for (const name of events) entry.source.addEventListener(name, handleEvent);
     let active = true;
     return () => {
       if (!active) return;
       active = false;
-      entry.source.removeEventListener('schedule-sync', handleEvent);
+      for (const name of events) entry.source.removeEventListener(name, handleEvent);
       entry.subscribers -= 1;
       if (entry.subscribers === 0) {
         entry.source.close();

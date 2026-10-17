@@ -40,6 +40,7 @@ import { normalizeMockCompletionEvents, mockCompletionNotifications } from './te
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
+import { registerLessonAlarmDismissals } from './lessonAlarmDismissals.js';
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { registerStudentParentContacts } from './studentParentContacts.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
@@ -22735,6 +22736,17 @@ app.use('/api', (req, res, next) => {
 
 registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: false });
 registerPythonCourseGiftRoutes(app, pythonCourseGiftOptions);
+
+registerLessonAlarmDismissals(app, {
+  dataDir,
+  notify: (teacherId, alarm) => {
+    for (const [id, client] of scheduleSyncClients) {
+      if (client.role !== 'teacher' || client.teacherId !== teacherId) continue;
+      try { writeSseEvent(client.res, 'schedule-sync', { scope: 'lesson-alarm', teacherId, alarm }); }
+      catch { removeScheduleSyncClient(id); }
+    }
+  },
+});
 
 registerLearningSubscriptionRoutes(app, learningSubscriptions, {
   student: id => findStudentById(id),

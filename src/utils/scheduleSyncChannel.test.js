@@ -80,3 +80,20 @@ test('browsers without EventSource can keep using existing polling', () => {
   });
   assert.doesNotThrow(() => subscribe(() => {})());
 });
+
+test('alarm can restore missed stops on stream reconnect without another connection', () => {
+  const { subscribe, sources } = fixture();
+  let calendar = 0;
+  let alarm = 0;
+  const stopCalendar = subscribe(() => { calendar++; });
+  const stopAlarm = subscribe(() => { alarm++; }, { events: ['schedule-sync', 'ready'] });
+  assert.equal(sources.length, 1);
+  sources[0].dispatchEvent(new Event('ready'));
+  assert.equal(calendar, 0);
+  assert.equal(alarm, 1);
+  stopAlarm();
+  sources[0].dispatchEvent(new Event('ready'));
+  assert.equal(alarm, 1);
+  assert.equal(sources[0].closed, false);
+  stopCalendar();
+});

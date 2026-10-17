@@ -12,7 +12,7 @@ export function LessonAlarmNotice({ alarm }) {
       ? `Через несколько минут занятие: ${alarm.ringing.title} · ${new Date(alarm.ringing.startMs).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}${alarm.ringing.simultaneousCount > 1 ? ` · сигналов: ${alarm.ringing.simultaneousCount}` : ''}`
       : blocked ? 'Будильник за 5 минут: включите звук в этой вкладке.' : alarm.error}</span>
     {blocked && <button type="button" onClick={alarm.test}><Volume2 size={14} />Включить и проверить звук</button>}
-    {alarm.ringing && <button type="button" onClick={alarm.stop}><X size={14} />Остановить</button>}
+    {alarm.ringing && <button type="button" onClick={alarm.stop}><X size={14} />Остановить во всех вкладках</button>}
   </div>;
 }
 
@@ -25,10 +25,10 @@ export function LessonAlarmSettings({ alarm }) {
     <div className="lesson-alarm-settings__row">
       <button type="button" aria-pressed={alarm.enabled} onClick={() => alarm.setEnabled(!alarm.enabled)}><Bell size={14} />{alarm.enabled ? 'Будильник: за 5 минут' : 'Будильник выключен'}</button>
       <button type="button" onClick={alarm.test}><Volume2 size={14} />Проверить звук</button>
-      <button type="button" onClick={alarm.stop}>Остановить звук</button>
+      <button type="button" onClick={alarm.stop}>Остановить во всех вкладках</button>
       <span>{!alarm.enabled ? '' : !alarm.loaded ? 'Загружаем расписание…' : alarm.audioState === 'running' ? 'Звук готов' : 'Нажмите «Проверить звук»'}</span>
     </div>
-    <p>Работает во всех разделах платформы и в фоновой вкладке. Сигнал повторяется до отключения или начала занятия.</p>
+    <p>Работает во всех разделах платформы и в фоновой вкладке. Сигнал повторяется до отключения или начала занятия. Остановка в одной вкладке выключает текущий сигнал во всех открытых вкладках вашего аккаунта, в том числе в другом браузере. Следующие сигналы остаются включены.</p>
     {alarm.next && <p>Сигнал по расписанию: {new Date(alarm.next.dueMs).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {alarm.next.title}</p>}
     <details><summary>Своя мелодия</summary><div className="lesson-alarm-settings__row">
       <label>Файл до 5 МБ<input type="file" accept="audio/*" onChange={(event) => { void alarm.setFile(event.target.files?.[0]); event.target.value = ''; }} /></label>

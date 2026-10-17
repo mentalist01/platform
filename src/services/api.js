@@ -2578,6 +2578,20 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getLessonAlarm: async () => {
+    const res = await apiFetch('/api/lesson-alarm', { requestTimeoutMs: 8_000 });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  stopLessonAlarm: async (stoppedAtMs) => {
+    const res = await apiFetch('/api/lesson-alarm/stop', {
+      method: 'POST', requestTimeoutMs: 8_000,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stoppedAtMs }),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getTeacherSchedule: async (teacherId) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', String(teacherId));

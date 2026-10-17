@@ -8,6 +8,7 @@ import {
   LESSON_ALARM_PREFS_PREFIX,
 } from '../utils/lessonAlarm';
 import { accessAlarmMelody } from '../utils/lessonAlarmMelodyStore';
+import { createLessonAlarmDismissal } from '../utils/lessonAlarmDismissal';
 
 function readPreferences(userId) {
   try {
@@ -53,9 +54,10 @@ export function useLessonAlarm(teacherId) {
     let cleanedUp = false;
     const dismissedKey = `${LESSON_ALARM_PREFS_PREFIX}dismissed:${teacherId}`;
     const fallbackOwnerKey = `${LESSON_ALARM_PREFS_PREFIX}owner:${teacherId}`;
-    const channel = typeof BroadcastChannel === 'function'
-      ? new BroadcastChannel(`ivan100-lesson-alarm:${teacherId}`)
-      : null;
+    let channel = null;
+    try {
+      if (typeof BroadcastChannel === 'function') channel = new BroadcastChannel(`ivan100-lesson-alarm:${teacherId}`);
+    } catch { /* storage and account sync remain available */ }
     const dismissed = new Set();
     const readDismissed = () => {
       try {
@@ -67,6 +69,17 @@ export function useLessonAlarm(teacherId) {
     const player = createLessonAlarmPlayer({ onState: (state) => {
       if (!disposed) { setAudioState(state); sync(); }
     } });
+    const dismissal = createLessonAlarmDismissal({
+      teacherId, events: window, channel,
+      storage: {
+        getItem: (key) => localStorage.getItem(key),
+        setItem: (key, value) => localStorage.setItem(key, value),
+      },
+      loadRemote: () => api.getLessonAlarm(),
+      stopRemote: (stoppedAtMs) => api.stopLessonAlarm(stoppedAtMs),
+      onStop: () => player.stopAll(), onChange: () => sync(),
+    });
+    const refreshDismissal = () => dismissal.refresh().catch(() => {});
     const releaseFallbackOwnership = () => {
       if (navigator.locks?.request) return;
       try {
@@ -102,10 +115,10 @@ export function useLessonAlarm(teacherId) {
     }
     function sync() {
       if (disposed) return;
-      if (!preferencesRef.current.enabled) { release(); setRinging(null); setNext(null); return; }
+      if (!preferencesRef.current.enabled) { player.stopAll(); release(); setRinging(null); setNext(null); return; }
       readDismissed();
       const now = Date.now();
-      const alarms = buildLessonAlarms(entries, teacherId, marks, now).filter((alarm) => !dismissed.has(alarm.id));
+      const alarms = buildLessonAlarms(entries, teacherId, marks, now).filter((alarm) => !dismissed.has(alarm.id) && !dismissal.isDismissed(alarm));
       const nextAlarm = alarms[0] || null;
       const ringingAlarms = getRingingLessonAlarms(alarms, now);
       const currentAlarm = ringingAlarms[0]
@@ -145,11 +158,15 @@ export function useLessonAlarm(teacherId) {
       if (!preferencesRef.current.enabled) return;
       try { void player.unlock().then(() => { if (!disposed) sync(); }).catch(() => {}); } catch { setAudioState('unavailable'); }
     };
-    const restore = () => { if (document.visibilityState !== 'hidden') { unlock(); void refresh(); } };
+    const restore = () => { if (document.visibilityState !== 'hidden') { unlock(); void refreshDismissal(); void refresh(); } };
     const onStorage = (event) => {
       if (event.key === dismissedKey) sync();
       if (event.key === fallbackOwnerKey) sync();
-      if (event.key === `${LESSON_ALARM_PREFS_PREFIX}${teacherId}`) setPreferences(readPreferences(teacherId));
+      if (event.key === `${LESSON_ALARM_PREFS_PREFIX}${teacherId}`) {
+        preferencesRef.current = readPreferences(teacherId);
+        setPreferences(preferencesRef.current);
+        sync();
+      }
     };
     engine.current = {
       player, sync, unlock, refresh,
@@ -158,8 +175,9 @@ export function useLessonAlarm(teacherId) {
         getRingingLessonAlarms(buildLessonAlarms(entries, teacherId, marks, now), now)
           .forEach((alarm) => dismissed.add(alarm.id));
         try { localStorage.setItem(dismissedKey, JSON.stringify([...dismissed].filter((id) => Number(id.split(':').at(-1)) > now - 86_400_000))); } catch { /* private browsing */ }
-        player.stopAll();
-        channel?.postMessage({ type: 'dismissed' });
+        void dismissal.stop().catch(() => {
+          if (!disposed) setError('Звук остановлен в этом браузере. Не удалось передать отключение в другие браузеры — проверьте интернет.');
+        });
         sync();
       },
     };
@@ -170,10 +188,10 @@ export function useLessonAlarm(teacherId) {
     setNext(null);
     setError('');
     setLoaded(false);
-    void refresh();
+    void refreshDismissal().then(() => { if (!disposed) void refresh(); });
     unlock();
     const tick = window.setInterval(sync, 5_000);
-    const poll = window.setInterval(() => void refresh(), 60_000);
+    const poll = window.setInterval(() => { void refreshDismissal(); void refresh(); }, 60_000);
     document.addEventListener('pointerdown', unlock, { capture: true, passive: true });
     document.addEventListener('keydown', unlock, true);
     document.addEventListener('visibilitychange', restore);
@@ -181,11 +199,10 @@ export function useLessonAlarm(teacherId) {
     window.addEventListener('online', restore);
     window.addEventListener('storage', onStorage);
     window.addEventListener('pagehide', release);
-    const onChannelMessage = (event) => {
-      if (event?.data?.type === 'dismissed') sync();
-    };
-    channel?.addEventListener('message', onChannelMessage);
-    const unsubscribeScheduleSync = subscribeScheduleSync(refresh);
+    const unsubscribeScheduleSync = subscribeScheduleSync((event) => {
+      if (event.type === 'ready') { void refreshDismissal(); return; }
+      if (!dismissal.receiveEvent(event)) void refresh();
+    }, { events: ['schedule-sync', 'ready'] });
     const cleanup = () => {
       if (cleanedUp) return;
       cleanedUp = true;
@@ -201,7 +218,7 @@ export function useLessonAlarm(teacherId) {
       window.removeEventListener('online', restore);
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('pagehide', release);
-      channel?.removeEventListener('message', onChannelMessage);
+      dismissal.dispose();
       channel?.close();
       unsubscribeScheduleSync();
     };
@@ -259,7 +276,7 @@ export function useLessonAlarm(teacherId) {
     preferencesRef.current = { ...preferencesRef.current, enabled };
     setPreferences(preferencesRef.current);
     if (enabled) engine.current?.unlock();
-    else engine.current?.sync();
+    else engine.current?.stop();
   };
   const setFile = async (file) => {
     if (file && file.size > 5 * 1024 * 1024) { setSoundNote('Выберите аудиофайл до 5 МБ.'); return; }
