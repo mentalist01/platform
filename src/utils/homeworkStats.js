@@ -190,6 +190,7 @@ const buildTaskGoal = ({
   checkpointMs,
   dueAtMs,
   isLatest,
+  useCurrentProgress = false,
 }) => {
   const taskNumber = Number(goal?.taskNumber);
   if (!Number.isFinite(taskNumber)) return null;
@@ -215,7 +216,10 @@ const buildTaskGoal = ({
       windowEndMs
     );
     const hasTimestampedCompletion = attempts.some((entry) => entry.correct) || eventTimes.length > 0;
-    const useLifetimeFallback = isLatest && !hasTimestampedCompletion && solvedSet.has(target.questionId);
+    // Group assignments coexist: publishing EGE work does not reset Python,
+    // and the same solved target stays solved in every group homework card.
+    const useLifetimeFallback = (isLatest || useCurrentProgress)
+      && !hasTimestampedCompletion && solvedSet.has(target.questionId);
     const current = classifyAttempts({
       attempts,
       solvedEventTimes: eventTimes,
@@ -521,7 +525,8 @@ export const buildHomeworkStatistics = ({
     const { entry, issuedAtMs } = prepared;
     const nextIssuedAtMs = sorted[chronologicalIndex + 1]?.issuedAtMs ?? null;
     const windowStartMs = entry.learningEgeCarryover ? asTimestamp(entry.carryoverOriginalIssuedAt) ?? issuedAtMs : issuedAtMs;
-    const windowEndMs = !entry.learningEgeCarryover && nextIssuedAtMs != null && nextIssuedAtMs > (issuedAtMs ?? Number.NEGATIVE_INFINITY)
+    const groupHomework = entry.source === 'learning-group';
+    const windowEndMs = !groupHomework && !entry.learningEgeCarryover && nextIssuedAtMs != null && nextIssuedAtMs > (issuedAtMs ?? Number.NEGATIVE_INFINITY)
       ? nextIssuedAtMs
       : safeNowMs + 1;
     const dueAtMs = resolveHomeworkDueAtMs(entry, issuedAtMs);
@@ -554,6 +559,7 @@ export const buildHomeworkStatistics = ({
               checkpointMs,
               dueAtMs,
               isLatest,
+              useCurrentProgress: groupHomework,
             })
       ))
       .filter(Boolean);
