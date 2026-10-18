@@ -329,6 +329,7 @@ export const finalizeMockExamFollowup = ({
   targetTaskKeys,
   testsDb,
   solvedByTask,
+  enqueueReview = true,
 } = {}) => {
   if (!isRecord(exam) || !isRecord(exam.tasks)) {
     throw new TypeError('exam with tasks is required');
@@ -374,6 +375,7 @@ export const finalizeMockExamFollowup = ({
   const queuedEntries = [];
 
   scopedTaskKeys.forEach((taskKey) => {
+    if (!enqueueReview) return;
     if (solvedMap[taskKey] === true) return;
     const sourceMockTaskNumber = normalizeTaskNumber(taskKey);
     const sourceQuestion = exam.tasks[taskKey];

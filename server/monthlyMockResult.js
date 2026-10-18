@@ -9,12 +9,8 @@ const finishedAt=attempt=>attempt?.finishedAt||attempt?.timerFinishedAt
 
 // Resolve the exact completed attempt. An unfinished retry must never replace
 // the result, and a missing legacy score is different from a real zero.
-export function getMonthlyMockCompletionScore(studentData={},completion){
-  if(!completion)return null;
-  if(completion.manualId){
-    const manual=(studentData.mocks||[]).find((item,index)=>(String(item.id||'')||`${index}:${timestamp(item.date||item.createdAt)}`)===completion.manualId);
-    return manual?score(manual.score):null;
-  }
+function completedAttempts(studentData,completion){
+  if(!completion)return [];
   const matches=raw=>{
     if(!record(raw))return false;
     if(completion.attemptId&&String(raw.attemptId||'')!==completion.attemptId)return false;
@@ -24,7 +20,16 @@ export function getMonthlyMockCompletionScore(studentData={},completion){
   const history=(Array.isArray(studentData.mockAttemptResults)?studentData.mockAttemptResults:[])
     .filter(raw=>String(raw?.examId||'')===completion.examId)
     .map(raw=>({...raw.attemptSnapshot,...raw})).find(matches);
-  for(const attempt of [matches(current)?current:null,history]){
+  return [matches(current)?current:null,history].filter(Boolean);
+}
+
+export function getMonthlyMockCompletionScore(studentData={},completion){
+  if(!completion)return null;
+  if(completion.manualId){
+    const manual=(studentData.mocks||[]).find((item,index)=>(String(item.id||'')||`${index}:${timestamp(item.date||item.createdAt)}`)===completion.manualId);
+    return manual?score(manual.score):null;
+  }
+  for(const attempt of completedAttempts(studentData,completion)){
     if(!attempt)continue;
     if(record(attempt.solved))return getMockSecondaryScoreFromSolved(attempt.solved);
     const secondary=score(attempt.secondaryScore);
@@ -32,4 +37,21 @@ export function getMonthlyMockCompletionScore(studentData={},completion){
     if(score(attempt.primaryScore)!==null)return getMockSecondaryScoreFromPrimary(attempt.primaryScore);
   }
   return null;
+}
+
+// Metadata only: a teacher sees why a repeat differs from the first-attempt
+// score used in monthly reports, without receiving answers in this endpoint.
+export function getMonthlyMockCompletionDetails(studentData={},completion){
+  const result={score:getMonthlyMockCompletionScore(studentData,completion)};
+  if(!completion||completion.manualId)return result;
+  const attempt=completedAttempts(studentData,completion)[0];
+  if(Number(attempt?.attemptNumber)>0)result.attemptNumber=Number(attempt.attemptNumber);
+  if(typeof attempt?.isFirstAttempt==='boolean')result.isFirstAttempt=attempt.isFirstAttempt;
+  const first=(studentData.mockAttemptResults||[]).find(entry=>String(entry.examId)===String(completion.examId)
+    &&(entry.isFirstAttempt===true||Number(entry.attemptNumber)===1));
+  if(first){
+    const firstCompletion={examId:completion.examId,attemptId:first.attemptId,finishedAt:first.finishedAt};
+    result.firstAttempt={score:getMonthlyMockCompletionScore(studentData,firstCompletion),finishedAt:first.finishedAt};
+  }
+  return result;
 }

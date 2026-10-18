@@ -35,6 +35,7 @@ import { api } from '../services/api';
 import { getClassicTask } from '../data/classicTaskRuntime';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockExamAnalysisModal from './MockExamAnalysisModal';
+import {getMockAttemptViews,mockAttemptLabel} from '../utils/mockExamAttemptView.js';
 import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
@@ -722,6 +723,7 @@ const ProgressSection = ({
   const [mockEditorExam, setMockEditorExam] = useState(null);
   const [mockAnalysisExam, setMockAnalysisExam] = useState(null);
   const [mockAnalysisAttempt, setMockAnalysisAttempt] = useState(null);
+  const [mockAnalysisViews, setMockAnalysisViews] = useState([]);
   const [mockAnalysisLoading, setMockAnalysisLoading] = useState(false);
   const [activeMockExam, setActiveMockExam] = useState(null);
   const [activeMockAttempt, setActiveMockAttempt] = useState(null);
@@ -853,7 +855,7 @@ const ProgressSection = ({
   const visibleMockExams = useMemo(() => {
     const baseList = role !== 'student'
       ? [...(mockExams || [])]
-      : (mockExams || []).filter((exam) => isMockExamAccessible(exam, effectiveStudentId));
+      : (mockExams || []).filter((exam) => isMockExamAccessible(exam, effectiveStudentId) && !(exam.monthlyPolicy && !exam.monthlyPolicy.archived));
 
     return baseList.sort((left, right) => {
       const leftTitle = String(left?.title || '').trim();
@@ -879,7 +881,8 @@ const ProgressSection = ({
     if (!effectiveStudentId) return null;
 
     const examStats = (studentVisibleMockExams || []).map((exam) => {
-      const attempt = mockAttemptsByExam?.[exam.id];
+      const stored = mockAttemptsByExam?.[exam.id];
+      const attempt = stored?.bestAttempt ? {...stored.bestAttempt,monthlyPolicy:stored.monthlyPolicy,bestAttempt:stored.bestAttempt,attemptHistory:stored.attemptHistory} : stored;
       const attemptExam = resolveMockExamForAttempt(exam, attempt);
       const attemptMode = normalizeMockAttemptMode(attempt?.mode, getAssignedMockExamMode(exam, attempt));
       const isSubmitted = Boolean(
@@ -2650,7 +2653,7 @@ const ProgressSection = ({
     }
     setMockExamsError('');
     try {
-      const shouldStartAttempt = role === 'student' && (forceHomeworkStart || !modeLocked);
+      const shouldStartAttempt = role === 'student' && !exam.readOnly && (forceHomeworkStart || !modeLocked);
       let fetchedAttempt = await api.getMockAttempt(mockAttemptStudentId, exam.id);
       if (shouldStartAttempt) {
         const freshServerTargetTaskKeys = Array.from(new Set(
@@ -2862,7 +2865,8 @@ const ProgressSection = ({
 
   const studentMockExamRows = useMemo(() => (
     (studentVisibleMockExams || []).map((exam, index) => {
-      const attempt = mockAttemptsByExam?.[exam.id];
+      const stored = mockAttemptsByExam?.[exam.id];
+      const attempt = stored?.bestAttempt ? {...stored.bestAttempt,monthlyPolicy:stored.monthlyPolicy,bestAttempt:stored.bestAttempt,attemptHistory:stored.attemptHistory} : stored;
       const assignedMode = getAssignedMockExamMode(exam, attempt);
       const fallbackAttemptMode = normalizeMockAttemptMode(attempt?.mode, assignedMode);
       const fallbackSolvedMap = fallbackAttemptMode === MOCK_ATTEMPT_MODE_TIMER && !String(attempt?.timerFinishedAt || '').trim()
@@ -3185,25 +3189,12 @@ const ProgressSection = ({
       ? mockAttemptsByExam?.[exam.id]
       : null;
     const getAnalysisState = (candidate) => {
-      if (!candidate || typeof candidate !== 'object') return { exam, attempt: null };
-      const firstResult = Array.isArray(candidate.attemptHistory)
-        ? candidate.attemptHistory[0]
-        : (candidate.firstAttempt || null);
-      let analysisAttempt = candidate;
-      if (firstResult && typeof firstResult === 'object') {
-        analysisAttempt = firstResult.attemptSnapshot && typeof firstResult.attemptSnapshot === 'object'
-          ? firstResult.attemptSnapshot
-          : firstResult;
-      }
-      const analysisExam = resolveMockExamForAttempt(exam, analysisAttempt, firstResult);
-      return {
-        exam: analysisExam,
-        attempt: analysisExam && analysisAttempt
-          ? { ...analysisAttempt, examSnapshot: analysisExam }
-          : analysisAttempt,
-      };
+      const views = getMockAttemptViews(exam, candidate || {},
+        (studentData?.mockAttemptResults || []).filter(result => String(result.examId) === String(exam.id)));
+      return {...views[0], views};
     };
     const cachedAnalysis = getAnalysisState(cachedAttempt);
+    setMockAnalysisViews(cachedAnalysis.views);
     setMockAnalysisExam(cachedAnalysis.exam);
     setMockAnalysisAttempt(cachedAnalysis.attempt);
     if (cachedAttempt && typeof cachedAttempt === 'object') {
@@ -3216,6 +3207,7 @@ const ProgressSection = ({
       if (mockAnalysisRequestIdRef.current !== requestId) return;
       const normalizedAttempt = attempt && typeof attempt === 'object' ? attempt : {};
       const analysis = getAnalysisState(normalizedAttempt);
+      setMockAnalysisViews(analysis.views);
       setMockAnalysisExam(analysis.exam);
       setMockAnalysisAttempt(analysis.attempt);
       const previousCacheOwner = mockAttemptsOwnerRef.current;
@@ -3257,6 +3249,7 @@ const ProgressSection = ({
       ? response.currentAttempt
       : {};
     setMockAnalysisAttempt(nextAttempt);
+    setMockAnalysisViews(getMockAttemptViews(mockAnalysisExam, {...currentAttempt, attemptHistory: history}));
     setMockAttemptsByExam((previous) => ({
       ...(previous || {}),
       [examId]: {
@@ -3521,8 +3514,8 @@ const ProgressSection = ({
               ? 'growing'
               : 'starting';
     const scoreHeroLabel = role === 'teacher'
-      ? (hasVisibleScore && !isFinalScore ? 'Сейчас у ученика' : 'Результат ученика')
-      : (hasVisibleScore && !isFinalScore ? 'Сейчас у тебя' : 'Твой результат');
+      ? (hasVisibleScore && !isFinalScore ? 'Сейчас у ученика' : `${attempt?.monthlyPolicy ? 'Лучший результат · ' : ''}${mockAttemptLabel(attempt).toLowerCase()}`)
+      : (hasVisibleScore && !isFinalScore ? 'Сейчас у тебя' : attempt?.monthlyPolicy ? 'Лучший результат' : 'Твой результат');
     const scoreHeroCaption = !hasExamTasks
       ? 'Пока нет заданий'
       : hasVisibleScore
@@ -3536,6 +3529,7 @@ const ProgressSection = ({
       : `${scoreHeroLabel}: ${scoreEmptyLabel}. ${scoreHeroCaption}.`;
     const launchButtonLabel = !hasExamTasks
       ? 'Скоро'
+      : role === 'student' && exam.readOnly ? 'Посмотреть'
       : canRestartTimerAttempt || isSubmitted
         ? 'Открыть'
         : examStats.isCompleted
@@ -3543,7 +3537,7 @@ const ProgressSection = ({
           : examStats.hasStarted
             ? 'Продолжить'
             : 'Начать';
-    const launchButtonDisplayLabel = (
+    const launchButtonDisplayLabel = role === 'student' && exam.readOnly ? 'Посмотреть задания' : (
       hasExamTasks
       && !canRestartTimerAttempt
       && !isSubmitted
@@ -3653,6 +3647,8 @@ const ProgressSection = ({
                 )}
               </div>
               <small>{scoreHeroCaption}</small>
+              {attempt?.monthlyPolicy && <small>{`${mockAttemptLabel(attempt)} · использовано ${attempt.monthlyPolicy.usedAttempts} из ${attempt.monthlyPolicy.maxAttempts} попыток`}</small>}
+              {role === 'student' && exam.readOnly && <small>История · только просмотр</small>}
             </div>
             <Button
               variant={examStats.isCompleted ? 'secondary' : 'primary'}
@@ -3727,7 +3723,7 @@ const ProgressSection = ({
                 style={{ '--mock-task-count': Math.max(1, taskStats.length) }}
               >
                 {taskStats.map((taskStat, taskIndex) => {
-                  const isNextTask = !examStats.isCompleted && String(taskStat.taskKey) === String(nextOpenTask?.taskKey || '');
+                  const isNextTask = !isSubmitted && !timerAttemptFinished && !examStats.isCompleted && String(taskStat.taskKey) === String(nextOpenTask?.taskKey || '');
                   const taskState = taskStat.solved
                     ? 'solved'
                     : isNextTask
@@ -5747,6 +5743,11 @@ const ProgressSection = ({
               open
               exam={mockAnalysisExam}
               attempt={mockAnalysisAttempt}
+              attemptOptions={mockAnalysisViews}
+              onSelectAttempt={key => {
+                const view = mockAnalysisViews.find(item => item.key === key);
+                if (view) { setMockAnalysisExam(view.exam); setMockAnalysisAttempt(view.attempt); }
+              }}
               taskAnalytics={role === 'teacher'
                 ? (mockTaskAnalyticsByExam?.[mockAnalysisExam.id] || {})
                 : {}}
@@ -5797,6 +5798,7 @@ const ProgressSection = ({
               exam={activeMockExam}
               studentId={effectiveStudentId}
               initialAttempt={activeMockAttempt}
+              readOnly={role === 'student' && (activeMockAttempt?.readOnly === true || activeMockExam?.readOnly === true)}
               initialTaskNumber={activeMockInitialTask}
               targetTaskKeys={activeMockTargetTaskKeys}
               attemptMode={activeMockMode}
@@ -5890,7 +5892,7 @@ const ProgressSection = ({
                 setStartingMockExamId(activeMockExam.id);
                 try {
                   const attempt = await api.startMockAttempt(mockAttemptStudentId, activeMockExam.id, {
-                    mode: MOCK_ATTEMPT_MODE_TIMER,
+                    mode: activeMockMode,
                     restartTimerExam: true,
                   });
                   if (mockAttemptRequestIdRef.current !== requestId) return null;

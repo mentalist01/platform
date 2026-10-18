@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {getMonthlyMockCompletionScore as score} from './monthlyMockResult.js';
+import {getMonthlyMockCompletionScore as score,getMonthlyMockCompletionDetails} from './monthlyMockResult.js';
 const finishedAt='2026-10-12T10:00:00.000Z';
 const completion={examId:'monthly',attemptId:'first',finishedAt};
 const attempt={attemptId:'first',finishedAt,status:'finished'};
@@ -29,4 +29,12 @@ test('legacy primary scores and snapshots are supported without fabricating miss
 });
 test('a result from a different completion date is never substituted',()=>{
   assert.equal(score({mockAttempts:{monthly:{...attempt,finishedAt:'2026-10-13T10:00:00Z',solved:{1:true}}}},completion),null);
+});
+
+test('repeat metadata separates the displayed 27 from the first 20 used by reports',()=>{
+  const first={...attempt,examId:'monthly',attemptNumber:1,isFirstAttempt:true,solved:{1:true,4:true,10:true}};
+  const retry={...attempt,attemptId:'retry',attemptNumber:2,isFirstAttempt:false,finishedAt:'2026-10-12T10:08:00.000Z',solved:{1:true,4:true,10:true,11:true}};
+  const details=getMonthlyMockCompletionDetails({mockAttempts:{monthly:retry},mockAttemptResults:[first]}, {...completion,attemptId:'retry',finishedAt:retry.finishedAt});
+  assert.deepEqual(details,{score:27,attemptNumber:2,isFirstAttempt:false,firstAttempt:{score:20,finishedAt}});
+  assert.equal(JSON.stringify(details).includes('solved'),false);
 });

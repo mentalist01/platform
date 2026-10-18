@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildStudentMonthlyReport, normalizeStudentReportMonth } from './studentMonthlyReport.js';
+import {buildMockExamProgressEntries} from './mockExamProgress.js';
+
+test('reports use the best permitted monthly score and do not count retakes as extra exams',()=>{
+  const tasks={1:{},4:{},10:{},11:{}};
+  const first={examId:'exam',attemptId:'first',attemptNumber:1,isFirstAttempt:true,mode:'timer',finishedAt:'2026-10-16T14:35:00Z',tasks,solved:{1:true,4:true,10:true,11:false}};
+  const retry={...first,attemptId:'retry',attemptNumber:2,isFirstAttempt:false,finishedAt:'2026-10-16T14:43:00Z',timerFinishedAt:'2026-10-16T14:43:00Z',updatedAt:'2026-10-16T14:43:00Z',solved:{...first.solved,11:true}};
+  const input={teacherId:'teacher',studentData:{mockAttemptResults:[first],mockAttempts:{exam:retry}},mockExams:[{id:'exam',tasks,monthlyAssignments:{teacher:['2026-10']}}],mockAttemptsByExam:{exam:retry}};
+  const mockEntries=buildMockExamProgressEntries(input);
+  assert.deepEqual(mockEntries.map(e=>e.score),[27]);
+  assert.deepEqual(buildMockExamProgressEntries({...input,includeRetakes:true}).map(e=>e.score),[20,27]);
+  const report=buildStudentMonthlyReport({student:{name:'Андрей'},month:'2026-10',nowMs:Date.parse('2026-10-18T17:00:00Z'),mockEntries});
+  assert.equal(report.metrics.mocks.latestScore,27);assert.equal(report.metrics.mocks.count,1);assert.equal(report.metrics.mocks.latestIsBestAttempt,true);
+  assert.match(report.parentText,/лучший результат из 2 попыток/u);assert.match(report.studentText,/лучший результат/u);
+});
 
 test('reports keep the actual mock result without automatically promising a mock review in the conclusion', () => {
   for (let variant = 0; variant < 30; variant++) {

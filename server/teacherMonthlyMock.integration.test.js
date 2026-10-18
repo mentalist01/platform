@@ -28,3 +28,22 @@ test('teacher monthly card scopes one pupil and returns the assigned completed s
     const roster=await request('/api/monthly-mock-status',tokens['teacher-a']);assert.equal(roster.rows.length,2);
   }finally{await fixture.stop();}
 });
+
+test('the monthly card and report explicitly distinguish first and repeat scores', {timeout:60000},async()=>{
+  const month=getMonthlyMockMonth(),finishedAt=new Date(Date.now()-60_000).toISOString(),repeatAt=new Date(Date.now()-30_000).toISOString();
+  const tasks=Object.fromEntries(['1','4','7','10','11'].map(key=>[key,{question:key,answer:key}]));
+  const first={examId:'monthly',attemptId:'first',attemptNumber:1,isFirstAttempt:true,status:'finished',mode:'timer',finishedAt,timerFinishedAt:finishedAt,tasks,answers:{1:'1',4:'4',10:'10',11:'wrong'},solved:{1:true,4:true,10:true,11:false}};
+  const fixture=await createGroupHomeworkFixture(undefined,write=>{
+    write('mock-exams',[{id:'monthly',title:'Входной пробник',tasks,access:{all:true,mode:'timer'},monthlyAssignments:{'teacher-a':[month]}}]);
+    write('progress',{'student-a':{mockAttemptResults:[first],mockAttempts:{monthly:{...first,attemptId:'retry',attemptNumber:2,isFirstAttempt:false,finishedAt:repeatAt,timerFinishedAt:repeatAt,answers:{...first.answers,7:'wrong',11:'11'},solved:{...first.solved,11:true}}}}});
+  });
+  try{
+    const card=await fixture.request('/api/monthly-mock-status?studentId=student-a',fixture.tokens['teacher-a']);
+    assert.equal(card.rows[0].score,27);assert.equal(card.rows[0].attemptNumber,2);assert.equal(card.rows[0].firstAttempt.score,20);
+    const report=await fixture.request('/api/student-month-report?studentId=student-a&month='+month,fixture.tokens['teacher-a']);
+    assert.equal(report.metrics.mocks.latestScore,27);assert.equal(report.metrics.mocks.latestIsBestAttempt,true);
+    assert.match(report.text,/лучший результат/u);
+    const roster=await fixture.request('/api/monthly-mock-status',fixture.tokens['teacher-a']);
+    assert.equal(Object.hasOwn(roster.rows[0],'firstAttempt'),false);
+  }finally{await fixture.stop();}
+});

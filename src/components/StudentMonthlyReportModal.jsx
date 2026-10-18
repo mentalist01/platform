@@ -212,7 +212,7 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
     {
       label: 'ПРОБНИК',
       value: report?.metrics?.mocks?.latestScore == null ? '—' : String(report.metrics.mocks.latestScore),
-      note: report?.metrics?.mocks?.latestScore == null ? 'нет результата' : 'баллов',
+      note: report?.metrics?.mocks?.latestScore == null ? 'нет результата' : report.metrics.mocks.latestIsBestAttempt ? 'лучший результат' : 'баллов',
       color: '#7c3aed',
       fill: '#f5f3ff',
     },
@@ -529,7 +529,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
               <MetricCard
                 icon={BarChart3}
                 tone="mocks"
-                label="Пробник"
+                label={mocks.latestIsBestAttempt ? 'Пробник · лучший результат' : 'Пробник'}
                 value={mocks.latestScore == null ? '—' : mocks.latestScore}
                 note={mocks.latestScore == null
                   ? 'нет результата'

@@ -57,6 +57,7 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
         <div className="student-monthly-mock__description">
           <span className="student-monthly-mock__eyebrow">{completed ? 'Ещё один шаг вперёд' : started ? 'Осталось завершить пробник' : exempt ? 'Дополнительная практика' : 'Ваш следующий шаг'}</span>
           <h4>{assignment.title}</h4>
+          {row?.attemptPolicy && <p><strong>Ваш пробник №{row.attemptPolicy.ordinal} · использовано {row.attemptPolicy.usedAttempts} из {row.attemptPolicy.maxAttempts} попыток</strong><br/>В отчёт идёт лучший результат.{row.attemptPolicy.remainingAttempts > 0 ? ` Осталось попыток: ${row.attemptPolicy.remainingAttempts}.` : ' Все попытки использованы.'}</p>}
           <p>{completed ? 'Вы завершили пробник этого месяца. Можно вернуться к заданиям и посмотреть свой результат.' : exempt ? 'Преподаватель разрешил не проходить пробник в этом месяце. Вы можете решить его для практики.' : started ? 'Пробник уже начат. Вернитесь к заданиям и доведите его до конца.' : 'Проверьте свои знания и узнайте, что уже получается, а над чем ещё стоит поработать.'}</p>
           <div className="student-monthly-mock__facts">
             <span><ListChecks size={16} aria-hidden="true" />{assignment.taskCount} заданий</span>
@@ -65,7 +66,7 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
         </div>
       </div>
       <div className="student-monthly-mock__action-panel">
-        {completed ? <div className="student-monthly-mock__achievement"><span><CheckCircle2 size={25} aria-hidden="true" /></span><div><strong>Месяц — с результатом</strong><p>Пробник пройден</p></div></div> : <div className="student-monthly-mock__deadline">
+        {completed ? <div className="student-monthly-mock__achievement"><span><CheckCircle2 size={25} aria-hidden="true" /></span><div><strong>{typeof row.score === 'number' ? `Лучший результат: ${row.score} из 100` : 'Месяц — с результатом'}</strong><p>Пробник пройден</p></div></div> : <div className="student-monthly-mock__deadline">
           <span className="student-monthly-mock__date" aria-hidden="true"><CalendarDays size={15} /><strong>{deadlineDay}</strong><small>{deadlineMonth}</small></span>
           <div><span className="student-monthly-mock__deadline-label">{exempt ? 'Можно пройти до' : 'Решите весь пробник до'}</span><strong>{deadline}</strong><p>23:59 · по Москве</p></div>
         </div>}

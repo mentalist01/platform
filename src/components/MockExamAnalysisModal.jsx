@@ -86,6 +86,8 @@ const MockExamAnalysisModal = ({
   attempt,
   taskAnalytics = {},
   studentLabel = '',
+  attemptOptions = [],
+  onSelectAttempt,
   taskCatalog = [],
   targetTaskKeys = null,
   getAnswerCountForTask,
@@ -127,6 +129,7 @@ const MockExamAnalysisModal = ({
 
   const viewKey = [
     analysis.examId,
+    attempt?.attemptId || '',
     attempt?.studentId || attempt?.userId || '',
     attempt?.finishedAt || attempt?.updatedAt || attempt?.startedAt || '',
   ].join(':');
@@ -176,6 +179,7 @@ const MockExamAnalysisModal = ({
     ? analysis.recommendedTaskKeys.map((taskKey) => `№${taskKey}`).join(', ')
     : '';
 
+  const selectedAttempt = attemptOptions.find(item => String(item.attempt?.attemptId || '') === String(attempt?.attemptId || ''));
   const content = (
     <div className="fixed inset-0 z-[1850] flex items-stretch justify-center bg-slate-950/70 p-0 backdrop-blur-sm sm:p-3 lg:p-5">
       <section
@@ -207,6 +211,15 @@ const MockExamAnalysisModal = ({
           </button>
         </header>
 
+        {selectedAttempt && <div className="border-b border-slate-200 bg-[rgb(var(--surface))] px-4 py-3 sm:px-6">
+          <label className="flex flex-wrap items-center gap-3 text-sm font-bold">
+            <span>Попытка для разбора</span>
+            {attemptOptions.length > 1 ? <select aria-label="Попытка для разбора" value={selectedAttempt.key} onChange={event => onSelectAttempt?.(event.target.value)} className="max-w-full rounded-xl border border-indigo-300 bg-[rgb(var(--surface))] px-3 py-2 text-[rgb(var(--ink))]">
+              {attemptOptions.map(item => <option key={item.key} value={item.key}>{item.label}{item.attempt.finishedAt || item.attempt.timerFinishedAt ? ` · ${new Date(item.attempt.finishedAt || item.attempt.timerFinishedAt).toLocaleString('ru-RU', {timeZone:'Europe/Moscow', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'})} МСК` : ''}</option>)}
+            </select> : <span>{selectedAttempt.label}</span>}
+          </label>
+          {attemptOptions.length > 1 && <p className="mt-2 text-xs text-[rgb(var(--ink-soft))]">В отчёте и динамике учитывается лучшая разрешённая попытка месячного пробника. Ответы каждой попытки можно посмотреть отдельно.</p>}
+        </div>}
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6">
           {!analysis.hasStarted ? (
             <div className="grid min-h-[55vh] place-items-center rounded-[28px] border border-dashed border-indigo-200 bg-[rgb(var(--surface))] px-6 text-center">

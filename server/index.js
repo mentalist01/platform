@@ -48,7 +48,9 @@ import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homewo
 import { homeworkLivesLessonHistory } from './homeworkLivesLessonHistory.js';
 import { registerStudentParentContacts } from './studentParentContacts.js';
 import { registerStudentContacts } from './studentContacts.js';
-import { getMonthlyMockCompletionScore } from './monthlyMockResult.js';
+import { getMonthlyMockCompletionDetails } from './monthlyMockResult.js';
+import {monthlyAttemptContext,monthlyQuotaError} from './monthlyMockAttemptPolicy.js';
+import {monthlyAssignedMonths,mockAttemptMonth,getMonthlyAttemptRecords} from '../src/utils/monthlyMockAttemptPolicy.js';
 import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
@@ -14348,6 +14350,7 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     ...(timerRewardsDisabled ? { timerRewardsDisabled: true } : {}),
     ...(homeworkId ? { homeworkId } : {}),
     ...(homeworkIssuedAt ? { homeworkIssuedAt } : {}),
+    ...(meta?.monthlyMockMonth && getMonthlyMockPeriod(meta.monthlyMockMonth) ? {monthlyMockMonth:meta.monthlyMockMonth,monthlyMockOrdinal:Math.max(1,Number(meta.monthlyMockOrdinal)||1)} : {}),
     ...(['homework', 'monthly', 'self'].includes(meta?.assignmentSource) ? { assignmentSource: meta.assignmentSource } : {}),
     ...(targetTaskKeys.length > 0 ? { targetTaskKeys } : {}),
     ...(Object.keys(taskDurationsMs).length > 0 ? { taskDurationsMs } : {}),
@@ -14358,7 +14361,7 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
 const hideUnfinishedMockTimerResults = (attempt) => {
   if (!attempt || typeof attempt !== 'object') return attempt;
   const mode = normalizeMockAttemptMode(attempt?.mode);
-  if (mode !== MOCK_ATTEMPT_MODE_TIMER || normalizeMockTimerTimestamp(attempt?.timerFinishedAt)) {
+  if (mode !== MOCK_ATTEMPT_MODE_TIMER || normalizeMockTimerTimestamp(attempt?.timerFinishedAt) || normalizeMockTimerTimestamp(attempt?.finishedAt)) {
     return attempt;
   }
   return {
@@ -14408,8 +14411,7 @@ const getFirstMockAttemptResult = (history, examId = '') => {
 };
 
 const getFirstMockAttemptHistory = (history, examId = '') => {
-  const first = getFirstMockAttemptResult(history, examId);
-  return first ? [first] : [];
+  return normalizeMockExamFollowupHistory(history).filter(entry => !examId || String(entry.examId) === String(examId)).sort((a,b) => getMockAttemptHistoryTimestamp(a) - getMockAttemptHistoryTimestamp(b));
 };
 
 const filterMockAttemptAnswersToTaskKeys = (answers, targetTaskKeys = []) => {
@@ -15598,6 +15600,7 @@ const getStudentMockHomeworkMode = (studentData, examId, testsDb = null) => (
 const getStudentMockLaunchAssignment = (exam, studentData, teacherId) => {
   if (getAssignedMonthlyMockExam([exam], teacherId)?.id === exam.id
     && isMonthlyMockPublished(exam, teacherId)) return 'monthly';
+  if (monthlyAssignedMonths(exam,teacherId).some(month => month < getMonthlyMockMonth() && getMonthlyAttemptRecords(studentData,exam,teacherId,month).length > 0)) return 'history';
   return getStudentMockHomeworkAssignment(studentData, exam.id) ? 'homework' : '';
 };
 
@@ -19923,28 +19926,7 @@ const sanitizeStudentDataForClient = (studentData, studentId = '', reportTeacher
   const queue = normalizeMockExamFollowupQueue(studentData.mockTestingQueue);
   const normalizedAttemptResults = normalizeMockExamFollowupHistory(studentData.mockAttemptResults).filter(result => !unpublishedIds.has(result.examId));
   if (Array.isArray(safe.monthlyMockCompletions)) safe.monthlyMockCompletions = safe.monthlyMockCompletions.filter(entry => !unpublishedIds.has(entry.examId));
-  const markedAttemptExamIds = new Set(normalizedAttemptResults
-    .filter((result) => (
-      result?.isFirstAttempt === true
-      || (Number.isInteger(Number(result?.attemptNumber)) && Number(result?.attemptNumber) > 0)
-    ))
-    .map((result) => String(result?.examId || '').trim())
-    .filter(Boolean));
-  const firstAttemptIdByExamId = new Map();
-  normalizedAttemptResults.forEach((result) => {
-    const examId = String(result?.examId || '').trim();
-    if (!examId || firstAttemptIdByExamId.has(examId)) return;
-    const official = normalizedAttemptResults.filter(entry => entry.examId === examId && assigned(examId, entry));
-    const first = getFirstMockAttemptResult(official.length ? official : normalizedAttemptResults, examId);
-    firstAttemptIdByExamId.set(examId, first ? String(first?.attemptId || '').trim() : '');
-  });
   safe.mockAttemptResults = normalizedAttemptResults
-    .filter((result) => {
-      const examId = String(result?.examId || '').trim();
-      const firstAttemptId = firstAttemptIdByExamId.get(examId);
-      return !markedAttemptExamIds.has(examId)
-        || Boolean(firstAttemptId && String(result?.attemptId || '').trim() === firstAttemptId);
-    })
     .map((result) => {
       const resultTasks = result?.tasks && typeof result.tasks === 'object' && !Array.isArray(result.tasks)
         ? result.tasks
@@ -19979,6 +19961,12 @@ const serializeMockExamEntry = (exam, options = {}) => {
     : null;
   safeExam.requiredTargetTaskKeys = homeworkAssignment?.targetTaskKeys || [];
   safeExam.monthlyAssignedMonths = normalizeMonthlyMockAssignments(exam.monthlyAssignments)[options.monthlyTeacherId] || [];
+  if (options.studentData) {
+    const student = options.student || {teacherId:options.monthlyTeacherId};
+    const context = monthlyAttemptContext(options.studentData,options.exams || [exam],exam,student);
+    if (context) safeExam.monthlyPolicy = context.policy;
+    if (options.sanitizeForStudent) safeExam.readOnly = !context || context.policy.archived;
+  }
   safeExam.monthlyPublicationDay = getMonthlyMockPublication(exam, options.monthlyTeacherId)?.day || 1;
   if (options.studentData) safeExam.canStart = Boolean(getStudentMockLaunchAssignment(exam, options.studentData, options.monthlyTeacherId));
   if (safeExam.monthlyAssignedMonths.includes(getMonthlyMockMonth()) && safeExam.access.all) {
@@ -29933,8 +29921,16 @@ app.get('/api/monthly-mock-status', (req, res) => {
     const data = publicationPending ? {} : progressDb[student.id] || {};
     const status = buildMonthlyMockStatus(data, exams, period, now,
       getAssignedMonthlyMockExam(exams, student.teacherId, period.month)?.id || '');
+    const context = assignedExam ? monthlyAttemptContext(data,exams,assignedExam,student,period.month) : null;
+    const best = context?.best;
+    const completion = best ? {examId:assignedExam.id,attemptId:best.attempt.attemptId || '',finishedAt:best.attempt.finishedAt || best.attempt.timerFinishedAt,title:assignedExam.title} : status.completion;
     return { studentId: student.id, name: student.name, ...status,
-      ...(targetStudentId ? { score: status.status === 'completed' ? getMonthlyMockCompletionScore(data, status.completion) : null } : {}),
+      ...(best ? {status:'completed',completion} : {}),
+      ...(targetStudentId || isStudentRole(req.auth) ? {
+        ...(status.status === 'completed' || best ? getMonthlyMockCompletionDetails(data,completion) : {score:null}),
+        ...(best ? {score:best.score} : {}),
+        ...(context ? {attemptPolicy:context.policy} : {}),
+      } : {}),
     };
   });
   res.setHeader('Cache-Control', 'no-store');
@@ -30470,7 +30466,7 @@ app.get('/api/students/leaderboard-profile', (req, res) => {
     activity: getLeaderboardProfileActivitySummary(data?.solvedEvents, endDayNum, LEADERBOARD_WEEK_DAYS),
     mocks: getLeaderboardProfileMockSummary(Object.fromEntries(Object.entries(data?.mockAttempts || {}).filter(([examId, attempt]) => (
       isAssignedMockAttempt({ examId, exam: mockExamById[examId], attempt, studentData: data, teacherId: targetStudent.teacherId })
-    ))), mockExamById),
+    )).map(([examId,attempt]) => [examId,monthlyAttemptContext(data,Object.values(mockExamById),mockExamById[examId],targetStudent)?.best?.attempt || attempt])), mockExamById),
     coins: {
       balance: coinsBalance,
       spentTotal: coinsSpentTotal,
@@ -31841,6 +31837,8 @@ app.get('/api/mock-exams', (req, res) => {
       sanitizeForStudent: true,
       studentData,
       monthlyTeacherId: getTaskContentTeacherIdForAuth(req.auth),
+      exams: list,
+      student: readStudentsDb().find(item => item.id === req.auth.id),
     })));
   }
   if (requestedStudentId) {
@@ -31850,7 +31848,7 @@ app.get('/api/mock-exams', (req, res) => {
       isMockExamVisibleToStudent(exam, student.id)
     ));
     const studentData = getStudentData(student.id);
-    return res.json(filtered.map((exam) => serializeMockExamEntry(exam, { studentData, monthlyTeacherId: student.teacherId })));
+    return res.json(filtered.map((exam) => serializeMockExamEntry(exam, { studentData, monthlyTeacherId: student.teacherId, student, exams:list })));
   }
   res.json((Array.isArray(list) ? list : [])
     .filter((exam) => !isPersonalRandomMockExam(exam))
@@ -31985,9 +31983,11 @@ app.get('/api/mock-exams/attempt', (req, res) => {
     : {};
   const partialMonthlyAttempt = monthlyExam && Array.isArray(stored.targetTaskKeys) && stored.targetTaskKeys.length > 0
     && Object.keys(exam.tasks || {}).some(key => !stored.targetTaskKeys.includes(key));
+  const context = monthlyAttemptContext(data,list,exam,student);
+  const displayStored = context?.best && !context.policy.active ? context.best.attempt : stored;
   const visibleAttempt = partialMonthlyAttempt || homeworkAssignment && !isMockAttemptForHomework(stored, homeworkAssignment)
     ? {}
-    : stored;
+    : displayStored;
   const firstHistory = getFirstMockAttemptHistory(data.mockAttemptResults, exam.id);
   const visibleAttemptId = String(visibleAttempt?.attemptId || '').trim();
   const matchingResult = visibleAttemptId
@@ -32009,6 +32009,8 @@ app.get('/api/mock-exams/attempt', (req, res) => {
   res.json({
     ...serializeMockAttemptForClient(normalizedVisibleAttempt, { sanitizeForStudent: isStudentRole(req.auth) }),
     requiredMode,
+    ...(context ? {monthlyPolicy:context.policy,bestAttempt:context.best ? serializeMockAttemptForClient(context.best.attempt,{sanitizeForStudent:isStudentRole(req.auth)}) : null} : {}),
+    readOnly: isStudentRole(req.auth) && (!context || context.policy.archived),
     ...(isStaffViewer ? {
       attemptHistory: firstHistory,
       firstAttempt: firstHistory[0] || null,
@@ -32464,6 +32466,11 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const data = getStudentData(student.id);
   if (isStudentRole(req.auth) && !getStudentMockLaunchAssignment(exam, data, student.teacherId)) return mockAssignmentRequired(res);
   const monthlyExam = getAssignedMonthlyMockExam(list, student.teacherId)?.id === exam.id;
+  const monthlyContext = monthlyAttemptContext(data,list,exam,student);
+  if (isStudentRole(req.auth) && !monthlyExam) return res.status(403).json({code:'MOCK_HISTORY_READ_ONLY',error:'Решать можно только текущий пробник месяца в разделе «Сегодня». Остальные пробники доступны для просмотра.'});
+  const quotaError = monthlyQuotaError(monthlyContext,{restart:restartTimerExam === true,newAttempt:startOnly === true && !data.mockAttempts?.[exam.id]?.attemptId});
+  if (quotaError) return res.status(409).json(quotaError);
+
   const requiredMode = monthlyExam ? normalizeMockExamAccess(exam.access).mode : getRequiredMockExamModeForStudent(exam, data);
   const homeworkAssignment = monthlyExam ? null : getStudentMockHomeworkAssignment(data, exam.id);
   const assignmentTargetTaskKeys = uniqueStrings(homeworkAssignment?.targetTaskKeys).slice(0, 200);
@@ -32471,6 +32478,9 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const storedAttempt = attempts[String(examId)] && typeof attempts[String(examId)] === 'object'
     ? attempts[String(examId)]
     : {};
+  if (monthlyExam && restartTimerExam === true && (storedAttempt.finishedAt || storedAttempt.timerFinishedAt) && storedAttempt.attemptId && !(data.mockAttemptResults || []).some(item => item.attemptId === storedAttempt.attemptId)) {
+    data.mockAttemptResults = [...(data.mockAttemptResults || []), {examId:exam.id,examTitle:exam.title,attemptId:storedAttempt.attemptId,attemptNumber:storedAttempt.attemptNumber,isFirstAttempt:storedAttempt.isFirstAttempt,finishedAt:storedAttempt.finishedAt || storedAttempt.timerFinishedAt,tasks:storedAttempt.examSnapshot?.tasks || exam.tasks,solved:storedAttempt.solved,answers:storedAttempt.answers,attemptSnapshot:storedAttempt,examSnapshot:storedAttempt.examSnapshot || createMockExamSnapshot(exam)}];
+  }
   const attemptHistory = getFirstMockAttemptHistory(data.mockAttemptResults, exam.id);
   const storedAttemptId = String(storedAttempt?.attemptId || '').trim();
   const storedAttemptResult = storedAttemptId
@@ -32478,7 +32488,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     : null;
   const storedAttemptExam = resolveMockExamForAttempt(exam, storedAttempt, storedAttemptResult);
   const startsNewHomeworkAttempt = Boolean(
-    homeworkAssignment && !isMockAttemptForHomework(storedAttempt, homeworkAssignment)
+    monthlyExam && Object.keys(storedAttempt).length > 0 && mockAttemptMonth(storedAttempt,exam,student.teacherId) !== getMonthlyMockMonth()
+    || homeworkAssignment && !isMockAttemptForHomework(storedAttempt, homeworkAssignment)
     || monthlyExam && Object.keys(storedAttempt).length > 0 && !isAssignedMockAttempt({ examId: exam.id, exam, attempt: storedAttempt, studentData: data, teacherId: student.teacherId })
     || monthlyExam && Array.isArray(storedAttempt.targetTaskKeys) && storedAttempt.targetTaskKeys.length > 0
       && Object.keys(exam.tasks || {}).some(key => !storedAttempt.targetTaskKeys.includes(key))
@@ -32614,8 +32625,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const canRestartTimerAttempt = Boolean(
     requestedTimerRestart
     && startOnly
-    && attemptMode === MOCK_ATTEMPT_MODE_TIMER
-    && (previousTimerFinishedAt || previousTimerExpired || previousTimerHasEvaluatedSolvedResults)
+    && (attemptMode === MOCK_ATTEMPT_MODE_TIMER && (previousTimerFinishedAt || previousTimerExpired || previousTimerHasEvaluatedSolvedResults) || monthlyExam && previousFinishedAt)
   );
   if (requestedTimerRestart && !canRestartTimerAttempt) {
     return res.status(409).json({ error: 'Повторный таймер можно запустить только после завершения времени.' });
@@ -32722,7 +32732,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     attemptId,
     taskDurationsMs: scopedTaskDurationsMs,
     rewardsDisabled: examRewardsDisabled,
-    ...(monthlyExam ? { homeworkId: '', homeworkIssuedAt: '', targetTaskKeys: [] } : {}),
+    ...(monthlyExam ? { homeworkId: '', homeworkIssuedAt: '', targetTaskKeys: [],monthlyMockMonth:getMonthlyMockMonth(),monthlyMockOrdinal:monthlyContext.policy.ordinal,assignmentSource:'monthly' } : {}),
     ...(homeworkAssignment ? {
       homeworkId: homeworkAssignment.id,
       homeworkIssuedAt: homeworkAssignment.issuedAt,
@@ -32766,6 +32776,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
         { sanitizeForStudent: isStudentRole(req.auth) }
       ),
       requiredMode,
+      ...(monthlyContext ? {monthlyPolicy:monthlyAttemptContext(updated,list,exam,student).policy} : {}),
     });
   }
   const secondaryScore = getMockSecondaryScoreFromSolved(normalizedAttemptBase.solved);
@@ -32822,7 +32833,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   let mockTestingQueue = normalizeMockExamFollowupQueue(data.mockTestingQueue);
   let finalizedMockResult = null;
   let queuedTestingEntries = [];
-  if (isAttemptFinishRequest && attemptNumber === 1) {
+  if (isAttemptFinishRequest) {
     const followup = finalizeMockExamFollowup({
       history: mockAttemptResults,
       queue: mockTestingQueue,
@@ -32833,6 +32844,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       targetTaskKeys: normalizedAttempt.targetTaskKeys,
       testsDb: readTestsDbForStudent(student),
       solvedByTask: data.solvedByTask,
+      enqueueReview: attemptNumber === 1,
     });
     const primaryScore = getMockPrimaryScoreFromSolved(normalizedAttempt.solved);
     mockAttemptResults = followup.history.map((entry) => (
@@ -33061,6 +33073,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       { sanitizeForStudent: isStudentRole(req.auth) }
     ),
     requiredMode,
+    ...(monthlyContext ? {monthlyPolicy:monthlyAttemptContext(updated,list,exam,student).policy,bestAttempt:serializeMockAttemptForClient(monthlyAttemptContext(updated,list,exam,student).best?.attempt || null,{sanitizeForStudent:isStudentRole(req.auth)})} : {}),
     ...(isAttemptFinishRequest
       ? {
           finalized: true,
@@ -37280,6 +37293,7 @@ app.get('/api/student-month-report', async (req, res) => {
     const mockEntries = buildMockExamProgressEntries({
       assignedOnly: true,
       teacherId: student.teacherId,
+      studentCreatedAt: student.createdAt,
       studentData,
       mockExams,
       mockAttemptsByExam,

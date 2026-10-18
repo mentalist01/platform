@@ -266,6 +266,7 @@ const MockExamModal = ({
   exam,
   studentId,
   initialAttempt,
+  readOnly = false,
   attemptMode = MOCK_ATTEMPT_MODE_CLASSIC,
   initialTaskNumber = null,
   targetTaskKeys = null,
@@ -482,7 +483,7 @@ const MockExamModal = ({
     setAnswers(filterMockExamAnswersToTaskKeys(
       mergeMockExamAnswersWithDraft(
         readAttemptAnswers(nextAttempt),
-        readMockExamAnswerDraft({
+        readOnly ? null : readMockExamAnswerDraft({
           studentId,
           examId: exam?.id,
           mode: nextMode,
@@ -513,7 +514,7 @@ const MockExamModal = ({
     const nextSelectedTask = initialTask || firstTaskNumber;
     previousSelectedTaskRef.current = nextSelectedTask;
     setSelectedTask(nextSelectedTask);
-  }, [attemptMode, exam?.id, studentId, firstTaskNumber, hasRequestedTaskScope, initialTaskNumber, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
+  }, [readOnly, attemptMode, exam?.id, studentId, firstTaskNumber, hasRequestedTaskScope, initialTaskNumber, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
 
   useEffect(() => {
     if (hasLocalAttemptChangesRef.current) return;
@@ -528,7 +529,7 @@ const MockExamModal = ({
     setAnswers(filterMockExamAnswersToTaskKeys(
       mergeMockExamAnswersWithDraft(
         readAttemptAnswers(nextAttempt),
-        readMockExamAnswerDraft({
+        readOnly ? null : readMockExamAnswerDraft({
           studentId,
           examId: exam?.id,
           mode: nextMode,
@@ -544,9 +545,10 @@ const MockExamModal = ({
     setResults(readAttemptResults(nextAttempt));
     setSaveError('');
     setSaveStatus('');
-  }, [attemptMode, exam?.id, hasRequestedTaskScope, initialAttempt, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved, studentId]);
+  }, [readOnly, attemptMode, exam?.id, hasRequestedTaskScope, initialAttempt, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved, studentId]);
 
   useEffect(() => {
+    if (readOnly) return;
     if (skipNextDraftWriteRef.current) {
       skipNextDraftWriteRef.current = false;
       return;
@@ -560,7 +562,7 @@ const MockExamModal = ({
       scoped: hasRequestedTaskScope,
       answers,
     });
-  }, [activeDraftAttemptKey, answers, effectiveAttemptMode, exam?.id, hasRequestedTaskScope, modalTaskNumbers, studentId]);
+  }, [readOnly, activeDraftAttemptKey, answers, effectiveAttemptMode, exam?.id, hasRequestedTaskScope, modalTaskNumbers, studentId]);
 
   useEffect(() => {
     if (!isTimerMode || timerPaused) return undefined;
@@ -772,6 +774,7 @@ const MockExamModal = ({
   const secondaryBadges = examBadges.slice(1);
   const totalTaskCount = modalTaskNumbers.length;
   const attemptFinished = Boolean(
+    readOnly ||
     String(activeAttempt?.finishedAt || '').trim()
     || String(activeAttempt?.status || '').trim().toLowerCase() === 'finished'
   );
@@ -1137,6 +1140,7 @@ const MockExamModal = ({
 
   const handleClose = async () => {
     if (restartingTimer || closing || isExiting) return;
+    if (readOnly) { closeWithAnimation(); return; }
     if (
       warnBeforeTimerClose
       && isTimerMode
@@ -1177,8 +1181,10 @@ const MockExamModal = ({
   };
 
   const canRestartTimerExam = Boolean(
-    isTimerMode
-    && (timerExpired || timerResultsVisible)
+    !readOnly
+    && (isTimerMode || activeAttempt?.monthlyPolicy)
+    && (!activeAttempt?.monthlyPolicy || activeAttempt.monthlyPolicy.canRestart)
+    && (attemptFinished || timerExpired || timerResultsVisible)
     && typeof onRestartTimerAttempt === 'function'
     && !checking
     && !closing
@@ -1542,11 +1548,13 @@ const MockExamModal = ({
   );
 
   const renderTimerExamActions = (compact = false) => {
-    if (!isTimerMode) return null;
+    if (readOnly) return <p className="rounded-xl border border-slate-300 p-3 text-sm font-semibold">История пробника · только просмотр заданий и сохранённых ответов</p>;
+    if (!isTimerMode && !activeAttempt?.monthlyPolicy) return null;
 
     return (
-      <div className={`mock-exam-timer-actions ${compact ? 'mb-3 flex flex-col gap-2 sm:flex-row' : 'mt-3 flex flex-col gap-2'}`}>
-        {(timerExpired || timerResultsVisible) && typeof onRestartTimerAttempt === 'function' && (
+      <div className={`mock-exam-timer-actions ${compact ? 'mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap' : 'mt-3 flex flex-col gap-2'}`}>
+        {activeAttempt?.monthlyPolicy && <p className="basis-full text-sm font-semibold">Пробник №{activeAttempt.monthlyPolicy.ordinal} · использовано {activeAttempt.monthlyPolicy.usedAttempts} из {activeAttempt.monthlyPolicy.maxAttempts} попыток. В результат идёт лучшая.</p>}
+        {(attemptFinished || timerExpired || timerResultsVisible) && (!activeAttempt?.monthlyPolicy || activeAttempt.monthlyPolicy.canRestart) && typeof onRestartTimerAttempt === 'function' && (
           <Button
             type="button"
             variant="secondary"
@@ -1555,7 +1563,7 @@ const MockExamModal = ({
             className={`min-h-[2.8rem] w-full rounded-2xl ${isDarkTheme ? 'border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]' : ''}`}
           >
             <Clock3 size={17} />
-            {restartingTimer ? 'Запускаем...' : 'Решить заново без наград'}
+            {restartingTimer ? 'Запускаем...' : activeAttempt?.monthlyPolicy ? `Следующая попытка · осталось ${activeAttempt.monthlyPolicy.remainingAttempts}` : 'Решить заново без наград'}
           </Button>
         )}
         {shouldShowContinueTimerExam ? (

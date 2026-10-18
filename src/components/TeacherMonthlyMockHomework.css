@@ -13,6 +13,7 @@
 .teacher-monthly-mock__result-icon{display:grid;place-items:center;margin-bottom:10px;width:48px;height:48px;border-radius:14px;background:#e5daf8;color:#5b21b6}
 .teacher-monthly-mock__result>strong{font-size:14px;line-height:1.6}
 .teacher-monthly-mock__finished{margin:7px 0 0;color:var(--mock-muted);font-size:11px;line-height:1.6}
+.teacher-monthly-mock__first-result{margin:12px 0 0;padding-top:10px;border-top:1px solid #93b9a7;color:var(--mock-muted);font-size:12px;line-height:1.6}
 .teacher-monthly-mock__error{padding:10px 13px;margin:16px 0 0;border:1px solid #e5ba65;border-radius:11px;background:#fff8e7;color:#7b470a;font-size:12px;line-height:1.6}
 .teacher-monthly-mock[data-status='completed'] .teacher-monthly-mock__result{border-color:#6fb89a;background:#eaf8f1}
 .teacher-monthly-mock[data-status='completed'] .teacher-monthly-mock__result-label{color:#215b45}

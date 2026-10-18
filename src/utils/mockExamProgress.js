@@ -2,37 +2,9 @@ import { getAcademicYearMeta } from './homeworkStats.js';
 import { resolveMockExamForAttempt } from './mockExamVersioning.js';
 import { isAssignedMockAttempt } from './mockExamAssignment.js';
 
-const PRIMARY_TO_SECONDARY = {
-  1: 7,
-  2: 14,
-  3: 20,
-  4: 27,
-  5: 34,
-  6: 40,
-  7: 43,
-  8: 46,
-  9: 48,
-  10: 51,
-  11: 54,
-  12: 56,
-  13: 59,
-  14: 62,
-  15: 64,
-  16: 67,
-  17: 70,
-  18: 72,
-  19: 75,
-  20: 78,
-  21: 80,
-  22: 83,
-  23: 85,
-  24: 88,
-  25: 90,
-  26: 93,
-  27: 95,
-  28: 98,
-  29: 100,
-};
+import {getMockPrimaryScoreFromSolved,getMockSecondaryScoreFromSolved,getMockSecondaryScoreFromPrimary} from './mockExamScore.js';
+export {getMockPrimaryScoreFromSolved,getMockSecondaryScoreFromSolved,getMockSecondaryScoreFromPrimary};
+import {mockAttemptMonth,getMonthlyMockAttemptPolicy} from './monthlyMockAttemptPolicy.js';
 
 const normalizeText = (value) => String(value ?? '').trim();
 
@@ -140,29 +112,13 @@ const isFinishedAttempt = (attempt) => Boolean(
   || normalizeText(attempt?.status).toLowerCase() === 'finished'
 );
 
-export const getMockPrimaryScoreFromSolved = (solvedMap) => {
-  const solved = solvedMap && typeof solvedMap === 'object' ? solvedMap : {};
-  return Array.from({ length: 27 }, (_, index) => index + 1).reduce((sum, taskNumber) => (
-    solved[String(taskNumber)]
-      ? sum + ([26, 27].includes(taskNumber) ? 2 : 1)
-      : sum
-  ), 0);
-};
-
-export const getMockSecondaryScoreFromSolved = (solvedMap) => {
-  return getMockSecondaryScoreFromPrimary(getMockPrimaryScoreFromSolved(solvedMap));
-};
-
-export const getMockSecondaryScoreFromPrimary = value => {
-  const primaryScore = Math.max(0, Math.min(29, Math.round(Number(value) || 0)));
-  return primaryScore > 0 ? PRIMARY_TO_SECONDARY[primaryScore] || 0 : 0;
-};
-
 export const buildMockExamProgressEntries = ({
   studentData = {},
   mockExams = [],
   mockAttemptsByExam = {},
   assignedOnly = false,
+  includeRetakes = false,
+  studentCreatedAt = '',
   teacherId = '',
 } = {}) => {
   const examById = (Array.isArray(mockExams) ? mockExams : []).reduce((result, exam) => {
@@ -214,6 +170,7 @@ export const buildMockExamProgressEntries = ({
         examId,
         attemptId: normalizeText(result.attemptId),
         source: 'online',
+        monthlyMockMonth: mockAttemptMonth(scoreAttempt, exam, teacherId) || mockAttemptMonth(result, exam, teacherId),
         mode: normalizeText(result.mode).toLowerCase() || 'classic',
         ...(Number.isInteger(Number(result.attemptNumber)) && Number(result.attemptNumber) > 0
           ? { attemptNumber: Number(result.attemptNumber) }
@@ -265,7 +222,9 @@ export const buildMockExamProgressEntries = ({
       return {
         id: `online:${examId}`,
         examId,
+        attemptId,
         source: 'online',
+        monthlyMockMonth: mockAttemptMonth(attempt, exam, teacherId),
         mode,
         ...(Number.isInteger(Number(attempt.attemptNumber)) && Number(attempt.attemptNumber) > 0
           ? { attemptNumber: Number(attempt.attemptNumber) }
@@ -318,7 +277,20 @@ export const buildMockExamProgressEntries = ({
     || Number(entry.attemptNumber) === 1
   ));
 
-  return [...storedEntries, ...firstAttemptEntries]
+  const bestMonthly = new Map();
+  for (const entry of [...frozenEntries, ...onlineEntries]) {
+    if (!entry.monthlyMockMonth) continue;
+    const policy = getMonthlyMockAttemptPolicy({studentData:{...studentData,mockAttempts:attemptByExamId},exams:mockExams,exam:examById[entry.examId] || {id:entry.examId},teacherId,month:entry.monthlyMockMonth,studentCreatedAt});
+    if ((Number(entry.attemptNumber) || 1) > policy.maxAttempts) continue;
+    const key = `${entry.examId}:${entry.monthlyMockMonth}`;
+    const previous = bestMonthly.get(key);
+    if (!previous || entry.score > previous.score || entry.score === previous.score && entry.dateMs < previous.dateMs) {
+      bestMonthly.set(key,{...entry,isBestAttempt:true,attemptsLimit:policy.maxAttempts,attemptsUsed:policy.usedAttempts});
+    }
+  }
+  return [...storedEntries, ...(includeRetakes ? [...frozenEntries, ...onlineEntries] : [
+    ...firstAttemptEntries.filter(entry => !entry.monthlyMockMonth), ...bestMonthly.values(),
+  ])]
     .sort((left, right) => (
       left.dateMs - right.dateMs
       || left.source.localeCompare(right.source)

@@ -3,6 +3,7 @@ import {BookOpen,CheckCircle2,Clock3,ListChecks,RefreshCcw} from 'lucide-react';
 import {api} from '../services/api';
 import {getMonthlyMockMonth,getMonthlyMockPeriod,MONTHLY_MOCK_TIME_ZONE} from '../utils/monthlyMockExam';
 import {getTeacherMonthlyMockView} from '../utils/teacherMonthlyMock.js';
+import {mockAttemptLabel} from '../utils/mockExamAttemptView.js';
 import './StudentMonthlyMockHomework.css';
 import './TeacherMonthlyMockHomework.css';
 
@@ -33,15 +34,17 @@ export function TeacherMonthlyMockCard({data,error,studentId,studentName='',busy
     {error&&<p className="teacher-monthly-mock__error" role="status">Не удалось обновить пробник.{data?' Показаны последние полученные данные.':' Нажмите «Обновить», чтобы повторить.'}</p>}
     <div className="student-monthly-mock__body">
       <div className="student-monthly-mock__description">
-        <span className="student-monthly-mock__eyebrow">{completed?'Результат ученика':'Статус прохождения'}</span>
+        <span className="student-monthly-mock__eyebrow">{completed?`Лучший результат · ${mockAttemptLabel(row).toLowerCase()}`:'Статус прохождения'}</span>
         <h4>{assignment?.title||(status==='loading'?'Проверяем пробник…':status==='unassigned'?'Пробник пока не назначен':'Пробник месяца ученика')}</h4>
         <p>{description}</p>
+        {row?.attemptPolicy && <p><strong>Пробник №{row.attemptPolicy.ordinal} · использовано {row.attemptPolicy.usedAttempts} из {row.attemptPolicy.maxAttempts} попыток</strong><br/>В отчёте и статистике учитывается лучший результат.</p>}
         {assignment&&<div className="student-monthly-mock__facts"><span><ListChecks size={16}/>{taskCountLabel(assignment.taskCount)}</span><span><Clock3 size={16}/>{assignment.mode==='classic'?'Без таймера':'С таймером'}</span></div>}
       </div>
       <div className="student-monthly-mock__action-panel teacher-monthly-mock__result">
         {score!==null?<><span className="teacher-monthly-mock__result-label">Итоговый балл</span><output aria-label="Результат пробника"><strong>{score}</strong><span>из 100 баллов</span></output></>
           :<><span className="teacher-monthly-mock__result-icon">{completed?<CheckCircle2 size={28}/>:<Clock3 size={28}/>}</span><strong>{completed?'Баллы не сохранены':status==='loading'?'Проверяем…':'Результата пока нет'}</strong></>}
         {completed&&row?.completion?.finishedAt&&<p className="teacher-monthly-mock__finished">Завершён {date(row.completion.finishedAt)} · МСК</p>}
+        {completed&&row.attemptNumber>1&&typeof row.firstAttempt?.score==='number'&&<p className="teacher-monthly-mock__first-result">Первая попытка — <strong>{row.firstAttempt.score} из 100</strong>{row.firstAttempt.finishedAt?` · ${date(row.firstAttempt.finishedAt)} МСК`:''}</p>}
       </div>
     </div>
   </section>;

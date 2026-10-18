@@ -347,6 +347,10 @@ const formatMockDelta = (value) => {
   return `${delta} ${pluralize(delta, 'балл', 'балла', 'баллов')}`;
 };
 
+const mockAttemptReportNote = mocks => mocks.attemptsLimit > 1
+  ? `В отчёте учтён лучший результат из ${mocks.attemptsUsed} ${pluralize(mocks.attemptsUsed, 'попытки', 'попыток', 'попыток')}. Для этого пробника доступно до ${mocks.attemptsLimit} попыток.`
+  : 'Для этого пробника предусмотрена одна попытка.';
+
 const buildParentMockJourneyText = ({ studentName, grammar, mocks, pickPhrase }) => {
   const scoreLabel = formatMockScore(mocks.latestScore);
   const mockDate = mocks.latestDate ? ` от ${mocks.latestDate}` : '';
@@ -489,6 +493,7 @@ const buildStudentFacingText = ({
   if (metrics.homework.pythonPracticeCount && metrics.homework.assignedCount) lines.push('', 'Задачи по Python — практика перед уроком. То, что не получится самостоятельно, разберём вместе; на оценку выполнения домашней работы по ЕГЭ это не влияет.');
   if (metrics.mocks.count > 0) {
     lines.push('', buildStudentMockJourneyText({ mocks: metrics.mocks, pickPhrase }));
+    if (metrics.mocks.latestIsBestAttempt) lines.push(mockAttemptReportNote(metrics.mocks));
   } else {
     lines.push('', 'Пробника в этом месяце пока не было.');
   }
@@ -629,6 +634,10 @@ export const buildStudentMonthlyReport = ({
       historyCount: allMocks.length,
       latestScore: latestMock ? latestMock.reportScore : null,
       latestDate: latestMock ? formatReportDate(latestMock.reportTimestamp) : '',
+      latestIsBestAttempt: latestMock?.isBestAttempt === true,
+      latestAttemptNumber: latestMock?.attemptNumber || null,
+      attemptsLimit: latestMock?.attemptsLimit || null,
+      attemptsUsed: latestMock?.attemptsUsed || null,
       bestScore: mockScores.length > 0 ? Math.max(...mockScores) : null,
       averageScore: mockScores.length > 0
         ? Math.round(mockScores.reduce((sum, score) => sum + score, 0) / mockScores.length)
@@ -699,6 +708,7 @@ export const buildStudentMonthlyReport = ({
       mocks: metrics.mocks,
       pickPhrase,
     }));
+    if (metrics.mocks.latestIsBestAttempt) lines.push(mockAttemptReportNote(metrics.mocks));
   }
 
   const automaticConclusion = buildAutomaticConclusion({
