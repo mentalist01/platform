@@ -10,6 +10,17 @@ import {
 
 const USER_SESSION_KEY = 'ege_user_session';
 
+test('teacher monthly result narrows the request to the selected pupil with an encoded id',async t=>{
+  installStorage('monthly-result-fixture');
+  const previousFetch=globalThis.fetch,calls=[];
+  t.after(()=>{globalThis.fetch=previousFetch;});
+  globalThis.fetch=async(url,init)=>{calls.push({url:String(url),...init});return jsonResponse({rows:[]});};
+  await api.getMonthlyMockStatus('',{studentId:'pupil/a'});
+  await api.getMonthlyMockStatus('2026-10');
+  assert.deepEqual(calls.map(call=>call.url),['/api/monthly-mock-status?studentId=pupil%2Fa','/api/monthly-mock-status?month=2026-10']);
+  assert.ok(calls.every(call=>new Headers(call.headers).get('Authorization')==='Bearer monthly-result-fixture'));
+});
+
 const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
   status,
   headers: { 'Content-Type': 'application/json; charset=utf-8' },

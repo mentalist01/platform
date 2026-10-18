@@ -25,6 +25,7 @@ import RecordingHomeworkHandoff from './RecordingHomeworkHandoff';
 import TeacherHomeworkReviewModal from './TeacherHomeworkReviewModal';
 import HomeworkDayPlan from './HomeworkDayPlan';
 import StudentMonthlyMockHomework from './StudentMonthlyMockHomework';
+import TeacherMonthlyMockHomework from './TeacherMonthlyMockHomework';
 import { StudentSubscriptions } from './LearningSubscriptions';
 import { Button, Card } from './ui';
 import {
@@ -5946,6 +5947,7 @@ const ScheduleSection = ({
       <div className={role === 'student' ? 'student-today-homework-section space-y-3 md:space-y-4' : 'space-y-4 md:space-y-5'}>
         {role === 'student' && <StudentSubscriptions studentId={effectiveStudentId} />}
         {role === 'student' && <StudentMonthlyMockHomework studentId={effectiveStudentId} refreshKey={solvedRefreshKey} onOpen={onOpenMockGoal} />}
+        {role === 'teacher' && effectiveStudentId && <TeacherMonthlyMockHomework key={`${teacherId}:${effectiveStudentId}`} teacherId={teacherId} studentId={effectiveStudentId} studentName={selectedStudent?.nickname || selectedStudent?.name} refreshKey={solvedRefreshKey} />}
         {role !== 'student' && (
           <div>
             <h3 className="text-lg font-bold text-gray-800">Домашние задания</h3>

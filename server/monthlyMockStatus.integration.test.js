@@ -87,6 +87,8 @@ test('monthly status scopes student data and preserves legacy and repeated compl
     const oldMonth = getMonthlyMockMonth(period.startMs - 1000);
     assert.equal((await json(await request(`/api/monthly-mock-status?month=${oldMonth}`, teacher))).summary.completed, 0);
 
+    // Solving requires a teacher assignment; then verify the restart ledger.
+    await json(await request('/api/mock-exams/exam', teacher, 'PATCH', { monthlyAssignment: { month, assigned: true } }));
     // Old repeat attempts can be overwritten by a timer restart; preserve them first.
     await json(await request('/api/mock-exams/attempt', legacy, 'PUT', { examId: 'exam', mode: 'timer', startOnly: true, restartTimerExam: true }));
     assert.equal((await json(await request('/api/monthly-mock-status', legacy))).rows[0].status, 'completed');

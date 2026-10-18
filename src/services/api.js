@@ -1196,8 +1196,11 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getMonthlyMockStatus: async (month = '') => {
-    const query = month ? `?${new URLSearchParams({ month })}` : '';
+  getMonthlyMockStatus: async (month = '', { studentId = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (month) params.set('month', month);
+    if (studentId) params.set('studentId', studentId);
+    const query = params.size ? `?${params}` : '';
     const res = await apiFetch(`/api/monthly-mock-status${query}`);
     if (!res.ok) throw new Error(await parseApiError(res));
     return res.json();

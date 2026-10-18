@@ -150,7 +150,11 @@ export const getMockPrimaryScoreFromSolved = (solvedMap) => {
 };
 
 export const getMockSecondaryScoreFromSolved = (solvedMap) => {
-  const primaryScore = Math.max(0, Math.min(29, getMockPrimaryScoreFromSolved(solvedMap)));
+  return getMockSecondaryScoreFromPrimary(getMockPrimaryScoreFromSolved(solvedMap));
+};
+
+export const getMockSecondaryScoreFromPrimary = value => {
+  const primaryScore = Math.max(0, Math.min(29, Math.round(Number(value) || 0)));
   return primaryScore > 0 ? PRIMARY_TO_SECONDARY[primaryScore] || 0 : 0;
 };
 

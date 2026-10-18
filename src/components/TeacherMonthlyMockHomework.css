@@ -1,0 +1,27 @@
+.teacher-monthly-mock{--mock-muted:#59566d;border-color:#c9b9ee}
+.teacher-monthly-mock .student-monthly-mock__header{flex-wrap:wrap}
+.teacher-monthly-mock .student-monthly-mock__header>div{flex:1;min-width:160px}
+.teacher-monthly-mock .student-monthly-mock__header p{text-transform:none}
+.teacher-monthly-mock__refresh{display:inline-flex;align-items:center;gap:7px;flex-shrink:0;padding:8px 11px;border:1px solid #bba7e4;border-radius:11px;background:#fff;color:#5b21b6;font-size:12px;font-weight:750;cursor:pointer}
+.teacher-monthly-mock__refresh:hover{background:#ede5fc;border-color:#8b5cf6}
+.teacher-monthly-mock__refresh:disabled{opacity:.6;cursor:wait}
+.teacher-monthly-mock__result{display:flex;min-height:152px;min-width:0;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-color:#bba7e4;background:#f3edff}
+.teacher-monthly-mock__result-label{font-size:11px;font-weight:750;color:#4c4265}
+.teacher-monthly-mock__result output{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:9px;color:#24143e}
+.teacher-monthly-mock__result output strong{font-family:'Manrope',system-ui,sans-serif;font-size:54px;font-weight:850;line-height:1.3;letter-spacing:-.05em}
+.teacher-monthly-mock__result output span{font-size:13px;font-weight:700;color:#514465}
+.teacher-monthly-mock__result-icon{display:grid;place-items:center;margin-bottom:10px;width:48px;height:48px;border-radius:14px;background:#e5daf8;color:#5b21b6}
+.teacher-monthly-mock__result>strong{font-size:14px;line-height:1.6}
+.teacher-monthly-mock__finished{margin:7px 0 0;color:var(--mock-muted);font-size:11px;line-height:1.6}
+.teacher-monthly-mock__error{padding:10px 13px;margin:16px 0 0;border:1px solid #e5ba65;border-radius:11px;background:#fff8e7;color:#7b470a;font-size:12px;line-height:1.6}
+.teacher-monthly-mock[data-status='completed'] .teacher-monthly-mock__result{border-color:#6fb89a;background:#eaf8f1}
+.teacher-monthly-mock[data-status='completed'] .teacher-monthly-mock__result-label{color:#215b45}
+.teacher-monthly-mock[data-status='completed'] .teacher-monthly-mock__result output{color:#14583d}
+html[data-theme='dark'] .teacher-monthly-mock{--mock-muted:#c1b8d1}
+html[data-theme='dark'] .teacher-monthly-mock__refresh{background:#392950;border-color:#796198;color:#dfcaff}
+html[data-theme='dark'] .teacher-monthly-mock__result{background:#302441;border-color:#796198}
+html[data-theme='dark'] .teacher-monthly-mock__result output,html[data-theme='dark'] .teacher-monthly-mock__result-label{color:#f3eaff}
+html[data-theme='dark'] .teacher-monthly-mock__result output span{color:#d5c6e8}
+html[data-theme='dark'] .teacher-monthly-mock[data-status='completed'] .teacher-monthly-mock__result{background:#193e30;border-color:#47916e}
+html[data-theme='dark'] .teacher-monthly-mock[data-status='completed'] .teacher-monthly-mock__result output,html[data-theme='dark'] .teacher-monthly-mock[data-status='completed'] .teacher-monthly-mock__result-label{color:#a9f1cf}
+@media(max-width:640px){.teacher-monthly-mock__refresh{padding:7px 9px}.teacher-monthly-mock__result output strong{font-size:46px}}

@@ -48,6 +48,7 @@ import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homewo
 import { homeworkLivesLessonHistory } from './homeworkLivesLessonHistory.js';
 import { registerStudentParentContacts } from './studentParentContacts.js';
 import { registerStudentContacts } from './studentContacts.js';
+import { getMonthlyMockCompletionScore } from './monthlyMockResult.js';
 import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
@@ -29914,33 +29915,39 @@ app.get('/api/monthly-mock-status', (req, res) => {
   if (!period || period.month > currentMonth) {
     return res.status(400).json({ error: 'Выберите текущий или прошедший месяц в формате ГГГГ-ММ.' });
   }
-  // Scope comes exclusively from the session, never from query parameters.
+  // Pupils always read their own row. Teachers may narrow their own roster.
+  const targetStudentId = isTeacherRole(req.auth) && typeof req.query.studentId === 'string'
+    ? req.query.studentId.trim() : '';
+  if (targetStudentId && !ensureStudentAccess(req, res, targetStudentId, { strictStudentId: true })) return;
   const students = readStudentsDb().filter((student) => (
     isStudentRole(req.auth)
       ? student.id === req.auth.id && isActiveStudent(student)
-      : student.teacherId === req.auth.id && isCurrentStudent(student)
+      : student.teacherId === req.auth.id && isCurrentStudent(student) && (!targetStudentId || student.id === targetStudentId)
   ));
   const progressDb = readProgressDb();
   const exams = readMockExamsDb();
   const assignedExam = getAssignedMonthlyMockExam(exams, students[0]?.teacherId, period.month);
   const publicationPending = isStudentRole(req.auth) && Boolean(assignedExam)
     && !isMonthlyMockPublished(assignedExam, students[0]?.teacherId, period.month, now);
-  const rows = students.map((student) => ({
-    studentId: student.id,
-    name: student.name,
-    ...buildMonthlyMockStatus(publicationPending ? {} : progressDb[student.id] || {}, exams, period, now,
-      getAssignedMonthlyMockExam(exams, student.teacherId, period.month)?.id || ''),
-  }));
+  const rows = students.map((student) => {
+    const data = publicationPending ? {} : progressDb[student.id] || {};
+    const status = buildMonthlyMockStatus(data, exams, period, now,
+      getAssignedMonthlyMockExam(exams, student.teacherId, period.month)?.id || '');
+    return { studentId: student.id, name: student.name, ...status,
+      ...(targetStudentId ? { score: status.status === 'completed' ? getMonthlyMockCompletionScore(data, status.completion) : null } : {}),
+    };
+  });
   res.setHeader('Cache-Control', 'no-store');
   return res.json({
     period, currentMonth, generatedAt: new Date(now).toISOString(), rows,
-    ...(isStudentRole(req.auth) ? { publicationPending, assignment: (() => {
+    ...(isStudentRole(req.auth) || targetStudentId ? { publicationPending, assignment: (() => {
       const exam = getAssignedMonthlyMockExam(exams, students[0]?.teacherId, period.month);
       return exam && students.length && !publicationPending ? {
         examId: exam.id, title: exam.title, taskCount: Object.keys(exam.tasks).length,
         mode: normalizeMockExamAccess(exam.access).mode,
         dueAt: new Date(period.endMs - 1).toISOString(),
-        ...monthlyReviewForStudent(exam, students[0].teacherId, progressDb[students[0].id] || {}, period.month, now),
+        ...(targetStudentId ? { publishesAt: new Date(getMonthlyMockPublication(exam, students[0].teacherId, period.month).publishesAtMs).toISOString() }
+          : monthlyReviewForStudent(exam, students[0].teacherId, progressDb[students[0].id] || {}, period.month, now)),
       } : null;
     })() } : {}),
     summary: {
