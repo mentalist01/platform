@@ -4,6 +4,8 @@ import { getCollabWsUrl } from '../utils/runtimeUrls.js';
 import { getStoredAuthToken } from '../services/api.js';
 import { boardPageBookRoom, boardPagesList, boardPageSummonTarget } from '../utils/boardPages.js';
 import { groupNotebookBoard } from '../utils/groupNotebook.js';
+import { requestLessonPages } from '../services/lessonPages.js';
+import { observeLiveBoardCommand } from '../utils/boardCommandClock.js';
 
 // Keep the teacher's navigation channel alive while the pupil is in code, chat
 // or another section. The canvas itself mounts only when its section opens.
@@ -16,7 +18,7 @@ export default function BoardSummonListener({ teacherId, userId, groupId = '', b
     if (!book) return undefined;
     let disposed = false, cleanup;
     const start = async () => {
-      const { Y, WebsocketProvider } = await loadYjsRuntime();
+      const [{ Y, WebsocketProvider }] = await Promise.all([loadYjsRuntime(), requestLessonPages(book).catch(() => null)]);
       if (disposed) return;
       const doc = new Y.Doc(), provider = new WebsocketProvider(getCollabWsUrl(), book, doc,
         { params: { _auth: getStoredAuthToken() || '' }, disableBc: true });
@@ -29,8 +31,9 @@ export default function BoardSummonListener({ teacherId, userId, groupId = '', b
         handled = target.id;
         if (!current.current.boardVisible) current.current.onOpenBoard?.();
       };
-      pages.observe(update); control.observe(update); provider.on('sync', update);
-      cleanup = () => { pages.unobserve(update); control.unobserve(update); provider.off('sync', update); provider.destroy(); doc.destroy(); };
+      const liveUpdate = () => { if (provider.synced) observeLiveBoardCommand(control.get('summon')); update(); };
+      pages.observe(update); control.observe(liveUpdate); provider.on('sync', update);
+      cleanup = () => { pages.unobserve(update); control.unobserve(liveUpdate); provider.off('sync', update); provider.destroy(); doc.destroy(); };
       if (disposed) cleanup();
     };
     void start().catch(error => { if (!disposed) console.warn('[board] navigation channel unavailable:', error.message); });

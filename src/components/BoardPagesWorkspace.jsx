@@ -9,6 +9,7 @@ import BoardSelectionClipboard from './BoardSelectionClipboard.jsx';
 import {useLessonPageSelection} from '../hooks/useLessonPageSelection.js';
 import {groupNotebookBoard} from '../utils/groupNotebook.js';
 import {requestLessonPages} from '../services/lessonPages.js';
+import {boardCommandNow,observeLiveBoardCommand} from '../utils/boardCommandClock.js';
 
 const id = () => crypto.randomUUID();
 export default function BoardPagesWorkspace(props) {
@@ -54,7 +55,7 @@ function PagedBoardWorkspace(props) {
       const doc=new Y.Doc(),provider=new WebsocketProvider(getCollabWsUrl(),bookRoom,doc,{params:{_auth:getStoredAuthToken() || ''},disableBc:true});
       const map=doc.getMap('pages'),control=doc.getMap('pageControl');
       runtime.current={doc,provider,map,control};
-      const delivery=createBoardSummonDelivery({isReady:()=>provider.wsconnected && provider.synced && provider.ws?.readyState===1,send:command=>control.set('summon',command),onState:setSummonState});
+      const delivery=createBoardSummonDelivery({isReady:()=>provider.wsconnected && provider.synced && provider.ws?.readyState===1,send:command=>control.set('summon',command),onState:setSummonState,now:boardCommandNow});
       summonDelivery.current=delivery;
       setChannelReady(true);
       const update=()=>{
@@ -82,9 +83,10 @@ function PagedBoardWorkspace(props) {
       };
       const status=()=>setConnected(provider.wsconnected && provider.synced);
       const sync=()=>{status();update();controls();publish();delivery.flush();};
-      map.observe(update);control.observe(controls);provider.awareness.on('change',presence);
+      const liveControls=()=>{if(!teacher && provider.synced)observeLiveBoardCommand(control.get('summon'));controls();};
+      map.observe(update);control.observe(liveControls);provider.awareness.on('change',presence);
       provider.on('status',status);provider.on('sync',sync);update();publish();
-      cleanup=()=>{delivery.dispose();summonDelivery.current=null;setChannelReady(false);map.unobserve(update);control.unobserve(controls);provider.awareness.off('change',presence);provider.off('status',status);provider.off('sync',sync);provider.destroy();doc.destroy();runtime.current=null;};
+      cleanup=()=>{delivery.dispose();summonDelivery.current=null;setChannelReady(false);map.unobserve(update);control.unobserve(liveControls);provider.awareness.off('change',presence);provider.off('status',status);provider.off('sync',sync);provider.destroy();doc.destroy();runtime.current=null;};
       if(disposed)cleanup();
     };
     void start().catch(e=>{if(!disposed)setError(e.message || 'Не удалось подключить страницы');});
@@ -120,11 +122,12 @@ function PagedBoardWorkspace(props) {
     summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,...viewport},targetIds);
   },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId]);
   const acknowledgeNavigation=useCallback(command=>{
-    if(teacher || !command?.id || command.id!==lastCommand.current || command.id===lastApplied.current
-      || command.pageId!==pageId || command.studentId!==boardStudentId)return;
+    if(teacher || !command?.id || command.id!==lastCommand.current
+      || command.pageId!==pageId || command.studentId!==boardStudentId)return false;
+    if(command.id===lastApplied.current)return true;
     // The canvas has applied the viewport and synced the destination room.
     // Background tabs may suspend animation frames; delivery must not wait for paint.
-    lastApplied.current=command.id;publish();
+    lastApplied.current=command.id;publish();return true;
   },[teacher,publish,pageId,boardStudentId]);
   const summonMessage={queued:'Восстанавливаем связь — призыв отправится автоматически',waiting:group && !boardStudentId?'Призыв отправлен — ждём перемещения учеников':'Призыв отправлен — ждём перемещения ученика',sent:'Призыв отправлен',confirmed:group && !boardStudentId?'Ученики перемещены к вам':'Ученик перемещён к вам',expired:'Связь не восстановилась. Повторите призыв после подключения',unconfirmed:group && !boardStudentId?'Не удалось проверить перемещение всех учеников. Проверьте, открыты ли у них доски и есть ли связь':'Нет ответа от доски ученика. Проверьте, открыта ли она и есть ли связь'}[summonState.phase];
   const page=pages.find(p=>p.id===pageId)||pages[0],index=pages.findIndex(p=>p.id===pageId);
