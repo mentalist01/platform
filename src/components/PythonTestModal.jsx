@@ -2229,7 +2229,7 @@ const PythonTestModal = ({
                 <span className={`text-sm font-black ${primaryTextClass}`}>{`${currentQuestionDisplayIndex} / ${totalVisibleQuestions}`}</span>
               </div>
               <div className="python-explanation-task-actions">
-              <button ref={focusToggleRef} type="button" className="python-runtime-focus-button" onClick={enterFocus} title="Оставить условие, код и тесты"><Maximize2 size={15} /> На весь экран</button>
+              <button ref={focusToggleRef} type="button" className="python-runtime-focus-button python-runtime-focus-button--enter" onClick={enterFocus} title="Развернуть условие, редактор и тесты на весь экран"><Maximize2 size={18} /> Только задача и код</button>
               <PythonExplanationBoardButton board={explanationBoard} />
               <button
                 type="button"

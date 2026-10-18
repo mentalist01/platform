@@ -15,9 +15,21 @@ const students = [
   { id: 'maria', name: 'Мария' },
 ];
 
+test('a new trial never inherits an existing namesake pupil or their payer', () => {
+  const roster = [{ id: 'regular-ivan', name: 'Иван' }, { id: 'group-ivan', name: 'Иван М' }];
+  for (const summary of ['Иван пробное (мама Татьяна)', 'Иван Пилле пробное (мама Татьяна)', 'Пробное — Иван', 'Иван: пробный урок']) {
+    assert.equal(resolveGoogleCalendarStudentMatch({ summary }, roster), null, summary);
+    const entry = { subject: summary, studentId: '', isTeacherSlot: true };
+    assert.equal(attachGoogleCalendarEntryStudentMatch(entry, roster), entry);
+    assert.equal(googleCalendarEntryMatchesStudent(entry, roster[0], roster), false);
+  }
+  assert.equal(resolveGoogleCalendarStudentMatch({ summary: 'Иван' }, roster)?.id, 'regular-ivan');
+  assert.equal(resolveGoogleCalendarStudentMatch({ summary: 'Иван М' }, roster)?.id, 'group-ivan');
+});
+
 test('calendar student matching ignores parent names in parentheses', () => {
   const match = resolveGoogleCalendarStudentMatch(
-    { summary: 'Дмитрий пробная (отец Юрий)' },
+    { summary: 'Дмитрий (отец Юрий)' },
     students,
   );
 
@@ -40,7 +52,7 @@ test('calendar matching supports nested and full-width parentheses', () => {
   );
   assert.equal(
     resolveGoogleCalendarStudentMatch(
-      { summary: 'Эмилия пробная （мама Мария (Telegram)）' },
+      { summary: 'Эмилия （мама Мария (Telegram)）' },
       students,
     )?.id,
     'emilia',
@@ -83,7 +95,7 @@ test('exact nickname keeps a former namesake calendar event on the former studen
   );
   assert.equal(
     resolveGoogleCalendarStudentMatch(
-      { summary: 'Никита1 пробное (мама Оксана), 4Р' },
+      { summary: 'Никита1 (мама Оксана), 4Р' },
       namesakes,
     )?.id,
     'current-nikita',

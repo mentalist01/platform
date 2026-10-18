@@ -17,6 +17,10 @@
 .python-runtime-modal-shell--solve .python-runtime-task-chip .python-homework-badge.is-complete,.python-runtime-modal-shell--solve .python-runtime-task-chip .python-homework-badge.is-complete *{color:#176044!important}
 .python-runtime-focus-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid var(--rt-border,#d8d7e7);border-radius:10px;background:var(--rt-card,white);color:var(--rt-text,#29213c);font-size:11px;font-weight:700;white-space:nowrap}
 .python-runtime-focus-button:hover{border-color:#9a78e0;background:var(--rt-purple-soft,#f3edff)}
+.python-runtime-focus-button--enter{min-height:42px;padding:10px 15px;border-color:#5b21b6;background:#6d28d9;color:#fff;font-size:12px;font-weight:800;box-shadow:0 3px 9px #5b21b626}
+.python-runtime-focus-button--enter:hover{border-color:#4c1d95;background:#5b21b6;color:#fff;box-shadow:0 4px 12px #5b21b640}
+[data-runtime-theme="dark"] .python-runtime-focus-button--enter{border-color:#c4b5fd;background:#a78bfa;color:#1e1245}
+[data-runtime-theme="dark"] .python-runtime-focus-button--enter:hover{background:#c4b5fd;color:#1e1245}
 .python-runtime-modal-shell--solve .python-runtime-header-layout{grid-template-columns:minmax(0,1fr) minmax(160px,.75fr) 108px auto!important}
 @media(max-width:899px){.python-runtime-modal-shell--solve .python-runtime-header-layout{grid-template-columns:minmax(0,1fr) auto!important}.python-runtime-modal-shell--solve .python-runtime-progress-card{display:none!important}.python-runtime-modal-shell--solve .python-runtime-topic-summary{grid-column:1!important;grid-row:1!important}.python-runtime-modal-shell--solve .python-explanation-task-actions{grid-column:2!important;grid-row:1!important}.python-runtime-modal-shell--solve .python-runtime-overview-card{grid-column:1 / -1!important;grid-row:2!important;padding-block:4px!important}}
 .python-runtime-focus-button:focus-visible{outline:3px solid #8b5cf6;outline-offset:2px}
@@ -64,3 +68,4 @@
 .python-runtime-modal-shell--solve[data-runtime-theme='dark'] .python-runtime-task-chip[data-homework='true'][data-current='false'][data-solved='false']{border-color:#a77e35!important;background:#392e1e!important;color:#ffe9bb!important}
 @media(max-width:599px){.python-homework-guide__hint{display:none}.python-runtime-modal-shell--solve .python-homework-guide{gap:5px;padding:6px 8px}.python-runtime-focus-button{min-height:36px}.python-runtime-focus-bar{gap:5px}.python-runtime-focus-bar .python-homework-badge{display:none}}
 @media(prefers-reduced-motion:reduce){.python-homework-badge.is-animated svg{animation:none}}
+@media(max-width:599px){.python-runtime-modal-shell--solve .python-runtime-overview-card{grid-column:2!important;grid-row:1!important}.python-runtime-modal-shell--solve .python-explanation-task-actions{grid-column:1 / -1!important;grid-row:2!important;flex-wrap:wrap}.python-runtime-focus-button--enter{flex:1;min-height:42px}}

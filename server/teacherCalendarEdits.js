@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { withTeacherCalendarLock } from './calendarMutations.js';
 import { expandRescheduleOccurrences } from './lessonReschedule.js';
 import { addCalendarDays } from '../src/utils/groupAvailability.js';
+import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -10,6 +11,10 @@ const validTime = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5
 const startAt = value => new Date(`${value.date}T${value.time}:00+03:00`).toISOString();
 export const calendarEditGoogleId = (teacherId, uid, date, time) => `google-ical-${crypto.createHash('sha1')
   .update(`${teacherId}:${uid}:${startAt({ date, time })}`).digest('hex').slice(0, 18)}`;
+
+const hasExplicitCalendarOwner = row => row.operation === 'create' || row.source?.calendarExplicitOwner === true
+  || Boolean(row.source && !row.source.externalEventId && !row.source.isExternalCalendarEvent
+    && !String(row.source.source || '').startsWith('google'));
 
 export function calendarEditTargetEntry(row) {
   const uid = row.googleResult.iCalUID;
@@ -25,6 +30,7 @@ export function calendarEditTargetEntry(row) {
     calendarOriginalStartAt: row.source ? startAt(row.source) : '',
     calendarMovedFromId: row.source?.id || '', calendarIsRecurring: row.target.repeatMode === 'weekly' || Boolean(row.source?.calendarIsRecurring),
     calendarEditProjected: true,
+    calendarExplicitOwner: hasExplicitCalendarOwner(row),
   };
 }
 
@@ -49,12 +55,17 @@ export function projectCalendarEditEntry(entry, teacherId, store, {fresh = false
     }
   });
   let next = entry;
+  const explicitOwner = rows.some(hasExplicitCalendarOwner);
   for (const row of rows) {
     const isTarget = slot(next) === slot(row.target), isOld = row.source && slot(next) === slot(row.source);
     if (!fresh && isOld && !row.feedObserved) next = {...next, ...calendarEditTargetEntry(row)};
     if ((isTarget || isOld && !row.feedObserved) && row.source?.lessonId) next = {...next, lessonId: row.source.lessonId};
-    next = {...next, calendarPlatformOwner: {studentId: row.target.studentId || '', groupId: row.target.groupId || ''},
-      calendarPersonalEvent: !row.target.studentId && !row.target.groupId && row.target.kind !== 'trial'};
+    // Older edits persisted a name-based guess as if the teacher had selected
+    // that pupil. Never carry that guess into a trial for a namesake.
+    const unassignedTrial = isExplicitTrialLesson(next) && !explicitOwner;
+    next = {...next, calendarPlatformOwner: {studentId: unassignedTrial ? '' : row.target.studentId || '', groupId: row.target.groupId || ''},
+      calendarExplicitOwner: explicitOwner,
+      calendarPersonalEvent: !unassignedTrial && !row.target.studentId && !row.target.groupId && row.target.kind !== 'trial'};
   }
   return next;
 }

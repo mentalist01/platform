@@ -1,3 +1,5 @@
+import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
+
 // Only memoize context-free text normalization, never a roster match. Roster
 // edits and ambiguous names must still be resolved against the current pupils.
 const calendarTextCache = new Map();
@@ -109,6 +111,9 @@ const getGoogleCalendarStudentMatchCandidates = (title, students = []) => {
 };
 
 export const resolveGoogleCalendarStudentMatch = (event, students = []) => {
+  // A trial may be a new person who shares an existing pupil's name. Only
+  // an explicit platform selection can give a trial a pupil owner.
+  if (isExplicitTrialLesson(event)) return null;
   const primaryTitle = stripCalendarEventParentheticalText(event?.summary);
   const summary = normalizeCalendarEventText(primaryTitle);
   if (!summary) return null;

@@ -562,7 +562,8 @@ const PythonSection = ({
   const lessonWorkspaceName = groupMode ? groupWorkspace.group?.name : role === 'teacher'
     ? studentsList.find(student => student.id === effectiveStudentId)?.name || 'Индивидуальный урок'
     : groupWorkspace.teacherPresent ? 'Индивидуальный урок' : 'Личный Python';
-  const lessonWorkspace = {name:lessonWorkspaceName, connected:groupWorkspace.connected, followingTeacher};
+  const lessonWorkspace = role === 'student' && !groupMode && !groupWorkspace.teacherPresent
+    ? null : {name:lessonWorkspaceName, connected:groupWorkspace.connected, followingTeacher};
   const openLessonTopic = number => {
     const task = taskList.find(item => Number(item.number) === Number(number));
     if (!task || followingTeacher) return;

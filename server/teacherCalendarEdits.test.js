@@ -20,6 +20,27 @@ async function fixture(t, options={}) {
   return{state,store,file,request};
 }
 const move=(id='request-move-0001')=>({id,operation:'move',source:original,target:{date:'2026-10-20',time:'12:15',durationMinutes:60}});
+
+test('editing an imported namesake trial cannot turn an inferred owner into an explicit pupil binding', async t => {
+  const {store}=await fixture(t);
+  const source={...original,source:'google-ical',isExternalCalendarEvent:true,externalEventId:'trial-uid',subject:'Иван пробное (мама Татьяна)'};
+  const row={...move(),operation:'update',teacherId:'t',status:'done',source,googleResult:{iCalUID:'trial-uid'},
+    target:{...source,title:'Иван Пилле пробное (мама Татьяна)',note:'',kind:'event'}};
+  store.put(row);
+  const projected=projectCalendarEditEntry({...calendarEditTargetEntry(row),calendarEditProjected:false},'t',store);
+  assert.equal(projected.calendarPlatformOwner.studentId,'');
+  assert.equal(projected.calendarExplicitOwner,false);
+  assert.equal(projected.calendarPersonalEvent,false);
+  assert.equal(projected.subject,row.target.title);
+  const created={...row,id:'explicit-trial',operation:'create',source:null,googleResult:{iCalUID:'explicit-trial-uid'}};
+  store.put(created);
+  const explicit=projectCalendarEditEntry(calendarEditTargetEntry(created),'t',store);
+  assert.equal(explicit.calendarPlatformOwner.studentId,'a');
+  assert.equal(explicit.calendarExplicitOwner,true);
+  const edited={...created,id:'edit-explicit-trial',operation:'update',source:explicit,target:{...created.target,title:'Анна · пробное'}};
+  store.put(edited);
+  assert.equal(projectCalendarEditEntry(calendarEditTargetEntry(edited),'t',store).calendarPlatformOwner.studentId,'a');
+});
 test('editing title, description and duration keeps the original owner, requires a fresh snapshot and is idempotent', async t => {
   const {request,state,store}=await fixture(t);
   const edit={id:'request-update-0001',operation:'update',source:{...original,title:original.subject,note:''},
