@@ -3567,12 +3567,17 @@ const TeacherPanel = ({
           )}
         </div>
 
-        <div className="mt-6 border-t border-gray-100 pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <h4 className="text-sm font-semibold text-gray-700">Удалённые ученики</h4>
-            <span className="text-xs text-gray-400">восстановление {SOFT_DELETE_DAYS} дней</span>
-          </div>
-          {deletedStudentsError && <p className="text-xs text-red-500 mb-2">{deletedStudentsError}</p>}
+        <details className="teacher-student-trash">
+          <summary>
+            <span className="teacher-student-trash__icon"><Trash2 size={20} aria-hidden="true" /></span>
+            <span className="teacher-student-trash__heading">
+              <span><strong>Корзина</strong><span className="teacher-student-trash__count" aria-label={`Удалённых учеников: ${deletedStudentsList.length}`}>{deletedStudentsLoading ? '…' : deletedStudentsError ? '—' : deletedStudentsList.length}</span></span>
+              <small>{deletedStudentsError ? 'Не удалось загрузить список — откройте подробности' : `Удалённые ученики · восстановление в течение ${SOFT_DELETE_DAYS} дней`}</small>
+            </span>
+            <span className="teacher-student-trash__action"><span className="teacher-student-trash__show">Показать</span><span className="teacher-student-trash__hide">Свернуть</span><ChevronDown size={18} aria-hidden="true" /></span>
+          </summary>
+          <div className="teacher-student-trash__body">
+          {deletedStudentsError && <p role="alert" className="text-xs text-red-500 mb-2">{deletedStudentsError}</p>}
           {deletedStudentsLoading ? (
             <div className="text-sm text-gray-500">Загрузка удалённых...</div>
           ) : deletedStudentsList.length === 0 ? (
@@ -3621,7 +3626,8 @@ const TeacherPanel = ({
               })}
             </div>
           )}
-        </div>
+          </div>
+        </details>
         </>
         )}
       </Card>
