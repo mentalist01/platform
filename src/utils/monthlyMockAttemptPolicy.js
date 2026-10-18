@@ -6,6 +6,16 @@ const record=value=>value&&typeof value==='object'&&!Array.isArray(value);
 const finish=attempt=>attempt.finishedAt||attempt.timerFinishedAt||(attempt.status==='finished'?attempt.updatedAt:'');
 export const monthlyAssignedMonths=(exam,teacherId)=>normalizeMonthlyMockAssignments(exam?.monthlyAssignments)[teacherId]
   ||exam?.monthlyAssignedMonths||[];
+export function normalizeMonthlyMockSurrenders(value){
+  const entries=new Map();
+  for(const item of Array.isArray(value)?value:[]){
+    if(!record(item)||typeof item.examId!=='string'||!item.examId||typeof item.teacherId!=='string'||!item.teacherId
+      ||!getMonthlyMockPeriod(item.month)||!Number.isFinite(Date.parse(item.surrenderedAt)))continue;
+    const key=JSON.stringify([item.teacherId,item.examId,item.month]);
+    if(!entries.has(key))entries.set(key,{teacherId:item.teacherId,examId:item.examId,month:item.month,surrenderedAt:item.surrenderedAt});
+  }
+  return [...entries.values()];
+}
 export function mockAttemptMonth(attempt,exam,teacherId){
   if(attempt?.monthlyMockMonth&&getMonthlyMockPeriod(attempt.monthlyMockMonth))return attempt.monthlyMockMonth;
   const date=attempt?.timerStartedAt||attempt?.modeLockedAt||finish(attempt||{})||attempt?.updatedAt;
@@ -52,8 +62,12 @@ export function getMonthlyMockAttemptPolicy({studentData={},exams=[],exam,teache
   const active=Boolean(current&&records.includes(current)&&!finish(current)&&
     (current.attemptId||current.timerStartedAt||Object.keys(current.answers||{}).length));
   const archived=month<getMonthlyMockMonth(now);
-  return {month,ordinal,maxAttempts,usedAttempts,remainingAttempts:Math.max(0,maxAttempts-usedAttempts),active,archived,
-    canRestart:!archived&&!active&&usedAttempts>0&&usedAttempts<maxAttempts};
+  const surrendered=normalizeMonthlyMockSurrenders(studentData.monthlyMockSurrenders).some(item=>
+    item.teacherId===teacherId&&item.examId===exam.id&&item.month===month&&Date.parse(item.surrenderedAt)<=now);
+  const exhausted=!active&&usedAttempts>=maxAttempts&&records.some(item=>
+    (Number(item.attemptNumber)||1)===maxAttempts&&Number.isFinite(Date.parse(finish(item)))&&Date.parse(finish(item))<=now);
+  return {month,ordinal,maxAttempts,usedAttempts,remainingAttempts:surrendered?0:Math.max(0,maxAttempts-usedAttempts),active:active&&!surrendered,archived,surrendered,reviewUnlocked:surrendered||exhausted,
+    canRestart:!surrendered&&!archived&&!active&&usedAttempts>0&&usedAttempts<maxAttempts};
 }
 export function getMonthlyAttemptScore(attempt,exam){
   if(!attempt||!finish(attempt))return null;

@@ -1,23 +1,20 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, ClipboardList, Clock3, ListChecks, LockKeyhole, PlayCircle, RefreshCcw, Sparkles } from 'lucide-react';
+import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, ClipboardList, Clock3, ListChecks, PlayCircle, RefreshCcw, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
 import { getMonthlyMockMonth, getMonthlyMockPeriod, MONTHLY_MOCK_TIME_ZONE } from '../utils/monthlyMockExam';
 import './StudentMonthlyMockHomework.css';
 import './MonthlyMockReview.css';
-import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../utils/learningGroups';
-import RutubeViewingHelp from './RutubeViewingHelp';
+import StudentMonthlyMockReview from './StudentMonthlyMockReview';
 
 export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
   const assignment = data?.assignment;
-  const [openReviewFor, setOpenReviewFor] = useState('');
-  const reviewUrl = assignment?.reviewVideoUrl || '';
-  const reviewKey = `${assignment?.examId || ''}:${reviewUrl}`;
   const row = data?.rows?.[0];
   const period = data?.period || getMonthlyMockPeriod(getMonthlyMockMonth());
   const status = assignment ? row?.status || 'pending' : 'unassigned';
   const completed = status === 'completed';
   const exempt = status === 'exempt';
-  const started = status === 'in_progress';
+  const surrendered = row?.attemptPolicy?.surrendered;
+  const started = status === 'in_progress' && !surrendered;
   const deadline = new Date(period.endMs - 1).toLocaleDateString('ru-RU', {
     timeZone: MONTHLY_MOCK_TIME_ZONE, day: 'numeric', month: 'long',
   });
@@ -30,7 +27,7 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
       <div><h3>Пробник месяца</h3><p>{period.label}</p></div>
       {assignment && <span className="student-monthly-mock__status">
         {completed ? <CheckCircle2 size={15} aria-hidden="true" /> : <Clock3 size={15} aria-hidden="true" />}
-        {completed ? 'Пройден' : exempt ? 'По желанию' : started ? 'В процессе' : 'Нужно пройти'}
+        {surrendered ? 'Попытки закрыты' : completed ? 'Пройден' : exempt ? 'По желанию' : started ? 'В процессе' : 'Нужно пройти'}
       </span>}
     </header>
     {error ? <div className="student-monthly-mock__empty" role="status">
@@ -55,10 +52,10 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
           <span className="student-monthly-mock__art-dot" />
         </div>
         <div className="student-monthly-mock__description">
-          <span className="student-monthly-mock__eyebrow">{completed ? 'Ещё один шаг вперёд' : started ? 'Осталось завершить пробник' : exempt ? 'Дополнительная практика' : 'Ваш следующий шаг'}</span>
+          <span className="student-monthly-mock__eyebrow">{surrendered ? 'Разбор открыт' : completed ? 'Ещё один шаг вперёд' : started ? 'Осталось завершить пробник' : exempt ? 'Дополнительная практика' : 'Ваш следующий шаг'}</span>
           <h4>{assignment.title}</h4>
-          {row?.attemptPolicy && <p><strong>Ваш пробник №{row.attemptPolicy.ordinal} · использовано {row.attemptPolicy.usedAttempts} из {row.attemptPolicy.maxAttempts} попыток</strong><br/>В отчёт идёт лучший результат.{row.attemptPolicy.remainingAttempts > 0 ? ` Осталось попыток: ${row.attemptPolicy.remainingAttempts}.` : ' Все попытки использованы.'}</p>}
-          <p>{completed ? 'Вы завершили пробник этого месяца. Можно вернуться к заданиям и посмотреть свой результат.' : exempt ? 'Преподаватель разрешил не проходить пробник в этом месяце. Вы можете решить его для практики.' : started ? 'Пробник уже начат. Вернитесь к заданиям и доведите его до конца.' : 'Проверьте свои знания и узнайте, что уже получается, а над чем ещё стоит поработать.'}</p>
+          {row?.attemptPolicy && <p><strong>Ваш пробник №{row.attemptPolicy.ordinal} · использовано {row.attemptPolicy.usedAttempts} из {row.attemptPolicy.maxAttempts} попыток</strong><br/>В отчёт идёт лучший результат.{row.attemptPolicy.surrendered ? ' Оставшиеся попытки закрыты, разбор открыт.' : row.attemptPolicy.remainingAttempts > 0 ? ` Осталось попыток: ${row.attemptPolicy.remainingAttempts}.` : ' Все попытки использованы.'}</p>}
+          <p>{surrendered ? 'Вы открыли разбор и закрыли оставшиеся попытки. Лучший завершённый результат сохранён.' : completed ? 'Вы завершили пробник этого месяца. Можно вернуться к заданиям и посмотреть свой результат.' : exempt ? 'Преподаватель разрешил не проходить пробник в этом месяце. Вы можете решить его для практики.' : started ? 'Пробник уже начат. Вернитесь к заданиям и доведите его до конца.' : 'Проверьте свои знания и узнайте, что уже получается, а над чем ещё стоит поработать.'}</p>
           <div className="student-monthly-mock__facts">
             <span><ListChecks size={16} aria-hidden="true" />{assignment.taskCount} заданий</span>
             <span><Clock3 size={16} aria-hidden="true" />{assignment.mode === 'classic' ? 'Без таймера' : 'С таймером'}</span>
@@ -66,23 +63,17 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
         </div>
       </div>
       <div className="student-monthly-mock__action-panel">
-        {completed ? <div className="student-monthly-mock__achievement"><span><CheckCircle2 size={25} aria-hidden="true" /></span><div><strong>{typeof row.score === 'number' ? `Лучший результат: ${row.score} из 100` : 'Месяц — с результатом'}</strong><p>Пробник пройден</p></div></div> : <div className="student-monthly-mock__deadline">
+        {completed || surrendered ? <div className="student-monthly-mock__achievement"><span><CheckCircle2 size={25} aria-hidden="true" /></span><div><strong>{typeof row.score === 'number' ? `Лучший результат: ${row.score} из 100` : surrendered ? 'Разбор открыт' : 'Месяц — с результатом'}</strong><p>{completed ? 'Пробник пройден' : 'Оставшиеся попытки закрыты'}</p></div></div> : <div className="student-monthly-mock__deadline">
           <span className="student-monthly-mock__date" aria-hidden="true"><CalendarDays size={15} /><strong>{deadlineDay}</strong><small>{deadlineMonth}</small></span>
           <div><span className="student-monthly-mock__deadline-label">{exempt ? 'Можно пройти до' : 'Решите весь пробник до'}</span><strong>{deadline}</strong><p>23:59 · по Москве</p></div>
         </div>}
         <button className="student-monthly-mock__open" type="button" onClick={() => onOpen?.(assignment.examId, null, { mode: assignment.mode })}>
-          <PlayCircle size={19} aria-hidden="true" /><span>{completed ? 'Посмотреть пробник' : started ? 'Продолжить пробник' : 'Начать пробник'}</span><ArrowRight size={18} aria-hidden="true" />
+          <PlayCircle size={19} aria-hidden="true" /><span>{completed || row?.attemptPolicy?.surrendered ? 'Посмотреть пробник' : started ? 'Продолжить пробник' : 'Начать пробник'}</span><ArrowRight size={18} aria-hidden="true" />
         </button>
         <p className="student-monthly-mock__action-hint">{completed ? 'Результат этого месяца сохранён' : exempt ? 'Прохождение по желанию' : 'Один полный пробник за месяц'}</p>
       </div>
     </div>}
-    {assignment?.hasReviewVideo && <div className="student-monthly-mock__review">
-      <div className="student-monthly-mock__review-heading">{reviewUrl ? <PlayCircle size={20} /> : <LockKeyhole size={20} />}Видеоразбор пробника</div>
-      {reviewUrl ? <>
-        <button type="button" aria-expanded={openReviewFor === reviewKey} onClick={() => setOpenReviewFor(openReviewFor === reviewKey ? '' : reviewKey)}>{openReviewFor === reviewKey ? 'Скрыть видеоразбор' : 'Смотреть видеоразбор'}</button>
-        {openReviewFor === reviewKey && <><iframe src={getRutubeEmbedUrl(reviewUrl)} title={`Видеоразбор · ${assignment.title}`} allow="clipboard-write; autoplay" allowFullScreen loading="lazy" /><a href={getRutubeWatchUrl(reviewUrl)} target="_blank" rel="noreferrer">Если плеер не работает, открыть на Rutube</a><RutubeViewingHelp /></>}
-      </> : <p>Разбор откроется после завершения этого пробника.</p>}
-    </div>}
+    {assignment && <StudentMonthlyMockReview examId={assignment.examId} month={period.month} title={assignment.title} initialReview={assignment} onResolved={onRefresh} />}
   </section>;
 }
 

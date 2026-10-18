@@ -50,7 +50,7 @@ import { registerStudentParentContacts } from './studentParentContacts.js';
 import { registerStudentContacts } from './studentContacts.js';
 import { getMonthlyMockCompletionDetails } from './monthlyMockResult.js';
 import {monthlyAttemptContext,monthlyQuotaError} from './monthlyMockAttemptPolicy.js';
-import {monthlyAssignedMonths,mockAttemptMonth,getMonthlyAttemptRecords} from '../src/utils/monthlyMockAttemptPolicy.js';
+import {monthlyAssignedMonths,mockAttemptMonth,getMonthlyAttemptRecords,normalizeMonthlyMockSurrenders} from '../src/utils/monthlyMockAttemptPolicy.js';
 import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
@@ -14760,6 +14760,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       mockAttempts: {},
       mockAttemptResults: [],
       monthlyMockCompletions: [],
+    monthlyMockSurrenders: [],
       monthlyMockExemptions: {},
       mockTestingQueue: [],
       randomMockSolvedByTask: {},
@@ -14878,6 +14879,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       mockCompletionEvents: normalizeMockCompletionEvents(raw.mockCompletionEvents),
       mockAttemptResults: normalizeMockExamFollowupHistory(raw.mockAttemptResults),
       monthlyMockCompletions: normalizeMonthlyMockCompletions(raw.monthlyMockCompletions),
+      monthlyMockSurrenders: normalizeMonthlyMockSurrenders(raw.monthlyMockSurrenders),
       monthlyMockExemptions: normalizeMonthlyMockExemptions(raw.monthlyMockExemptions),
       mockTestingQueue: normalizeMockExamFollowupQueue(raw.mockTestingQueue),
       randomMockSolvedByTask: normalizeRandomMockSolvedByTask(raw.randomMockSolvedByTask),
@@ -14922,6 +14924,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     mockAttempts: {},
     mockAttemptResults: [],
     monthlyMockCompletions: [],
+    monthlyMockSurrenders: [],
     monthlyMockExemptions: {},
     mockTestingQueue: [],
     randomMockSolvedByTask: {},
@@ -14971,6 +14974,7 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     mockCompletionEvents: normalizeMockCompletionEvents(data.mockCompletionEvents),
     mockAttemptResults: normalizeMockExamFollowupHistory(data.mockAttemptResults),
     monthlyMockCompletions: normalizeMonthlyMockCompletions(data.monthlyMockCompletions),
+    monthlyMockSurrenders: normalizeMonthlyMockSurrenders(data.monthlyMockSurrenders),
     monthlyMockExemptions: normalizeMonthlyMockExemptions(data.monthlyMockExemptions),
     mockTestingQueue: normalizeMockExamFollowupQueue(data.mockTestingQueue),
     randomMockSolvedByTask: normalizeRandomMockSolvedByTask(data.randomMockSolvedByTask),
@@ -19966,7 +19970,7 @@ const serializeMockExamEntry = (exam, options = {}) => {
     const student = options.student || {teacherId:options.monthlyTeacherId};
     const context = monthlyAttemptContext(options.studentData,options.exams || [exam],exam,student);
     if (context) safeExam.monthlyPolicy = context.policy;
-    if (options.sanitizeForStudent) safeExam.readOnly = !context || context.policy.archived;
+    if (options.sanitizeForStudent) safeExam.readOnly = !context || context.policy.archived || context.policy.surrendered;
   }
   safeExam.monthlyPublicationDay = getMonthlyMockPublication(exam, options.monthlyTeacherId)?.day || 1;
   if (options.studentData) safeExam.canStart = Boolean(getStudentMockLaunchAssignment(exam, options.studentData, options.monthlyTeacherId));
@@ -29944,7 +29948,7 @@ app.get('/api/monthly-mock-status', (req, res) => {
         mode: normalizeMockExamAccess(exam.access).mode,
         dueAt: new Date(period.endMs - 1).toISOString(),
         ...(targetStudentId ? { publishesAt: new Date(getMonthlyMockPublication(exam, students[0].teacherId, period.month).publishesAtMs).toISOString() }
-          : monthlyReviewForStudent(exam, students[0].teacherId, progressDb[students[0].id] || {}, period.month, now)),
+          : monthlyReviewForStudent(exam, students[0].teacherId, progressDb[students[0].id] || {}, period.month, now, {exams,studentCreatedAt:students[0].createdAt})),
       } : null;
     })() } : {}),
     summary: {
@@ -31857,11 +31861,46 @@ app.get('/api/mock-exams', (req, res) => {
 });
 
 app.get('/api/mock-exams/:id/monthly-review', (req, res) => {
-  if (!isTeacherRole(req.auth)) return forbid(res);
-  const exam = readMockExamsDb().find(entry => entry.id === req.params.id);
+  const exams = readMockExamsDb();
+  const exam = exams.find(entry => entry.id === req.params.id);
   if (!exam) return res.status(404).json({ error: 'Пробник не найден' });
   res.setHeader('Cache-Control', 'no-store');
-  return res.json({ url: monthlyReviewUrl(exam, req.auth.id) });
+  if (isTeacherRole(req.auth)) return res.json({ url: monthlyReviewUrl(exam, req.auth.id) });
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id);
+  if (!student) return;
+  const month = req.query.month || getMonthlyMockMonth();
+  if (!getMonthlyMockPeriod(month) || month > getMonthlyMockMonth()) return res.status(400).json({error:'Некорректный месяц'});
+  if (!isMockExamVisibleToStudent(exam, student.id) || getAssignedMonthlyMockExam(exams,student.teacherId,month)?.id !== exam.id
+    || !isMonthlyMockPublished(exam,student.teacherId,month)) return forbid(res);
+  const data = getStudentData(student.id);
+  return res.json({...monthlyReviewForStudent(exam,student.teacherId,data,month,Date.now(),{exams,studentCreatedAt:student.createdAt}),
+    attemptPolicy:monthlyAttemptContext(data,exams,exam,student,month)?.policy});
+});
+
+// Surrender belongs to one pupil, teacher, exam and month. It never fabricates
+// a completed attempt or replaces the best result with an unfinished draft.
+app.post('/api/mock-exams/:id/monthly-review/surrender', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  if (req.body?.studentId && req.body.studentId !== req.auth.id) return forbid(res);
+  if (req.body?.confirm !== true) return res.status(400).json({error:'Подтвердите отказ от оставшихся попыток.'});
+  const student = ensureStudentAccess(req,res,req.auth.id);
+  if (!student) return;
+  const month = req.body.month;
+  if (!getMonthlyMockPeriod(month) || month > getMonthlyMockMonth()) return res.status(400).json({error:'Некорректный месяц'});
+  const exams=readMockExamsDb(),exam=exams.find(item=>item.id===req.params.id);
+  if (!exam || !isMockExamVisibleToStudent(exam,student.id) || getAssignedMonthlyMockExam(exams,student.teacherId,month)?.id !== exam.id
+    || !isMonthlyMockPublished(exam,student.teacherId,month)) return forbid(res);
+  if (!monthlyReviewUrl(exam,student.teacherId)) return res.status(409).json({error:'Видеоразбор ещё не записан. Попытки сохранены.'});
+  const data=getStudentData(student.id),now=Date.now();
+  const context=monthlyAttemptContext(data,exams,exam,student,month);
+  let updated=data;
+  if (!context.policy.reviewUnlocked) updated=setStudentData(student.id,{...data,monthlyMockSurrenders:[
+    ...normalizeMonthlyMockSurrenders(data.monthlyMockSurrenders),{teacherId:student.teacherId,examId:exam.id,month,surrenderedAt:new Date(now).toISOString()},
+  ]});
+  res.setHeader('Cache-Control','no-store');
+  return res.json({...monthlyReviewForStudent(exam,student.teacherId,updated,month,now,{exams,studentCreatedAt:student.createdAt}),
+    attemptPolicy:monthlyAttemptContext(updated,exams,exam,student,month).policy});
 });
 
 app.get('/api/mock-exams/task-analytics', (req, res) => {
@@ -32011,7 +32050,7 @@ app.get('/api/mock-exams/attempt', (req, res) => {
     ...serializeMockAttemptForClient(normalizedVisibleAttempt, { sanitizeForStudent: isStudentRole(req.auth) }),
     requiredMode,
     ...(context ? {monthlyPolicy:context.policy,bestAttempt:context.best ? serializeMockAttemptForClient(context.best.attempt,{sanitizeForStudent:isStudentRole(req.auth)}) : null} : {}),
-    readOnly: isStudentRole(req.auth) && (!context || context.policy.archived),
+    readOnly: isStudentRole(req.auth) && (!context || context.policy.archived || context.policy.surrendered),
     ...(isStaffViewer ? {
       attemptHistory: firstHistory,
       firstAttempt: firstHistory[0] || null,

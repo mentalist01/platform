@@ -10,22 +10,31 @@ const recordingId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const exam = { id: 'exam', title: 'Пробник', access: { all: true }, tasks: { 1: {}, 2: {} }, monthlyAssignments: { a: [month], b: [month] } };
 const withReview = setMonthlyReviewVideo(exam, 'a', url);
 
-test('review remains locked for partial homework, another variant and exemption, then unlocks on finishing this whole variant', () => {
-  const finishedAt = new Date(now).toISOString();
-  const data = { mockAttempts: { exam: { status: 'finished', finishedAt, targetTaskKeys: ['1'] } }, monthlyMockExemptions: { [month]: finishedAt } };
-  assert.deepEqual(monthlyReviewForStudent(withReview, 'a', data, month, now), { hasReviewVideo: true });
-  data.monthlyMockCompletions = [{ examId: 'other', finishedAt }];
-  assert.deepEqual(monthlyReviewForStudent(withReview, 'a', data, month, now), { hasReviewVideo: true });
-  data.mockAttempts.exam.targetTaskKeys = [];
-  assert.equal(monthlyReviewForStudent(withReview, 'a', data, month, now).reviewVideoUrl, url);
-  assert.deepEqual(monthlyReviewForStudent(withReview, 'b', data, month, now), { hasReviewVideo: false });
+test('only a finished last allowed attempt or explicit surrender unlocks a recorded review', () => {
+  const finishedAt=new Date(now).toISOString();
+  const attempt={attemptId:'third',attemptNumber:3,monthlyMockMonth:month,monthlyMockOrdinal:1,status:'finished',finishedAt};
+  const data={mockAttempts:{exam:{...attempt,targetTaskKeys:['1']}}};
+  assert.ok(!monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,'partial homework does not unlock');
+  data.mockAttempts.exam={...attempt,attemptNumber:1};
+  assert.ok(!monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,'first of three is locked');
+  data.mockAttempts.exam={...attempt,status:'active',finishedAt:undefined};
+  assert.ok(!monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,'third active attempt stays locked');
+  data.mockAttempts.exam=attempt;
+  assert.equal(monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,url);
+  data.mockAttempts.exam={...attempt,attemptNumber:1,monthlyMockOrdinal:5};
+  assert.equal(monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,url,'fifth monthly mock has only one attempt');
+  data.mockAttempts={};
+  data.monthlyMockSurrenders=[{examId:'exam',teacherId:'a',month,surrenderedAt:finishedAt}];
+  assert.equal(monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,url);
+  assert.deepEqual(monthlyReviewForStudent(withReview,'b',data,month,now),{hasReviewVideo:false});
+  assert.equal(monthlyReviewForStudent(withReview,'a',data,'2026-11',now).reviewVideoUrl,undefined,'surrender is month-scoped');
 });
 
-test('older completion cannot unlock a newly assigned month; late finish unlocks review and ledger preserves it after restart', () => {
-  const data = { monthlyMockCompletions: [{ examId: 'exam', finishedAt: '2026-09-30T12:00:00Z' }] };
-  assert.ok(!monthlyReviewForStudent(withReview, 'a', data, month, now).reviewVideoUrl);
-  data.monthlyMockCompletions.push({ examId: 'exam', finishedAt: '2026-11-02T12:00:00Z' });
-  assert.equal(monthlyReviewForStudent(withReview, 'a', data, month, Date.parse('2026-11-03T12:00:00Z')).reviewVideoUrl, url);
+test('ending the month, an old completion or exemption cannot unlock unused attempts', () => {
+  const data={monthlyMockCompletions:[{examId:'exam',finishedAt:'2026-09-30T12:00:00Z'}],monthlyMockExemptions:{[month]:'2026-10-01T12:00:00Z'}};
+  assert.ok(!monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl);
+  data.monthlyMockCompletions.push({examId:'exam',finishedAt:'2026-11-02T12:00:00Z'});
+  assert.ok(!monthlyReviewForStudent(withReview,'a',data,month,Date.parse('2026-11-03T12:00:00Z')).reviewVideoUrl);
 });
 
 test('manual links are validated and changes/removal affect only the current teacher', () => {

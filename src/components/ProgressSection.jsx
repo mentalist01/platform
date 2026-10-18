@@ -5798,6 +5798,7 @@ const ProgressSection = ({
               exam={activeMockExam}
               studentId={effectiveStudentId}
               initialAttempt={activeMockAttempt}
+              showMonthlyReview={role === 'student'}
               readOnly={role === 'student' && (activeMockAttempt?.readOnly === true || activeMockExam?.readOnly === true)}
               initialTaskNumber={activeMockInitialTask}
               targetTaskKeys={activeMockTargetTaskKeys}

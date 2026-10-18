@@ -68,7 +68,7 @@ test('monthly mock publication is scoped, replaces one month and launches a whol
     const first = await json(await mark('first', teacher, assignment, { monthlyReviewVideoUrl: reviewUrl }));
     assert.equal(first.monthlyReviewVideoUrl, reviewUrl);
     assert.ok(!('monthlyReviewVideos' in first));
-    assert.equal((await request('/api/mock-exams/first/monthly-review', student)).status, 403);
+    assert.ok(!(await json(await request('/api/mock-exams/first/monthly-review', student))).reviewVideoUrl);
     assert.equal((await json(await request('/api/mock-exams/first/monthly-review', teacher))).url, reviewUrl);
     assert.equal((await json(await request('/api/mock-exams/first/monthly-review', otherTeacher))).url, '');
     assert.equal((await json(await request('/api/mock-exams', otherTeacher))).find(entry => entry.id === 'first').monthlyReviewVideoUrl, '');
@@ -100,7 +100,7 @@ test('monthly mock publication is scoped, replaces one month and launches a whol
     assert.ok(!(await getStatus(student)).assignment.reviewVideoUrl);
     await json(await request('/api/mock-exams/attempt', student, 'PUT', { examId: 'first', mode: 'timer', finishTimerExam: true, answers: { 1: '1', 2: '2' } }));
     assert.equal((await getStatus(student)).rows[0].status, 'completed');
-    assert.equal((await getStatus(student)).assignment.reviewVideoUrl, reviewUrl);
+    assert.ok(!(await getStatus(student)).assignment.reviewVideoUrl, 'first of three attempts must not reveal the review');
     assert.ok(!(await getStatus(groupedStudent)).assignment.reviewVideoUrl, 'another student finishing another variant does not unlock this video');
     const progress = JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json')));
     assert.deepEqual(progress.a.homeworks[0].goals, [homework.goals[0]], 'ordinary homework is preserved');

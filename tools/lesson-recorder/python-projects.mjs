@@ -1,14 +1,14 @@
 import {pythonExportDuration,pythonExportSpeed} from './python-speed.mjs';
 
 const projectId=job=>job.pythonProjectId||job.id;
-export function pythonProjects(jobs){
+export function pythonProjects(jobs,kind='all'){
   const latest=new Map();
-  for(const job of Object.values(jobs).filter(j=>j.pythonTimeline && !(j.pythonContinuedFrom && j.status==='error' && !j.file))){
+  for(const job of Object.values(jobs).filter(j=>j.pythonTimeline && (kind==='all'||(kind==='mock-review'?Boolean(j.mockReview):!j.mockReview)) && !(j.pythonContinuedFrom && j.status==='error' && !j.file))){
     const id=projectId(job),old=latest.get(id);
     if(!old||job.createdAt>old.createdAt||job.pythonContinuedFrom===old.id)latest.set(id,job);
   }
   return [...latest.values()].sort((a,b)=>b.createdAt-a.createdAt).map(job=>({
-    id:job.id,projectId:projectId(job),name:job.pythonDraftName||'',title:job.title,
+    kind:job.mockReview?'mock-review':'python',id:job.id,projectId:projectId(job),name:job.pythonDraftName||'',title:job.title,
     createdAt:job.createdAt,updatedAt:job.pythonDraftUpdatedAt||job.stoppedAt||job.createdAt,
     status:job.status,archivedAt:job.pythonArchivedAt||0,revision:job.pythonTimeline.revision,
     clips:job.pythonTimeline.clips.length,duration:pythonExportDuration(job.pythonTimeline),

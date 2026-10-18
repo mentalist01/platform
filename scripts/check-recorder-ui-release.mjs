@@ -8,7 +8,8 @@ const html=fs.readFileSync(path.join(directory,'index.html'),'utf8');
 const entry=html.match(/src="(\/assets\/[^" ]+\.js)"/)?.[1];
 if(!entry)throw Error('Client entry not found');
 const source=fs.readFileSync(path.join(directory,entry.slice(1)),'utf8');
-const feature=source.match(/LessonRecordingSection-[A-Za-z0-9_-]+\.js/)?.[0];
+const feature=source.match(/LessonRecordingSection-[A-Za-z0-9_-]+\.js/)?.[0]
+  ||fs.readdirSync(path.join(directory,'assets')).find(name=>/^LessonRecordingSection-[A-Za-z0-9_-]+\.js$/.test(name));
 if(!feature)throw Error('Recorder instructions bundle not found');
 const featurePath=`/assets/${feature}`,featureSource=fs.readFileSync(path.join(directory,featurePath.slice(1)),'utf8');
 for(const text of ['Скачать пульт для Windows','Установка и инструкция','Найти объяснение и задать запись в домашку','Архив и теория'])if(!featureSource.includes(text))throw Error(`Missing recorder help: ${text}`);
@@ -17,6 +18,9 @@ const recorderSources=JSON.parse(recorderRelease().bundle).files;
 for(const marker of ['python-studio','python-recorder" open','Предпросмотр Python','Окно редактора для Python','Микрофон для Python','/python/configure','/material/stop'])if(!recorderSources['panel.html'].includes(marker))throw Error(`Missing independent Python recorder: ${marker}`);
 for(const marker of ['PYTHON_SCENES','PYTHON_INPUTS','ensurePythonSources','selectPython'])if(!recorderSources['obs.mjs'].includes(marker))throw Error(`Missing Python capture isolation: ${marker}`);
 if(!recorderSources['python-capture.mjs'])throw Error('Python capture module missing from Windows update');
+for(const marker of ['mock-review-controls','studio=mock-review','startMockReview'])if(!recorderSources['panel.html'].includes(marker))throw Error(`Missing monthly review studio: ${marker}`);
+for(const marker of ['Опубликовать разбор пробника','mock-review-studio','belongs(item)'])if(!recorderSources['python-editor.mjs'].includes(marker))throw Error(`Missing shared monthly review editor: ${marker}`);
+if(!recorderSources['mock-review.mjs'].includes('pythonTimeline: createTimeline()'))throw Error('Monthly review must use the montage publication gate');
 if(!fs.readFileSync(path.join(directory,installer.slice(1))).equals(recorderPackage()))throw Error('Installer differs from the current recorder source');
 console.log('Recorder onboarding and current Windows installer verified.');
 if(mode==='verify'){

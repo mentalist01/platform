@@ -7,7 +7,8 @@ const payload = { examId: 'exam', month: '2026-10', expectedUrl: '' };
 test('review recording retains its target and uses teacher audio without starting a lesson', async () => {
   let started;
   const engine = { active: () => null, start: async job => { started = job; } };
-  await startMockReview({ api: async () => catalog, engine, payload, now: () => 100 });
+  await startMockReview({ api: async () => catalog, engine, payload, captureConfig:{mode:'window',window:'editor',mic:'mic'}, now: () => 100 });
+  assert.equal(started.captureProfile,'python');assert.equal(started.captureConfig.window,'editor');assert.ok(started.pythonTimeline);assert.equal(started.pythonTimeline.approved,false);
   assert.equal(started.local, true); assert.equal(started.manual, true); assert.equal(started.audioMode, 'teacher');
   assert.equal(started.mockReview.teacherId, 'a'); assert.equal(started.mockReview.examId, 'exam');
   assert.equal(started.cutoffAt, 10800100); assert.equal(started.occurrence, undefined);

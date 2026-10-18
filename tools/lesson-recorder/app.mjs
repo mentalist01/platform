@@ -109,7 +109,7 @@ const run = (executable, args) => new Promise((resolve, reject) => {
 });
 async function prepare(job) {
   if (job.pythonTimeline) {
-    if (!job.pythonTimeline.approved) throw new Error('Сначала проверьте монтаж и нажмите «Выложить в изучение Python»');
+    if (!job.pythonTimeline.approved) throw new Error('Сначала проверьте монтаж и нажмите кнопку публикации в редакторе');
     if (job.mp4 && job.renderedRevision === job.pythonTimeline.revision && fs.existsSync(job.mp4)) return;
     const output = path.join(path.dirname(job.file), `python-edit-${job.id}-r${job.pythonTimeline.revision}.mp4`);
     await editMedia.exclusive(job, () => editMedia.render(job, job.pythonTimeline.clips, path.dirname(job.file), output));
@@ -143,7 +143,7 @@ async function publish(job) {
   job.status = 'ready'; job.error = ''; save();
 }
 async function upload(job) {
-  if (job.pythonTimeline && !job.pythonTimeline.approved) throw new Error('Сначала проверьте монтаж и нажмите «Выложить в изучение Python»');
+  if (job.pythonTimeline && !job.pythonTimeline.approved) throw new Error('Сначала проверьте монтаж и нажмите кнопку публикации в редакторе');
   if (job.excludeFromUpload) throw new Error('Этот исходник исключён из загрузки. Используйте подготовленную запись урока.');
   if (uploadingId) throw new Error('Предыдущая загрузка ещё идёт');
   uploadingId = job.id;
@@ -323,11 +323,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.headers['x-recorder-key'] !== localKey) return json(res, 403, { error: 'Откройте пульт заново' });
     if (req.method === 'GET' && req.url === '/state') return json(res, 200, publicState());
-    if (req.method === 'GET' && req.url === '/python/projects') return json(res, 200, {projects:pythonProjects(state.jobs)});
+    if (req.method === 'GET' && (req.url === '/python/projects' || req.url === '/mock-review/projects')) return json(res, 200, {projects:pythonProjects(state.jobs,req.url.startsWith('/mock-review/')?'mock-review':'python')});
     if (req.method === 'GET' && pathname === '/python/editor/live') {
       const job = engine.active();
       const id = new URL(req.url, 'http://127.0.0.1:18765').searchParams.get('id');
-      if (!job?.pythonTheory || job.status !== 'recording' || job.id !== id) throw new Error('Эта запись уже завершена. Выберите фрагмент для просмотра.');
+      if (!job?.pythonTimeline || job.status !== 'recording' || job.id !== id) throw new Error('Эта запись уже завершена. Выберите фрагмент для просмотра.');
       const [recording, profile] = await Promise.all([
         obs.call('GetRecordStatus'),
         obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' }),
@@ -366,7 +366,7 @@ const server = http.createServer(async (req, res) => {
       const assertPlaybackOwner = async () => {
         const active = engine.active();
         if (!active) return;
-        if (active.id !== job.id || !active.pythonTheory) throw new Error('Предпросмотр доступен после текущей записи');
+        if (active.id !== job.id || !active.pythonTimeline) throw new Error('Предпросмотр доступен после текущей записи');
         const [recording,profile] = await Promise.all([obs.call('GetRecordStatus'),obs.call('GetProfileParameter',{parameterCategory:'Output',parameterName:'FilenameFormatting'})]);
         if (!recording.outputActive || !recording.outputPaused || profile.parameterValue !== `lesson-${job.id}`) throw new Error('Для просмотра текущей записи сначала завершите дубль и проверьте запись Python в OBS');
       };
@@ -423,7 +423,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.url === '/upload') {
       const job = state.jobs[payload.id];
-      if (job?.pythonTimeline && !job.pythonTimeline.approved) throw new Error('Сначала проверьте монтаж и нажмите «Выложить в изучение Python»');
+      if (job?.pythonTimeline && !job.pythonTimeline.approved) throw new Error('Сначала проверьте монтаж и нажмите кнопку публикации в редакторе');
       if (!job || job.excludeFromUpload || !['saved', 'error'].includes(job.status) || !job.file) throw new Error('Нет готовой записи');
       if (uploadingId) throw new Error('Предыдущая загрузка ещё идёт');
       void upload(job); return json(res, 200, { ok: true });
@@ -455,7 +455,7 @@ const server = http.createServer(async (req, res) => {
         const active = engine.active();
         const image = await pythonPreviewSession.image(selected.mode, {
           idle: !active && !uploadingId && !queueBusy && !archive.captureBusy,
-          ownRecording: Boolean(active?.pythonTheory && active.status === 'recording'),
+          ownRecording: Boolean(active?.pythonTimeline && active.status === 'recording'),
         });
         json(res, 200, { image }); return;
       }
@@ -475,7 +475,7 @@ const server = http.createServer(async (req, res) => {
         if (job.status === 'recording' && engine.active()?.id !== job.id) throw new Error('Запись уже изменилась');
         editTimeline(job.pythonTimeline, payload); save(); return;
       }
-      if (engine.active()?.pythonTheory && ['/scene', '/program', '/auto-follow', '/auto-office', '/fallback'].includes(req.url)) throw new Error('Для записи Python используйте источники в отдельном пульте Python');
+      if (engine.active()?.pythonTimeline && ['/scene', '/program', '/auto-follow', '/auto-office', '/fallback'].includes(req.url)) throw new Error('Для записи Python используйте источники в отдельном пульте Python');
       if (req.url === '/recover-file') {
         // Import a deliberately prepared replacement, never the unfinished
         // current output or an arbitrary path from the request.
@@ -552,11 +552,12 @@ const server = http.createServer(async (req, res) => {
         if (!ready()) throw new Error('Сначала выберите окно платформы, источник звука разговора и микрофон');
         await engine.start({ id: crypto.randomUUID(), title: 'Проверка записи', local: true, testFingerprint: setupFingerprint(state.config), cutoffAt: Date.now() + 60000 });
       } else if (req.url === '/mock-review/start') {
-        if (!ready()) throw new Error('Сначала настройте запись и выберите микрофон в пульте');
+        if (editMedia.work) throw new Error('Дождитесь подготовки монтажа');
+        if (!state.config.recordDirectory) throw new Error('Сначала выберите папку для видео в настройках пульта');
         if (archive.captureBusy) throw new Error('Поставьте распознавание архива на паузу перед записью');
         if (uploadingId || queueBusy) throw new Error('Дождитесь текущей загрузки');
         materialStarting = true;
-        try { await startMockReview({ api, engine, payload }); }
+        try { await startMockReview({ api, engine, payload, captureConfig:state.config.pythonCapture }); }
         finally { materialStarting = false; }
         obsStatus = await obs.status();
       } else if (req.url === '/python/start' || req.url === '/python/continue') {

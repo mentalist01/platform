@@ -1,6 +1,8 @@
 // The library loads small project summaries on demand; polling the recorder
 // never needs every old timeline, history or source file.
 export function createPythonLibrary({editor,context,onOpen}) {
+  const mockStudio=context.kind==='mock-review';
+  const label=mockStudio?'Черновики разборов пробников':'Черновики Python';
   const button=document.createElement('button');button.type='button';button.textContent='Черновики';
   editor.querySelector('.pe-project').after(button);
   const css=document.createElement('style');css.textContent=`
@@ -9,15 +11,16 @@ export function createPythonLibrary({editor,context,onOpen}) {
   .pe-library nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0 12px}.pe-library nav button[aria-pressed=true]{background:#6d48a0}.pe-library input{width:100%;box-sizing:border-box;margin-bottom:12px}
   .pe-library-list{display:grid;gap:10px}.pe-library article{padding:16px;border:1px solid #43465d;border-radius:12px;background:#24263b}.pe-library article strong{font-size:15px;overflow-wrap:anywhere}.pe-library article p{margin:6px 0 12px}.pe-library-actions{display:flex;gap:8px;flex-wrap:wrap}.pe-library-actions button{padding:9px 12px}.pe-library [role=status]{min-height:24px;color:#c9b2ff;font-size:13px;margin-top:16px}
   `;document.head.append(css);
-  const dialog=document.createElement('dialog');dialog.className='pe-library';dialog.setAttribute('aria-label','Черновики Python');
+  const dialog=document.createElement('dialog');dialog.className='pe-library';dialog.setAttribute('aria-label',label);
   dialog.innerHTML='<header><h2>Черновики Python</h2><button type="button" aria-label="Закрыть список черновиков">✕</button></header><p>Монтаж сохраняется автоматически на этом компьютере. Здесь видны все проекты. Удалённые черновики можно восстановить из корзины; исходные видео сохраняются.</p><nav aria-label="Список проектов"><button type="button" data-view="draft">Черновики</button><button type="button" data-view="published">Отправленные</button><button type="button" data-view="trash">Корзина</button><button type="button" data-refresh>Обновить</button></nav><input type="search" aria-label="Поиск черновика" placeholder="Название или дата"><div class="pe-library-list"></div><div role="status" aria-live="polite"></div>';
+  dialog.querySelector('h2').textContent=label;
   editor.append(dialog);
   let projects=[],view='draft',working=false,renameId='';
   const status=message=>{dialog.querySelector('[role=status]').textContent=message;};
   const name=project=>project.name||`${project.title||'Запись Python'} · ${new Date(project.createdAt).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}`;
   const clock=seconds=>`${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}`;
   const locked=()=>working||context.state()?.jobs.some(job=>['starting','recording','stopping','uploading'].includes(job.status))||context.state()?.preparingUpload||context.state()?.updater?.busy;
-  async function load(){projects=(await context.request('/python/projects')).projects;render();}
+  async function load(){projects=(await context.request(mockStudio?'/mock-review/projects':'/python/projects')).projects;render();}
   async function action(project,action,extra={}) {
     working=true;render();status('Сохраняем…');
     try{await context.request('/python/project/manage',{id:project.id,revision:project.revision,action,...extra});renameId='';await context.refresh();await load();status(action==='archive'?'Черновик в корзине. Его можно восстановить.':action==='restore'?'Черновик восстановлен.':action==='rename'?'Название сохранено.':'Черновик сохранён.');}

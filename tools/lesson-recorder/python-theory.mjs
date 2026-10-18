@@ -34,7 +34,7 @@ export async function startPythonTheory({ api, engine, payload, captureConfig, n
 export async function continuePythonTheory({engine,payload,captureConfig,now=Date.now}) {
   if (engine.active()) throw Error('Сначала завершите текущую запись');
   const parent=engine.state.jobs[payload.id];
-  if (!parent?.pythonTheory || parent.pythonArchivedAt || parent.status!=='saved' || parent.pythonTimeline?.approved || !parent.pythonTimeline?.finalized) throw Error('Выберите сохранённый черновик Python, который ещё не отправлен');
+  if (!(parent?.pythonTheory || parent?.mockReview) || parent.pythonArchivedAt || parent.status!=='saved' || parent.pythonTimeline?.approved || !parent.pythonTimeline?.finalized) throw Error('Выберите сохранённый черновик, который ещё не отправлен');
   if (parent.pythonTimeline.revision!==payload.revision) throw Error('Монтаж изменился. Обновите черновик');
   if (Object.values(engine.state.jobs).some(job=>job.pythonContinuedFrom===parent.id && (job.status!=='error'||job.file))) throw Error('У черновика уже есть продолжение. Выберите последнюю запись этого проекта');
   const previousSources=pythonSources(parent).map(source=>{
@@ -47,7 +47,7 @@ export async function continuePythonTheory({engine,payload,captureConfig,now=Dat
   timeline.finalized=false;timeline.openStart=offset;timeline.revision++;delete timeline.pendingTailStart;
   const id=crypto.randomUUID();
   await engine.start({id,title:parent.title,local:true,manual:true,autoPublish:true,audioMode:'teacher',captureProfile:'python',captureConfig:selected,
-    pythonTheory:structuredClone(parent.pythonTheory),pythonTimeline:timeline,pythonCaptureOffset:offset,pythonPreviousSources:previousSources,
+    ...(parent.mockReview?{mockReview:structuredClone(parent.mockReview)}:{pythonTheory:structuredClone(parent.pythonTheory)}),pythonTimeline:timeline,pythonCaptureOffset:offset,pythonPreviousSources:previousSources,
     pythonProjectId:parent.pythonProjectId||parent.id,pythonContinuedFrom:parent.id,pythonDraftName:parent.pythonDraftName||'',cutoffAt:now()+3*60*60_000});
   return id;
 }

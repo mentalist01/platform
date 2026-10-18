@@ -4,6 +4,10 @@ import {pythonSourceAt} from './python-source-map.mjs';
 import {pythonExportSpeed,pythonExportDuration,pythonPreviewSpeed} from './python-speed.mjs';
 import {createPythonLibrary} from './python-library.mjs';
 const context = window.recorderEditorContext;
+const mockStudio=context.kind==='mock-review';
+const belongs=job=>Boolean(job.pythonTimeline)&&(mockStudio?Boolean(job.mockReview):!job.mockReview);
+const publishLabel=mockStudio?'Опубликовать разбор пробника':'Выложить в изучение Python';
+const newLabel=mockStudio?'Новый разбор пробника':'Новая запись Python';
 const style = document.createElement('style');
 style.textContent = `
 .python-editor[hidden],.python-editor [hidden]{display:none!important}.python-editor{margin-top:24px;overflow:hidden;border:1px solid #51416f;background:linear-gradient(135deg,#211b35,#121a29);border-radius:22px;color:#e9edf8;box-shadow:0 12px 35px #06091330}.pe-header{padding:22px 24px;border-bottom:1px solid #ffffff12;display:flex;align-items:center;gap:16px;flex-wrap:wrap}.pe-header h2{font-size:21px;margin:5px 0}.pe-header>div{flex:1;min-width:190px}.pe-header p{font-size:12px;margin:0}.python-editor button{font:600 12px Segoe UI,sans-serif;white-space:nowrap;transition:background .15s,border-color .15s}.python-editor button:focus-visible,.python-editor input:focus-visible{outline:2px solid #bba2ff;outline-offset:3px}.pe-project{max-width:300px;min-width:0}.pe-workspace{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:0}.pe-view{padding:22px;min-width:0}.pe-player{width:100%;aspect-ratio:16/9;background:#080b13;border:1px solid #ffffff0d;border-radius:14px;display:block}.pe-empty{aspect-ratio:16/9;display:grid;place-items:center;text-align:center;color:#94a0b7;background:radial-gradient(ellipse at top,#3a2854,#080c14);border-radius:14px;padding:32px}.pe-empty strong{display:block;font-size:17px;color:#e4d8ff;margin-bottom:10px}.pe-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}.pe-tools button{padding:8px 11px}.pe-status{color:#abb4cc;font-size:12px;line-height:1.6;margin-top:10px}.pe-inspector{padding:22px;border-left:1px solid #ffffff12;background:#ffffff03}.pe-inspector h3{font-size:14px;margin:0 0 15px}.pe-inspector label{font-size:11px;color:#aab4ca;display:block;margin:10px 0 5px}.pe-inspector input{width:100%;padding:9px;min-width:0}.pe-inspector .pe-tools button{flex:1}.pe-timeline{border-top:1px solid #ffffff12;padding:18px 22px 22px;position:relative}.pe-track-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px}.pe-track-tools strong{flex:1;font-size:13px}.pe-track-tools input{width:100px}.pe-track-scroll{overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;padding-bottom:12px;scrollbar-color:#8261c1 #121826}.pe-ruler,.pe-track{display:flex;gap:4px;min-width:100%}.pe-ruler>span{flex:none;font-size:10px;color:#8e9ab1;position:relative;height:20px;border-left:1px solid #667085;padding-left:5px}.pe-track>button{position:relative;flex:none;height:76px;min-width:72px;overflow:hidden;text-align:left;padding:12px;border:1px solid #725095;border-radius:9px;background:linear-gradient(130deg,#45305f,#342847);color:#f5edff}.pe-track>button[aria-selected=true]{border-color:#cdaaff;box-shadow:inset 0 0 0 1px #cdaaff;background:linear-gradient(130deg,#7051a0,#423059)}.pe-track>button small{display:block;font-size:11px;margin-top:8px;opacity:.75}.pe-track>button:after{content:'';position:absolute;left:0;right:0;bottom:0;height:12px;background:repeating-linear-gradient(90deg,#b094d833 0 2px,transparent 2px 6px)}.pe-track .pe-recording{background:linear-gradient(130deg,#692f4b,#3c2637);border-color:#e57996;animation:pe-live 2s ease-in-out infinite}.pe-track .pe-recording:after{background:repeating-linear-gradient(90deg,#eaa0b833 0 2px,transparent 2px 6px)}.pe-cursor{position:absolute;top:0;bottom:0;width:2px;background:#f1ddff;pointer-events:none;box-shadow:0 0 8px #d9acff}.pe-footer{padding:15px 22px;border-top:1px solid #ffffff12;display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:#131822}.pe-footer p{font-size:12px;flex:1;margin:0}.pe-footer button{background:linear-gradient(100deg,#8855dc,#ad4bd0);border-color:#b46eee;color:#fff;padding:12px 17px}.pe-menu{position:fixed;z-index:1000;padding:7px;display:grid;gap:3px;width:230px;max-height:calc(100dvh - 24px);overflow:auto;background:#242033eF;backdrop-filter:blur(16px);border:1px solid #8670a966;border-radius:12px;box-shadow:0 16px 50px #0008}.pe-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:10px}.pe-menu button:hover{background:#9f72e333}.pe-error{color:#ffb3c5}.pe-save-note{font-size:11px;color:#8994a9;padding:0 22px 15px}@keyframes pe-live{50%{border-color:#ffa2bd}}@media(prefers-reduced-motion:reduce){.pe-recording{animation:none!important}}@media(max-width:720px){.pe-workspace{grid-template-columns:1fr}.pe-inspector{border-left:0;border-top:1px solid #ffffff12}.pe-header,.pe-view,.pe-inspector,.pe-timeline{padding:16px}.pe-project{width:100%;max-width:none}.pe-footer button{width:100%}.pe-header>div{min-width:0}}`;
@@ -21,9 +25,22 @@ editor.innerHTML = `<header class="pe-header"><div><span class="brand">PYTHON / 
 <aside class="pe-inspector"><h3>Выбранный фрагмент</h3><div class="pe-selection">Выберите фрагмент в ленте</div><label>Место разделения · секунды от начала фрагмента</label><input data-field="point" type="number" min="0" step="0.01" aria-label="Место разделения"><div class="pe-tools"><button data-op="split">✂ Разделить</button></div><label>Оставить от · секунды</label><input data-field="in" type="number" min="0" step="0.01" aria-label="Начало обрезки"><label>До · секунды</label><input data-field="out" type="number" min="0" step="0.01" aria-label="Конец обрезки"><div class="pe-tools"><button data-op="trim">Обрезать</button><button data-op="delete">Удалить</button></div><div class="pe-tools"><button data-op="move-left">← Раньше</button><button data-op="move-right">Позже →</button></div><div class="pe-tools"><button data-op="duplicate">Копия</button><button data-op="join">Объединить справа</button></div></aside></div>
 <div class="pe-timeline"><div class="pe-track-tools"><strong>Видео + микрофон</strong><button data-op="undo">↶ Отменить</button><button data-op="redo">↷ Вернуть</button><button data-op="snap" aria-pressed="true">Привязка</button><label>Масштаб <input type="range" min="2" max="60" value="8" aria-label="Масштаб ленты"></label><span class="pe-duration"></span></div><div class="pe-track-scroll"><div class="pe-track-content"><div class="pe-ruler"></div><div class="pe-track" role="listbox" aria-label="Фрагменты видео"></div><div class="pe-cursor"></div><div class="pe-drop-marker" hidden></div><div class="pe-trim-ghost" hidden></div></div></div><div class="pe-gesture-note">Перетащите клип, чтобы изменить порядок. Потяните за его край, чтобы обрезать.</div></div><div class="pe-save-note">Монтаж сохраняется автоматически. Delete — убрать, Ctrl+Z — отменить, Ctrl+Shift+Z — вернуть. ← / → — курсор, S — разрез. Правая кнопка — действия.</div><footer class="pe-footer"><p>После завершения записи проверьте изображение и звук. Отправится только собранное видео.</p><button data-op="publish">Выложить в изучение Python</button></footer>`;
 document.querySelector('#mock-review').before(editor);
+if(mockStudio){
+  document.body.classList.add('mock-review-studio');
+  document.title='IVAN100 · Разбор пробника месяца';
+  editor.setAttribute('aria-label','Монтажная студия разбора пробника');
+  editor.querySelector('.pe-header .brand').textContent='ПРОБНИК МЕСЯЦА / ВИДЕОРАЗБОР';
+  editor.querySelector('.pe-header h2').textContent='Запись и монтаж разбора';
+  editor.querySelector('.pe-project').setAttribute('aria-label','Проект разбора пробника');
+  editor.querySelector('[data-op=publish]').textContent=publishLabel;
+  const heading=document.createElement('header');heading.id='mock-studio-heading';
+  heading.innerHTML='<div><div class="brand">IVAN100 / ВИДЕОСТУДИЯ</div><h1>Разбор пробника месяца</h1><p>Запишите объяснение, соберите дубли и опубликуйте готовый разбор.</p></div><a class="button" href="/" target="_blank" rel="noreferrer">Пульт и настройки ↗</a>';
+  document.querySelector('main').prepend(heading);
+  style.textContent+='body.mock-review-studio main>:not(#python-editor):not(#mock-studio-heading):not(#error):not(#update-state){display:none!important}body.mock-review-studio main{max-width:1600px}';
+}
 const emptyHelp = document.createElement('div');
 emptyHelp.className = 'pe-get-started';
-emptyHelp.innerHTML = '<strong>Запишите первый дубль</strong><p>Выберите экран, микрофон и тему справа. Нажмите «Начать запись» здесь же. Пауза добавит готовый дубль в ленту.</p>';
+emptyHelp.innerHTML = '<strong>Запишите первый дубль</strong><p>Выберите экран, микрофон и материал справа. Нажмите «Начать запись» здесь же. Пауза добавит готовый дубль в ленту.</p>';
 editor.querySelector('.pe-empty').append(emptyHelp);
 style.textContent += '.pe-get-started p{max-width:470px;margin:10px auto 18px;line-height:1.7}.pe-get-started button{padding:12px 18px;border-color:#a986e6;background:#7045b0;color:#fff}.pe-track-placeholder{padding:20px;color:#aab4ca;font-size:13px;min-height:76px;border:1px dashed #725095;border-radius:9px;width:100%;box-sizing:border-box}.python-editor--empty .pe-inspector{opacity:.55}.python-editor--empty .pe-footer p{color:#aab4ca}';
 const focusButton = document.createElement('button'); focusButton.type = 'button'; focusButton.className = 'pe-focus-button'; focusButton.textContent = 'Развернуть редактор';
@@ -52,7 +69,8 @@ const continueButton=document.createElement('button');continueButton.type='butto
 const fragmentTools = document.createElement('div'); fragmentTools.className = 'pe-fragment'; fragmentTools.append(...editor.querySelector('.pe-inspector').childNodes); editor.querySelector('.pe-inspector').append(fragmentTools);
 const preparation = document.createElement('div'); preparation.className = 'pe-preparation'; preparation.hidden = true;
 preparation.innerHTML = '<h3>Экран, звук и тема урока</h3><p class="pe-preparation-note">Запуск создаст новый проект. Ранее записанные уроки сохранятся.</p>';
-preparation.append(document.querySelector('#python-source-controls'), document.querySelector('#python-lesson-controls'));
+preparation.append(document.querySelector('#python-source-controls'), document.querySelector(mockStudio?'#mock-review-controls':'#python-lesson-controls'));
+if(mockStudio)preparation.querySelector('#mock-review-start').hidden=true;
 editor.querySelector('.pe-inspector').prepend(preparation);
 const inspectorTabs = document.createElement('nav'); inspectorTabs.className = 'pe-inspector-tabs'; inspectorTabs.setAttribute('aria-label','Инструменты студии');
 inspectorTabs.innerHTML = '<button type="button" aria-pressed="false">Запись</button><button type="button" aria-pressed="true">Фрагмент</button>';
@@ -68,6 +86,12 @@ launchNote.textContent = 'Всё в монтажной студии: экран 
 document.querySelector('#python-start').hidden = true;
 document.querySelector('#python-inline-pause').style.display = 'none';
 document.querySelector('#python-inline-stop').style.display = 'none';
+if(mockStudio){
+  preparation.querySelector('h3').textContent='Экран, звук и пробник';
+  for(const el of preparation.querySelectorAll('h2,label,button,p')){
+    for(const node of el.childNodes)if(node.nodeType===Node.TEXT_NODE)node.textContent=node.textContent.replaceAll('для Python','для разбора').replaceAll('только для Python','для отдельной записи').replaceAll('Python','разбора');
+  }
+}
 context.ownsPythonPreview = true;
 style.textContent += '.python-studio[hidden]{display:none!important}';
 style.textContent += `
@@ -215,7 +239,7 @@ function renderPreparation(state) {
   startButton.hidden = Boolean(capture);
   startButton.textContent = startPending ? 'Запускаем запись…' : preparing ? '● Начать запись' : '● Новая запись';
   startButton.disabled = Boolean(waiting || capture || preparing && context.pythonStartReason());
-  const resumable=!preparing && job()?.pythonTheory && job().status==='saved' && job().pythonTimeline.finalized && !job().pythonTimeline.approved;
+  const resumable=!preparing && belongs(job()||{}) && job().status==='saved' && job().pythonTimeline.finalized && !job().pythonTimeline.approved;
   continueButton.hidden=!resumable;continueButton.disabled=Boolean(waiting||capture);
   prepareButton.disabled = Boolean(waiting || capture);
   inspectorTabs.children[1].disabled = !job();
@@ -231,7 +255,7 @@ function renderPreparation(state) {
     editor.querySelectorAll('[data-op]').forEach(button => { if (!['start','prepare'].includes(button.dataset.op)) button.disabled = true; });
     editor.querySelectorAll('[data-field]').forEach(control => { control.disabled = true; });
     retryButton.hidden = true;
-    find('.pe-publish-target').textContent = 'Подготовка новой записи Python';
+    find('.pe-publish-target').textContent = mockStudio?'Подготовка разбора пробника':'Подготовка новой записи Python';
     find('.pe-publish-summary').textContent = 'Нажмите «Начать запись» под предпросмотром. Предыдущие проекты сохранены в списке сверху.';
     find('.pe-publish-state').textContent = '';
   }
@@ -272,7 +296,7 @@ new IntersectionObserver(entries => { editorVisible = entries[0].isIntersecting;
 document.addEventListener('visibilitychange', () => { if (document.hidden) releasePreflight(); else void livePreview(); });
 setInterval(livePreview, 1000);
 function renderMonitor(current, state) {
-  const active = current?.status === 'recording' && state.jobs.some(item => item.id === current.id && item.pythonTheory);
+  const active = current?.status === 'recording' && state.jobs.some(item => item.id === current.id && belongs(item));
   const ready = preparing && !state.jobs.some(item => ['starting','recording','stopping'].includes(item.status)) && !state.obs?.outputActive;
   const live = (active || ready) && liveWanted;
   if (find('.pe-live-image').dataset.project !== (active ? current.id : 'preparation') || find('.pe-live-image').dataset.source !== JSON.stringify(state.config.pythonCapture)) find('.pe-live-image').removeAttribute('src');
@@ -293,7 +317,7 @@ function renderMonitor(current, state) {
   const pending = transition || context.pausePending?.();
   find('.pe-session').dataset.paused = String(paused);
   find('.pe-session-title').textContent = startPending ? 'Запускаем запись…' : pending ? pending.paused ? 'Завершаем дубль…' : 'Начинаем следующий дубль…' : active ? paused ? 'Запись на паузе' : `● Дубль ${count + 1} · ${clock(Math.max(0, timeline.sourceEnd - (timeline.openStart ?? timeline.sourceEnd)))}` : ready ? 'Подготовка новой записи' : current ? 'Монтаж записи' : 'Подготовка записи';
-  find('.pe-session-detail').textContent = startPending || pending ? 'Ждём подтверждения OBS. Повторно нажимать не нужно.' : active ? paused ? 'Дубль добавлен в ленту. Проверьте его или запишите следующий.' : '«Завершить дубль» остановит изображение и звук и добавит фрагмент в ленту.' : ready ? 'Выберите экран, микрофон и тему справа. Запуск — здесь, под предпросмотром.' : current ? 'Выберите фрагмент, проверьте монтаж и выложите готовое видео.' : 'Настройте источники и начните запись Python.';
+  find('.pe-session-detail').textContent = startPending || pending ? 'Ждём подтверждения OBS. Повторно нажимать не нужно.' : active ? paused ? 'Дубль добавлен в ленту. Проверьте его или запишите следующий.' : '«Завершить дубль» остановит изображение и звук и добавит фрагмент в ленту.' : ready ? 'Выберите экран, микрофон и материал справа. Запуск — здесь, под предпросмотром.' : current ? 'Выберите фрагмент, проверьте монтаж и выложите готовое видео.' : 'Настройте источники и начните запись Python.';
   const meter = state.obs?.meters?.find(item => item.inputName === 'IVAN100 Python: микрофон');
   const level = Math.max(0, ...(meter?.inputLevelsMul || []).flat());
   find('.pe-mic').hidden = !active && !ready;
@@ -417,7 +441,7 @@ function render() {
   if (find('.pe-status').dataset.loading) { delete find('.pe-status').dataset.loading; notify(''); }
   if (gesture) return;
   const continued=new Set(state.jobs.filter(item=>item.pythonContinuedFrom&&(item.status!=='error'||item.file)).map(item=>item.pythonContinuedFrom));
-  const projects = state.jobs.filter(item => item.pythonTimeline && !item.pythonArchivedAt && !continued.has(item.id));
+  const projects = state.jobs.filter(item => belongs(item) && !item.pythonArchivedAt && !continued.has(item.id));
   editor.classList.toggle('python-editor--empty', !projects.length);
   emptyHelp.hidden = Boolean(projects.length);
   find('.pe-empty').firstElementChild.hidden = !projects.length;
@@ -429,7 +453,7 @@ function render() {
     if (projectId || videoUrl) discardPreview();
     projectId = ''; selectedId = ''; signature = ''; inspectorSignature = ''; layout = []; playhead = 0;
     find('.pe-project').dataset.options = '';
-    find('.pe-project').replaceChildren(new Option('Новая запись Python', ''));
+    find('.pe-project').replaceChildren(new Option(newLabel, ''));
     editor.querySelectorAll('[data-op], [data-field]').forEach(control => { control.disabled = true; });
     find('.pe-selection').textContent = 'Фрагменты появятся после первой паузы';
     find('.pe-ruler').replaceChildren();
@@ -451,7 +475,7 @@ function render() {
   const selectProject = find('.pe-project');
   const options = String(preparing) + projects.map(item => `${item.id}:${item.pythonDraftName||item.title}:${item.status}:${item.pythonTimeline.clips.length}:${Boolean(item.pythonTimeline.approved)}`).join('|');
   if (selectProject.dataset.options !== options) {
-      selectProject.replaceChildren(...(preparing ? [new Option('Новая запись Python', '')] : []), ...projects.map(item => { const option = document.createElement('option'); option.value = item.id; option.textContent = (item.pythonDraftName||item.title) + ' · ' + new Date(item.createdAt).toLocaleString('ru-RU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) + ` · ${item.pythonTimeline.clips.length} фрагм.` + (item.pythonTimeline.approved ? item.status==='ready'?' · опубликовано':item.status==='error'?' · ошибка отправки':' · сборка / отправка' : item.status === 'recording' ? ' · запись' : ' · черновик'); return option; }));
+      selectProject.replaceChildren(...(preparing ? [new Option(newLabel, '')] : []), ...projects.map(item => { const option = document.createElement('option'); option.value = item.id; option.textContent = (item.pythonDraftName||item.title) + ' · ' + new Date(item.createdAt).toLocaleString('ru-RU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) + ` · ${item.pythonTimeline.clips.length} фрагм.` + (item.pythonTimeline.approved ? item.status==='ready'?' · опубликовано':item.status==='error'?' · ошибка отправки':' · сборка / отправка' : item.status === 'recording' ? ' · запись' : ' · черновик'); return option; }));
     selectProject.dataset.options = options;
   }
   selectProject.value = preparing ? '' : projectId;
@@ -519,14 +543,14 @@ function render() {
   retryButton.hidden = !timeline.approved || current.status !== 'error';
   retryButton.disabled = waiting || anyActive;
   const target = current.pythonTheory;
-  find('.pe-publish-target').textContent = target ? `Изучение Python → ${target.taskTitle || current.title} → ${target.subsectionTitle || 'Вся тема'}` : current.title;
+  find('.pe-publish-target').textContent = current.mockReview ? `Пробник месяца · ${current.mockReview.month} → ${current.mockReview.examTitle||current.title}` : target ? `Изучение Python → ${target.taskTitle || current.title} → ${target.subsectionTitle || 'Вся тема'}` : current.title;
   find('.pe-publish-summary').textContent = `${timeline.clips.length} фрагм. · Готовое видео ${clock(pythonExportDuration(timeline))} · ${String(pythonExportSpeed(timeline.speed)).replace('.',',')}× · Исходник ${clock(timeline.sourceEnd)}`;
   const published = current.status === 'ready';
   const failed = timeline.approved && current.status === 'error';
   const uploading = timeline.approved && !published && !failed;
   find('.pe-publish-state').dataset.error = String(failed);
-  find('.pe-publish-state').textContent = published ? 'Опубликовано: урок доступен ученикам в выбранном подразделе.' : failed ? `Загрузка не завершена: ${current.error || 'повторите отправку'}. Исходник и монтаж сохранены.` : uploading ? state.editorBusy === current.id ? '1/3 · Собираем итоговое видео…' : current.status === 'uploading' ? '2/3 · Загружаем в RuTube…' : current.status === 'processing' ? '3/3 · Обработка видео и прикрепление к теме…' : 'Отправка принята. Подготовка видео…' : reviewedRevision === timeline.revision ? 'Предпросмотр этого монтажа подготовлен. Проверьте изображение и звук перед отправкой.' : 'Перед отправкой просмотрите весь монтаж и проверьте звук.';
-  find('[data-op=publish]').textContent = published ? '✓ Опубликовано' : uploading ? 'Идёт отправка…' : 'Выложить в изучение Python';
+  find('.pe-publish-state').textContent = published ? (current.mockReview?'Опубликовано: разбор прикреплён к выбранному пробнику. Ученики увидят его после всех попыток или сдачи.':'Опубликовано: урок доступен ученикам в выбранном подразделе.') : failed ? `Загрузка не завершена: ${current.error || 'повторите отправку'}. Исходник и монтаж сохранены.` : uploading ? state.editorBusy === current.id ? '1/3 · Собираем итоговое видео…' : current.status === 'uploading' ? '2/3 · Загружаем в RuTube…' : current.status === 'processing' ? current.mockReview?'3/3 · Обработка видео и прикрепление к пробнику…':'3/3 · Обработка видео и прикрепление к теме…' : 'Отправка принята. Подготовка видео…' : reviewedRevision === timeline.revision ? 'Предпросмотр этого монтажа подготовлен. Проверьте изображение и звук перед отправкой.' : 'Перед отправкой просмотрите весь монтаж и проверьте звук.';
+  find('[data-op=publish]').textContent = published ? '✓ Опубликовано' : uploading ? 'Идёт отправка…' : publishLabel;
   const index=timeline.clips.findIndex(clip=>clip.id===selectedId), after=timeline.clips[index+1];
   find('[data-op=move-left]').disabled=locked||index<=0;
   find('[data-op=move-right]').disabled=locked||index<0||index>=timeline.clips.length-1;
@@ -592,14 +616,14 @@ async function operation(op) {
   if (op === 'preview' || op === 'preview-all') return preview(op === 'preview-all');
   if (op === 'live') { discardPreview(); render(); void livePreview(); return; }
   if (op === 'pause') return setPaused(current, !context.state().obs?.outputPaused);
-  if (op === 'stop') { await context.request('/material/stop', { id: current.id }); notify('Запись завершена. Просмотрите монтаж и нажмите «Выложить в изучение Python».'); return; }
+  if (op === 'stop') { await context.request('/material/stop', { id: current.id }); notify(`Запись завершена. Просмотрите монтаж и нажмите «${publishLabel}».`); return; }
   if (op === 'retake') {
     if (!context.state().obs?.outputPaused) await setPaused(current, true);
     await context.refresh(); selectedId = job().pythonTimeline.clips.at(-1)?.id || '';
     if (selectedId) await edit('retake');
     await setPaused(current, false); notify('Неудачный последний дубль убран из монтажа. Записываем новый. Ctrl+Z вернёт прежний.'); return;
   }
-  if (op === 'publish') { await context.request('/python/editor/publish', { id: current.id, revision: current.pythonTimeline.revision }); notify('Собираем итоговое видео и отправляем в теорию Python.'); return; }
+  if (op === 'publish') { await context.request('/python/editor/publish', { id: current.id, revision: current.pythonTimeline.revision }); notify(mockStudio?'Собираем видео, загружаем в Rutube и прикрепляем к пробнику.':'Собираем итоговое видео и отправляем в теорию Python.'); return; }
   if (op === 'retry-upload') { await context.request('/upload', { id: current.id }); notify('Повторная отправка завершена.'); return; }
   if (['cut-cursor', 'trim-start', 'trim-end'].includes(op)) {
     const action = op === 'cut-cursor' ? 'split' : op;

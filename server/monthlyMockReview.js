@@ -1,5 +1,6 @@
 import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../src/utils/learningGroups.js';
-import { collectMonthlyMockCompletions, getMonthlyMockMonth, getMonthlyMockPeriod, normalizeMonthlyMockAssignments } from '../src/utils/monthlyMockExam.js';
+import { getMonthlyMockMonth, getMonthlyMockPeriod, normalizeMonthlyMockAssignments } from '../src/utils/monthlyMockExam.js';
+import { getMonthlyMockAttemptPolicy } from '../src/utils/monthlyMockAttemptPolicy.js';
 import { privateRutubeVideo } from './desktopRecording.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -21,16 +22,14 @@ export function setMonthlyReviewVideo(exam, teacherId, value, now = Date.now()) 
   return { ...exam, monthlyReviewVideos: videos };
 }
 
-export function monthlyReviewForStudent(exam, teacherId, studentData, month, now = Date.now()) {
+export function monthlyReviewForStudent(exam, teacherId, studentData, month, now = Date.now(), options = {}) {
   const url = monthlyReviewUrl(exam, teacherId);
   if (!url) return { hasReviewVideo: false };
-  const period = getMonthlyMockPeriod(month);
-  const completed = period && collectMonthlyMockCompletions(studentData, [exam]).some(entry => (
-    entry.examId === exam.id && Date.parse(entry.finishedAt) >= period.startMs && Date.parse(entry.finishedAt) <= now
-  ));
-  // Late completion still unlocks this variant's review; exemptions and partial
-  // homework attempts never count. The URL is omitted while the exam is locked.
-  return { hasReviewVideo: true, ...(completed ? { reviewVideoUrl: url } : {}) };
+  const policy = getMonthlyMockAttemptPolicy({ ...options, studentData, exam, teacherId, month, now });
+  // Do not send even the private URL until every allowed attempt is finished,
+  // or the pupil has explicitly forfeited the remaining attempts for this exam.
+  return { hasReviewVideo: true, canSurrender: !policy.reviewUnlocked,
+    ...(policy.reviewUnlocked ? { reviewVideoUrl: url } : {}) };
 }
 
 export function recorderMockReviewCatalog(exams, teacherId, month = getMonthlyMockMonth()) {

@@ -1,3 +1,4 @@
+import StudentMonthlyMockReview from './StudentMonthlyMockReview';
 import FileDownloadLink from './FileDownloadLink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -267,6 +268,7 @@ const MockExamModal = ({
   studentId,
   initialAttempt,
   readOnly = false,
+  showMonthlyReview = false,
   attemptMode = MOCK_ATTEMPT_MODE_CLASSIC,
   initialTaskNumber = null,
   targetTaskKeys = null,
@@ -1778,6 +1780,7 @@ const MockExamModal = ({
               </div>
 
               {renderTimerExamActions(false)}
+                  {showMonthlyReview && activeAttempt?.monthlyPolicy && <StudentMonthlyMockReview examId={exam.id} month={activeAttempt.monthlyPolicy.month} refreshKey={activeAttempt.monthlyPolicy.reviewUnlocked} title={exam.title} onResolved={onClose} />}
             </div>
 
             <div className={`mock-exam-task-rail flex min-h-0 flex-col rounded-[1.4rem] border p-3 ${panelClassName}`}>
@@ -1859,6 +1862,7 @@ const MockExamModal = ({
               </div>
 
               {renderTimerExamActions(true)}
+              {showMonthlyReview && activeAttempt?.monthlyPolicy && <StudentMonthlyMockReview examId={exam.id} month={activeAttempt.monthlyPolicy.month} refreshKey={activeAttempt.monthlyPolicy.reviewUnlocked} title={exam.title} onResolved={onClose} />}
 
               {renderTaskPicker(true)}
             </div>

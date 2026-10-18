@@ -55,12 +55,12 @@ export class PythonPreviewSession {
 export async function configurePythonCapture({ obs, state, engine, save, payload, busy = false }) {
   if (busy) throw new Error('Дождитесь окончания загрузки, обработки или обновления пульта');
   const active = engine.active();
-  if (active && (!active.pythonTheory || active.status !== 'recording')) throw new Error('Сначала завершите текущую запись');
+  if (active && (!(active.pythonTheory || active.mockReview && active.captureProfile === 'python') || active.status !== 'recording')) throw new Error('Сначала завершите текущую запись');
   const status = await obs.status();
   if ((await obs.call('GetStreamStatus')).outputActive) throw new Error('Сначала завершите трансляцию OBS');
   if (status.outputActive) {
     const owner = await obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' });
-    if (!active?.pythonTheory || owner.parameterValue !== `lesson-${active.id}`) throw new Error('В OBS идёт другая запись');
+    if (!(active?.pythonTheory || active?.mockReview && active.captureProfile === 'python') || owner.parameterValue !== `lesson-${active.id}`) throw new Error('В OBS идёт другая запись');
   } else if (active) throw new Error('OBS не подтверждает запись Python. Проверьте состояние записи.');
   if (payload.mode !== undefined && !pythonModes.includes(payload.mode)) throw new Error('Неизвестный режим записи Python');
   const previous = pythonCaptureConfig(state.config.pythonCapture);

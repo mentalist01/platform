@@ -12,7 +12,7 @@ const hasFfmpeg = (() => { try { execFileSync(ffmpeg, ['-version'], { windowsHid
 
 // Run the actual service and panel against a synthetic OBS RPC transport and
 // a fictional platform. No real OBS, devices, payments, uploads or lessons.
-async function fixture({ queueEnabled = false, queueGates = false, durationFailure = false, pauseDelayMs = 0, mediaFixture = false, sourcePreparationGate = false } = {}) {
+async function fixture({ mockPublish = false, queueEnabled = false, queueGates = false, durationFailure = false, pauseDelayMs = 0, mediaFixture = false, sourcePreparationGate = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-python-studio-'));
   const app = path.join(root, 'fixture-app'); fs.mkdirSync(app);
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +23,10 @@ async function fixture({ queueEnabled = false, queueGates = false, durationFailu
   }
   const listener = http.createServer(); await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
   const port = listener.address().port; await new Promise(resolve => listener.close(resolve));
+  const publications=[];
   const platform = http.createServer((req, res) => {
+    if(req.url.endsWith('/mock-review/material')){let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{publications.push(JSON.parse(raw));res.setHeader('Content-Type','application/json');res.end(JSON.stringify({created:true}));});return;}
+    if(req.url.endsWith('/mock-review/catalog')){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({teacherId:'fictional-teacher',month:'2026-10',exams:[{id:'monthly-qa',title:'Входной пробник · QA',existingUrl:''}]}));return;}
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(req.url.endsWith('/python/catalog') ? { teacherId: 'fictional-teacher', tasks: [{ number: 101, title: 'Цикл for', subsections: [{ id: '__default__', title: 'Вся тема', existingUrl: '' }] }] } : { enabled: false, jobs: [] }));
   });
@@ -101,6 +104,9 @@ export class ObsClient extends Base {
     return qaOriginalPrepare(job);
   };
   const server = http.createServer`);
+  if(mockPublish) source=source.replace('RutubeUploader, privateVideo, videoReady }','RutubeUploader, privateVideo }')
+    .replace('const server = http.createServer',`async function videoReady(){return true;}editMedia.render=async(job,clips,dir,output)=>fs.writeFileSync(output,'synthetic MP4');const server = http.createServer`)
+    .replace('if (!job.url) await uploader.upload(job, save);',`if(!job.url){job.url='https://rutube.ru/video/private/'+'a'.repeat(32)+'/?p=fictional';save();}`);
   if (sourcePreparationGate) source = source.replace('const server = http.createServer', `
   let qaSourceGate;
   const qaCopyPlaybackSource = editMedia.copyPlaybackSource.bind(editMedia);
@@ -162,12 +168,38 @@ export class ObsClient extends Base {
     return { status: response.status, value: await response.json() };
   };
   const close = async () => { child.kill(); await new Promise(resolve => child.once('exit', resolve)); await new Promise(resolve => platform.close(resolve)); if(!process.argv.includes('--keep'))fs.rmSync(root, { recursive: true, force: true }); };
-  return { base, root, request, ordinary, close };
+  return { base, root, request, ordinary, close, publications };
 }
 if (process.argv.includes('--serve')) {
   const qa = await fixture(); console.log(JSON.stringify({ base: qa.base, root: qa.root }));
   process.on('SIGINT', () => { void qa.close().then(() => process.exit(0)); });
 } else {
+  test('monthly review uses the full editor, continuation and automatic publication to the exact mock',async t=>{
+    const f=await fixture({mockPublish:true,queueEnabled:true});t.after(f.close);
+    const call=async(route,body)=>{const r=await f.request(route,body);assert.equal(r.status,200,JSON.stringify(r.value));return r.value;};
+    await call('/python/configure',{mode:'window',window:'python-editor',mic:'python-mic'});
+    await call('/mock-review/start',{examId:'monthly-qa',month:'2026-10',expectedUrl:''});
+    let state=await call('/state'),job=state.jobs.find(j=>j.status==='recording'),id=job.id;
+    assert.equal(job.captureProfile,'python');assert.ok(job.pythonTimeline);assert.equal(job.pythonTheory,undefined);
+    await call('/python/editor/live?id='+id);
+    await call('/material/pause',{id,paused:true});
+    state=await call('/state');job=state.jobs.find(j=>j.id===id);assert.equal(job.pythonTimeline.clips.length,1);
+    const clip=job.pythonTimeline.clips[0];
+    await call('/python/editor/edit',{id,revision:job.pythonTimeline.revision,action:'trim',clipId:clip.id,start:clip.start+1,end:clip.end});
+    assert.equal((await f.request('/python/editor/publish',{id,revision:job.pythonTimeline.revision})).status,400,'cannot publish an active recording');
+    await call('/material/stop',{id});job=(await call('/state')).jobs.find(j=>j.id===id);
+    assert.equal(job.pythonTimeline.approved,false);assert.equal(f.publications.length,0,'stop saves a draft, never publishes it');
+    assert.equal((await call('/python/projects')).projects.length,0,'review drafts are separate from Python');
+    assert.equal((await call('/mock-review/projects')).projects[0].id,id);
+    await call('/python/continue',{id,revision:job.pythonTimeline.revision});
+    state=await call('/state');job=state.jobs.find(j=>j.status==='recording');assert.equal(job.pythonContinuedFrom,id);assert.equal(job.mockReview.examId,'monthly-qa');assert.equal(job.pythonTheory,undefined);
+    id=job.id;await call('/material/stop',{id});job=(await call('/state')).jobs.find(j=>j.id===id);
+    await call('/python/editor/publish',{id,revision:job.pythonTimeline.revision});
+    for(let i=0;i<80;i++){state=await call('/state');job=state.jobs.find(j=>j.id===id);if(job.status==='ready')break;await new Promise(resolve=>setTimeout(resolve,150));}
+    assert.equal(job.status,'ready',job.error);assert.equal(f.publications.length,1);
+    assert.equal(f.publications[0].examId,'monthly-qa');assert.equal(f.publications[0].month,'2026-10');assert.equal(f.publications[0].recordingId,id);
+    assert.equal(state.config.platform,f.ordinary.platform);assert.equal(state.config.mic,f.ordinary.mic);
+  });
   test('draft library preserves edits and sources, restores removal and opens an old project beyond 50 recent jobs',async t=>{
     const f=await fixture({mediaFixture:true});t.after(f.close);
     await f.request('/python/configure',{mode:'screen',screen:'python-monitor',mic:'python-mic'});

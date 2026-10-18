@@ -32,7 +32,7 @@ export default function MonthlyMockReviewEditor({ exam, onSaved }) {
       <Video size={15} />{exam.monthlyReviewVideoUrl ? 'Видеоразбор прикреплён' : 'Добавить видеоразбор'}
     </button>
     {expanded && <div className="monthly-review-editor__body">
-      <p>Ученик сможет посмотреть видео после завершения этого пробника.</p>
+      <p>Ученик сможет посмотреть видео после всех попыток или по кнопке «Сдаться и посмотреть разбор».</p>
       <label>Ссылка на видеоразбор Rutube<input type="url" placeholder="https://rutube.ru/video/..." value={url} maxLength={3000} disabled={busy} onChange={event => { setUrl(event.target.value); setSaved(false); }} /></label>
       <div className="monthly-review-editor__actions">
         <button type="button" disabled={busy} onClick={async () => {
@@ -41,10 +41,10 @@ export default function MonthlyMockReviewEditor({ exam, onSaved }) {
           catch (failure) { setError(failure.message || 'Не удалось сохранить разбор'); }
           finally { setBusy(false); }
         }}>{busy ? 'Сохраняем…' : 'Сохранить ссылку'}</button>
-        {assigned && <a href={`http://127.0.0.1:18765/?mockReview=${encodeURIComponent(exam.id)}#mock-review`} target="_blank" rel="noreferrer"><PlayCircle size={15} />Записать разбор в пульте</a>}
+        {assigned && <a href={`http://127.0.0.1:18765/?mockReview=${encodeURIComponent(exam.id)}&studio=mock-review#mock-review`} target="_blank" rel="noreferrer"><PlayCircle size={15} />Записать видеоразбор пробника месяца</a>}
       </div>
       {!assigned && <small>Для записи через пульт отметьте этот вариант как пробник текущего месяца.</small>}
-      <small>В пульте можно ставить запись на паузу. После завершения и загрузки в Rutube видео прикрепится автоматически. Для закрытого видео сохраняйте ключ ?p= в ссылке.</small>
+      <small>Откроется отдельная студия: запись дублями, пауза, монтаж и предпросмотр — как у Python. Нажмите «Опубликовать разбор пробника»: видео загрузится в Rutube и прикрепится автоматически. Для закрытого видео сохраняйте ключ ?p= в ссылке.</small>
       {error && <p role="alert" className="monthly-review-editor__error">{error}</p>}
       {saved && <p role="status">Ссылка сохранена.</p>}
     </div>}
