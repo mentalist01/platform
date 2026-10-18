@@ -1,5 +1,6 @@
 import {getMonthlyMockMonth,normalizeMonthlyMockAssignments,getMonthlyMockPeriod} from './monthlyMockExam.js';
 import {getMockSecondaryScoreFromSolved,getMockSecondaryScoreFromPrimary} from './mockExamScore.js';
+import {isAssignedMockAttempt} from './mockExamAssignment.js';
 
 const record=value=>value&&typeof value==='object'&&!Array.isArray(value);
 const finish=attempt=>attempt.finishedAt||attempt.timerFinishedAt||(attempt.status==='finished'?attempt.updatedAt:'');
@@ -33,8 +34,16 @@ export function getMonthlyMockAttemptPolicy({studentData={},exams=[],exam,teache
   for(const candidate of exams)for(const value of monthlyAssignedMonths(candidate,teacherId)){
     if(value<=month&&(!joined||value>=joined)&&!studentData.monthlyMockExemptions?.[value])months.add(value);
   }
-  for(const item of [...(studentData.mockAttemptResults||[]),...Object.values(studentData.mockAttempts||{})]){
-    const value=mockAttemptMonth({...item.attemptSnapshot,...item},exams.find(e=>e.id===item.examId)||item.examSnapshot,teacherId);
+  for(const item of [...(studentData.mockAttemptResults||[]),...Object.entries(studentData.mockAttempts||{}).map(([examId,attempt])=>({...attempt,examId}))]){
+    const attempt={...item.attemptSnapshot,...item};
+    const candidate=exams.find(e=>e.id===item.examId)||item.examSnapshot;
+    let value=mockAttemptMonth(attempt,candidate,teacherId);
+    // Before monthly designations existed, completed teacher-assigned full
+    // mocks already represented the pupil's monthly benchmark. Count one per
+    // month; self-practice and selected homework questions do not consume it.
+    const keys=Object.keys(attempt.tasks||attempt.examSnapshot?.tasks||candidate?.tasks||{});
+    const whole=keys.length>0&&(!attempt.targetTaskKeys?.length||keys.every(key=>attempt.targetTaskKeys.includes(key)));
+    if(!value&&whole&&Number.isFinite(Date.parse(finish(attempt)))&&isAssignedMockAttempt({examId:item.examId,exam:candidate,attempt,studentData,teacherId}))value=getMonthlyMockMonth(Date.parse(finish(attempt)));
     if(value&&value<=month&&(!joined||value>=joined))months.add(value);
   }
   const ordinal=Number(pinned)||[...months].sort().indexOf(month)+1,maxAttempts=ordinal<=4?3:1;

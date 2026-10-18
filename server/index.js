@@ -19937,6 +19937,7 @@ const sanitizeStudentDataForClient = (studentData, studentId = '', reportTeacher
       }, {});
       const sanitizedResult = {
         ...result,
+        ...(result.attemptSnapshot?.monthlyMockMonth ? {monthlyMockMonth:result.attemptSnapshot.monthlyMockMonth,monthlyMockOrdinal:result.attemptSnapshot.monthlyMockOrdinal} : {}),
         assignedForStatistics: assigned(result.examId, result),
         tasks: sanitizedTasks,
       };

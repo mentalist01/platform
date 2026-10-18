@@ -21,3 +21,12 @@ test('the best allowed attempt is stable across worse retakes, ties and unfinish
   const archive=getMonthlyMockAttemptPolicy({...options,now:Date.parse('2026-11-01T00:00+03:00'),studentData:data});
   assert.equal(archive.archived,true);assert.equal(archive.canRestart,false);
 });
+
+test('earlier assigned full mocks count once per month, self-practice and partial homework do not',()=>{
+  const exam={id:'current',tasks,monthlyAssignments:{teacher:['2026-10']}};
+  const old={id:'old',tasks},result={examId:'old',attemptId:'sept',finishedAt:'2026-09-13T12:00Z',tasks,assignmentSource:'homework'};
+  const input={exams:[old,exam],exam,teacherId:'teacher',month:'2026-10',now:options.now};
+  assert.equal(getMonthlyMockAttemptPolicy({...input,studentData:{mockAttemptResults:[result,{...result,attemptId:'sept-repeat'}]}}).ordinal,2);
+  assert.equal(getMonthlyMockAttemptPolicy({...input,studentData:{mockAttemptResults:[{...result,assignmentSource:'self'}]}}).ordinal,1);
+  assert.equal(getMonthlyMockAttemptPolicy({...input,studentData:{mockAttemptResults:[{...result,targetTaskKeys:['1']}]}}).ordinal,1);
+});

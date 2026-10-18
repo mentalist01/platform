@@ -308,6 +308,7 @@ const buildResultSnapshot = ({
       : 1,
     isFirstAttempt: attempt?.isFirstAttempt !== false
       && (!Number.isFinite(Number(attempt.attemptNumber)) || Number(attempt.attemptNumber) === 1),
+    ...(attempt.monthlyMockMonth ? {monthlyMockMonth:attempt.monthlyMockMonth,monthlyMockOrdinal:attempt.monthlyMockOrdinal} : {}),
     finishedAt,
     targetTaskKeys: [...targetTaskKeys],
     tasks: cloneValue(exam.tasks),
