@@ -11313,7 +11313,7 @@ export const BoardCanvasSection = ({
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionBox, setSelectionBox] = useState(null);
   const summonNotice = pages?.summonNotice;
-  const [boardSynced, setBoardSynced] = useState(false);
+  const [, setBoardSynced] = useState(false);
   const [isBrushPaletteOpen, setIsBrushPaletteOpen] = useState(false);
   const [isShapePaletteOpen, setIsShapePaletteOpen] = useState(false);
   const [shapeKind, setShapeKind] = useState('rectangle');
@@ -12590,11 +12590,12 @@ export const BoardCanvasSection = ({
 
   const summonedNavigation = pages?.navigation;
   const acknowledgeBoardNavigation = pages?.acknowledgeNavigation;
-  useEffect(() => {
-    const navigation = summonedNavigation;
-    if (!navigation) return undefined;
-    // An older cursor-follow animation or active pan must not undo the summon
-    // on the following frame. Update refs before scheduling the board render.
+  const boardNavigationRef = useRef(null);
+  const confirmedBoardNavigationRef = useRef('');
+  useLayoutEffect(() => {
+    boardNavigationRef.current = { navigation: summonedNavigation, acknowledge: acknowledgeBoardNavigation, roomId: liveRoomId };
+  }, [summonedNavigation, acknowledgeBoardNavigation, liveRoomId]);
+  const applySummonedViewport = useCallback(navigation => {
     cancelViewportAnimation();
     setFollowingRemoteCursorId('');
     panStateRef.current.active = false;
@@ -12604,13 +12605,21 @@ export const BoardCanvasSection = ({
     offsetRef.current = navigation.offset;
     setZoom(nextZoom);
     setOffset(navigation.offset);
-    return undefined;
-  },[summonedNavigation,cancelViewportAnimation]);
-
+  }, [cancelViewportAnimation]);
+  const confirmSyncedBoardNavigation = useCallback(provider => {
+    const current = boardNavigationRef.current;
+    if (!current?.navigation || confirmedBoardNavigationRef.current === current.navigation.id
+      || !provider?.synced || provider.roomname !== current.roomId) return;
+    // Confirm from the actual provider event, even if React batches false/true
+    // sync state into one render while switching to another page.
+    applySummonedViewport(current.navigation);
+    if (current.acknowledge?.(current.navigation) === true) confirmedBoardNavigationRef.current = current.navigation.id;
+  }, [applySummonedViewport]);
   useEffect(() => {
-    if (!summonedNavigation || !boardSynced || !providerRef.current?.synced || providerRef.current.roomname !== liveRoomId) return undefined;
-    return acknowledgeBoardNavigation?.(summonedNavigation);
-  },[summonedNavigation,acknowledgeBoardNavigation,boardSynced,liveRoomId]);
+    if (!summonedNavigation) return;
+    applySummonedViewport(summonedNavigation);
+    confirmSyncedBoardNavigation(providerRef.current);
+  }, [summonedNavigation, applySummonedViewport, confirmSyncedBoardNavigation]);
 
   const animateViewportToOffset = useCallback((targetOffset, durationMs = 300) => {
     const targetX = Number(targetOffset?.x);
@@ -15256,6 +15265,7 @@ export const BoardCanvasSection = ({
     };
     const handleSync = (isSynced) => {
       setBoardSynced(isSynced);
+      if (isSynced) confirmSyncedBoardNavigation(provider);
       if (!isSynced || !lessonReplayActiveRef.current) return;
       // Include the merged scene after reconnect even if the local offline
       // changes have already been flushed. An unchanged checkpoint is a no-op.
@@ -15487,7 +15497,7 @@ export const BoardCanvasSection = ({
       disposed = true;
       runtimeCleanup?.();
     };
-  }, [roomId, wsUrl, wsParams, liveRoomId, localName, localColor, isTeacher, isSandbox, boardReadOnly, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
+  }, [confirmSyncedBoardNavigation, roomId, wsUrl, wsParams, liveRoomId, localName, localColor, isTeacher, isSandbox, boardReadOnly, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
 
   useEffect(() => {
     if (!isSandbox || !sandboxReadOnly) return;

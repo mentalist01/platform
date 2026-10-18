@@ -1,3 +1,4 @@
+import { boardCommandNow, isFreshBoardCommand } from './boardCommandClock.js';
 export const FIRST_BOARD_PAGE_ID = 'main';
 export const MAX_BOARD_PAGES = 300;
 const PAGE_ID = /^[a-zA-Z0-9_-]{8,80}$/;
@@ -43,8 +44,8 @@ export function boardPageAfterChange(previous,next,currentId) {
   const index=Math.max(0,previous.findIndex(page=>page.id===currentId));
   return next[Math.min(index,next.length-1)]?.id || FIRST_BOARD_PAGE_ID;
 }
-export function boardPageSummonTarget(command,userId,pages,now=Date.now()) {
-  if (!command?.id || !Number.isFinite(command.ts) || now-command.ts>15000 || command.ts>now+5000
+export function boardPageSummonTarget(command,userId,pages,now=boardCommandNow()) {
+  if (!command?.id || !Number.isFinite(command.ts) || !isFreshBoardCommand(command,now)
     || !pages.some(p=>p.id===command.pageId)) return null;
   const studentId=String(command.studentId || '');
   if (studentId && studentId!==userId) return null;
