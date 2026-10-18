@@ -117,6 +117,18 @@ test('access is limited to the pupil and their own teacher, and invalid/stale wr
   assert.equal((await f.request('/api/student-availability')).answer,null);
 });
 
+test('placement shows only active own pupils for comparing group levels, even before the candidate answers', async t => {
+  const f = await fixture(t);
+  f.students.a = { id: 'a', teacherId: 'teacher', name: 'Анна' };
+  f.students.b = { id: 'b', teacherId: 'foreign', name: 'Чужой ученик' };
+  f.students.left = { id: 'left', teacherId: 'teacher', name: 'Вышел' };
+  f.groups[0].members.push({ studentId: 'left', status: 'left' });
+  const result = await f.request('/api/students/new/group-placement', 'teacher:teacher');
+  assert.ok(result.answers.every(answer => !answer.answer));
+  assert.deepEqual(result.groups[0].members, [{ id: 'a', name: 'Анна' }]);
+  assert.equal(JSON.stringify(result).includes('Чужой ученик'), false);
+});
+
 test('placement invitations are opt-in, durable, teacher-owned and never change saved availability', async t => {
   const f = await fixture(t);
   const initial = await f.request('/api/student-availability');

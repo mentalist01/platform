@@ -770,3 +770,5 @@ html[data-theme='dark'] .teacher-calendar-shell__event-card {
 html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
   filter: drop-shadow(0 20px 42px rgba(2, 6, 23, 0.38));
 }
+
+.teacher-calendar-shell__lesson-details { max-height: min(calc(100dvh - 32px), calc(100% - 32px)); overflow-y: auto; overscroll-behavior: contain; }

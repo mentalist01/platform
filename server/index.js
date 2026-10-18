@@ -43,6 +43,7 @@ import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homewor
 import { registerLessonAlarmDismissals, attachLessonAlarmSocket } from './lessonAlarmDismissals.js';
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { registerStudentParentContacts } from './studentParentContacts.js';
+import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
 import { normalizeGroupHomeworkCancellations, registerGroupHomeworkCancellations } from './groupHomeworkCancellations.js';
@@ -22807,6 +22808,11 @@ registerStudentParentContacts(app, {
   dataDir, staff: ensureStaffWriteAccess,
   student: (req, res, id) => ensureStudentAccess(req, res, id),
   students: readStudentsDb, isAdmin: isAdminRole,
+});
+
+registerStudentPlacementNotes(app, {
+  dataDir, staff: ensureStaffWriteAccess,
+  student: (req, res, id) => ensureStudentAccess(req, res, id),
 });
 
 registerHomeworkLives(app, homeworkLives, {

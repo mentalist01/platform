@@ -30,6 +30,7 @@ import LinkifiedText from './LinkifiedText';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import StudentMonthlyReportModal from './StudentMonthlyReportModal';
 import StudentParentContact from './StudentParentContact';
+import StudentPlacementNote from './StudentPlacementNote.jsx';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import {
   QUESTION_INSERT_MODE_CUSTOM,
@@ -3455,6 +3456,7 @@ const TeacherPanel = ({
                           </span>
                         </p>
                         <div className="mt-2"><StudentParentContact studentId={student.id} studentName={student.name} compact /></div>
+                        <StudentPlacementNote studentId={student.id} studentName={student.name} />
                       </>
                     )}
                   </div>

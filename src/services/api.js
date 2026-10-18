@@ -518,6 +518,8 @@ export const api = {
   personalGroupAvailability: (durationMinutes = 60) => requestLearningGroupJson(`/api/student-availability?durationMinutes=${encodeURIComponent(durationMinutes)}`),
   savePersonalGroupAvailability: body => requestLearningGroupJson('/api/student-availability/answer', { method: 'POST', body }),
   studentGroupPlacement: studentId => requestLearningGroupJson(`/api/students/${encodeURIComponent(studentId)}/group-placement`),
+  studentPlacementNote: studentId => requestLearningGroupJson(`/api/students/${encodeURIComponent(studentId)}/placement-note`),
+  saveStudentPlacementNote: (studentId, body) => requestLearningGroupJson(`/api/students/${encodeURIComponent(studentId)}/placement-note`, { method: 'PATCH', body }),
   studentAvailabilityPrompt: () => requestLearningGroupJson('/api/student-availability/prompt'),
   setStudentGroupPlacement: (studentId, seekingGroup) => requestLearningGroupJson(`/api/students/${encodeURIComponent(studentId)}/group-placement/settings`, { method: 'POST', body: { seekingGroup } }),
   downloadDesktopRecorder: async () => {

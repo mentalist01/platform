@@ -156,7 +156,12 @@ export function registerGroupPlacement(app, deps) {
     const records = Object.fromEntries(durations.map(durationMinutes => [durationMinutes,
       store.record({ teacherId: fresh.teacherId, studentId: fresh.id, durationMinutes })]));
     const answers = durations.map(duration => ({ durationMinutes: duration, ...snapshot(fresh, duration) }));
+    const ownGroups = groups().filter(group => group.teacherId === fresh.teacherId);
+    const ranked = rankPlacementGroups({ groups: ownGroups, polls: polls(), records, studentId: fresh.id, entries, calendarError });
     return { student: { id: fresh.id, name: fresh.name, nickname: fresh.nickname || '' }, seekingGroup: store.seekingGroup({ teacherId: fresh.teacherId, studentId: fresh.id }), answers, calendarError,
-      groups: rankPlacementGroups({ groups: groups().filter(group => group.teacherId === fresh.teacherId), polls: polls(), records, studentId: fresh.id, entries, calendarError }) };
+      groups: ranked.map(result => ({ ...result, members: (ownGroups.find(group => group.id === result.id)?.members || [])
+        .filter(member => member.status === 'active').map(member => getStudent(member.studentId))
+        .filter(pupil => pupil && !pupil.deletedAt && pupil.teacherId === fresh.teacherId)
+        .map(pupil => ({ id: pupil.id, name: pupil.name })) })) };
   }));
 }

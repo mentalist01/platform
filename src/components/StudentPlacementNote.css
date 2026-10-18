@@ -1,0 +1,18 @@
+.student-placement-note{margin:12px 0;border:1px solid #c4b5fd;border-radius:13px;background:#faf8ff;color:#27213e;max-width:100%;min-width:0}
+.student-placement-note .student-placement-note__toggle{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:13px;background:transparent;color:#5b21b6;font-size:12px;font-weight:700}
+.student-placement-note__toggle>span{flex:1}.student-placement-note__toggle>small{font-weight:500;font-size:11px;white-space:nowrap}
+.student-placement-note__body{padding:0 13px 13px}.student-placement-note__body p{margin:0 0 12px;font-size:12px;color:#635a77;line-height:1.5}
+.student-placement-note__body label{display:block;font-size:12px;font-weight:700;margin-bottom:7px}
+.student-placement-note textarea{display:block;width:100%;box-sizing:border-box;padding:11px;border:1px solid #b8adca;border-radius:10px;background:#fff;color:#27213e;font-size:13px;line-height:1.6;resize:vertical;min-height:130px;max-height:400px}
+.student-placement-note textarea::placeholder{color:#7d748d}
+.student-placement-note__actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0 5px}
+.student-placement-note .student-placement-note__actions button{border:1px solid #6d28d9;background:#6d28d9;color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700}
+.student-placement-note__actions span{display:inline-flex;align-items:center;gap:4px;color:#5d566b;font-size:11px}.student-placement-note__body>small{font-size:11px;color:#635a77}
+.student-placement-note button:disabled{opacity:.5;cursor:default}.student-placement-note button:focus-visible,.student-placement-note textarea:focus-visible{outline:3px solid #8b5cf6;outline-offset:2px}
+.student-placement-note__error{font-size:12px;color:#b42318;line-height:1.6;margin-top:10px}.student-placement-note__error button{display:block;padding:4px 0;text-decoration:underline;color:inherit;background:transparent;border:0}
+[data-theme="dark"] .student-placement-note{background:#252036;border-color:#66518f;color:#f0eafd}
+[data-theme="dark"] .student-placement-note .student-placement-note__toggle{color:#d9c9ff}
+[data-theme="dark"] .student-placement-note textarea{background:#181522;color:#f0eafd;border-color:#75638d}
+[data-theme="dark"] .student-placement-note textarea::placeholder{color:#b6a8c6}
+[data-theme="dark"] .student-placement-note__body p,[data-theme="dark"] .student-placement-note__body>small,[data-theme="dark"] .student-placement-note__actions span{color:#c2b5d4}
+[data-theme="dark"] .student-placement-note__error{color:#fda4af}

@@ -1,0 +1,23 @@
+.calendar-student-payer {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid #a7dcd5;
+  border-radius: 12px;
+  background: #f0fdfa;
+  color: #115e59;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.calendar-student-payer > svg { flex: 0 0 auto; margin-top: 2px; }
+.calendar-student-payer__text { min-width: 0; overflow-wrap: anywhere; }
+.calendar-student-payer strong { font-weight: 700; }
+.calendar-student-payer__hint { color: #52666a; }
+.calendar-student-payer button { text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+.calendar-student-payer button:focus-visible { outline: 2px solid #0f766e; outline-offset: 3px; border-radius: 3px; }
+.calendar-student-payer--compact { margin-top: 3px; padding: 0; gap: 5px; border: 0; background: transparent; font-size: 11px; }
+html[data-theme='dark'] .calendar-student-payer { border-color: #2b6864; background: #123b3a; color: #a7f3d0; }
+html[data-theme='dark'] .calendar-student-payer__hint { color: #b4cac9; }
+html[data-theme='dark'] .calendar-student-payer--compact { background: transparent; }

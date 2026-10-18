@@ -4,6 +4,10 @@ import { api } from '../services/api';
 import { AVAILABILITY_DAYS, AVAILABILITY_DAY_NAMES, availabilitySlots } from '../utils/groupAvailability';
 import './GroupAvailability.css';
 import './GroupPlacement.css';
+import StudentAvailabilitySummary from './StudentAvailabilitySummary.jsx';
+import GroupPlacementComparison from './GroupPlacementComparison.jsx';
+import StudentPlacementNote from './StudentPlacementNote.jsx';
+import GroupMemberLevels from './GroupMemberLevels.jsx';
 
 const durations = [30, 45, 60, 90, 120];
 const dateLabel = value => new Date(value).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
@@ -80,6 +84,9 @@ export function PersonalGroupAvailability({ transport = api, individual = true }
 }
 
 export function TeacherGroupPlacement({ students = [], onChoose, transport = api }) {
+  const [comparing, setComparing] = useState(null);
+  const [placementNote, setPlacementNote] = useState(null);
+  const noteDirty = useRef(false);
   const [studentId, setStudentId] = useState(''), [data, setData] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
   const generation = useRef(0);
   const load = async () => {
@@ -107,8 +114,9 @@ export function TeacherGroupPlacement({ students = [], onChoose, transport = api
   };
   const link = `${window.location.origin}/?view=groups`;
   return <section className="placement-teacher" aria-label="Подобрать группу ученику"><header><Users size={24} /><div><h2>Подобрать группу ученику</h2><p>Сначала свободное время, потом группа. До вступления ученик остаётся индивидуальным.</p></div></header>
-    <div className="placement-toolbar"><label>Ученик<select value={studentId} onChange={event => setStudentId(event.target.value)}><option value="">Выберите ученика</option>{students.filter(student => !student.deletedAt).map(student => <option key={student.id} value={student.id}>{student.name}{student.nickname && student.nickname !== student.name ? ` · ${student.nickname}` : ''}</option>)}</select></label><button type="button" disabled={!studentId || busy} onClick={load}><RefreshCw size={16} />{busy ? 'Проверяем…' : 'Обновить подбор'}</button></div>
+    <div className="placement-toolbar"><label>Ученик<select value={studentId} onChange={event => { if (!noteDirty.current || window.confirm("Есть несохранённая заметка об уровне. Переключить ученика без сохранения?")) { setStudentId(event.target.value); setComparing(null); setPlacementNote(null); noteDirty.current = false; } }}><option value="">Выберите ученика</option>{students.filter(student => !student.deletedAt).map(student => <option key={student.id} value={student.id}>{student.name}{student.nickname && student.nickname !== student.name ? ` · ${student.nickname}` : ''}</option>)}</select></label><button type="button" disabled={!studentId || busy} onClick={load}><RefreshCw size={16} />{busy ? 'Проверяем…' : 'Обновить подбор'}</button></div>
     {error && <p className="ga-alert" role="alert">{error}</p>}
+    <StudentPlacementNote studentId={studentId} studentName={students.find(value => value.id === studentId)?.name} transport={transport} initialOpen onNoteChange={setPlacementNote} onDirtyChange={dirty => { noteDirty.current = dirty; }} />
     {studentId && <div className="placement-invite"><div><strong>Попросите ученика отметить время</strong><p>В его кабинете: «Подбор группы» → «Мои группы» → анкета свободного времени. Если он уже состоит в группе, раздел называется «Группы и записи». Регистрация в группе для анкеты не нужна.</p></div><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); } catch { setError('Не удалось скопировать ссылку. Откройте адрес ниже.'); } }}><Copy size={16} />{copied ? 'Ссылка скопирована' : 'Скопировать ссылку ученику'}</button><a href={link} target="_blank" rel="noreferrer">{link}</a></div>}
     {data && <>
       <label className="placement-answer flex items-start gap-3">
@@ -117,16 +125,20 @@ export function TeacherGroupPlacement({ students = [], onChoose, transport = api
       </label>
       {!answered.length ? <p className="placement-empty">Ученик ещё не сохранил свободное время. Его индивидуальные занятия продолжаются; после заполнения анкеты нажмите «Обновить подбор».</p> : <>
         <p className="placement-answer">Анкета сохранена {dateLabel(Math.max(...answered.map(answer => answer.answer.updatedAt)))}. Длительность: {answered.map(answer => `${answer.durationMinutes} мин`).join(', ')}. Подбор учитывает только время; уровень и состав группы выберите сами.</p>
+        <StudentAvailabilitySummary answers={data.answers} />
+      </>}
         {currentGroup && <p className="placement-answer">Ученик уже состоит в группе «{currentGroup.name}». Для перехода используйте «Перенести» в составе этой группы.</p>}
         {data.calendarError && <p className="ga-alert" role="alert">Не удалось проверить календарь преподавателя. Совпадения с установленным расписанием показаны, но свободные часы формирующихся групп нужно проверить повторно.</p>}
         {!data.groups.length ? <p className="placement-empty">Пока нет доступных групп. Можно создать группу под свободное время ученика.</p> : <div className="placement-results">{data.groups.map(group => <article key={group.id} className={`placement-result fit-${group.fit}`}><header><div><h3>{group.name}</h3><p>{memberLabel(group.memberCount)} · {group.mode === 'schedule' ? 'Расписание выбрано' : group.mode === 'forming' ? 'Подбираем расписание' : 'Нет расписания'}</p></div><span className="placement-fit">{labels[group.fit]}</span></header>
           <p>{group.mode === 'schedule' ? `Подходит ${group.matchedCount} из ${group.totalCount} занятий.` : group.mode === 'forming' ? `Полностью согласовано дней: ${group.availableDays}. Для группы нужны два разных дня.${group.pendingMembers ? ` Ждём ответы: ${group.pendingMembers}.` : ''}` : 'Откройте подбор времени в этой группе, чтобы сравнить отметки участников.'}</p>
           {group.fit === 'unanswered' && <p>Нужны отметки для длительности занятий этой группы или для часов, которых не было в прошлой анкете.</p>}
+          <GroupMemberLevels key={`${studentId}-${group.id}`} candidate={data.student} candidateNote={placementNote} members={group.members} memberCount={group.memberCount} transport={transport} />
           <div className="placement-slots">{group.slots.map(slot => <span key={`${slot.id}-${slot.durationMinutes}`} className={`choice-${slot.choice}`} title={slot.pending ? 'Часть участников ещё не ответила' : undefined}>{slotLabel(slot)}{slot.choice === 'maybe' || slot.flexible ? ' · подстроиться' : slot.choice === 'no' ? ' · не подходит' : slot.choice === 'pending' ? ' · нет ответа' : ''}{slot.pending ? ' · ждём ответы' : ''}</span>)}</div>
+          <button type="button" className="placement-compare-button" onClick={() => setComparing(group)}>Примерить время</button>
           {!group.alreadyMember && <button type="button" disabled={busy || !!currentGroup} onClick={() => onChoose?.(group.id,studentId)}>Выбрать эту группу</button>}
         </article>)}</div>}
         <p className="placement-answer">Выбор откроет состав группы с выбранным учеником. Вступление и изменение формата занятий подтверждаются отдельно.</p>
-      </>}
     </>}
+    {comparing && data && <GroupPlacementComparison key={`${studentId}-${comparing.id}`} student={data.student} answers={data.answers} group={comparing} transport={transport} onClose={() => setComparing(null)} />}
   </section>;
 }
