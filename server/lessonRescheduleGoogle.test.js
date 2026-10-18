@@ -26,6 +26,18 @@ test('recovery finds marked occurrence without any further writes',async()=>{
   assert.equal((await moveGoogleCalendarLesson({...params,...m,recoverOnly:true})).iCalUID,'uid');assert.equal(m.calls.length,1);
   assert.equal(await moveGoogleCalendarLesson({...params,...mock(),recoverOnly:true}),null);
 });
+
+test('a journal-proven fresh move avoids a recovery round trip but keeps source and etag checks', async () => {
+  const m = mock();
+  await moveGoogleCalendarLesson({ ...params, ...m, allowConflicts: true, skipRecoveryLookup: true });
+  assert.equal(m.calls.length, 2);
+  assert.ok(m.calls[0].u.searchParams.has('iCalUID'));
+  assert.equal(m.calls[1].method, 'PATCH');
+  assert.equal(m.calls[1].headers['If-Match'], '"v1"');
+  const recovery = mock();
+  await moveGoogleCalendarLesson({ ...params, ...recovery, skipRecoveryLookup: true, recoverOnly: true });
+  assert.ok(recovery.calls[0].u.searchParams.has('privateExtendedProperty'));
+});
 test('manual dated lesson creates one deterministic Google event',async()=>{
   const m=mock();await moveGoogleCalendarLesson({...params,...m,iCalUid:''});const write=m.calls.find(c=>c.method==='POST');const body=JSON.parse(write.body);
   assert.match(body.id,/^[0-9a-f]{64}$/);assert.equal(body.summary,'Student');assert.equal(body.extendedProperties.private.ivan100Reschedule,'r1');

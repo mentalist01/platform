@@ -112,6 +112,21 @@ export function registerGroupPlacement(app, deps) {
     try { res.json(await fn(req)); }
     catch (error) { res.status(error.status || 503).json({ error: error.status ? error.message : 'Не удалось сохранить или проверить свободное время. Попробуйте ещё раз.' }); }
   };
+  app.get('/api/teacher-group-placement', route(req => {
+    if (req.auth?.role !== 'teacher') fail('Нет доступа', 403);
+    const ownGroups = groups().filter(group => group.teacherId === req.auth.id && !group.deletedAt && group.status !== 'completed');
+    return { students: (deps.students?.(req.auth.id) || []).filter(student => !student.deletedAt && student.teacherId === req.auth.id).map(student => {
+      const summaries = durations.map(duration => ({ durationMinutes: duration, ...snapshot(student, duration) }));
+      const answered = summaries.filter(value => value.answer);
+      const marked = answered.map(value => ({ durationMinutes: value.durationMinutes, count: Object.keys(value.answer.choices).length })).filter(value => value.count);
+      return { studentId: student.id, name: student.name, nickname: student.nickname || '',
+        seekingGroup: store.seekingGroup({ teacherId: req.auth.id, studentId: student.id }),
+        groups: ownGroups.filter(group => group.members?.some(member => member.studentId === student.id && member.status === 'active')).map(group => ({ id: group.id, name: group.name })),
+        answerState: marked.length ? 'answered' : answered.length ? 'empty' : 'pending',
+        slotCount: marked.reduce((sum, value) => sum + value.count, 0), durations: marked.map(value => value.durationMinutes),
+        updatedAt: answered.length ? Math.max(...answered.map(value => value.answer.updatedAt)) : null };
+    }) };
+  }));
   app.get('/api/student-availability', route(req => {
     if (req.auth?.role !== 'student') fail('Нет доступа', 403);
     return snapshot(access(req.auth, req.auth.id), req.query.durationMinutes || 60);

@@ -25,6 +25,7 @@ test('owned event moves once, repeated requests are idempotent and stale/foreign
   await request('',move(),403,'student:a');await request('',move(),403,'teacher:other');
   await request('',{...move(),target:{...move().target,durationMinutes:90}},400);
   const moved=await request('',move());assert.equal(moved.status,'done');assert.equal(state.writes,1);assert.equal(state.entries[0].time,'12:15');
+  assert.equal(moved.entry.id,state.entries[0].id);assert.equal(moved.entry.studentId,'a');assert.equal(moved.entry.time,'12:15');
   await request('',move());assert.equal(state.writes,1);assert.equal(state.applies,1);
   await request('',move('request-stale-001'),409);assert.deepEqual((await request()).edits,[]);
 });

@@ -74,8 +74,9 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
     }
   };
   const serialize = row => ({ id: row.id, operation: row.operation, status: row.status, title: row.target.title,
-    date: row.target.date, time: row.target.time, error: row.lastError || '' });
-  const apply = async row => {
+    date: row.target.date, time: row.target.time, error: row.lastError || '',
+    ...(row.status === 'done' ? { entry: { ...calendarEditTargetEntry(row), ...row.appliedIdentity } } : {}) });
+  const apply = async (row, { fresh = false } = {}) => {
     if (row.status === 'done') return row;
     if (row.status === 'cancelled') fail('Это изменение отменено. Создайте новое.', 409);
     checkOwners(row);
@@ -87,7 +88,7 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
     if (!row.googleResult) {
       row = store.put({ ...row, status: 'applying', lastError: '' });
       try {
-        const result = await googleChange(row);
+        const result = await googleChange(row, { skipRecoveryLookup: fresh });
         if (!result?.iCalUID) throw new Error('Google did not return an event identity');
         row = store.put({ ...row, googleResult: result });
       } catch (error) {
@@ -96,8 +97,9 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
       }
     }
     checkOwners(row);
-    await applyLocal(row); // Must be idempotent: Google may have committed before a restart.
-    row = store.put({ ...row, status: 'done', lastError: '', completedAt: Date.now() });
+    const entry = await applyLocal(row); // Must be idempotent: Google may have committed before a restart.
+    const appliedIdentity = entry?.lessonId ? { lessonId: entry.lessonId, participantIds: entry.participantIds || [] } : {};
+    row = store.put({ ...row, appliedIdentity, status: 'done', lastError: '', completedAt: Date.now() });
     notify(row);
     return row;
   };
@@ -174,7 +176,7 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
       checkOwners(row);
       // Ownership is checked again after the asynchronous calendar read and before every write.
       teacherAccess(req.auth, teacherId);
-      return serialize(await apply(store.put(row)));
+      return serialize(await apply(store.put(row), { fresh: true }));
     });
   }));
   return { retry: row => withTeacherCalendarLock(row.teacherId, () => apply(store.get(row.id))) };

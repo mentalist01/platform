@@ -8,6 +8,7 @@ import StudentAvailabilitySummary from './StudentAvailabilitySummary.jsx';
 import GroupPlacementComparison from './GroupPlacementComparison.jsx';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import GroupMemberLevels from './GroupMemberLevels.jsx';
+import GroupPlacementRoster from './GroupPlacementRoster.jsx';
 
 const durations = [30, 45, 60, 90, 120];
 const dateLabel = value => new Date(value).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
@@ -85,6 +86,7 @@ export function PersonalGroupAvailability({ transport = api, individual = true }
 
 export function TeacherGroupPlacement({ students = [], onChoose, transport = api }) {
   const [comparing, setComparing] = useState(null);
+  const [rosterRevision, setRosterRevision] = useState(0);
   const [placementNote, setPlacementNote] = useState(null);
   const noteDirty = useRef(false);
   const [studentId, setStudentId] = useState(''), [data, setData] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
@@ -108,13 +110,19 @@ export function TeacherGroupPlacement({ students = [], onChoose, transport = api
     const token = ++generation.current; setBusy(true); setError('');
     try {
       const result = await transport.setStudentGroupPlacement(studentId, enabled);
-      if (token === generation.current) setData(previous => ({ ...previous, seekingGroup: result.seekingGroup }));
+      if (token === generation.current) { setData(previous => ({ ...previous, seekingGroup: result.seekingGroup })); setRosterRevision(value => value + 1); }
     } catch (error) { if (token === generation.current) setError(error.message); }
     finally { if (token === generation.current) setBusy(false); }
   };
+  const selectStudent = id => {
+    if (noteDirty.current && !window.confirm('Есть несохранённая заметка об уровне. Переключить ученика без сохранения?')) return;
+    if (id === studentId) { void load(); return; }
+    setStudentId(id); setComparing(null); setPlacementNote(null); noteDirty.current = false;
+  };
   const link = `${window.location.origin}/?view=groups`;
   return <section className="placement-teacher" aria-label="Подобрать группу ученику"><header><Users size={24} /><div><h2>Подобрать группу ученику</h2><p>Сначала свободное время, потом группа. До вступления ученик остаётся индивидуальным.</p></div></header>
-    <div className="placement-toolbar"><label>Ученик<select value={studentId} onChange={event => { if (!noteDirty.current || window.confirm("Есть несохранённая заметка об уровне. Переключить ученика без сохранения?")) { setStudentId(event.target.value); setComparing(null); setPlacementNote(null); noteDirty.current = false; } }}><option value="">Выберите ученика</option>{students.filter(student => !student.deletedAt).map(student => <option key={student.id} value={student.id}>{student.name}{student.nickname && student.nickname !== student.name ? ` · ${student.nickname}` : ''}</option>)}</select></label><button type="button" disabled={!studentId || busy} onClick={load}><RefreshCw size={16} />{busy ? 'Проверяем…' : 'Обновить подбор'}</button></div>
+    <GroupPlacementRoster selectedId={studentId} onSelect={selectStudent} transport={transport} refreshKey={rosterRevision} />
+    <div className="placement-toolbar"><label>Ученик<select value={studentId} onChange={event => selectStudent(event.target.value)}><option value="">Выберите ученика</option>{students.filter(student => !student.deletedAt).map(student => <option key={student.id} value={student.id}>{student.name}{student.nickname && student.nickname !== student.name ? ` · ${student.nickname}` : ''}</option>)}</select></label><button type="button" disabled={!studentId || busy} onClick={load}><RefreshCw size={16} />{busy ? 'Проверяем…' : 'Обновить подбор'}</button></div>
     {error && <p className="ga-alert" role="alert">{error}</p>}
     <StudentPlacementNote studentId={studentId} studentName={students.find(value => value.id === studentId)?.name} transport={transport} initialOpen onNoteChange={setPlacementNote} onDirtyChange={dirty => { noteDirty.current = dirty; }} />
     {studentId && <div className="placement-invite"><div><strong>Попросите ученика отметить время</strong><p>В его кабинете: «Подбор группы» → «Мои группы» → анкета свободного времени. Если он уже состоит в группе, раздел называется «Группы и записи». Регистрация в группе для анкеты не нужна.</p></div><button type="button" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); } catch { setError('Не удалось скопировать ссылку. Откройте адрес ниже.'); } }}><Copy size={16} />{copied ? 'Ссылка скопирована' : 'Скопировать ссылку ученику'}</button><a href={link} target="_blank" rel="noreferrer">{link}</a></div>}

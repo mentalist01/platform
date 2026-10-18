@@ -42,3 +42,47 @@ html[data-theme='dark'] .teacher-student-card__group { background: #302743; bord
 html[data-theme='dark'] .student-directory-tools{background:#262235;border-color:#4e3e64}html[data-theme='dark'] .student-directory-tools__search,html[data-theme='dark'] .student-directory-tools select,html[data-theme='dark'] .teacher-student-card__more>div,html[data-theme='dark'] .student-directory-create{background:#211d2e;border-color:#514363;color:#e7def6}html[data-theme='dark'] .student-directory-tools__search input{color:#e7def6}html[data-theme='dark'] .student-directory-tools__filters label>span,html[data-theme='dark'] .student-directory-tools__bottom{color:#aca2bc}html[data-theme='dark'] .student-directory-tools button,html[data-theme='dark'] .student-directory-create>summary{color:#c59bf9}
 @media(max-width:640px){.student-directory-tools{padding:12px}.student-directory-tools__filters{gap:10px}.student-directory-tools__filters>svg{display:none}.student-directory-tools__filters label{flex-basis:42%;min-width:100px}.student-directory-tools__search input{font-size:16px}.student-directory-tools__filters select{min-height:44px;font-size:13px}.student-directory-tools__bottom button{min-height:40px}.teacher-student-card__more>div{right:0}.teacher-student-card__more summary{min-height:38px;display:flex;align-items:center}}
 .student-directory-tools__search input::-webkit-search-cancel-button{display:none}
+
+/* Distinct surfaces make filters, groups and individual pupils easy to scan. */
+.teacher-students-card .student-directory-tools{background:#e8edf5;border-color:#aebbd0;box-shadow:none}
+.teacher-students-card .student-directory-tools__search{border-color:#8d9db7;color:#4d376f}
+.teacher-students-card .student-directory-tools__search input{color:#17253b}
+.teacher-students-card .student-directory-tools__search input::placeholder{color:#5b6880}
+.teacher-students-card .student-directory-tools__filters{color:#46546d}
+.teacher-students-card .student-directory-tools__filters label>span{color:#36465f;font-size:11px}
+.teacher-students-card .student-directory-tools__filters select{border-color:#9caec7;color:#26384f;font-size:13px}
+.teacher-students-card .student-directory-tools__bottom{color:#46546d;font-size:12px}
+.teacher-students-card .student-directory-tools__bottom button{color:#59348c;font-size:12px}
+.teacher-students-card .teacher-student-group{border-color:#75638d;box-shadow:0 2px 5px #25304b10}
+.teacher-students-card .teacher-student-group__toggle{background:#36264f;color:#fff}
+.teacher-students-card .teacher-student-group__toggle:hover{background:#493368}
+.teacher-students-card .teacher-student-group__icon{background:#ffffff14;color:#e7d9ff;border:1px solid #87749f}
+.teacher-students-card .teacher-student-group__count{background:#f0e8ff;color:#46296b}
+.teacher-students-card .teacher-student-group__members,.teacher-students-card .teacher-student-group__filtered{color:#e1d9ec}
+.teacher-students-card .teacher-student-group__action{color:#f0e8ff}
+.teacher-students-card .teacher-student-group__body:not([hidden]){background:#edf0f6;border-color:#75638d;padding:14px;gap:12px}
+.teacher-students-card .teacher-student-roster{gap:14px}
+.teacher-students-card .teacher-student-card{border:1px solid #b1bdd0;border-left:4px solid #7f91ad;background:#fff;box-shadow:0 2px 6px #20314e0c}
+.teacher-students-card .teacher-student-card--active{border-left-color:#6935af;border-color:#8665b2}
+.teacher-students-card .teacher-student-card__name{color:#182840;font-weight:750;font-size:17px}
+.teacher-students-card .teacher-student-card__meta,.teacher-students-card .text-gray-400,.teacher-students-card .text-gray-500{color:#526078}
+.teacher-students-card .teacher-student-card__meta-value{color:#293a53}
+.teacher-students-card .teacher-student-card__more summary{color:#45536b;border-color:#aebbd0}
+.teacher-students-card .student-directory-create{background:#f0f3f8;border-color:#b0bed0}
+.teacher-students-card .student-directory-create>summary{color:#4b326c}
+.student-directory-lives-button{display:inline-flex;align-items:center;gap:6px;padding:9px 13px;border:1px solid #734ba7;border-radius:11px;background:#5b3788;color:white;font-size:12px;font-weight:700;white-space:nowrap}
+.student-directory-lives-button:hover{background:#472968}.student-directory-lives-button:focus-visible{outline:3px solid #b995ec;outline-offset:3px}
+html[data-theme=dark] .teacher-students-card .student-directory-tools{background:#30384a;border-color:#65708b}
+html[data-theme=dark] .teacher-students-card .student-directory-tools__search,html[data-theme=dark] .teacher-students-card .student-directory-tools__filters select{background:#1d2534;border-color:#76839b;color:#f0eef9}
+html[data-theme=dark] .teacher-students-card .student-directory-tools__search input{color:#f0eef9}
+html[data-theme=dark] .teacher-students-card .student-directory-tools__search input::placeholder,html[data-theme=dark] .teacher-students-card .student-directory-tools__filters label>span,html[data-theme=dark] .teacher-students-card .student-directory-tools__bottom{color:#d0d8e8}
+html[data-theme=dark] .teacher-students-card .student-directory-tools__bottom button{color:#dfc5ff}
+html[data-theme=dark] .teacher-students-card .teacher-student-group__body:not([hidden]){background:#181d2b}
+html[data-theme=dark] .teacher-students-card .teacher-student-card{background:#252e40;border-color:#65738d;border-left-color:#a590cb}
+html[data-theme=dark] .teacher-students-card .teacher-student-card__name{color:#f5f3ff}
+html[data-theme=dark] .teacher-students-card .teacher-student-card__meta,html[data-theme=dark] .teacher-students-card .text-gray-400,html[data-theme=dark] .teacher-students-card .text-gray-500{color:#c1cce0}
+html[data-theme=dark] .teacher-students-card .teacher-student-card__meta-value{color:#f0eef9}
+html[data-theme=dark] .teacher-students-card .teacher-student-card__more summary{color:#e1d6f0;border-color:#77839b}
+html[data-theme=dark] .teacher-students-card .student-directory-create{background:#293044;border-color:#68748e}
+html[data-theme=dark] .teacher-students-card .student-directory-create>summary{color:#e1c9ff}
+@media(max-width:640px){.teacher-students-card .teacher-student-group__body:not([hidden]){padding:9px}.student-directory-lives-button{min-height:40px}.teacher-students-card>.flex:first-child>div:last-child{flex-wrap:wrap}}

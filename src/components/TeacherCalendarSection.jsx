@@ -5,6 +5,7 @@ import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
 import { snapCalendarDragStart } from '../utils/calendarDrag.js';
+import { applySavedCalendarEdit, createCalendarSnapshotGuard } from '../utils/calendarSnapshot.js';
 import { useLessonPaymentSenders } from '../hooks/useLessonPaymentSenders.js';
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -1212,7 +1213,12 @@ const TeacherCalendarSection = ({
     return () => { cancelled = true; };
   }, [teacherId]);
 
+  const calendarSnapshotGuard = useRef(null);
+  if (!calendarSnapshotGuard.current) calendarSnapshotGuard.current = createCalendarSnapshotGuard();
+
   const loadTeacherCalendar = useCallback(async ({ silent = false } = {}) => {
+    const guard = calendarSnapshotGuard.current;
+    const token = guard.begin();
     if (!teacherId) {
       setEntries([]);
       setError('');
@@ -1226,16 +1232,24 @@ const TeacherCalendarSection = ({
 
     try {
       const data = await api.getTeacherSchedule(teacherId);
+      if (!guard.isCurrent(token)) return;
       setEntries(sortScheduleEntries(Array.isArray(data) ? data : []));
       setError('');
     } catch (err) {
-      setEntries([]);
-      setError(err?.message || 'Не удалось загрузить общий календарь.');
+      if (!guard.isCurrent(token)) return;
+      if (!silent) setEntries([]);
+      setError(silent ? 'Не удалось обновить календарь. Сохранённые изменения остаются в силе.' : err?.message || 'Не удалось загрузить общий календарь.');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (guard.isCurrent(token)) { setLoading(false); setRefreshing(false); }
     }
   }, [teacherId]);
+
+  const showSavedCalendarEdit = useCallback((saved, source) => {
+    calendarSnapshotGuard.current.invalidate();
+    if (saved?.entry) setEntries(previous => sortScheduleEntries(applySavedCalendarEdit(previous, { source, entry: saved.entry })));
+    // Google and the local schedule have committed; refresh the rest in the background.
+    void loadTeacherCalendar({ silent: true });
+  }, [loadTeacherCalendar]);
 
   const loadLessonPanelMarks = useCallback(async ({ silent = false } = {}) => {
     if (!teacherId) {
@@ -3405,15 +3419,15 @@ const TeacherCalendarSection = ({
     if (!draggedEntry) return;
     setDragDropBusy(true); setDragDropError(''); setCalendarEditNotice('');
     try {
-      await api.saveTeacherCalendarEdit({ id: crypto.randomUUID(), operation: 'move',
+      const saved = await api.saveTeacherCalendarEdit({ id: crypto.randomUUID(), operation: 'move',
         source: { id: draggedEntry.id, date: sourceOccurrenceDayKey, time: draggedEntry.time,
           durationMinutes: draggedEntry.durationMinutes },
         target: { date: targetDayKey, time: targetTime, durationMinutes } }, teacherId);
+      showSavedCalendarEdit(saved, { ...draggedEntry, date: sourceOccurrenceDayKey });
       setCalendarEditNotice('Событие перенесено в платформе и Google Calendar. Остальные повторы не менялись.');
-      await loadTeacherCalendar({ silent: true });
     } catch (failure) { setDragDropError(failure.message || 'Не удалось перенести событие.'); }
     finally { setDragDropBusy(false); setCalendarEditRevision(value => value + 1); }
-  }, [loadTeacherCalendar, teacherId]);
+  }, [showSavedCalendarEdit, teacherId]);
 
   const handleCalendarColumnDrop = useCallback(async (dragEvent, dayIndex) => {
     if (!draggingEvent || dragDropBusy) return;
@@ -3624,19 +3638,19 @@ const TeacherCalendarSection = ({
         || calendarCreateGroups.find(group => group.id === groupId)?.name || '';
       const title = String(quickCreateDraft.title || '').trim() || selectedName
         || (isTrialWithoutStudent ? DEFAULT_ONE_TIME_LESSON_SUBJECT : 'Событие');
-      await api.saveTeacherCalendarEdit({ id: quickCreateDraft.requestId, operation: 'create',
+      const saved = await api.saveTeacherCalendarEdit({ id: quickCreateDraft.requestId, operation: 'create',
         target: { date: dateKey, time, durationMinutes, studentId, groupId, title, repeatMode,
           kind: isTrialWithoutStudent ? 'trial' : 'event' } }, teacherId);
       if (studentId) setHiddenStudentMap(previous => ({ ...previous, [studentId]: false }));
       setCalendarEditNotice('Событие создано в платформе и Google Calendar.');
       setQuickCreateDraft(null);
-      await loadTeacherCalendar({ silent: true });
+      showSavedCalendarEdit(saved);
     } catch (err) {
       setQuickCreateError(err?.message || 'Не удалось добавить занятие.');
     } finally {
       setQuickCreateSaving(false); setCalendarEditRevision(value => value + 1);
     }
-  }, [calendarCreateGroups, dayEndMinutes, dayStartMinutes, loadTeacherCalendar, quickCreateDraft, quickCreateSaving, studentNameById, teacherId]);
+  }, [calendarCreateGroups, dayEndMinutes, dayStartMinutes, showSavedCalendarEdit, quickCreateDraft, quickCreateSaving, studentNameById, teacherId]);
 
   const openEventDetailsModal = useCallback((event, dayKey) => {
     const hasStudent = Boolean(String(event?.studentId || '').trim());

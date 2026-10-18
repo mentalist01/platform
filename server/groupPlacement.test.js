@@ -77,7 +77,7 @@ async function fixture(t) {
   const groups=[group('exact',[schedule(0,'10:00'),schedule(2,'10:00')]),{...group('foreign'),teacherId:'foreign'}];
   const polls={}; let entriesCalls=0;
   const app=express(); app.use(express.json()); app.use((req,res,next)=>{const value=req.headers.authorization?.split(':'); if(value)req.auth={role:value[0],id:value[1]};next();});
-  registerGroupPlacement(app,{store,getStudent:id=>students[id],groups:()=>groups,polls:()=>polls,getEntries:async()=>{entriesCalls++;return [];}});
+  registerGroupPlacement(app,{store,students:id=>Object.values(students).filter(student=>student.teacherId===id),getStudent:id=>students[id],groups:()=>groups,polls:()=>polls,getEntries:async()=>{entriesCalls++;return [];}});
   const server=app.listen(0,'127.0.0.1'); await new Promise(resolve=>server.once('listening',resolve));
   t.after(async()=>{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});});
   const request=async(route,auth='student:new',body,status=200)=>{
@@ -175,4 +175,20 @@ test('historical midnight slots outside the questionnaire are preserved without 
   assert.deepEqual(initial.answer.choices,{});
   await f.request('/api/student-availability/answer','student:new',{durationMinutes:60,revision:initial.revision,choices:{'0-600':'yes'}});
   assert.equal(f.store.record({teacherId:'teacher',studentId:'new',durationMinutes:60}).slots['0-1380'].choice,'yes');
+});
+test('teacher placement roster reports pending, answered and cleared availability in one isolated read without Google', async t => {
+  const f = await fixture(t);
+  await f.request('/api/teacher-group-placement', 'student:new', undefined, 403);
+  let list = await f.request('/api/teacher-group-placement', 'teacher:teacher');
+  assert.deepEqual(list.students.map(row => [row.studentId, row.answerState]), [['new', 'pending']]);
+  await f.request('/api/students/new/group-placement/settings', 'teacher:teacher', { seekingGroup: true });
+  const initial = await f.request('/api/student-availability');
+  const saved = await f.request('/api/student-availability/answer', 'student:new', { durationMinutes: 60, revision: initial.revision, choices: { '0-600': 'yes', '2-600': 'maybe' } });
+  list = await f.request('/api/teacher-group-placement', 'teacher:teacher');
+  assert.equal(list.students[0].answerState, 'answered'); assert.equal(list.students[0].slotCount, 2);
+  assert.deepEqual(list.students[0].durations, [60]); assert.equal(list.students[0].seekingGroup, true);
+  await f.request('/api/student-availability/answer', 'student:new', { durationMinutes: 60, revision: saved.revision, choices: {} });
+  assert.equal((await f.request('/api/teacher-group-placement', 'teacher:teacher')).students[0].answerState, 'empty');
+  assert.ok(!(await f.request('/api/teacher-group-placement', 'teacher:foreign')).students.some(row => row.studentId === 'new'));
+  assert.equal(f.entriesCalls(), 0);
 });

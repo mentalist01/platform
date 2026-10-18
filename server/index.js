@@ -22845,6 +22845,23 @@ registerHomeworkLives(app, homeworkLives, {
     const schedule = [...(data.schedule || []).filter(entry => !entry.groupId && !entry.isLearningGroupEvent), ...groupEntries];
     return {
       homeworks: data.homeworks || [],
+      ...(() => {
+        const history = batch.livesHistory ||= readLessonHistoryStore();
+        const finance = batch.livesFinance ||= readTeacherFinanceDb();
+        const teacherFinance = getTeacherFinanceTeacherEntry(finance, student.teacherId);
+        const individual = buildStudentLessonHistory({ studentId: student.id, studentCreatedAt: student.createdAt,
+          schedule: getTeacherCalendarHistorySchedule(student.teacherId, (data.schedule || []).filter(entry => !entry.groupId && !entry.isLearningGroupEvent && !isExplicitTrialLesson(entry))),
+          ledgerEntries: Object.values(teacherFinance.lessonLedger || {}).filter(entry => entry.studentId === student.id && !entry.groupId && !isExplicitTrialLesson(entry)),
+          storedOccurrences: Object.values(history.occurrences || {}).filter(entry => entry.studentId === student.id && !entry.groupId && !isExplicitTrialLesson(entry)),
+          tombstones: history.tombstones, nowMs: Date.now() + 6 * 60 * 60 * 1000, timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE });
+        const lessons = batch.livesGroupLessons ||= readResolvedGroupLessonSessions();
+        const countedGroupLessons = lessons.filter(lesson => ['completed', 'active'].includes(lesson.status) && lesson.teacherId === student.teacherId
+          && (lesson.participantIds || []).includes(student.id) && isGroupLessonAssigned(groups.find(group => group.id === lesson.groupId), student.id, lesson))
+          ;
+        const groupTimes = countedGroupLessons.map(lesson => Date.parse(lesson.startAt) + Number(lesson.durationMinutes || 60) * 60000);
+        return { completedLessonTimes: [...individual.map(entry => entry.endMs), ...groupTimes].filter(value => value <= Date.now()),
+          startedLessonTimes: [...individual.map(entry => entry.startMs), ...countedGroupLessons.map(lesson => Date.parse(lesson.startAt))].filter(value => value <= Date.now()) };
+      })(),
       isHomeworkRequired: homework => isGroupHomeworkRequired(
         homework, groups.find(group => group.id === homework.learningGroupId), student.id
       ),
@@ -25333,7 +25350,7 @@ const teacherCalendarEditRunner = registerTeacherCalendarEdits(app, {
     if (candidates[0].status === 'active') throw Object.assign(new Error('Сначала завершите текущее занятие группы.'), { status: 409 });
     return { ...source, lessonId: candidates[0].id, participantIds: candidates[0].participantIds };
   },
-  googleChange: async (row, { recoverOnly = false } = {}) => {
+  googleChange: async (row, { recoverOnly = false, skipRecoveryLookup = false } = {}) => {
     const connection = getTeacherCalendarGoogleConnection(row.teacherId);
     let accessToken;
     try {
@@ -25345,7 +25362,7 @@ const teacherCalendarEditRunner = registerTeacherCalendarEdits(app, {
         : new Date(`${row.target.date}T${row.target.time}:00+03:00`).toISOString(),
       targetStartAt: new Date(`${row.target.date}T${row.target.time}:00+03:00`).toISOString(), durationMinutes: row.target.durationMinutes,
       summary: row.target.title, description: row.target.note, recurrence: row.target.repeatMode === 'weekly' ? ['RRULE:FREQ=WEEKLY'] : [],
-      allowConflicts: true, deterministicRecovery: true, recoverOnly });
+      allowConflicts: true, deterministicRecovery: true, recoverOnly, skipRecoveryLookup });
   },
   applyLocal: applyTeacherCalendarEdit,
   notify: row => notifyScheduleSyncUpdate({ scope: 'teacher-calendar-edit', action: row.operation, teacherId: row.teacherId,
@@ -25364,6 +25381,7 @@ setInterval(async () => {
 
 registerGroupPlacement(app, {
   store: studentAvailabilityStore,
+  students: teacherId => readStudentsDb().filter(student => student.teacherId === teacherId && !student.deletedAt && isCurrentStudent(student)),
   getStudent: findStudentById,
   groups: readLearningGroupsDb,
   polls: () => availabilityStore.all(),

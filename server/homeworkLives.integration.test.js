@@ -12,7 +12,7 @@ test('real API isolates teacher/student lives, protects mutations and keeps prog
     const students=JSON.parse(fs.readFileSync(path.join(data,'students.json'),'utf8')).map(s=>({...s,createdAt:new Date(now-90*86400000).toISOString()}));write('students',students);
     const entry=id=>({id,issuedAt,dueAt,homeWork:'Python + ЕГЭ',goals:[{type:'task',taskNumber:4,levelId:'basic',targetQuestions:[1,2],targetQuestionIds:['ege-question','ege-second']}]});
     write('tests',{4:{basic:[{id:'ege-question',answer:'17'},{id:'ege-second',answer:'18'}]}});
-    write('progress',Object.fromEntries(['student-a','student-b'].map(id=>[id,{homeworks:['a','b','c'].map(entry),solvedByTask:{4:{basic:{solved:['ege-question'],answerHistory:{'ege-question':[{submittedAt:new Date(now-2*86400000).toISOString(),correct:true}]}}}}}])));
+    write('progress',Object.fromEntries(['student-a','student-b'].map(id=>[id,{schedule:Array.from({length:9},(_,i)=>({id:'past-'+i,date:new Date(now-(20+i)*86400000).toISOString().slice(0,10),time:'10:00',durationMinutes:60})),homeworks:['a','b','c'].map(entry),solvedByTask:{4:{basic:{solved:['ege-question'],answerHistory:{'ege-question':[{submittedAt:new Date(now-2*86400000).toISOString(),correct:true}]}}}}}])));
   });
   try{
     const teacher=f.tokens['teacher-a'],other=f.tokens['teacher-b'],pupil=f.tokens['student-a'];

@@ -7,6 +7,7 @@ import { useLessonPaceRoster } from '../hooks/useLessonPaceRoster';
 import TeacherStudentRoster from './TeacherStudentRoster';
 import StudentPaymentSenderEditor from './StudentPaymentSenderEditor';
 const StudentPaymentBalances = React.lazy(() => import('./StudentPaymentBalances'));
+const TeacherLivesOverview = React.lazy(() => import('./TeacherLivesOverview.jsx'));
 import { findPaymentSenderConflict } from '../utils/paymentSenderLinks.js';
 import MonthlyMockExamStatus from './MonthlyMockExamStatus';
 import { useMonthlyMockRoster } from '../hooks/useMonthlyMockRoster';
@@ -259,6 +260,8 @@ const TeacherPanel = ({
   const isStudentsMode = mode === 'students';
   const isSettingsMode = mode === 'settings';
   const [isStudentsExpanded, setIsStudentsExpanded] = useState(isStudentsMode);
+  const [livesOverviewOpen, setLivesOverviewOpen] = useState(false);
+  const closeLivesOverview = useCallback(() => setLivesOverviewOpen(false), []);
   const [monthlyMockStudentId, setMonthlyMockStudentId] = useState(null);
   const [paceStudent, setPaceStudent] = useState(null);
   const paceRoster = useLessonPaceRoster({ teacherId, enabled: role === 'teacher' && isStudentsExpanded && isStudentsMode });
@@ -2884,6 +2887,7 @@ const TeacherPanel = ({
 
       {isStudentsMode && (
       <Card className="teacher-panel-card teacher-students-card">
+        {role === 'teacher' && livesOverviewOpen && <React.Suspense fallback={<p role="status">Загружаем список жизней…</p>}><TeacherLivesOverview students={studentsList} onClose={closeLivesOverview} /></React.Suspense>}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
             <h3 className="text-lg font-bold text-gray-800">Ученики</h3>
@@ -2892,6 +2896,7 @@ const TeacherPanel = ({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {role === 'teacher' && <button type="button" className="student-directory-lives-button" onClick={() => setLivesOverviewOpen(true)}>♡ Жизни учеников</button>}
             {studentsError && <span className="text-xs text-red-500">{studentsError}</span>}
             <button
               type="button"

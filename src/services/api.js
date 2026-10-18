@@ -520,6 +520,7 @@ export const api = {
   groupAvailabilityShare: teacherId => requestLearningGroupJson(`/api/learning-groups/availability-share?teacherId=${encodeURIComponent(teacherId || '')}`),
   personalGroupAvailability: (durationMinutes = 60) => requestLearningGroupJson(`/api/student-availability?durationMinutes=${encodeURIComponent(durationMinutes)}`),
   savePersonalGroupAvailability: body => requestLearningGroupJson('/api/student-availability/answer', { method: 'POST', body }),
+  teacherGroupPlacement: () => requestLearningGroupJson('/api/teacher-group-placement'),
   studentGroupPlacement: studentId => requestLearningGroupJson(`/api/students/${encodeURIComponent(studentId)}/group-placement`),
   studentPlacementNote: studentId => requestLearningGroupJson(`/api/students/${encodeURIComponent(studentId)}/placement-note`),
   saveStudentPlacementNote: (studentId, body) => requestLearningGroupJson(`/api/students/${encodeURIComponent(studentId)}/placement-note`, { method: 'PATCH', body }),

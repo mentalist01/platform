@@ -5,6 +5,20 @@ export const PLACEMENT_CHOICE_LABELS = {
   yes: 'Удобно', maybe: 'Подстроится', no: 'Не подходит', unmarked: 'Не выбрано', pending: 'Нет ответа', outside: 'Не спрашивали',
 };
 
+// A temporary extra answer in the actual group grid. Never mutate the saved poll.
+export function buildAvailabilityTryOn(snapshot, student, answers = []) {
+  if (!snapshot?.poll || !student?.id) return snapshot?.poll || null;
+  const poll = snapshot.poll;
+  const own = answers.find(value => value.durationMinutes === poll.config.durationMinutes && value.answer);
+  const scope = new Set(availabilitySlots(own?.config).map(slot => slot.id));
+  const choices = Object.fromEntries(availabilitySlots(poll.config).map(slot => [slot.id,
+    !scope.has(slot.id) ? 'outside' : own.answer.choices?.[slot.id] || 'no']));
+  const augmented = { ...poll.answers };
+  if (own) augmented[student.id] = { ...own.answer, choices };
+  else delete augmented[student.id];
+  return { ...poll, members: [...poll.members.filter(member => member.id !== student.id), { ...student, candidate: true }], answers: augmented };
+}
+
 export function comparisonDurations(group, snapshot, answers) {
   const values = [snapshot?.poll?.config?.durationMinutes,
     ...(group.mode === 'schedule' ? (group.slots || []).map(slot => slot.durationMinutes) : [])].filter(Number.isFinite);

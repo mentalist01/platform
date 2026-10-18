@@ -1662,7 +1662,7 @@ const LearningGroupsSection = ({
         </div>
       </header>
 
-      {!scheduleGroupId && isTeacher && <details className="rounded-3xl border border-violet-200 bg-white">
+      {!scheduleGroupId && isTeacher && <details className="rounded-3xl border border-violet-200 bg-white" open>
         <summary className="cursor-pointer px-5 py-4 font-bold text-violet-700">Подбор группы по свободному времени</summary>
         <TeacherGroupPlacement students={students} onChoose={(groupId, studentId) => {
           placementChoice.current = { groupId, studentId };
@@ -1897,7 +1897,7 @@ const LearningGroupsSection = ({
                 </div>
 
                 {tab === 'availability' && (
-                  <GroupAvailability key={`${selectedGroup.id}:${availabilityVersion}`} groupId={selectedGroup.id} userId={userId} isTeacher={isTeacher}
+                  <GroupAvailability key={`${selectedGroup.id}:${availabilityVersion}`} groupId={selectedGroup.id} userId={userId} isTeacher={isTeacher} students={isTeacher ? students : []}
                     onApproved={() => void loadGroupDetails(selectedGroup.id)}
                     onTransferMember={isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED ? openMemberTransfer : undefined}
                     transferBusy={Boolean(busyKey)} />

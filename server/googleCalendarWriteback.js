@@ -272,7 +272,7 @@ export async function listGoogleCalendarLessonEvents({accessToken,calendarId,tim
 
 // Operates on one instance, never the recurring series. The request marker and
 // deterministic ID make retrying an uncertain network response safe.
-export async function moveGoogleCalendarLesson({ accessToken, calendarId, requestId, iCalUid, expectedStartAt, targetStartAt, durationMinutes, summary, description = '', recurrence = [], allowConflicts = false, deterministicRecovery = false, recoverOnly = false, fetchImpl = fetch }) {
+export async function moveGoogleCalendarLesson({ accessToken, calendarId, requestId, iCalUid, expectedStartAt, targetStartAt, durationMinutes, summary, description = '', recurrence = [], allowConflicts = false, deterministicRecovery = false, recoverOnly = false, skipRecoveryLookup = false, fetchImpl = fetch }) {
   const base = `/calendars/${encodeURIComponent(calendarId)}/events`;
   const start = Date.parse(targetStartAt); const old = Date.parse(expectedStartAt);
   const end = start + Number(durationMinutes) * 60000;
@@ -288,14 +288,14 @@ export async function moveGoogleCalendarLesson({ accessToken, calendarId, reques
   };
   let writeStarted=false;
   try {
-    const prior=await list({privateExtendedProperty:`ivan100Reschedule=${requestId}`});
+    const prior=skipRecoveryLookup && !recoverOnly ? [] : await list({privateExtendedProperty:`ivan100Reschedule=${requestId}`});
     if(prior.length){
       const event=prior.find(e=>Date.parse(e.start?.dateTime)===start && Date.parse(e.end?.dateTime)===end);
       if(!event)throw Object.assign(new Error('Перенесённое событие уже изменено в Google. Проверьте календарь.'),{status:409});
       return {eventId:event.id,iCalUID:event.iCalUID,calendarId};
     }
     const createdId = crypto.createHash('sha256').update(`ivan100-reschedule:${requestId}`).digest('hex');
-    if (!iCalUid && deterministicRecovery) {
+    if (!iCalUid && deterministicRecovery && (!skipRecoveryLookup || recoverOnly)) {
       try {
         const created = await api({ path: `${base}/${createdId}` });
         if (created.id) {

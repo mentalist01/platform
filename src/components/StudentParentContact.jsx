@@ -49,6 +49,7 @@ export default function StudentParentContact({ studentId, studentName = '', mess
         <button type="button" onClick={edit} aria-label={`Изменить контакт родителя${studentName ? ` · ${studentName}` : ''}`} title={contact?.name || 'Изменить контакт родителя'}><Pencil size={14} /><span>Изменить</span></button>
       </> : <button type="button" onClick={edit} disabled={loading}><Plus size={14} />{loading ? 'Контакт родителя…' : 'Добавить контакт родителя'}</button>}
     </div>
+    {contact?.providedByStudent && <small>Контакт передал ученик.</small>}
     {hasMessage && safeContact?.url && <small>{copied ? 'Текст скопирован. Вставьте его в переписку и отправьте.' : 'Откроется сохранённый контакт. Текст отчёта скопируется для вставки в сообщение.'}</small>}
     {error && <div role="alert" className="student-parent-contact__error">{error}{!editing && <button type="button" onClick={() => { setLoading(true); void loadParentContacts(true).then(() => setError('')).catch(failure => setError(failure.message)).finally(() => setLoading(false)); }}>Повторить</button>}</div>}
     {editing && contactState.studentId === studentId && <form onSubmit={event => { event.preventDefault(); void save(draft); }} className="student-parent-contact__editor">

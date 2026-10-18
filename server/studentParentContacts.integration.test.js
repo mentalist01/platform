@@ -31,5 +31,18 @@ test('parent contacts persist only in staff storage and enforce pupil/teacher is
     assert.equal(stored.contacts.length, 1); assert.equal(stored.contacts[0].teacherId, 'teacher-a');
     assert.equal(fs.readFileSync(path.join(data, 'students.json'), 'utf8'), before);
     assert.equal(JSON.stringify(await request('/api/students', a)).includes('another_parent'), false);
+    assert.deepEqual(await request('/api/my-parent-contact', child), { added: false });
+    await request('/api/my-parent-contact', parent, null, 'GET', 403);
+    await request('/api/my-parent-contact', a, { url: '@example_parent' }, 'POST', 403);
+    await request('/api/my-parent-contact', child, { studentId: 'student-b', url: '@example_parent' }, 'POST', 403);
+    await request('/api/my-parent-contact', child, { url: 'javascript:alert(1)' }, 'POST', 400);
+    assert.deepEqual(await request('/api/my-parent-contact', child, { name: 'Мама', url: '+7 (999) 000-00-00' }), { added: true });
+    assert.deepEqual(await request('/api/my-parent-contact', child), { added: true });
+    const submitted = (await request('/api/student-parent-contacts', a)).contacts['student-a'];
+    assert.equal(submitted.providedByStudent, true); assert.equal(submitted.url, 'https://t.me/+79990000000');
+    await request('/api/my-parent-contact', child, { name: 'Overwrite', url: '@other_parent' });
+    assert.deepEqual((await request('/api/student-parent-contacts', a)).contacts['student-a'], submitted);
+    assert.equal(JSON.stringify(await request('/api/my-parent-contact', child)).includes('7999'), false);
+    assert.deepEqual((await request('/api/student-parent-contacts', b)).contacts, {});
   } finally { await fixture.stop(); }
 });

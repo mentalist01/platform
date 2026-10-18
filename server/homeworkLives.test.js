@@ -116,12 +116,37 @@ test('departure after the due date preserves an existing group homework deductio
   assert.equal(store.status(student,c).remaining,2);
   assert.equal(store.status(student,c).history[0].waivedAt,undefined);
 });
-test('new pupil has an adaptation month and first eligible work is issued in the next month',t=>{
-  const{store,context,clock}=fixture(t),newStudent={...student,id:'new',createdAt:'2026-10-02T10:00:00Z'};
-  assert.equal(store.status(newStudent,context([assigned('first',0)])).remaining,3);
-  clock('11-10T12:00:00Z');const h={...assigned('next',0,'2026-11-10T10:00:00Z'),issuedAt:'2026-11-02T10:00:00Z'};
-  assert.equal(store.status(newStudent,context([h])).remaining,1);
+test('new pupils lose half as much through eight lessons, even across months; the ninth lesson ends adaptation', t => {
+  const {store, context, clock, file} = fixture(t), pupil = {...student, id:'new', createdAt:'2026-10-02T10:00:00Z'};
+  const first = {...assigned('first', 0), issuedAt:'2026-10-03T17:00:00Z'};
+  const c = context([first]); c.completedLessonTimes = [instant('10-03T16:00:00Z')];
+  const initial = store.status(pupil,c);
+  assert.equal(initial.remaining,2); assert.equal(initial.history[0].damageMultiplier,0.5);
+  clock('11-10T12:00:00Z');
+  const eighth = {...assigned('eighth',0,'2026-11-10T10:00:00Z'),issuedAt:'2026-11-02T18:00:00Z'};
+  c.completedLessonTimes = Array.from({length:8},(_,i)=>instant(`10-${String(3+i*3).padStart(2,'0')}T16:00:00Z`));
+  c.homeworks=[first,eighth];
+  assert.equal(store.status(pupil,c).remaining,2);
+  const ninth = {...assigned('ninth',0,'2026-11-10T11:00:00Z'),issuedAt:'2026-11-09T17:00:00Z'};
+  c.startedLessonTimes=[...c.completedLessonTimes,instant('11-09T16:00:00Z')];
+  c.homeworks.push(ninth);
+  const result=store.status(pupil,c);
+  assert.equal(result.remaining,0);assert.equal(result.adaptation.active,false);
+  assert.equal(result.history.find(e=>e.id==='ninth').damageMultiplier,1);
+  assert.equal(result.history.find(e=>e.id==='eighth').loss,1,'Earlier assignments retain the discount after the ninth lesson');
+  const saved = new HomeworkLivesStore(file,{now:()=>instant('11-10T12:00:00Z')}).status(pupil,c);
+  assert.equal(saved.remaining,0);assert.equal(saved.history.find(e=>e.id==='eighth').damageMultiplier,0.5);
 });
+
+test('adoption of the new policy never creates retroactive damage for work protected by the old introductory month', t => {
+  const {store, context} = fixture(t), pupil={...student,id:'legacy-new',createdAt:'2026-10-02T10:00:00Z'};
+  const settings=store.data.teachers[Object.keys(store.data.teachers)[0]];
+  delete settings.introPolicySince; store.save();
+  const c=context([assigned('protected',0)]);c.completedLessonTimes=[];
+  assert.equal(store.status(pupil,c).remaining,3);
+  assert.equal(store.status(pupil,c).history.length,0);
+});
+
 test('checks persist across restart, repeat reads and changes to later progress',t=>{
   const{store,file,context}=fixture(t),c=context([assigned('a')]);store.status(student,c);
   const reopened=new HomeworkLivesStore(file,{now:()=>instant('10-15T10:00:00Z')});

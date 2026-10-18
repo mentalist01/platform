@@ -53,3 +53,20 @@ test('comparison is read-only and gracefully handles a group without questionnai
   assert.equal(result.columns.length, 1);
   assert.equal(result.rows.length, 1);
 });
+import { buildAvailabilityTryOn } from './groupPlacementComparison.js';
+
+test('try-on overlays one candidate in the original group grid without altering answers, votes or membership', () => {
+  const config = { days: [0, 1], startMinute: 600, endMinute: 720, durationMinutes: 60 };
+  const snapshot = { poll: { config, members: [{ id: 'a', name: 'Анна' }], answers: { a: { choices: { '0-600': 'yes' } } }, proposal: { id: 'kept' } } };
+  const saved = structuredClone(snapshot);
+  const candidate = { id: 'new', name: 'Новый' };
+  const answers = [{ durationMinutes: 60, config: { ...config, days: [0] }, answer: { choices: { '0-600': 'maybe' } } }];
+  const poll = buildAvailabilityTryOn(snapshot, candidate, answers);
+  assert.equal(poll.members.length, 2); assert.equal(poll.members[1].candidate, true);
+  assert.equal(poll.answers.new.choices['0-600'], 'maybe');
+  assert.equal(poll.answers.new.choices['1-600'], 'outside');
+  assert.equal(poll.answers.new.choices['0-630'], 'no');
+  assert.deepEqual(snapshot, saved);
+  assert.equal(buildAvailabilityTryOn(snapshot, candidate, [{ ...answers[0], durationMinutes: 90 }]).answers.new, undefined);
+  assert.equal(buildAvailabilityTryOn({ poll }, candidate, answers).members.filter(member => member.id === 'new').length, 1);
+});

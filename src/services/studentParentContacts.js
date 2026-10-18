@@ -8,6 +8,13 @@ const resetScope = () => {
   if (scope !== next) { scope = next; contacts = {}; pending = null; loadedAt = 0; revision++; }
   return next;
 };
+export async function ownParentContact(contact) {
+  const response = await apiFetch('/api/my-parent-contact', contact ? {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(contact),
+  } : {});
+  if (!response.ok) throw new Error(await parseApiError(response));
+  return response.json();
+}
 export const parentContactSnapshot = studentId => { resetScope(); return contacts[studentId] || null; };
 export const parentContactsSnapshot = () => { resetScope(); return contacts; };
 export const subscribeParentContacts = listener => { listeners.add(listener); return () => listeners.delete(listener); };

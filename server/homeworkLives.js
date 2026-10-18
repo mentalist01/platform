@@ -121,11 +121,18 @@ export class HomeworkLivesStore {
     catch (error) { this.batching = false; this.data = structuredClone(this.persistedData); throw error; }
     finally { this.dirty = false; }
   }
-  settings(teacherId) { this.ready(); return this.data.teachers[key(teacherId, '')] || { enabled: false, activatedAt: '' }; }
+  settings(teacherId) {
+    this.ready(); const id = key(teacherId, '');
+    let settings = this.data.teachers[id];
+    if (settings?.enabled && !settings.introPolicySince) {
+      settings = this.data.teachers[id] = { ...settings, introPolicySince: new Date(this.now()).toISOString() }; this.save();
+    }
+    return settings || { enabled: false, activatedAt: '' };
+  }
   configure(teacherId, enabled) {
     const previous = this.settings(teacherId);
     this.data.teachers[key(teacherId, '')] = { ...previous, enabled, activatedAt: previous.enabled
-      ? previous.activatedAt : new Date(this.now()).toISOString() };
+      ? previous.activatedAt : new Date(this.now()).toISOString(), introPolicySince: previous.introPolicySince || new Date(this.now()).toISOString() };
     this.save(); return this.settings(teacherId);
   }
   record(student) {
@@ -138,6 +145,12 @@ export class HomeworkLivesStore {
     // A newly enrolled pupil gets the remainder of the first month to settle in.
     return Number.isFinite(created) && created >= activated
       ? monthStart(nextLivesMonth(livesMonth(created))) : activated;
+  }
+  introductoryPeriod(context, atMs = this.now()) {
+    if (!Array.isArray(context.completedLessonTimes)) return { active: false, completedLessons: null, lessonLimit: 8, multiplier: 1 };
+    const completedLessons = new Set(context.completedLessonTimes.map(value => typeof value === 'number' ? value : time(value)).filter(value => Number.isFinite(value) && value <= atMs)).size;
+    const startedLessons = new Set((context.startedLessonTimes || context.completedLessonTimes).map(value => typeof value === 'number' ? value : time(value)).filter(value => Number.isFinite(value) && value <= atMs)).size;
+    return { active: startedLessons <= 8, completedLessons, lessonLimit: 8, multiplier: startedLessons <= 8 ? 0.5 : 1 };
   }
   balance(period) {
     const remaining = round(Math.max(0, MAX_HOMEWORK_LIVES - Object.values(period?.events || {})
@@ -152,7 +165,8 @@ export class HomeworkLivesStore {
   reconcile(student, context) {
     const settings = this.settings(student.teacherId);
     if (!settings.enabled) return;
-    const now = this.now(), since = this.effectiveSince(student), row = this.record(student);
+    const now = this.now(), legacySince = this.effectiveSince(student), row = this.record(student);
+    const since = Math.max(time(settings.activatedAt) || 0, time(student.createdAt) || 0);
     let changed = false;
     for (const homework of (context.homeworks || []).slice().sort((a, b) => time(a.dueAt) - time(b.dueAt))) {
       if (homework.learningEgeCarryover === true) continue;
@@ -171,7 +185,7 @@ export class HomeworkLivesStore {
         }
         continue;
       }
-      if (!id || !Number.isFinite(issued) || issued < since || !Number.isFinite(due) || due < since || due > now
+      if (!id || !Number.isFinite(issued) || issued < since || issued < time(settings.introPolicySince) && issued < legacySince || !Number.isFinite(due) || due < since || due > now
         || homework.deletedAt || ['draft', 'cancelled', 'voided'].includes(homework.status) || homework.assignmentTier === 'optional') continue;
       const month = livesMonth(due);
       let period = row.months[month];
@@ -186,6 +200,7 @@ export class HomeworkLivesStore {
         period = row.months[month] = { plannedCount: validCount(plannedCount) ? plannedCount : 4, events: {} };
       }
       const percent = Math.max(0, Math.min(100, Number(result.percent) || 0));
+      const damageMultiplier = issued >= time(settings.introPolicySince) ? this.introductoryPeriod(context, issued).multiplier : 1;
       if (correctMixedAssessment) {
         const loss = result.reliable ? round((1 - percent / 100) * MONTHLY_HOMEWORK_DAMAGE / period.plannedCount) : 0;
         Object.assign(existing, {
@@ -205,7 +220,8 @@ export class HomeworkLivesStore {
         sequence: Object.keys(period.events).length,
         recordedAt: new Date(now).toISOString(), reliable: result.reliable === true,
         percent: result.reliable ? percent : null, totalCount: result.totalCount || 0, completedCount: result.completedCount || 0,
-        loss: result.reliable ? round((1 - percent / 100) * MONTHLY_HOMEWORK_DAMAGE / period.plannedCount) : 0,
+        damageMultiplier,
+        loss: result.reliable ? round((1 - percent / 100) * MONTHLY_HOMEWORK_DAMAGE / period.plannedCount * damageMultiplier) : 0,
         reason: result.reason || '' };
       if (this.balance(period) === 0 && (!period.review || period.review.cancelledAt)) period.review = { createdAt: new Date(now).toISOString(), month };
       changed = true;
@@ -217,6 +233,7 @@ export class HomeworkLivesStore {
     const settings = this.settings(student.teacherId), now = this.now(), month = livesMonth(now), row = this.record(student);
     const period = row.months[month];
     const plannedCount = period?.plannedCount || this.plannedCount(row, month, context);
+    const adaptation = this.introductoryPeriod(context);
     const history = Object.entries(row.months).flatMap(([eventMonth, p]) => {
       let remaining = MAX_HOMEWORK_LIVES;
       return Object.values(p.events).sort((a,b) => time(a.dueAt)-time(b.dueAt)||(a.sequence||0)-(b.sequence||0)).map(event => {
@@ -227,9 +244,9 @@ export class HomeworkLivesStore {
     }).sort((a,b) => time(b.dueAt)-time(a.dueAt)||(b.sequence||0)-(a.sequence||0)).slice(0, 60);
     const pendingReviews = Object.values(row.months).map(p => p.review)
       .filter(review => review && !review.handledAt && !review.cancelledAt);
-    return { enabled: settings.enabled, activatedAt: settings.activatedAt, effectiveSince: new Date(this.effectiveSince(student) || now).toISOString(), adapting: this.effectiveSince(student) > now,
+    return { enabled: settings.enabled, activatedAt: settings.activatedAt, effectiveSince: new Date(this.effectiveSince(student) || now).toISOString(), adapting: adaptation.active, adaptation,
       studentId: student.id, month, maxLives: MAX_HOMEWORK_LIVES, remaining: period ? this.balance(period) : MAX_HOMEWORK_LIVES,
-      plannedCount, nextPlannedCount: this.plannedCount(row, nextLivesMonth(month), context), planLocked: Boolean(period && Object.keys(period.events).length), maxLossPerHomework: MONTHLY_HOMEWORK_DAMAGE / plannedCount,
+      plannedCount, nextPlannedCount: this.plannedCount(row, nextLivesMonth(month), context), planLocked: Boolean(period && Object.keys(period.events).length), maxLossPerHomework: MONTHLY_HOMEWORK_DAMAGE / plannedCount * adaptation.multiplier,
       resetsAt: new Date(monthStart(nextLivesMonth(month))).toISOString(), history, pendingReviews,
       studentNotice: settings.enabled && period?.review && !period.review.cancelledAt && this.balance(period) === 0
         ? { id: `${month}:${period.review.createdAt}`, month, readAt: period.review.studentReadAt || '' } : null,
@@ -297,9 +314,9 @@ export function registerHomeworkLives(app, store, options) {
     const batch={};
     const students=settings.enabled ? store.batch(()=>options.students(id).map(student=>{
       const value=status(student,batch);
-      return {studentId:student.id,name:student.name || 'Ученик',remaining:value.remaining,pendingReviews:value.pendingReviews,needsReview:value.needsReview};
+      return {studentId:student.id,name:student.name || 'Ученик',remaining:value.remaining,adaptation:value.adaptation,pendingReviews:value.pendingReviews,needsReview:value.needsReview};
     })) : [];
-    res.setHeader('Cache-Control','no-store');res.json({settings,students});
+    res.setHeader('Cache-Control','no-store');res.json({settings,students,month:livesMonth(store.now())});
   }));
   app.patch('/api/homework-lives/settings', wrap((req,res) => {
     const id=teacher(req,res,true);if(!id)return;

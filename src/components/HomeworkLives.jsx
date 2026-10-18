@@ -59,7 +59,7 @@ export function HomeworkLivesRules({ data }) {
     <h3>Три жизни на месяц</h3>
     <p>После срока сдачи невыполненная часть обязательной домашки по ЕГЭ уменьшает запас. Python — практика для разбора на уроке: сердца за неё не списываются. Дополнительные задания тоже не учитываются.</p>
     <p>Твой план: <b>{data.plannedCount} домашних работ в месяц</b>. За полностью пропущенную работу — до <b>{formatLives(data.maxLossPerHomework)} жизни</b>. Если выполнена половина — списывается половина этой суммы.</p>
-    {settlingIn && <p className="homework-lives-rules__adaptation">Сейчас вводный период. Первые списания — за работы, выданные с {dateLabel(data.effectiveSince)}.</p>}
+    {settlingIn && <p className="homework-lives-rules__adaptation">Первые восемь занятий — время привыкнуть к темпу. За выданную в этот период домашку по ЕГЭ жизни расходуются вдвое медленнее. С девятого занятия действует обычный расчёт. Проведено занятий: {data.adaptation?.completedLessons ?? 0}.</p>}
     <h4>Если все сердца закончатся</h4>
     <p>Преподаватель обсудит с тобой и родителями, что мешает выполнять домашку. Вместе вы договоритесь о посильном плане на следующий месяц.</p>
     <p>Если договорённости снова регулярно не выполняются, преподаватель может предложить паузу в занятиях.</p>
@@ -146,6 +146,7 @@ export function TeacherHomeworkLivesPanel({ studentId, studentName = '' }) {
     {noticePreview && <HomeworkLivesNotice preview notice={{ id: 'preview', month: data.month }} resetsAt={data.resetsAt}
       onClosePreview={() => setNoticePreview(false)} onConfirm={async () => setNoticePreview(false)} />}
     <div className="homework-lives-panel__heading"><div><b>Жизни{studentName ? ` · ${studentName}` : ' ученика'}</b><small>Восстановление {dateLabel(data.resetsAt)}</small></div><PixelLives remaining={data.remaining} size="small" /><strong>{formatLives(data.remaining)} / 3</strong></div>
+    {data.adaptation?.active && <p className="homework-lives-rules__adaptation">Адаптация · проведено {data.adaptation.completedLessons} из первых 8 занятий. Списания за новую домашку вдвое меньше до девятого занятия.</p>}
     <button type="button" onClick={() => setNoticePreview(true)}>Посмотреть окно ученика при 0 жизней</button>
     <div className="homework-lives-panel__plan"><label>План ДЗ по ЕГЭ · {monthLabel(planMonth)}<input type="number" min="1" max="60" value={count} onChange={event=>setCount(Number(event.target.value))} /></label>
       <button type="button" disabled={busy||!Number.isInteger(count)||count<1||count>60} onClick={()=>act(`/${encodeURIComponent(studentId)}/plan`,{count,month:planMonth})}>Сохранить план</button></div>
@@ -158,6 +159,7 @@ export function TeacherHomeworkLivesPanel({ studentId, studentName = '' }) {
     {(actionError||error)&&<p className="homework-lives-panel__error" role="alert">{actionError||error}</p>}
     <details><summary>История проверок ({data.history.length})</summary><div className="homework-lives-panel__history">
       {data.history.slice(0,20).map(event=><div className="homework-lives-history-entry" key={`${event.month}-${event.id}`}><div><b>{event.title}</b><small>{dateLabel(event.dueAt)} · {event.percent==null?'Нужна проверка':`${Math.round(event.percent)}% к сроку сдачи`}</small>
+        {event.damageMultiplier === 0.5 && <small>Адаптация: списание уменьшено вдвое</small>}
         {event.waivedAt&&<small>Отменено: {event.waiverReason}</small>}</div><span>{event.waivedAt?'Отменено':event.reliable?`−${formatLives(event.deducted)}`:'Без списания'}</span>
         {!event.waivedAt&&(event.loss>0||!event.reliable)&&<button type="button" disabled={busy} onClick={()=>{setWaiver(event.id);setReason('');}}><RotateCcw size={13}/> Отменить списание</button>}
       </div>)}
