@@ -80,7 +80,22 @@ export function overlayCalendarEdits(entries, teacherId, store) {
     const target = projectCalendarEditEntry(calendarEditTargetEntry(row), teacherId, store);
     if (!result.some(entry => entry.externalEventId === target.externalEventId && entry.date === target.date && entry.time === target.time)) result.push(target);
   }
-  return result.filter((entry, index) => !entry.externalEventId || result.findIndex(value => value.externalEventId === entry.externalEventId && value.date === entry.date && value.time === entry.time) === index);
+  const seen = new Map();
+  return result.filter((entry, index) => {
+    if (!entry.externalEventId) return true;
+    // Valid feed occurrences use string dates/times. Keep the original strict
+    // comparison for incomplete entries, without scanning normal feeds again.
+    if (typeof entry.date !== 'string' || typeof entry.time !== 'string') {
+      return result.findIndex(value => value.externalEventId === entry.externalEventId
+        && value.date === entry.date && value.time === entry.time) === index;
+    }
+    let slots = seen.get(entry.externalEventId);
+    if (!slots) { slots = new Set(); seen.set(entry.externalEventId, slots); }
+    const slot = JSON.stringify([entry.date, entry.time]);
+    if (slots.has(slot)) return false;
+    slots.add(slot);
+    return true;
+  });
 }
 
 export function registerTeacherCalendarEdits(app, { store, getTeacher, getStudent, getGroup, getEntries, prepareSource = value => value, googleChange, applyLocal, notify = () => {} }) {

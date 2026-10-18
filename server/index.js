@@ -25172,7 +25172,7 @@ const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '', 
       // The API is fresh; the read-only iCal feed may still show the old time.
       google = [...google.filter(e=>!uids.has(e.externalEventId)),...live];
     }
-    const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]);
+    const marks = Object.freeze(normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]));
     return [...getTeacherScheduleEntries(teacherId), ...google, ...availabilityCalendarEntries(teacherId), ...weeklyReservations(weeklyScheduleStore, teacherId),
       ...lessonRescheduleStore.all().filter(r => r.teacherId === teacherId && r.status === 'applying').map(r => ({ ...r.target, rescheduleRequestId: r.id }))]
       .map(e => annotateTeacherCalendarCancellation(teacherId, e, marks));
@@ -25435,7 +25435,7 @@ registerGroupAvailability(app, {
     materializeAvailabilitySchedules();
     const endMonth = new Date(Date.parse(`${config.startDate}T12:00:00Z`) + config.weeks * 7 * 86400000).toISOString().slice(0, 7);
     const google = await fetchTeacherGoogleCalendarEntries(group.teacherId, { throughMonth: endMonth, throwOnError: true, force });
-    const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[group.teacherId]);
+    const marks = Object.freeze(normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[group.teacherId]));
     const reserving = lessonRescheduleStore.all().filter(r => r.teacherId === group.teacherId && r.status === 'applying').map(r => ({...r.target}));
     return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId), ...reserving, ...weeklyReservations(weeklyScheduleStore, group.teacherId)]
       .map(entry => annotateTeacherCalendarCancellation(group.teacherId, entry, marks));
@@ -34354,9 +34354,9 @@ const getScheduleForLessonTopics = async (
 
 const getTeacherCalendarHistorySchedule = (teacherId, schedule = [], marks = null) => {
   const normalizedTeacherId = normalizeTeacherId(teacherId);
-  const teacherMarks = marks || normalizeTeacherCalendarMarks(
+  const teacherMarks = Object.freeze({ ...(marks || normalizeTeacherCalendarMarks(
     readTeacherCalendarMarksDb()[normalizedTeacherId]
-  );
+  )) });
   return (Array.isArray(schedule) ? schedule : []).map((entry) => {
     const annotated = annotateTeacherCalendarCancellation(
       normalizedTeacherId,
@@ -37596,7 +37596,7 @@ app.get('/api/teacher-schedule', async (req, res) => {
   const resolvedTeacherId = isTeacherRole(req.auth) ? req.auth.id : teacherId;
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
-  const teacherMarks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacher.id]);
+  const teacherMarks = Object.freeze(normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacher.id]));
   const homeworkProgressByStudentId = buildTeacherCalendarHomeworkProgressByStudentId(teacher.id);
   const localEntries = getTeacherScheduleEntries(teacher.id)
     .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))

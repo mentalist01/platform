@@ -21,6 +21,17 @@ async function fixture(t, options={}) {
 }
 const move=(id='request-move-0001')=>({id,operation:'move',source:original,target:{date:'2026-10-20',time:'12:15',durationMinutes:60}});
 
+test('feed deduplication preserves the first occurrence, different slots and local entries', () => {
+  const entry=(id,extra={})=>({...original,id,externalEventId:'series',...extra});
+  const entries=[entry('first'),entry('duplicate'),entry('another-day',{date:'2026-10-21'}),
+    entry('another-time',{time:'13:05'}),entry('another-series',{externalEventId:'other'}),
+    entry('local-one',{externalEventId:''}),entry('local-two',{externalEventId:''}),
+    entry('incomplete',{date:undefined}),entry('incomplete-copy',{date:undefined}),
+    entry('null-date',{date:null}),entry('invalid-date',{date:NaN})];
+  assert.deepEqual(overlayCalendarEdits(entries,'t',{all:()=>[]}).map(row=>row.id),
+    ['first','another-day','another-time','another-series','local-one','local-two','incomplete','null-date']);
+});
+
 test('large feeds copy only matching event edits and keep journal snapshots isolated', async t => {
   const {store}=await fixture(t);
   const row={...move(),teacherId:'t',status:'done',source:{...original,externalEventId:'uid',tags:['original']},
