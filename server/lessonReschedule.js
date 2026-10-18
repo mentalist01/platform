@@ -18,6 +18,13 @@ export function createRescheduleStore(file) {
   let db = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   return {
     all: () => structuredClone(Object.values(db)),
+    // Calendar feeds contain thousands of occurrences. Copy only this event's
+    // edits instead of copying the complete journal once per occurrence.
+    forGoogleEvent: (teacherId, iCalUID) => {
+      const rows = Object.values(db).filter(row => row.teacherId === teacherId
+        && row.googleResult && row.googleResult.iCalUID === iCalUID);
+      return rows.length ? structuredClone(rows) : [];
+    },
     get: id => db[id] ? structuredClone(db[id]) : null,
     put(row) {
       const next = { ...db, [row.id]: row };

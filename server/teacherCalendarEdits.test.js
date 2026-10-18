@@ -21,6 +21,35 @@ async function fixture(t, options={}) {
 }
 const move=(id='request-move-0001')=>({id,operation:'move',source:original,target:{date:'2026-10-20',time:'12:15',durationMinutes:60}});
 
+test('large feeds copy only matching event edits and keep journal snapshots isolated', async t => {
+  const {store}=await fixture(t);
+  const row={...move(),teacherId:'t',status:'done',source:{...original,externalEventId:'uid',tags:['original']},
+    googleResult:{iCalUID:'uid'},target:{...move().target,title:'Урок',studentId:'a'}};
+  store.put(row);
+  store.put({...row,id:'foreign-edit',teacherId:'other'});
+  store.put({...row,id:'another-event',googleResult:{iCalUID:'another-uid'}});
+  const snapshots=store.forGoogleEvent('t','uid');
+  assert.equal(snapshots.length,1);
+  snapshots[0].source.tags.push('changed');
+  snapshots[0].target.time='22:00';
+  assert.deepEqual(store.get(row.id).source.tags,['original']);
+  assert.equal(store.get(row.id).target.time,row.target.time);
+  let fullReads=0,matchedCopies=0;
+  const projectionStore={
+    ...store,
+    all:()=>{fullReads++;return store.all();},
+    forGoogleEvent:(teacherId,uid)=>{const rows=store.forGoogleEvent(teacherId,uid);matchedCopies+=rows.length;return rows;},
+  };
+  const entries=Array.from({length:6000},(_,index)=>({...original,id:`feed-${index}`,externalEventId:`unrelated-${index}`}));
+  const result=overlayCalendarEdits(entries,'t',projectionStore);
+  assert.equal(result.length,entries.length+2);
+  assert.equal(fullReads,1,'the complete journal is read once for pending projections, not once per feed event');
+  assert.equal(matchedCopies,2,'unrelated and foreign events never copy journal rows');
+  assert.equal(result.some(entry=>entry.externalEventId==='uid'&&entry.time===row.target.time),true);
+  overlayCalendarEdits([{...calendarEditTargetEntry(row),calendarEditProjected:false}],'t',projectionStore);
+  assert.equal(store.get(row.id).feedObserved,true,'feed acknowledgement still persists');
+});
+
 test('editing an imported namesake trial cannot turn an inferred owner into an explicit pupil binding', async t => {
   const {store}=await fixture(t);
   const source={...original,source:'google-ical',isExternalCalendarEvent:true,externalEventId:'trial-uid',subject:'Иван пробное (мама Татьяна)'};

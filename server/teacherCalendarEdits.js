@@ -37,7 +37,9 @@ export function calendarEditTargetEntry(row) {
 // Applied before group-session projection, so a lagging Google feed cannot move
 // the real group lesson back to its former time. Bindings also preserve custom titles.
 export function projectCalendarEditEntry(entry, teacherId, store, {fresh = false} = {}) {
-  const rows = store.all().filter(row => row.teacherId === teacherId && row.googleResult && row.googleResult.iCalUID === entry.externalEventId);
+  const rows = typeof store.forGoogleEvent === 'function'
+    ? store.forGoogleEvent(teacherId, entry.externalEventId)
+    : store.all().filter(row => row.teacherId === teacherId && row.googleResult && row.googleResult.iCalUID === entry.externalEventId);
   const slot = value => `${value.date}|${value.time}`;
   // Observe the original feed entry before applying any local projection. A later
   // confirmed edit also retires earlier projections in that occurrence's chain.
