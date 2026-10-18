@@ -44,6 +44,7 @@ import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
 import { registerLessonAlarmDismissals, attachLessonAlarmSocket } from './lessonAlarmDismissals.js';
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
+import { homeworkLivesLessonHistory } from './homeworkLivesLessonHistory.js';
 import { registerStudentParentContacts } from './studentParentContacts.js';
 import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
@@ -22858,9 +22859,10 @@ registerHomeworkLives(app, homeworkLives, {
         const countedGroupLessons = lessons.filter(lesson => ['completed', 'active'].includes(lesson.status) && lesson.teacherId === student.teacherId
           && (lesson.participantIds || []).includes(student.id) && isGroupLessonAssigned(groups.find(group => group.id === lesson.groupId), student.id, lesson))
           ;
-        const groupTimes = countedGroupLessons.map(lesson => Date.parse(lesson.startAt) + Number(lesson.durationMinutes || 60) * 60000);
-        return { completedLessonTimes: [...individual.map(entry => entry.endMs), ...groupTimes].filter(value => value <= Date.now()),
-          startedLessonTimes: [...individual.map(entry => entry.startMs), ...countedGroupLessons.map(lesson => Date.parse(lesson.startAt))].filter(value => value <= Date.now()) };
+        return homeworkLivesLessonHistory(individual, countedGroupLessons.map(lesson => ({
+          startMs: Date.parse(lesson.startAt),
+          endMs: Date.parse(lesson.startAt) + Number(lesson.durationMinutes || 60) * 60000,
+        })));
       })(),
       isHomeworkRequired: homework => isGroupHomeworkRequired(
         homework, groups.find(group => group.id === homework.learningGroupId), student.id
