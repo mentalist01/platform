@@ -159,7 +159,7 @@ export const buildMockExamAnalysis = ({
     ? taskAnalytics
     : {};
   const mode = normalizeText(attempt?.mode || resolvedExam?.access?.mode).toLowerCase() || 'classic';
-  const resultsVisible = mode !== TIMER_MODE || Boolean(normalizeText(attempt?.timerFinishedAt));
+  const resultsVisible = mode !== TIMER_MODE || Boolean(normalizeText(attempt?.timerFinishedAt || attempt?.finishedAt));
 
   const tasks = taskKeys.map((taskKey) => {
     const question = examTasks[taskKey] || {};
