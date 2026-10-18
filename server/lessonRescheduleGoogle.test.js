@@ -12,6 +12,26 @@ test('moves recurring instance only, retains unrelated fields and uses If-Match'
   const body=JSON.parse(write.body);assert.equal(Date.parse(body.start.dateTime),Date.parse(params.targetStartAt));assert.equal(body.end.dateTime,'2026-09-28T16:00:00.000Z');assert.equal(body.extendedProperties.private.keep,'yes');
   assert.ok(!('recurrence' in body));assert.ok(!('summary'in body));assert.ok(m.calls.filter(c=>c.method==='GET').every(c=>c.u.searchParams.get('singleEvents')==='true'));
 });
+test('editing a Google occurrence uses its old duration and patches details without touching guests, reminders or the series', async () => {
+  const event={...source,summary:'Student',description:'Before',attendees:[{email:'private@example.test'}],reminders:{useDefault:true}};
+  const m=mock({event});
+  await moveGoogleCalendarLesson({...params,...m,durationMinutes:90,expectedDurationMinutes:60,updateDetails:true,
+    expectedSummary:'Student',expectedDescription:'Before',summary:'New title',description:''});
+  const write=m.calls.find(call=>call.method==='PATCH'),body=JSON.parse(write.body);
+  assert.equal(write.headers['If-Match'],'"v1"');assert.equal(body.summary,'New title');assert.equal(body.description,'');
+  assert.equal(body.end.dateTime,'2026-09-28T16:30:00.000Z');
+  for(const field of ['recurrence','attendees','reminders','conferenceData','location'])assert.equal(field in body,false);
+  const stale=mock({event:{...event,description:'Changed in Google'}});
+  await assert.rejects(moveGoogleCalendarLesson({...params,...stale,updateDetails:true,expectedSummary:'Student',expectedDescription:'Before'}),e=>e.status===409&&e.definite);
+  assert.equal(stale.calls.some(call=>call.method==='PATCH'),false);
+});
+test('uncertain metadata edits recover only when both times and edited details match', async () => {
+  const prior={...source,summary:'New',description:'Notes',start:{dateTime:params.targetStartAt},end:{dateTime:'2026-09-28T16:00:00Z'}};
+  const m=mock({prior:[prior]});
+  await moveGoogleCalendarLesson({...params,...m,updateDetails:true,summary:'New',description:'Notes',recoverOnly:true});
+  assert.equal(m.calls.length,1);
+  await assert.rejects(moveGoogleCalendarLesson({...params,...mock({prior:[prior]}),updateDetails:true,summary:'Newer',description:'Notes',recoverOnly:true}),e=>e.status===409);
+});
 test('full-day or timed Google conflicts prevent a write',async()=>{
   for(const conflict of [{id:'all-day',start:{date:'2026-09-28'},end:{date:'2026-09-29'}},{id:'busy'}]){
     const m=mock({occupied:[conflict]});await assert.rejects(moveGoogleCalendarLesson({...params,...m}),e=>e.status===409&&e.definite);assert.equal(m.calls.filter(c=>c.method==='PATCH').length,0);

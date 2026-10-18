@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { createRescheduleStore } from './lessonReschedule.js';
-import { registerTeacherCalendarEdits, overlayCalendarEdits, calendarEditTargetEntry } from './teacherCalendarEdits.js';
+import { registerTeacherCalendarEdits, overlayCalendarEdits, calendarEditTargetEntry, projectCalendarEditEntry } from './teacherCalendarEdits.js';
 const original={id:'local-a',studentId:'a',studentName:'Анна',date:'2026-10-20',time:'12:05',durationMinutes:60,subject:'Занятие'};
 async function fixture(t, options={}) {
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'calendar-edits-')),file=path.join(directory,'edits.json'),store=createRescheduleStore(file);
@@ -20,6 +20,18 @@ async function fixture(t, options={}) {
   return{state,store,file,request};
 }
 const move=(id='request-move-0001')=>({id,operation:'move',source:original,target:{date:'2026-10-20',time:'12:15',durationMinutes:60}});
+test('editing title, description and duration keeps the original owner, requires a fresh snapshot and is idempotent', async t => {
+  const {request,state,store}=await fixture(t);
+  const edit={id:'request-update-0001',operation:'update',source:{...original,title:original.subject,note:''},
+    target:{date:original.date,time:original.time,durationMinutes:90,title:'Разбор пробника',note:'Задания 7 и 11',studentId:'foreign'}};
+  await request('',edit,403,'student:a'); await request('',edit,403,'teacher:other');
+  await request('',{...edit,source:{...edit.source,title:'Старое название'}},409);
+  const saved=await request('',edit); await request('',edit);
+  assert.equal(state.writes,1); assert.equal(state.applies,1);
+  assert.equal(saved.entry.studentId,'a'); assert.equal(saved.entry.subject,'Разбор пробника');
+  assert.equal(saved.entry.googleCalendarTitle,'Разбор пробника'); assert.equal(saved.entry.durationMinutes,90);
+  assert.equal(store.get(edit.id).target.note,'Задания 7 и 11');
+});
 test('owned event moves once, repeated requests are idempotent and stale/foreign writes are rejected',async t=>{
   const{request,state}=await fixture(t);
   await request('',move(),403,'student:a');await request('',move(),403,'teacher:other');
@@ -65,4 +77,42 @@ test('a lagging feed projects repeated moves to the latest occurrence without du
   assert.equal(store.get(b.id).feedObserved,true);
   const external=overlayCalendarEdits([{...calendarEditTargetEntry(b),time:'14:15',calendarEditProjected:false}],'t',store);
   assert.equal(external.length,1);assert.equal(external[0].time,'14:15');
+});
+test('metadata-only edits remain visible through a stale feed and repeated edits at the same time never disappear', async t => {
+  const {store}=await fixture(t);
+  const source={...original,externalEventId:'uid',note:''};
+  const first={...move(),operation:'update',teacherId:'t',status:'done',source,googleResult:{iCalUID:'uid'},target:{...source,title:'Первое название',note:'Первое описание'}};
+  store.put(first);
+  const second={...first,id:'request-update-0002',source:calendarEditTargetEntry(first),target:{...first.target,title:'Второе название',note:''}};
+  store.put(second);
+  const lagging=overlayCalendarEdits([source],'t',store);
+  assert.equal(lagging.length,1);assert.equal(lagging[0].subject,'Второе название');
+  assert.equal(store.get(second.id).feedObserved,undefined);
+  assert.equal(overlayCalendarEdits([],'t',store).length,1);
+  assert.equal(overlayCalendarEdits([],'t',store)[0].subject,'Второе название');
+  overlayCalendarEdits([{...calendarEditTargetEntry(second),calendarEditProjected:false}],'t',store);
+  assert.equal(store.get(second.id).feedObserved,true);
+  const external=overlayCalendarEdits([{...calendarEditTargetEntry(second),subject:'Правка в Google',googleCalendarTitle:'Правка в Google',calendarEditProjected:false}],'t',store);
+  assert.equal(external[0].subject,'Правка в Google');
+});
+test('fresh API reads do not retire a projection before the ordinary feed catches up or hide external edits', async t => {
+  const {store}=await fixture(t);
+  const row={...move(),teacherId:'t',status:'done',googleResult:{iCalUID:'uid'},target:{...move().target,title:'Урок',studentId:'a'}};
+  store.put(row);
+  const current={...calendarEditTargetEntry(row),calendarEditProjected:false};
+  projectCalendarEditEntry(current,'t',store,{fresh:true});
+  assert.equal(store.get(row.id).feedObserved,undefined);
+  assert.equal(overlayCalendarEdits([],'t',store).length,1);
+  const foreign={...current,subject:'Новое название из Google',note:'Свежие данные'};
+  assert.equal(projectCalendarEditEntry(foreign,'t',store,{fresh:true}).subject,foreign.subject);
+  overlayCalendarEdits([current],'t',store);assert.equal(store.get(row.id).feedObserved,true);
+});
+test('a personal event remains personal after the Google feed catches up', async t => {
+  const {store}=await fixture(t);
+  const row={...move(),teacherId:'t',source:null,status:'done',googleResult:{iCalUID:'personal-uid'},target:{...move().target,title:'Встреча',studentId:'',groupId:'',kind:'event'}};
+  store.put(row);
+  const feed={...calendarEditTargetEntry(row),calendarEditProjected:false,calendarPersonalEvent:undefined};
+  assert.equal(projectCalendarEditEntry(feed,'t',store).calendarPersonalEvent,true);
+  assert.equal(store.get(row.id).feedObserved,true);
+  assert.equal(projectCalendarEditEntry(feed,'t',store).calendarPersonalEvent,true);
 });

@@ -20,7 +20,8 @@ export function createTeacherCalendarEditApplier(deps) {
         || crypto.createHash('sha256').update(`calendar-edit:${row.id}`).digest('hex').slice(0, 32);
       const existing = lessons.find(lesson => lesson.groupId === group.id && (lesson.id === id
         || row.source && Date.parse(lesson.startAt) === Date.parse(`${row.source.date}T${row.source.time}:00+03:00`) && lesson.status !== 'cancelled'));
-      const lesson = existing ? deps.updateLesson(existing, { startAt: target.startAt, durationMinutes: target.durationMinutes }, { actorId: row.teacherId })
+      const lesson = existing ? deps.updateLesson(existing, { startAt: target.startAt, durationMinutes: target.durationMinutes,
+        ...(row.operation === 'update' ? {topic: row.target.title, note: row.target.note} : {}) }, { actorId: row.teacherId })
         : deps.createLesson(group, { startAt: target.startAt, durationMinutes: target.durationMinutes, topic: target.subject,
           note: row.target.note, source: 'google-calendar', externalEventId: target.externalEventId, externalOccurrenceId: target.id }, { id, actorId: row.teacherId, allowBeforeStart: true });
       const updated = deps.normalizeLesson({ ...lesson, source: 'google-calendar', externalEventId: target.externalEventId,

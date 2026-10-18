@@ -68,6 +68,23 @@ for (const balances of [false, true]) test(`teacher calendar writes preserve own
   let events=await req('/teacher-schedule',teacher);
   const custom=events.find(e=>e.date===target&&e.time==='14:00'&&e.studentId==='a');assert.ok(custom,'Custom title must retain the pupil binding');
   await req('/teacher-calendar/edits',teacher,{id:'teacher-move-a-0002',operation:'move',source:{id:custom.id,date:target,time:'14:00',durationMinutes:60},target:{date:target,time:'14:10',durationMinutes:60}});
+  const edit=(id,event,patch)=>req('/teacher-calendar/edits',teacher,{id,operation:'update',
+    source:{id:event.id,date:event.date,time:event.time,durationMinutes:event.durationMinutes,title:event.googleCalendarTitle||event.subject,note:event.note||''},
+    target:{date:event.date,time:event.time,durationMinutes:event.durationMinutes,title:event.googleCalendarTitle||event.subject,note:event.note||'',...patch}});
+  events=await req('/teacher-schedule',teacher);
+  const paidMoved=events.find(e=>e.date===target&&e.time==='18:00'&&e.studentId==='a');assert.ok(paidMoved,JSON.stringify(events.map(e=>({id:e.id,date:e.date,time:e.time,studentId:e.studentId,subject:e.subject,uid:e.externalEventId}))));
+  const edited=await edit('teacher-edit-paid-01',paidMoved,{title:'Анна · разбор пробника',note:'Задания 7 и 11',durationMinutes:90});
+  assert.equal(edited.entry.subject,'Анна · разбор пробника');assert.equal(edited.entry.durationMinutes,90);
+  const googleState=JSON.parse(fs.readFileSync(path.join(root,'google-state.json'),'utf8'));
+  const changedGoogle=googleState.find(e=>e.iCalUID===edited.entry.externalEventId);
+  assert.equal(changedGoogle.summary,'Анна · разбор пробника');assert.equal(changedGoogle.description,'Задания 7 и 11');
+  assert.equal(Date.parse(changedGoogle.end.dateTime)-Date.parse(changedGoogle.start.dateTime),90*60000);
+  const afterEdit=JSON.parse(fs.readFileSync(path.join(data,'teacher-finances.json'),'utf8')).t;
+  if(balances)assert.equal(Object.values(afterEdit.studentPaymentBalances.accounts.a.allocations).filter(a=>a.status!=='released').length,1);
+  else assert.equal(afterEdit.paymentAllocations[key].amount,1000);
+  events=await req('/teacher-schedule',teacher);
+  assert.equal(events.filter(e=>e.date===target&&e.time==='18:00'&&e.studentId==='a').length,1);
+  assert.equal(events.find(e=>e.date===target&&e.time==='18:00'&&e.studentId==='a').subject,'Анна · разбор пробника');
   await create('teacher-personal-001',{});
   const group=(await req('/learning-groups',teacher,{name:'Группа проверки',studentIds:['a']},201)).group;
   await req('/learning-groups/'+group.id+'/start',teacher,{});
@@ -78,8 +95,11 @@ for (const balances of [false, true]) test(`teacher calendar writes preserve own
   await req('/teacher-calendar/edits',teacher,{id:'teacher-group-move-01',operation:'move',source:{id:groupEvent.id,date:target,time:'20:00',durationMinutes:60},target:{date:target,time:'20:10',durationMinutes:60}});
   events=await req('/teacher-schedule',teacher);
   const movedGroup=events.filter(e=>e.date===target&&e.time==='20:10'&&e.groupId===group.id);assert.equal(movedGroup.length,1);assert.equal(movedGroup[0].lessonId,lessonId);
+  await edit('teacher-edit-group-01',movedGroup[0],{durationMinutes:90,title:'Группа · Python',note:'Практика циклов'});
   const sessions=JSON.parse(fs.readFileSync(path.join(data,'learning-lesson-sessions.json'),'utf8')).filter(e=>e.groupId===group.id);
   assert.equal(sessions.length,1,'Move never creates another group lesson');
+  assert.equal(sessions[0].topic,'Группа · Python');assert.equal(sessions[0].note,'Практика циклов');
+  assert.equal(sessions[0].durationMinutes,90);assert.equal(sessions[0].id,lessonId);
   const count=JSON.parse(fs.readFileSync(path.join(root,'google-state.json'),'utf8')).length;
   await stop();await boot();const renewed=(await req('/login','',{code:'741001'})).token;
   await req('/teacher-calendar/edits',renewed,move);

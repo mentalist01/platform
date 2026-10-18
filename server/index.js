@@ -10681,8 +10681,8 @@ const enrichGoogleCalendarLearningGroupEntry = (entry, teacherId, students = [])
   };
 };
 
-const enrichGoogleCalendarEntryFromRoster = (entry, teacherId, students = []) => {
-  let projected = projectCalendarEditEntry(entry, teacherId, teacherCalendarEditsStore);
+const enrichGoogleCalendarEntryFromRoster = (entry, teacherId, students = [], editOptions = {}) => {
+  let projected = projectCalendarEditEntry(entry, teacherId, teacherCalendarEditsStore, editOptions);
   const owner = projected.calendarPlatformOwner;
   if (owner) {
     const student = owner.studentId ? students.find(value => value.id === owner.studentId && value.teacherId === teacherId && !value.deletedAt) : null;
@@ -25160,7 +25160,7 @@ const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '', 
         }
         const item = buildGoogleCalendarScheduleEntry({type:'VEVENT',uid:e.iCalUID,start:e.start?.dateTime,end:e.end?.dateTime,
           summary:e.summary,description:e.description,location:e.location},teacherId,students,groups);
-        return item ? [enrichGoogleCalendarEntryFromRoster(item, teacherId, students)] : [];
+        return item ? [enrichGoogleCalendarEntryFromRoster(item, teacherId, students, {fresh:true})] : [];
       });
       // The API is fresh; the read-only iCal feed may still show the old time.
       google = [...google.filter(e=>!uids.has(e.externalEventId)),...live];
@@ -25364,6 +25364,9 @@ const teacherCalendarEditRunner = registerTeacherCalendarEdits(app, {
         : new Date(`${row.target.date}T${row.target.time}:00+03:00`).toISOString(),
       targetStartAt: new Date(`${row.target.date}T${row.target.time}:00+03:00`).toISOString(), durationMinutes: row.target.durationMinutes,
       summary: row.target.title, description: row.target.note, recurrence: row.target.repeatMode === 'weekly' ? ['RRULE:FREQ=WEEKLY'] : [],
+      expectedDurationMinutes: row.source?.durationMinutes || row.target.durationMinutes, updateDetails: row.operation === 'update',
+      expectedSummary: row.source?.googleCalendarTitle || row.source?.subject || row.source?.studentName || 'Google Calendar',
+      expectedDescription: String(row.source?.note || '').trim(),
       allowConflicts: true, deterministicRecovery: true, recoverOnly, skipRecoveryLookup });
   },
   applyLocal: applyTeacherCalendarEdit,

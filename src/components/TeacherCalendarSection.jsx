@@ -4,6 +4,7 @@ import { LessonAlarmSettings } from './LessonAlarmControls';
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
+import CalendarEventEditor from './CalendarEventEditor.jsx';
 import { snapCalendarDragStart } from '../utils/calendarDrag.js';
 import { applySavedCalendarEdit, createCalendarSnapshotGuard } from '../utils/calendarSnapshot.js';
 import { useLessonPaymentSenders } from '../hooks/useLessonPaymentSenders.js';
@@ -3062,35 +3063,6 @@ const TeacherCalendarSection = ({
 
   const studentCount = studentCalendars.length;
 
-  const quickCreateDateLabel = useMemo(() => {
-    if (!quickCreateDraft?.dateKey) return '';
-    const date = new Date(`${quickCreateDraft.dateKey}T00:00:00`);
-    if (Number.isNaN(date.getTime())) return quickCreateDraft.dateKey;
-    return capitalize(date.toLocaleDateString('ru-RU', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }).replace(' г.', ''));
-  }, [quickCreateDraft]);
-
-  const quickCreateDateInputValue = useMemo(
-    () => String(quickCreateDraft?.dateKey || '').trim(),
-    [quickCreateDraft]
-  );
-
-  const quickCreateRepeatMode = useMemo(
-    () => (String(quickCreateDraft?.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
-      ? REPEAT_MODE_WEEKLY
-      : REPEAT_MODE_ONCE),
-    [quickCreateDraft]
-  );
-
-  const quickCreateWeekdayLabel = useMemo(
-    () => getScheduleWeekdayMetaFromDate(quickCreateDateInputValue)?.label || '',
-    [quickCreateDateInputValue]
-  );
-
   const eventDetailsTimeLabel = useMemo(() => {
     if (!eventDetails) return '--:--';
     const startMinutes = Number(eventDetails.startMinutes);
@@ -3525,6 +3497,8 @@ const TeacherCalendarSection = ({
 
     setQuickCreateDraft({
       dateKey: toDayKey(dayDate),
+      anchor: {left:rect.left, right:rect.right, top:clickEvent.clientY},
+      note: '',
       time: formatMinutesAsTime(clampedMinutes),
       requestId: crypto.randomUUID(),
       studentId: PERSONAL_EVENT_VALUE,
@@ -3539,6 +3513,7 @@ const TeacherCalendarSection = ({
     const clampedMinutes = clampNumber(12 * 60, dayStartMinutes, dayEndMinutes - QUICK_CREATE_TIME_STEP_MINUTES);
     setQuickCreateDraft({
       dateKey: toDayKey(focusDate),
+      note: '',
       time: formatMinutesAsTime(clampedMinutes),
       requestId: crypto.randomUUID(),
       studentId: PERSONAL_EVENT_VALUE,
@@ -3620,10 +3595,6 @@ const TeacherCalendarSection = ({
       setQuickCreateError('Укажите корректное время занятия.');
       return;
     }
-    if (startMinutes < dayStartMinutes || startMinutes >= dayEndMinutes) {
-      setQuickCreateError(`Время должно быть в диапазоне ${formatMinutesAsTime(dayStartMinutes)}-${formatMinutesAsTime(dayEndMinutes)}.`);
-      return;
-    }
     const durationRaw = Number(quickCreateDraft.durationMinutes);
     const durationMinutes = Number.isFinite(durationRaw) ? Math.round(durationRaw) : NaN;
     if (!Number.isFinite(durationMinutes) || durationMinutes < 15 || durationMinutes > 360) {
@@ -3631,6 +3602,7 @@ const TeacherCalendarSection = ({
       return;
     }
 
+    if (startMinutes + durationMinutes > 1440) { setQuickCreateError('Событие должно помещаться в пределах одного дня.'); return; }
     setQuickCreateSaving(true);
     setQuickCreateError('');
     try {
@@ -3640,7 +3612,7 @@ const TeacherCalendarSection = ({
         || (isTrialWithoutStudent ? DEFAULT_ONE_TIME_LESSON_SUBJECT : 'Событие');
       const saved = await api.saveTeacherCalendarEdit({ id: quickCreateDraft.requestId, operation: 'create',
         target: { date: dateKey, time, durationMinutes, studentId, groupId, title, repeatMode,
-          kind: isTrialWithoutStudent ? 'trial' : 'event' } }, teacherId);
+          kind: isTrialWithoutStudent ? 'trial' : 'event', note:quickCreateDraft.note || '' } }, teacherId);
       if (studentId) setHiddenStudentMap(previous => ({ ...previous, [studentId]: false }));
       setCalendarEditNotice('Событие создано в платформе и Google Calendar.');
       setQuickCreateDraft(null);
@@ -3650,7 +3622,7 @@ const TeacherCalendarSection = ({
     } finally {
       setQuickCreateSaving(false); setCalendarEditRevision(value => value + 1);
     }
-  }, [calendarCreateGroups, dayEndMinutes, dayStartMinutes, showSavedCalendarEdit, quickCreateDraft, quickCreateSaving, studentNameById, teacherId]);
+  }, [calendarCreateGroups, showSavedCalendarEdit, quickCreateDraft, quickCreateSaving, studentNameById, teacherId]);
 
   const openEventDetailsModal = useCallback((event, dayKey) => {
     const hasStudent = Boolean(String(event?.studentId || '').trim());
@@ -3878,121 +3850,44 @@ const TeacherCalendarSection = ({
 
   const startEventEdit = useCallback(() => {
     if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
-    if (isExternalCalendarEntry(eventDetails)) return;
-    const hasStudent = Boolean(String(eventDetails.studentId || '').trim());
-    const fallbackTitle = hasStudent
-      ? resolveStudentLessonSubjectFallback(eventDetails.studentName)
-      : DEFAULT_ONE_TIME_LESSON_SUBJECT;
-    const rawSubject = String(eventDetails.subject || eventDetails.subjectLabel || '').trim();
-    const currentTitle = (
-      hasStudent && rawSubject.toLowerCase() === DEFAULT_ONE_TIME_LESSON_SUBJECT.toLowerCase()
-        ? fallbackTitle
-        : (rawSubject || fallbackTitle)
-    );
-    const baseDateKey = resolveEventDateKey(eventDetails) || toDayKey(new Date());
-    const repeatMode = String(eventDetails.date || '').trim()
-      ? REPEAT_MODE_ONCE
-      : REPEAT_MODE_WEEKLY;
     setEventEditDraft({
-      title: currentTitle,
-      time: String(eventDetails.time || '').trim() || '09:00',
-      durationMinutes: Number.isFinite(Number(eventDetails.durationMinutes))
-        ? Math.round(Number(eventDetails.durationMinutes))
-        : DEFAULT_EVENT_DURATION_MINUTES,
-      repeatMode,
-      dateKey: baseDateKey,
+      requestId: crypto.randomUUID(),
+      title: String(eventDetails.googleCalendarTitle || eventDetails.subject || eventDetails.studentName || 'Событие').trim(),
+      note: String(eventDetails.note || ''),
+      time: String(eventDetails.time || '').trim() || formatMinutesAsTime(eventDetails.startMinutes),
+      durationMinutes: Number(eventDetails.durationMinutes) || DEFAULT_EVENT_DURATION_MINUTES,
+      dateKey: resolveEventDateKey(eventDetails) || toDayKey(new Date()),
     });
-    setEventDeleteError('');
-    setEventEditError('');
-    setEventQuickActionError('');
+    setEventDeleteError(''); setEventEditError(''); setEventQuickActionError('');
   }, [dragDropBusy, eventDeleteBusy, eventDetails, eventEditSaving, eventQuickActionBusy, resolveEventDateKey]);
 
   const cancelEventEdit = useCallback(() => {
     if (eventEditSaving) return;
-    setEventEditDraft(null);
-    setEventEditError('');
+    setEventEditDraft(null); setEventEditError('');
   }, [eventEditSaving]);
 
   const handleSaveEventEdit = useCallback(async () => {
     if (!eventDetails || !eventEditDraft || eventEditSaving || eventDeleteBusy || eventQuickActionBusy || dragDropBusy) return;
-    if (isExternalCalendarEntry(eventDetails)) return;
-    const eventId = String(eventDetails.id || '').trim();
-    if (!eventId) {
-      setEventEditError('Не удалось определить занятие для редактирования.');
-      return;
+    const time = String(eventEditDraft.time || '').trim(), start = parseScheduleTimeToMinutes(time);
+    const durationMinutes = Number(eventEditDraft.durationMinutes), title = String(eventEditDraft.title || '').trim();
+    if (!title) { setEventEditError('Укажите название события.'); return; }
+    if (!Number.isFinite(start) || !Number.isInteger(durationMinutes) || durationMinutes < 15 || durationMinutes > 360 || start + durationMinutes > 1440) {
+      setEventEditError('Укажите время в пределах одного дня и длительность от 15 до 360 минут.'); return;
     }
-
-    const hasStudent = Boolean(String(eventDetails.studentId || '').trim());
-    const fallbackTitle = hasStudent
-      ? resolveStudentLessonSubjectFallback(eventDetails.studentName)
-      : DEFAULT_ONE_TIME_LESSON_SUBJECT;
-    const title = String(eventEditDraft.title || '').trim() || fallbackTitle;
-    const time = String(eventEditDraft.time || '').trim();
-    const startMinutes = parseScheduleTimeToMinutes(time);
-    if (!Number.isFinite(startMinutes)) {
-      setEventEditError('Укажите корректное время занятия.');
-      return;
-    }
-    if (startMinutes < dayStartMinutes || startMinutes >= dayEndMinutes) {
-      setEventEditError(`Время должно быть в диапазоне ${formatMinutesAsTime(dayStartMinutes)}-${formatMinutesAsTime(dayEndMinutes)}.`);
-      return;
-    }
-
-    const durationRaw = Number(eventEditDraft.durationMinutes);
-    const durationMinutes = Number.isFinite(durationRaw) ? Math.round(durationRaw) : NaN;
-    if (!Number.isFinite(durationMinutes) || durationMinutes < 15 || durationMinutes > 360) {
-      setEventEditError('Укажите длительность от 15 до 360 минут.');
-      return;
-    }
-    const repeatMode = String(eventEditDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
-      ? REPEAT_MODE_WEEKLY
-      : REPEAT_MODE_ONCE;
-    const dateKey = String(eventEditDraft.dateKey || '').trim();
-    if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
-      setEventEditError('Укажите корректную дату занятия.');
-      return;
-    }
-    const weekdayMeta = getScheduleWeekdayMetaFromDate(dateKey);
-    if (!weekdayMeta?.key) {
-      setEventEditError('Не удалось определить день недели для повтора.');
-      return;
-    }
-    const repeatOverrides = repeatMode === REPEAT_MODE_WEEKLY
-      ? { date: '', weekdayKey: weekdayMeta.key }
-      : { date: dateKey, weekdayKey: weekdayMeta.key };
-
-    const payload = buildEventUpdatePayload(eventDetails, {
-      time,
-      subject: title,
-      durationMinutes,
-      ...repeatOverrides,
-    });
-    setEventEditSaving(true);
-    setEventEditError('');
-    setEventQuickActionError('');
+    setEventEditSaving(true); setEventEditError(''); setCalendarEditNotice('');
+    const source = {id:eventDetails.id, date:resolveEventDateKey(eventDetails), time:eventDetails.time,
+      durationMinutes:eventDetails.durationMinutes,
+      title:String(eventDetails.googleCalendarTitle || eventDetails.subject || eventDetails.studentName || 'Событие').trim(),
+      note:String(eventDetails.note || '')};
     try {
-      await updateEventOnServer(eventDetails, payload);
-      setEventDetails(null);
-      setEventEditDraft(null);
-      await loadTeacherCalendar({ silent: true });
-    } catch (err) {
-      setEventEditError(err?.message || 'Не удалось сохранить изменения.');
-    } finally {
-      setEventEditSaving(false);
-    }
-  }, [
-    buildEventUpdatePayload,
-    dayEndMinutes,
-    dayStartMinutes,
-    dragDropBusy,
-    eventDeleteBusy,
-    eventDetails,
-    eventEditDraft,
-    eventEditSaving,
-    eventQuickActionBusy,
-    loadTeacherCalendar,
-    updateEventOnServer,
-  ]);
+      const saved = await api.saveTeacherCalendarEdit({id:eventEditDraft.requestId, operation:'update', source,
+        target:{date:eventEditDraft.dateKey, time, durationMinutes, title, note:eventEditDraft.note || ''}},teacherId);
+      showSavedCalendarEdit(saved, {...eventDetails,date:source.date});
+      setCalendarEditNotice('Изменения сохранены в платформе и Google Calendar. Остальные повторы не менялись.');
+      setEventDetails(null); setEventEditDraft(null);
+    } catch (failure) { setEventEditError(failure.message || 'Не удалось сохранить событие.'); }
+    finally { setEventEditSaving(false); setCalendarEditRevision(value => value + 1); }
+  }, [dragDropBusy, eventDeleteBusy, eventDetails, eventEditDraft, eventEditSaving, eventQuickActionBusy, resolveEventDateKey, showSavedCalendarEdit, teacherId]);
 
   const handleDeleteEvent = useCallback(async () => {
     if (!eventDetails || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy) return;
@@ -4908,6 +4803,14 @@ const TeacherCalendarSection = ({
                                 </div>
                               )}
 
+                              {quickCreateDraft?.dateKey === dayKey && Number.isFinite(parseScheduleTimeToMinutes(quickCreateDraft.time)) && Number(quickCreateDraft.durationMinutes) > 0 && (
+                                <div aria-hidden="true" className="pointer-events-none absolute left-1 right-1 z-20 overflow-hidden rounded-lg border-2 border-dashed border-violet-700 bg-violet-100 p-2 text-violet-950 shadow-md"
+                                  style={{top:`${((parseScheduleTimeToMinutes(quickCreateDraft.time) - dayStartMinutes) / 60) * hourHeight + 1}px`,
+                                    height:`${Math.max(28, Number(quickCreateDraft.durationMinutes) / 60 * hourHeight - 2)}px`}}>
+                                  <div className="truncate text-xs font-bold">{quickCreateDraft.title || studentNameById[quickCreateDraft.studentId] || 'Новое событие'}</div>
+                                  <div className="mt-1 text-[10px] font-semibold">{quickCreateDraft.time} · {quickCreateDraft.durationMinutes} мин · черновик</div>
+                                </div>
+                              )}
                               {events.map((event, index) => {
                                 const top = ((event.startMinutes - dayStartMinutes) / 60) * hourHeight + 1;
                                 const height = Math.max(
@@ -4929,7 +4832,9 @@ const TeacherCalendarSection = ({
                                     ? studentName
                                     : (subjectLabel || studentName || DEFAULT_ONE_TIME_LESSON_SUBJECT));
                                 const showSubjectInCard = Boolean(subjectLabel && subjectLabel !== primaryLabel);
-                                const cardPrimaryLabel = availabilityShareMode ? 'Занятие' : primaryLabel;
+                                const actualTitle = String(event.googleCalendarTitle || event.subject || '').trim();
+                                const cardPrimaryLabel = availabilityShareMode ? 'Занятие'
+                                  : actualTitle && actualTitle.toLowerCase() !== 'занятие' ? actualTitle : primaryLabel;
                                 const cardShowSubject = !availabilityShareMode && showSubjectInCard;
                                 const startLabel = formatMinutesAsDisplayTime(event.startMinutes, use24HourFormat);
                                 const endLabel = formatMinutesAsDisplayTime(event.endMinutes, use24HourFormat);
@@ -5214,193 +5119,18 @@ const TeacherCalendarSection = ({
           </div>
         </div>
       )}
-      {quickCreateDraft && (
-        <div
-          className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
-          onClick={closeQuickCreate}
-        >
-          <form
-            className="teacher-calendar-shell__modal teacher-calendar-shell__lesson-details surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
-            onSubmit={handleQuickCreateSave}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-semibold text-slate-900">Новое событие</div>
-                <div className="text-xs text-slate-500">{quickCreateDateLabel}</div>
-              </div>
-              <button
-                type="button"
-                onClick={closeQuickCreate}
-                disabled={quickCreateSaving || quickCreateFindingSlot}
-                className="rounded-md px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Закрыть
-              </button>
-            </div>
-
-            <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="calendar-create-owner">Для кого</label>
-            <select id="calendar-create-owner" value={quickCreateDraft.studentId}
-              onChange={event => setQuickCreateDraft(previous => ({ ...previous, studentId: event.target.value }))}
-              disabled={quickCreateSaving || quickCreateFindingSlot}
-              className="mt-1 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm text-slate-800">
-              <optgroup label="Событие"><option value={PERSONAL_EVENT_VALUE}>Личное событие</option><option value={TRIAL_WITHOUT_STUDENT_VALUE}>Пробное без ученика</option></optgroup>
-              <optgroup label="Ученики">{studentOptions.map(student => <option key={student.id} value={student.id}>{student.label}</option>)}</optgroup>
-              <optgroup label="Мини-группы">{calendarCreateGroups.map(group => <option key={group.id} value={`${GROUP_EVENT_PREFIX}${group.id}`}>{group.name}</option>)}</optgroup>
-            </select>
-            {calendarCreateGroupsError && <p className="mt-2 text-xs text-amber-700">Не удалось загрузить группы. {calendarCreateGroupsError}</p>}
-
-            <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Повтор
-            </label>
-            <div className="mt-1 inline-flex w-full items-center overflow-hidden rounded-xl border border-purple-200/80 bg-white/95 text-sm font-semibold">
-              <button
-                type="button"
-                onClick={() => setQuickCreateDraft((prev) => (prev ? { ...prev, repeatMode: REPEAT_MODE_ONCE } : prev))}
-                disabled={quickCreateSaving || quickCreateFindingSlot}
-                className={`flex-1 px-3 py-2 ${
-                  quickCreateRepeatMode === REPEAT_MODE_ONCE
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'text-slate-700 hover:bg-slate-50'
-                } disabled:cursor-not-allowed disabled:opacity-60`}
-              >
-                Единоразово
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuickCreateDraft((prev) => (prev ? { ...prev, repeatMode: REPEAT_MODE_WEEKLY } : prev))}
-                disabled={quickCreateSaving || quickCreateFindingSlot}
-                className={`flex-1 border-l border-purple-100 px-3 py-2 ${
-                  quickCreateRepeatMode === REPEAT_MODE_WEEKLY
-                    ? 'bg-sky-100 text-sky-700'
-                    : 'text-slate-700 hover:bg-slate-50'
-                } disabled:cursor-not-allowed disabled:opacity-60`}
-              >
-                Еженедельно
-              </button>
-            </div>
-
-            <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="calendar-create-title">Название · необязательно</label>
-            <input id="calendar-create-title" type="text" value={quickCreateDraft.title}
-              onChange={event => setQuickCreateDraft(previous => ({ ...previous, title: event.target.value }))}
-              disabled={quickCreateSaving || quickCreateFindingSlot} placeholder="Например, консультация или название встречи" maxLength={500}
-              className="mt-1 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm text-slate-800" />
-            <p className="mt-2 text-xs text-slate-500">Сохраним и в Google Calendar. Для урока без названия используем имя ученика или группы.</p>
-
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {quickCreateRepeatMode === REPEAT_MODE_WEEKLY ? 'Дата (для дня недели)' : 'Дата'}
-                </span>
-                <input
-                  type="date"
-                  value={quickCreateDateInputValue}
-                  onChange={(event) => setQuickCreateDraft((prev) => (prev ? { ...prev, dateKey: event.target.value } : prev))}
-                  disabled={quickCreateSaving || quickCreateFindingSlot}
-                  className="mt-1 w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                />
-                {quickCreateRepeatMode === REPEAT_MODE_WEEKLY && quickCreateWeekdayLabel && (
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    {`Будет повторяться каждую ${quickCreateWeekdayLabel.toLowerCase()}.`}
-                  </div>
-                )}
-              </label>
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Время</span>
-                <input
-                  type="time"
-                  value={quickCreateDraft.time}
-                  onChange={(event) => setQuickCreateDraft((prev) => (prev ? { ...prev, time: event.target.value } : prev))}
-                  disabled={quickCreateSaving || quickCreateFindingSlot}
-                  step={QUICK_CREATE_TIME_STEP_MINUTES * 60}
-                  className="mt-1 w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                />
-              </label>
-            </div>
-
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {QUICK_TIME_PRESETS.map((timePreset) => (
-                <button
-                  key={`time-preset-${timePreset}`}
-                  type="button"
-                  onClick={() => setQuickCreateDraft((prev) => (prev ? { ...prev, time: timePreset } : prev))}
-                  disabled={quickCreateSaving || quickCreateFindingSlot}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                    quickCreateDraft.time === timePreset
-                      ? 'border-purple-200 bg-purple-100 text-purple-700'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {timePreset}
-                </button>
-              ))}
-            </div>
-
-            <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Длительность (мин)
-            </label>
-            <input
-              type="number"
-              value={quickCreateDraft.durationMinutes}
-              onChange={(event) => setQuickCreateDraft((prev) => (prev ? { ...prev, durationMinutes: event.target.value } : prev))}
-              disabled={quickCreateSaving || quickCreateFindingSlot}
-              min={15}
-              max={360}
-              step={5}
-              className="mt-1 w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-            />
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {QUICK_DURATION_PRESETS.map((durationPreset) => (
-                <button
-                  key={`duration-preset-${durationPreset}`}
-                  type="button"
-                  onClick={() => setQuickCreateDraft((prev) => (prev ? { ...prev, durationMinutes: durationPreset } : prev))}
-                  disabled={quickCreateSaving || quickCreateFindingSlot}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                    Number(quickCreateDraft.durationMinutes) === durationPreset
-                      ? 'border-purple-200 bg-purple-100 text-purple-700'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {durationPreset} мин
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={handleQuickCreateFindNearestFreeSlot}
-              disabled={quickCreateSaving || quickCreateFindingSlot}
-              className="mt-3 w-full rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {quickCreateFindingSlot ? 'Подбираем свободный слот...' : 'Подобрать ближайший свободный слот'}
-            </button>
-
-            {quickCreateError && (
-              <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">
-                {quickCreateError}
-              </div>
-            )}
-
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeQuickCreate}
-                disabled={quickCreateSaving || quickCreateFindingSlot}
-                className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Отмена
-              </button>
-              <button
-                type="submit"
-                disabled={quickCreateSaving || quickCreateFindingSlot}
-                className="rounded-full border border-violet-600 bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.25)] hover:from-violet-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {quickCreateSaving ? 'Сохраняем...' : 'Добавить'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      {quickCreateDraft && <CalendarEventEditor draft={quickCreateDraft} onChange={setQuickCreateDraft}
+        anchor={quickCreateDraft.anchor} onClose={closeQuickCreate} onSubmit={handleQuickCreateSave}
+        busy={quickCreateSaving || quickCreateFindingSlot} error={quickCreateError} ownerError={calendarCreateGroupsError}
+        onFindSlot={handleQuickCreateFindNearestFreeSlot}
+        ownerOptions={[
+          {label:'Событие',options:[{value:PERSONAL_EVENT_VALUE,label:'Личное событие'},{value:TRIAL_WITHOUT_STUDENT_VALUE,label:'Пробное без ученика'}]},
+          {label:'Ученики',options:studentOptions.map(student=>({value:student.id,label:student.label}))},
+          {label:'Мини-группы',options:calendarCreateGroups.map(group=>({value:`${GROUP_EVENT_PREFIX}${group.id}`,label:group.name}))},
+        ]} />}
+      {eventDetails && eventEditDraft && <CalendarEventEditor mode="update" draft={eventEditDraft} onChange={setEventEditDraft}
+        ownerLabel={eventDetails.groupName || eventDetails.studentName || ''} onClose={cancelEventEdit}
+        onSubmit={handleSaveEventEdit} busy={eventEditSaving} error={eventEditError} />}
       {lessonInfoModalOpen && (
         <div
           className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-[60] flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
@@ -5549,7 +5279,7 @@ const TeacherCalendarSection = ({
           </div>
         </div>
       )}
-      {eventDetails && (
+      {eventDetails && !eventEditDraft && (
         <div
           className="teacher-calendar-shell__modal-backdrop absolute inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]"
           onClick={closeEventDetails}
@@ -5579,102 +5309,6 @@ const TeacherCalendarSection = ({
               </button>
             </div>
 
-            {eventEditDraft ? (
-              <div className="mt-4 space-y-3">
-                {String(eventDetails.studentId || '').trim() ? (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
-                    Для занятия с учеником название не требуется: используется имя ученика.
-                  </div>
-                ) : (
-                  <>
-                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Название
-                    </label>
-                    <input
-                      type="text"
-                      value={eventEditDraft.title}
-                      onChange={(event) => setEventEditDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))}
-                      disabled={eventEditSaving || eventDeleteBusy}
-                      maxLength={80}
-                      className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                    />
-                  </>
-                )}
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Повтор
-                </label>
-                <div className="inline-flex items-center overflow-hidden rounded-xl border border-purple-200/80 bg-white/95 text-xs font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => setEventEditDraft((prev) => (prev ? { ...prev, repeatMode: REPEAT_MODE_ONCE } : prev))}
-                    disabled={eventEditSaving || eventDeleteBusy}
-                    className={`px-3 py-2 ${
-                      String(eventEditDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
-                        ? 'text-slate-700 hover:bg-slate-50'
-                        : 'bg-purple-100 text-purple-700'
-                    }`}
-                  >
-                    Единоразово
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEventEditDraft((prev) => (prev ? { ...prev, repeatMode: REPEAT_MODE_WEEKLY } : prev))}
-                    disabled={eventEditSaving || eventDeleteBusy}
-                    className={`border-l border-purple-100 px-3 py-2 ${
-                      String(eventEditDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY
-                        ? 'bg-purple-100 text-purple-700'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    Еженедельно
-                  </button>
-                </div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Дата
-                </label>
-                <input
-                  type="date"
-                  value={String(eventEditDraft.dateKey || '').trim()}
-                  onChange={(event) => setEventEditDraft((prev) => (prev ? { ...prev, dateKey: event.target.value } : prev))}
-                  disabled={eventEditSaving || eventDeleteBusy}
-                  className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                />
-                {String(eventEditDraft.repeatMode || REPEAT_MODE_ONCE).trim() === REPEAT_MODE_WEEKLY && (
-                  <div className="text-[11px] text-slate-500">
-                    {(() => {
-                      const weekdayLabel = getScheduleWeekdayMetaFromDate(eventEditDraft.dateKey)?.label;
-                      return weekdayLabel
-                        ? `Повтор по дню недели: ${weekdayLabel}.`
-                        : 'Выберите дату, чтобы определить день недели.';
-                    })()}
-                  </div>
-                )}
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Время
-                </label>
-                <input
-                  type="time"
-                  value={eventEditDraft.time}
-                  onChange={(event) => setEventEditDraft((prev) => (prev ? { ...prev, time: event.target.value } : prev))}
-                  disabled={eventEditSaving || eventDeleteBusy}
-                  step={QUICK_CREATE_TIME_STEP_MINUTES * 60}
-                  className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                />
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Длительность (мин)
-                </label>
-                <input
-                  type="number"
-                  value={eventEditDraft.durationMinutes}
-                  onChange={(event) => setEventEditDraft((prev) => (prev ? { ...prev, durationMinutes: event.target.value } : prev))}
-                  disabled={eventEditSaving || eventDeleteBusy}
-                  min={15}
-                  max={360}
-                  step={5}
-                  className="w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                />
-              </div>
-            ) : (
               <div className="mt-4 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-white via-violet-50/80 to-sky-50/70 p-3 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${
@@ -5967,7 +5601,6 @@ const TeacherCalendarSection = ({
                   </React.Suspense>
                 )}
               </div>
-            )}
 
             {eventDeleteError && (
               <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600">
@@ -5985,73 +5618,20 @@ const TeacherCalendarSection = ({
               </div>
             )}
 
-            <div className="mt-4 flex items-center justify-end gap-2">
-              {eventEditDraft ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={cancelEventEdit}
-                    disabled={eventEditSaving || eventDeleteBusy || eventQuickActionBusy || dragDropBusy}
-                    className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Отменить
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveEventEdit}
-                    disabled={eventEditSaving || eventDeleteBusy || eventQuickActionBusy || dragDropBusy}
-                    className="rounded-full border border-violet-600 bg-gradient-to-r from-violet-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.25)] hover:from-violet-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {eventEditSaving ? 'Сохраняем...' : 'Сохранить'}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleEventDetailsCancellationToggle}
-                    disabled={!eventDetailsCancellationMarkKey || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
-                      eventDetailsCancelled
-                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                        : 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                    }`}
-                  >
-                    {eventDetailsCancelled ? <RefreshCcw size={14} /> : <Ban size={14} />}
-                    {eventQuickActionBusy
-                      ? 'Сохраняем...'
-                      : (eventDetailsCancelled ? 'Вернуть занятие' : 'Отменить занятие')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeEventDetails}
-                    disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
-                    className="rounded-full border border-purple-200/80 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Закрыть
-                  </button>
-                  {!eventDetailsIsExternal && !eventDetailsCancelled && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={startEventEdit}
-                        disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
-                        className="rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Редактировать
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDeleteEvent}
-                        disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
-                        className="rounded-full border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {eventDeleteBusy ? 'Удаляем...' : 'Удалить'}
-                      </button>
-                    </>
-                  )}
-                </>
-              )}
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={handleEventDetailsCancellationToggle}
+                disabled={!eventDetailsCancellationMarkKey || eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
+                className="rounded-full border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-60">
+                {eventQuickActionBusy ? 'Сохраняем…' : eventDetailsCancelled ? 'Вернуть занятие' : 'Отменить занятие'}
+              </button>
+              {!eventDetailsIsExternal && !eventDetailsCancelled && <button type="button" onClick={handleDeleteEvent}
+                disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
+                className="rounded-full border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-60">{eventDeleteBusy ? 'Удаляем…' : 'Удалить'}</button>}
+              <button type="button" onClick={closeEventDetails} disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
+                className="rounded-full border border-purple-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60">Закрыть</button>
+              {!eventDetailsCancelled && <button type="button" onClick={startEventEdit}
+                disabled={eventDeleteBusy || eventEditSaving || eventQuickActionBusy || dragDropBusy}
+                className="rounded-full border border-violet-600 bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60">Изменить</button>}
             </div>
           </div>
         </div>

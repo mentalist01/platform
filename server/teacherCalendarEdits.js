@@ -15,7 +15,7 @@ export function calendarEditTargetEntry(row) {
   const uid = row.googleResult.iCalUID;
   return { ...(row.source || {}), ...row.target,
     id: calendarEditGoogleId(row.teacherId, uid, row.target.date, row.target.time),
-    subject: row.target.title, studentName: row.target.studentName || row.target.title,
+    subject: row.target.title, googleCalendarTitle: row.target.title, studentName: row.target.studentName || row.target.title,
     studentId: row.target.studentId || '', groupId: row.target.groupId || '',
     ...(row.target.groupId ? { isLearningGroupEvent: true, groupName: row.target.studentName || row.target.title } : {}),
     source: 'google-ical', isExternalCalendarEvent: true, isGoogleCalendarSync: true,
@@ -30,17 +30,31 @@ export function calendarEditTargetEntry(row) {
 
 // Applied before group-session projection, so a lagging Google feed cannot move
 // the real group lesson back to its former time. Bindings also preserve custom titles.
-export function projectCalendarEditEntry(entry, teacherId, store) {
+export function projectCalendarEditEntry(entry, teacherId, store, {fresh = false} = {}) {
+  const rows = store.all().filter(row => row.teacherId === teacherId && row.googleResult && row.googleResult.iCalUID === entry.externalEventId);
+  const slot = value => `${value.date}|${value.time}`;
+  // Observe the original feed entry before applying any local projection. A later
+  // confirmed edit also retires earlier projections in that occurrence's chain.
+  if (!fresh && !entry.calendarEditProjected) rows.forEach((row, index) => {
+    const detailsObserved = row.operation !== 'update' || (Number(entry.durationMinutes) === row.target.durationMinutes
+      && String(entry.googleCalendarTitle || entry.subject || '').trim() === row.target.title
+      && String(entry.note || '').trim() === row.target.note);
+    if (slot(entry) !== slot(row.target) || !detailsObserved) return;
+    if (!row.feedObserved) { row.feedObserved = true; store.put({...row}); }
+    const ancestors = new Set(row.source ? [slot(row.source)] : []);
+    for (let previous = index - 1; previous >= 0; previous--) {
+      const parent = rows[previous]; if (!ancestors.has(slot(parent.target))) continue;
+      if (!parent.feedObserved) { parent.feedObserved = true; store.put({...parent}); }
+      if (parent.source) ancestors.add(slot(parent.source));
+    }
+  });
   let next = entry;
-  for (const row of store.all().filter(value => value.teacherId === teacherId && value.googleResult)) {
-    const uid = row.googleResult.iCalUID;
-    if (next.externalEventId !== uid) continue;
-    const isTarget = next.date === row.target.date && next.time === row.target.time;
-    if (isTarget && !next.calendarEditProjected && !row.feedObserved) store.put({ ...row, feedObserved: true });
-    const isOld = row.source && next.date === row.source.date && next.time === row.source.time;
-    if (isOld && !row.feedObserved) next = { ...next, ...calendarEditTargetEntry(row) };
-    if ((isTarget || isOld && !row.feedObserved) && row.source?.lessonId) next = { ...next, lessonId: row.source.lessonId };
-    next = { ...next, calendarPlatformOwner: { studentId: row.target.studentId || '', groupId: row.target.groupId || '' } };
+  for (const row of rows) {
+    const isTarget = slot(next) === slot(row.target), isOld = row.source && slot(next) === slot(row.source);
+    if (!fresh && isOld && !row.feedObserved) next = {...next, ...calendarEditTargetEntry(row)};
+    if ((isTarget || isOld && !row.feedObserved) && row.source?.lessonId) next = {...next, lessonId: row.source.lessonId};
+    next = {...next, calendarPlatformOwner: {studentId: row.target.studentId || '', groupId: row.target.groupId || ''},
+      calendarPersonalEvent: !row.target.studentId && !row.target.groupId && row.target.kind !== 'trial'};
   }
   return next;
 }
@@ -48,7 +62,7 @@ export function projectCalendarEditEntry(entry, teacherId, store) {
 export function overlayCalendarEdits(entries, teacherId, store) {
   const result = entries.map(entry => projectCalendarEditEntry(entry, teacherId, store));
   const rows = store.all().filter(value => value.teacherId === teacherId && value.googleResult);
-  for (const row of rows.filter(value => !value.feedObserved && !rows.some(next => next.id !== value.id
+  for (const row of rows.filter((value, index) => !value.feedObserved && !rows.some((next, nextIndex) => nextIndex > index
     && next.source?.externalEventId === value.googleResult.iCalUID && next.source.date === value.target.date && next.source.time === value.target.time))) {
     const target = projectCalendarEditEntry(calendarEditTargetEntry(row), teacherId, store);
     if (!result.some(entry => entry.externalEventId === target.externalEventId && entry.date === target.date && entry.time === target.time)) result.push(target);
@@ -133,7 +147,7 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
     const teacherId = teacherAccess(req.auth, req.body?.teacherId);
     const body = req.body || {};
     if (!/^[a-zA-Z0-9-]{16,80}$/.test(body.id || '')) fail('Не удалось определить запрос сохранения.');
-    if (!['create', 'move'].includes(body.operation)) fail('Неизвестное действие календаря.');
+    if (!['create', 'move', 'update'].includes(body.operation)) fail('Неизвестное действие календаря.');
     const target = { date: body.target?.date, time: body.target?.time, durationMinutes: Number(body.target?.durationMinutes) };
     if (!validDate(target.date) || !validTime(target.time) || !Number.isInteger(target.durationMinutes) || target.durationMinutes < 15 || target.durationMinutes > 1440
       || Number(target.time.slice(0, 2)) * 60 + Number(target.time.slice(3)) + target.durationMinutes > 1440) fail('Событие должно полностью помещаться в выбранный день.');
@@ -146,7 +160,7 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
         if (previous.status !== 'pending' || previous.googleResult) fail('Сначала завершите начатую синхронизацию. Затем можно изменить событие ещё раз.', 409);
       }
       let source = null;
-      if (body.operation === 'move') {
+      if (body.operation === 'move' || body.operation === 'update') {
         if (!validDate(body.source?.date) || !validTime(body.source?.time) || !body.source?.id) fail('Не удалось определить исходное событие.');
         const first = [body.source.date, target.date].sort()[0], last = [body.source.date, target.date].sort().at(-1);
         const entries = await getEntries(teacherId, true, addCalendarDays(last, 1), { fromDay: addCalendarDays(first, -1) });
@@ -155,14 +169,23 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
         if (matches.length !== 1 || matches[0].durationMinutes !== Number(body.source.durationMinutes)) fail('Событие уже изменилось. Обновите календарь и повторите перенос.', 409);
         source = prepareSource(matches[0], teacherId);
         if (source.cancelled || source.isCancelled || source.status === 'cancelled') fail('Отменённое событие сначала нужно восстановить.', 409);
-        if (target.durationMinutes !== source.durationMinutes) fail('Перетаскивание сохраняет длительность события.');
-        if (source.date === target.date && source.time === target.time) fail('Событие уже находится в этом времени.');
+        if (body.operation === 'move' && target.durationMinutes !== source.durationMinutes) fail('Перетаскивание сохраняет длительность события.');
+        if (body.operation === 'move' && source.date === target.date && source.time === target.time) fail('Событие уже находится в этом времени.');
+        if (body.operation === 'update' && target.durationMinutes > 360) fail('Укажите длительность от 15 до 360 минут.');
         if (store.all().some(row => row.id !== body.id && row.teacherId === teacherId && ['pending', 'applying'].includes(row.status) && row.source?.id === source.id && row.source.date === source.date && row.source.time === source.time)) fail('Для события уже есть незавершённое изменение. Повторите его синхронизацию.', 409);
         target.studentId = source.studentId || ''; target.groupId = source.groupId || '';
         target.studentName = source.groupName || source.studentName || '';
         target.title = source.googleCalendarTitle || source.subject || source.studentName || 'Событие';
         target.kind = !target.studentId && !target.groupId && !source.calendarPersonalEvent ? 'trial' : 'event';
         target.repeatMode = 'once'; target.note = source.note || '';
+        if (body.operation === 'update') {
+          if (typeof body.source.title !== 'string' || typeof body.source.note !== 'string'
+            || body.source.title.trim() !== target.title.trim() || body.source.note.trim() !== target.note.trim()) fail('Событие уже изменилось. Обновите календарь и повторите редактирование.', 409);
+          target.title = String(body.target?.title || '').trim();
+          if (!target.title || target.title.length > 500) fail('Укажите название длиной до 500 символов.');
+          target.note = String(body.target?.note || '').trim();
+          if (target.note.length > 6000) fail('Описание должно быть не длиннее 6000 символов.');
+        }
       } else {
         target.studentId = String(body.target?.studentId || '').trim(); target.groupId = String(body.target?.groupId || '').trim();
         if (target.studentId && target.groupId) fail('Выберите ученика или группу.');

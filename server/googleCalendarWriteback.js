@@ -272,7 +272,7 @@ export async function listGoogleCalendarLessonEvents({accessToken,calendarId,tim
 
 // Operates on one instance, never the recurring series. The request marker and
 // deterministic ID make retrying an uncertain network response safe.
-export async function moveGoogleCalendarLesson({ accessToken, calendarId, requestId, iCalUid, expectedStartAt, targetStartAt, durationMinutes, summary, description = '', recurrence = [], allowConflicts = false, deterministicRecovery = false, recoverOnly = false, skipRecoveryLookup = false, fetchImpl = fetch }) {
+export async function moveGoogleCalendarLesson({ accessToken, calendarId, requestId, iCalUid, expectedStartAt, targetStartAt, durationMinutes, expectedDurationMinutes = durationMinutes, updateDetails = false, expectedSummary, expectedDescription, summary, description = '', recurrence = [], allowConflicts = false, deterministicRecovery = false, recoverOnly = false, skipRecoveryLookup = false, fetchImpl = fetch }) {
   const base = `/calendars/${encodeURIComponent(calendarId)}/events`;
   const start = Date.parse(targetStartAt); const old = Date.parse(expectedStartAt);
   const end = start + Number(durationMinutes) * 60000;
@@ -290,7 +290,8 @@ export async function moveGoogleCalendarLesson({ accessToken, calendarId, reques
   try {
     const prior=skipRecoveryLookup && !recoverOnly ? [] : await list({privateExtendedProperty:`ivan100Reschedule=${requestId}`});
     if(prior.length){
-      const event=prior.find(e=>Date.parse(e.start?.dateTime)===start && Date.parse(e.end?.dateTime)===end);
+      const event=prior.find(e=>Date.parse(e.start?.dateTime)===start && Date.parse(e.end?.dateTime)===end
+        && (!updateDetails || String(e.summary || '').trim() === summary && String(e.description || '').trim() === description));
       if(!event)throw Object.assign(new Error('Перенесённое событие уже изменено в Google. Проверьте календарь.'),{status:409});
       return {eventId:event.id,iCalUID:event.iCalUID,calendarId};
     }
@@ -308,15 +309,18 @@ export async function moveGoogleCalendarLesson({ accessToken, calendarId, reques
     let event=null;
     if(iCalUid){
       const candidates=await list({iCalUID:iCalUid,timeMin:new Date(old-86400000).toISOString(),timeMax:new Date(old+86400000).toISOString()});
-      const exact=candidates.filter(e=>Date.parse(e.start?.dateTime)===old && Date.parse(e.end?.dateTime)-old===Number(durationMinutes)*60000);
+      const exact=candidates.filter(e=>Date.parse(e.start?.dateTime)===old && Date.parse(e.end?.dateTime)-old===Number(expectedDurationMinutes)*60000);
       if(exact.length!==1)throw Object.assign(new Error('Исходное занятие изменилось или не найдено в выбранном Google Календаре.'),{status:409});
       event=exact[0];
+      if (updateDetails && ((String(event.summary || '').trim() || 'Google Calendar') !== expectedSummary || String(event.description || '').trim() !== expectedDescription))
+        throw Object.assign(new Error('Событие уже отредактировано в Google. Обновите календарь перед сохранением.'), {status:409});
     }
     const occupied=allowConflicts ? [] : await list({timeMin:new Date(start).toISOString(),timeMax:new Date(end).toISOString()});
     if(occupied.some(e=>e.id!==event?.id && e.status!=='cancelled' && e.transparency!=='transparent'
       && !String(e.summary||'').toLocaleUpperCase('ru-RU').endsWith('(ОТМЕНЕНО)')))
       throw Object.assign(new Error('В Google Календаре это время уже занято.'),{status:409});
     const body={start:{dateTime:new Date(start).toISOString(),timeZone:'Europe/Moscow'},end:{dateTime:new Date(end).toISOString(),timeZone:'Europe/Moscow'},
+      ...(updateDetails ? {summary, description} : {}),
       extendedProperties:{private:{...(event?.extendedProperties?.private||{}),ivan100Reschedule:requestId}}};
     writeStarted=true;
     const moved=event ? await api({path:`${base}/${encodeURIComponent(event.id)}?sendUpdates=none`,method:'PATCH',headers:event.etag?{'If-Match':event.etag}:{},body})
