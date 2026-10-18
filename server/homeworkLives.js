@@ -231,6 +231,8 @@ export class HomeworkLivesStore {
       studentId: student.id, month, maxLives: MAX_HOMEWORK_LIVES, remaining: period ? this.balance(period) : MAX_HOMEWORK_LIVES,
       plannedCount, nextPlannedCount: this.plannedCount(row, nextLivesMonth(month), context), planLocked: Boolean(period && Object.keys(period.events).length), maxLossPerHomework: MONTHLY_HOMEWORK_DAMAGE / plannedCount,
       resetsAt: new Date(monthStart(nextLivesMonth(month))).toISOString(), history, pendingReviews,
+      studentNotice: settings.enabled && period?.review && !period.review.cancelledAt && this.balance(period) === 0
+        ? { id: `${month}:${period.review.createdAt}`, month, readAt: period.review.studentReadAt || '' } : null,
       needsReview: history.some(e=>!e.reliable&&!e.waivedAt) };
   }
   setPlan(student, count, month) {
@@ -256,6 +258,18 @@ export class HomeworkLivesStore {
     if (!review) throw Object.assign(Error('Уведомление не найдено.'), { status: 404 });
     review.handledAt = new Date(this.now()).toISOString(); review.handledById = actorId; this.save();
   }
+  acknowledgeNotice(student, month, noticeId) {
+    this.ready();
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month !== livesMonth(this.now())) {
+      throw Object.assign(Error('Уведомление уже изменилось. Обнови страницу.'), { status: 409 });
+    }
+    const period = this.record(student).months[month], review = period?.review;
+    if (!this.settings(student.teacherId).enabled || !review || review.cancelledAt || this.balance(period) !== 0
+      || noticeId !== `${month}:${review.createdAt}`) {
+      throw Object.assign(Error('Уведомление уже изменилось. Обнови страницу.'), { status: 409 });
+    }
+    if (!review.studentReadAt) { review.studentReadAt = new Date(this.now()).toISOString(); this.save(); }
+  }
 }
 
 export function registerHomeworkLives(app, store, options) {
@@ -269,6 +283,13 @@ export function registerHomeworkLives(app, store, options) {
   app.get('/api/homework-lives', wrap((req,res) => {
     if(req.auth?.role==='student' && text(req.query.studentId) && text(req.query.studentId)!==req.auth.id)return res.status(403).json({error:'Доступ запрещён'});
     const student=options.student(req,res,req.query.studentId);if(student){res.setHeader('Cache-Control','no-store');res.json(status(student));}
+  }));
+  app.post('/api/homework-lives/notice/read', wrap((req,res) => {
+    if (req.auth?.role !== 'student') return res.status(403).json({error:'Подтвердить объяснение может только сам ученик.'});
+    const student = options.student(req,res,req.auth.id); if (!student) return;
+    status(student);
+    store.acknowledgeNotice(student, text(req.body?.month), text(req.body?.id));
+    res.setHeader('Cache-Control','no-store'); res.json(status(student));
   }));
   app.get('/api/teacher-homework-lives', wrap((req,res) => {
     const id=teacher(req,res);if(!id)return;

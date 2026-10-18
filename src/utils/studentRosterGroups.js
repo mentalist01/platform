@@ -7,7 +7,7 @@ export function studentRosterGroups(students, groups) {
     const ids = [...new Set((group.members || [])
       .filter(member => member.status === 'active')
       .map(member => String(member.studentId)))];
-    const members = ids.map(id => studentsById.get(id)).filter(Boolean);
+    const members = [...studentsById.values()].filter(student => ids.includes(String(student.id)));
     if (!members.length) continue;
     const entry = { ...group, students: members, totalMembers: ids.length };
     for (const student of members) {

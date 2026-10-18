@@ -30,3 +30,19 @@ test('manual dated lesson creates one deterministic Google event',async()=>{
   const m=mock();await moveGoogleCalendarLesson({...params,...m,iCalUid:''});const write=m.calls.find(c=>c.method==='POST');const body=JSON.parse(write.body);
   assert.match(body.id,/^[0-9a-f]{64}$/);assert.equal(body.summary,'Student');assert.equal(body.extendedProperties.private.ivan100Reschedule,'r1');
 });
+test('weekly creation retains recurrence and recovers a lost POST through its deterministic master id',async()=>{
+  let created=null,writes=0;
+  const fetchImpl=async(raw,options)=>{
+    const url=new URL(raw);
+    if(options.method==='POST'){
+      writes++;created={...JSON.parse(options.body),iCalUID:'weekly-uid'};
+      throw Error('Response lost after Google committed');
+    }
+    if(url.searchParams.has('privateExtendedProperty'))return Response.json({items:[]});
+    return created ? Response.json(created) : Response.json({error:{message:'not found'}},{status:404});
+  };
+  const input={...params,iCalUid:'',allowConflicts:true,deterministicRecovery:true,recurrence:['RRULE:FREQ=WEEKLY'],description:'Подготовка',fetchImpl};
+  await assert.rejects(moveGoogleCalendarLesson(input),error=>!error.definite);
+  assert.deepEqual(created.recurrence,['RRULE:FREQ=WEEKLY']);assert.equal(created.description,'Подготовка');
+  assert.equal((await moveGoogleCalendarLesson({...input,recoverOnly:true})).iCalUID,'weekly-uid');assert.equal(writes,1);
+});

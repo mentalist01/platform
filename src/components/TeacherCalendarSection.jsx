@@ -3,6 +3,8 @@ import { isExplicitTrialLesson } from '../utils/calendarLessonType.js';
 import { LessonAlarmSettings } from './LessonAlarmControls';
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
+import CalendarEditStatus from './CalendarEditStatus.jsx';
+import { snapCalendarDragStart } from '../utils/calendarDrag.js';
 import { useLessonPaymentSenders } from '../hooks/useLessonPaymentSenders.js';
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -80,7 +82,9 @@ const MIN_CALENDAR_HOUR_HEIGHT = 24;
 const MAX_CALENDAR_HOUR_HEIGHT = 56;
 const CALENDAR_VIEWPORT_RESERVED_PX = 180;
 const DEFAULT_EVENT_DURATION_MINUTES = 60;
-const QUICK_CREATE_TIME_STEP_MINUTES = 30;
+const QUICK_CREATE_TIME_STEP_MINUTES = 10;
+const PERSONAL_EVENT_VALUE = '__personal_event__';
+const GROUP_EVENT_PREFIX = '__group__:';
 const DEFAULT_ONE_TIME_LESSON_SUBJECT = 'Пробное занятие';
 const TRIAL_WITHOUT_STUDENT_VALUE = '__trial_without_student__';
 const CALENDAR_UI_PREFS_STORAGE_KEY = 'teacher_calendar_ui_prefs_v2';
@@ -325,7 +329,7 @@ const getLearningGroupCalendarParticipants = (entry, studentNameById = {}) => {
 };
 
 const isTrialEntry = (entry) => (
-  !isLearningGroupCalendarEntry(entry) && (!String(entry?.studentId || '').trim() || isExplicitTrialLesson(entry))
+  !entry?.calendarPersonalEvent && !isLearningGroupCalendarEntry(entry) && (!String(entry?.studentId || '').trim() || isExplicitTrialLesson(entry))
 );
 const isExternalCalendarEntry = (entry) => Boolean(
   entry?.isExternalCalendarEvent || String(entry?.source || '').trim() === 'google-ical'
@@ -941,6 +945,10 @@ const TeacherCalendarSection = ({
   const [quickCreateDraft, setQuickCreateDraft] = useState(null);
   const [quickCreateSaving, setQuickCreateSaving] = useState(false);
   const [quickCreateError, setQuickCreateError] = useState('');
+  const [calendarEditRevision, setCalendarEditRevision] = useState(0);
+  const [calendarEditNotice, setCalendarEditNotice] = useState('');
+  const [calendarCreateGroups, setCalendarCreateGroups] = useState([]);
+  const [calendarCreateGroupsError, setCalendarCreateGroupsError] = useState('');
   const [eventDetails, setEventDetails] = useState(null);
   const [eventDeleteBusy, setEventDeleteBusy] = useState(false);
   const [eventDeleteError, setEventDeleteError] = useState('');
@@ -1195,7 +1203,14 @@ const TeacherCalendarSection = ({
       .sort((left, right) => left.label.localeCompare(right.label, 'ru'));
   }, [getStudentLabel, students]);
 
-  const firstStudentOptionId = studentOptions[0]?.id || '';
+  useEffect(() => {
+    let cancelled = false;
+    setCalendarCreateGroups([]); setCalendarCreateGroupsError('');
+    if (teacherId) api.getLearningGroups({ teacherId }).then(result => {
+      if (!cancelled) setCalendarCreateGroups((Array.isArray(result) ? result : result.groups || []).filter(group => !group.deletedAt && group.status !== 'archived'));
+    }).catch(failure => { if (!cancelled) setCalendarCreateGroupsError(failure.message); });
+    return () => { cancelled = true; };
+  }, [teacherId]);
 
   const loadTeacherCalendar = useCallback(async ({ silent = false } = {}) => {
     if (!teacherId) {
@@ -3062,11 +3077,6 @@ const TeacherCalendarSection = ({
     [quickCreateDateInputValue]
   );
 
-  const quickCreateIsTrialWithoutStudent = useMemo(
-    () => String(quickCreateDraft?.studentId || '').trim() === TRIAL_WITHOUT_STUDENT_VALUE,
-    [quickCreateDraft]
-  );
-
   const eventDetailsTimeLabel = useMemo(() => {
     if (!eventDetails) return '--:--';
     const startMinutes = Number(eventDetails.startMinutes);
@@ -3283,32 +3293,24 @@ const TeacherCalendarSection = ({
   const resolveColumnStartMinutesByPointer = useCallback((
     pointerEvent,
     durationMinutes = DEFAULT_EVENT_DURATION_MINUTES,
-    cursorOffsetMinutes = 0
+    cursorOffsetMinutes = 0,
+    sourceStartMinutes = 0
   ) => {
     const rect = pointerEvent?.currentTarget?.getBoundingClientRect?.();
     if (!rect || !Number.isFinite(rect.height) || rect.height <= 0) return NaN;
     const safeDuration = clampNumber(
       Math.round(Number(durationMinutes) || DEFAULT_EVENT_DURATION_MINUTES),
       15,
-      360
+      1440
     );
     const safeCursorOffsetMinutes = clampNumber(Number(cursorOffsetMinutes) || 0, 0, safeDuration);
     const offsetY = clampNumber((pointerEvent.clientY || 0) - rect.top, 0, rect.height);
     const pointerMinutes = dayStartMinutes + ((offsetY / rect.height) * (dayEndMinutes - dayStartMinutes));
-    const rawStartMinutes = pointerMinutes - safeCursorOffsetMinutes;
-    const snappedMinutes = roundMinutesToStep(rawStartMinutes, QUICK_CREATE_TIME_STEP_MINUTES);
-    return clampNumber(
-      snappedMinutes,
-      dayStartMinutes,
-      Math.max(dayStartMinutes, dayEndMinutes - safeDuration)
-    );
+    return snapCalendarDragStart({ pointerMinutes, cursorOffsetMinutes: safeCursorOffsetMinutes,
+      sourceStartMinutes, durationMinutes: safeDuration, dayStartMinutes, dayEndMinutes });
   }, [dayEndMinutes, dayStartMinutes]);
 
   const handleEventDragStart = useCallback((dragEvent, calendarEvent, dayIndex, dayKey) => {
-    if (isExternalCalendarEntry(calendarEvent)) {
-      dragEvent.preventDefault();
-      return;
-    }
     if (dragDropBusy || eventDeleteBusy || eventEditSaving || eventQuickActionBusy) {
       dragEvent.preventDefault();
       return;
@@ -3386,7 +3388,8 @@ const TeacherCalendarSection = ({
     const startMinutes = resolveColumnStartMinutesByPointer(
       dragEvent,
       draggingEvent.durationMinutes,
-      draggingEvent.cursorOffsetMinutes
+      draggingEvent.cursorOffsetMinutes,
+      draggingEvent.sourceStartMinutes
     );
     if (!Number.isFinite(startMinutes)) return;
     const dayKey = toDayKey(dayDate);
@@ -3397,77 +3400,20 @@ const TeacherCalendarSection = ({
     });
   }, [dragDropBusy, draggingEvent, resolveColumnStartMinutesByPointer, weekDays]);
 
-  const executeDragDropMove = useCallback(async ({
-    draggedEntry,
-    hasExplicitDate = false,
-    targetDayKey = '',
-    targetWeekdayKey = '',
-    targetTime = '',
-    durationMinutes = DEFAULT_EVENT_DURATION_MINUTES,
-    sourceOccurrenceDayKey = '',
-    moveRecurringSeries = true,
-  }) => {
+  const executeDragDropMove = useCallback(async ({ draggedEntry, targetDayKey, targetTime,
+    durationMinutes, sourceOccurrenceDayKey }) => {
     if (!draggedEntry) return;
-    setDragDropBusy(true);
-    setDragDropError('');
+    setDragDropBusy(true); setDragDropError(''); setCalendarEditNotice('');
     try {
-      if (hasExplicitDate || moveRecurringSeries) {
-        const payload = buildEventUpdatePayload(draggedEntry, hasExplicitDate
-          ? {
-              date: targetDayKey,
-              time: targetTime,
-              durationMinutes,
-            }
-          : {
-              weekdayKey: targetWeekdayKey,
-              time: targetTime,
-              durationMinutes,
-            });
-        await updateEventOnServer(draggedEntry, payload);
-      } else {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceOccurrenceDayKey)) {
-          throw new Error('Не удалось определить дату конкретного занятия для переноса.');
-        }
-        const subject = String(
-          draggedEntry?.subject
-          || draggedEntry?.subjectLabel
-          || draggedEntry?.studentName
-          || DEFAULT_ONE_TIME_LESSON_SUBJECT
-        ).trim() || DEFAULT_ONE_TIME_LESSON_SUBJECT;
-        const note = typeof draggedEntry?.note === 'string' ? draggedEntry.note : '';
-        const oneTimePayload = {
-          date: targetDayKey,
-          time: targetTime,
-          subject,
-          durationMinutes,
-          note,
-        };
-        const studentId = String(draggedEntry?.studentId || '').trim();
-        if (studentId) {
-          await api.addScheduleEntry(studentId, oneTimePayload);
-        } else {
-          const teacherStudentName = String(draggedEntry?.studentName || subject).trim() || subject;
-          await api.addTeacherScheduleEntry({
-            ...oneTimePayload,
-            studentName: teacherStudentName,
-          }, teacherId);
-        }
-        const nextExcludedDates = normalizeExcludedDayKeys([
-          ...(Array.isArray(draggedEntry?.excludedDates) ? draggedEntry.excludedDates : []),
-          sourceOccurrenceDayKey,
-        ]);
-        const recurringPayload = buildEventUpdatePayload(draggedEntry, {
-          excludedDates: nextExcludedDates,
-        });
-        await updateEventOnServer(draggedEntry, recurringPayload);
-      }
+      await api.saveTeacherCalendarEdit({ id: crypto.randomUUID(), operation: 'move',
+        source: { id: draggedEntry.id, date: sourceOccurrenceDayKey, time: draggedEntry.time,
+          durationMinutes: draggedEntry.durationMinutes },
+        target: { date: targetDayKey, time: targetTime, durationMinutes } }, teacherId);
+      setCalendarEditNotice('Событие перенесено в платформе и Google Calendar. Остальные повторы не менялись.');
       await loadTeacherCalendar({ silent: true });
-    } catch (err) {
-      setDragDropError(err?.message || 'Не удалось перенести занятие перетаскиванием.');
-    } finally {
-      setDragDropBusy(false);
-    }
-  }, [buildEventUpdatePayload, loadTeacherCalendar, teacherId, updateEventOnServer]);
+    } catch (failure) { setDragDropError(failure.message || 'Не удалось перенести событие.'); }
+    finally { setDragDropBusy(false); setCalendarEditRevision(value => value + 1); }
+  }, [loadTeacherCalendar, teacherId]);
 
   const handleCalendarColumnDrop = useCallback(async (dragEvent, dayIndex) => {
     if (!draggingEvent || dragDropBusy) return;
@@ -3483,7 +3429,8 @@ const TeacherCalendarSection = ({
     const targetStartMinutes = resolveColumnStartMinutesByPointer(
       dragEvent,
       draggingEvent.durationMinutes,
-      draggingEvent.cursorOffsetMinutes
+      draggingEvent.cursorOffsetMinutes,
+      draggingEvent.sourceStartMinutes
     );
     if (!Number.isFinite(targetStartMinutes)) {
       setDraggingEvent(null);
@@ -3512,13 +3459,6 @@ const TeacherCalendarSection = ({
       durationMinutes: draggingEvent.durationMinutes,
       sourceOccurrenceDayKey: String(draggingEvent.sourceDayKey || '').trim(),
     };
-    if (!hasExplicitDate) {
-      setDragRecurringChoiceModal(dropPayload);
-      setDraggingEvent(null);
-      setDragPreview(null);
-      quickCreateClickSuppressedUntilRef.current = Date.now() + 180;
-      return;
-    }
     try {
       await executeDragDropMove({
         ...dropPayload,
@@ -3572,8 +3512,9 @@ const TeacherCalendarSection = ({
     setQuickCreateDraft({
       dateKey: toDayKey(dayDate),
       time: formatMinutesAsTime(clampedMinutes),
-      studentId: TRIAL_WITHOUT_STUDENT_VALUE,
-      title: DEFAULT_ONE_TIME_LESSON_SUBJECT,
+      requestId: crypto.randomUUID(),
+      studentId: PERSONAL_EVENT_VALUE,
+      title: '',
       durationMinutes: DEFAULT_EVENT_DURATION_MINUTES,
       repeatMode: REPEAT_MODE_ONCE,
     });
@@ -3585,8 +3526,9 @@ const TeacherCalendarSection = ({
     setQuickCreateDraft({
       dateKey: toDayKey(focusDate),
       time: formatMinutesAsTime(clampedMinutes),
-      studentId: TRIAL_WITHOUT_STUDENT_VALUE,
-      title: DEFAULT_ONE_TIME_LESSON_SUBJECT,
+      requestId: crypto.randomUUID(),
+      studentId: PERSONAL_EVENT_VALUE,
+      title: '',
       durationMinutes: DEFAULT_EVENT_DURATION_MINUTES,
       repeatMode: REPEAT_MODE_ONCE,
     });
@@ -3640,13 +3582,10 @@ const TeacherCalendarSection = ({
     event.preventDefault();
     if (!quickCreateDraft || quickCreateSaving) return;
 
-    const studentId = String(quickCreateDraft.studentId || '').trim();
-    const isTrialWithoutStudent = studentId === TRIAL_WITHOUT_STUDENT_VALUE;
-    if (!studentId) {
-      setQuickCreateError('Выберите ученика или пробное занятие без ученика.');
-      return;
-    }
-
+    const selection = String(quickCreateDraft.studentId || PERSONAL_EVENT_VALUE);
+    const groupId = selection.startsWith(GROUP_EVENT_PREFIX) ? selection.slice(GROUP_EVENT_PREFIX.length) : '';
+    const studentId = groupId || [PERSONAL_EVENT_VALUE, TRIAL_WITHOUT_STUDENT_VALUE].includes(selection) ? '' : selection;
+    const isTrialWithoutStudent = selection === TRIAL_WITHOUT_STUDENT_VALUE;
     const dateKey = String(quickCreateDraft.dateKey || '').trim();
     if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
       setQuickCreateError('Некорректная дата занятия.');
@@ -3681,42 +3620,23 @@ const TeacherCalendarSection = ({
     setQuickCreateSaving(true);
     setQuickCreateError('');
     try {
-      const selectedStudentName = studentNameById[studentId] || '';
-      const subject = String(quickCreateDraft.title || '').trim() || (
-        isTrialWithoutStudent
-          ? DEFAULT_ONE_TIME_LESSON_SUBJECT
-          : resolveStudentLessonSubjectFallback(selectedStudentName)
-      );
-      const scheduleTarget = repeatMode === REPEAT_MODE_WEEKLY
-        ? { weekdayKey: weekdayMeta.key }
-        : { date: dateKey };
-      if (isTrialWithoutStudent) {
-        await api.addTeacherScheduleEntry({
-          ...scheduleTarget,
-          time,
-          subject,
-          studentName: subject,
-          durationMinutes,
-          note: '',
-        }, teacherId);
-      } else {
-        await api.addScheduleEntry(studentId, {
-          ...scheduleTarget,
-          time,
-          subject,
-          durationMinutes,
-          note: '',
-        });
-        setHiddenStudentMap((prev) => ({ ...prev, [studentId]: false }));
-      }
+      const selectedName = studentNameById[studentId]
+        || calendarCreateGroups.find(group => group.id === groupId)?.name || '';
+      const title = String(quickCreateDraft.title || '').trim() || selectedName
+        || (isTrialWithoutStudent ? DEFAULT_ONE_TIME_LESSON_SUBJECT : 'Событие');
+      await api.saveTeacherCalendarEdit({ id: quickCreateDraft.requestId, operation: 'create',
+        target: { date: dateKey, time, durationMinutes, studentId, groupId, title, repeatMode,
+          kind: isTrialWithoutStudent ? 'trial' : 'event' } }, teacherId);
+      if (studentId) setHiddenStudentMap(previous => ({ ...previous, [studentId]: false }));
+      setCalendarEditNotice('Событие создано в платформе и Google Calendar.');
       setQuickCreateDraft(null);
       await loadTeacherCalendar({ silent: true });
     } catch (err) {
       setQuickCreateError(err?.message || 'Не удалось добавить занятие.');
     } finally {
-      setQuickCreateSaving(false);
+      setQuickCreateSaving(false); setCalendarEditRevision(value => value + 1);
     }
-  }, [dayEndMinutes, dayStartMinutes, loadTeacherCalendar, quickCreateDraft, quickCreateSaving, studentNameById, teacherId]);
+  }, [calendarCreateGroups, dayEndMinutes, dayStartMinutes, loadTeacherCalendar, quickCreateDraft, quickCreateSaving, studentNameById, teacherId]);
 
   const openEventDetailsModal = useCallback((event, dayKey) => {
     const hasStudent = Boolean(String(event?.studentId || '').trim());
@@ -4440,8 +4360,8 @@ const TeacherCalendarSection = ({
                     }`}>
                       <div className="font-semibold">
                         {calendarGoogleWrite.connected && !calendarGoogleWrite.requiresReauthorization
-                          ? 'Отмены видны в Google Calendar'
-                          : 'Отметки отмены в Google не подключены'}
+                          ? 'Изменения сохраняются в Google Calendar'
+                          : 'Сохранение изменений в Google не подключено'}
                       </div>
                       <div className="mt-1 leading-relaxed">
                         {calendarGoogleWrite.connected && !calendarGoogleWrite.requiresReauthorization
@@ -4834,6 +4754,8 @@ const TeacherCalendarSection = ({
                   {error}
                 </div>
               )}
+              <CalendarEditStatus teacherId={teacherId} refreshKey={calendarEditRevision} onChanged={() => loadTeacherCalendar({ silent: true })} />
+              {calendarEditNotice && <div className="calendar-edit-success" role="status"><span>{calendarEditNotice}</span><button type="button" aria-label="Скрыть подтверждение Google Calendar" onClick={() => setCalendarEditNotice('')}><X size={15} /></button></div>}
               {dragDropError && (
                 <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                   {dragDropError}
@@ -5070,7 +4992,7 @@ const TeacherCalendarSection = ({
                                     title={availabilityShareMode ? undefined : (homeworkProgressPercent == null ? undefined : `Домашняя работа: ${homeworkProgressPercent}%`)}
                                     data-homework-progress={availabilityShareMode ? undefined : (homeworkProgressPercent == null ? undefined : homeworkProgressPercent)}
                                     className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${cancelled ? 'teacher-calendar-shell__event-card--cancelled' : ''} ${!availabilityShareMode && externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
-                                    draggable={!cancelled && !availabilityShareMode && !externalEvent && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
+                                    draggable={!cancelled && !availabilityShareMode && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
                                     style={{
                                       top: `${top}px`,
                                       height: `${height}px`,
@@ -5082,7 +5004,7 @@ const TeacherCalendarSection = ({
                                         : buildEventCardHomeworkProgressBackground(cardColor, homeworkProgressPercent),
                                       borderColor: mixHexColor(cardColor, '#020617', 0.14),
                                       boxShadow: `0 10px 22px ${hexToRgba(cardColor, 0.22)}, inset 0 1px 0 rgba(255, 255, 255, 0.2)`,
-                                      cursor: availabilityShareMode ? 'default' : (cancelled ? 'pointer' : (dragDropBusy ? 'progress' : (externalEvent ? 'pointer' : 'grab'))),
+                                      cursor: availabilityShareMode ? 'default' : (cancelled ? 'pointer' : (dragDropBusy ? 'progress' : 'grab')),
                                       opacity: draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : (cancelled ? 0.68 : 1),
                                     }}
                                     onDragStart={(eventDrag) => handleEventDragStart(eventDrag, event, dayIndex, dayKey)}
@@ -5284,13 +5206,13 @@ const TeacherCalendarSection = ({
           onClick={closeQuickCreate}
         >
           <form
-            className="teacher-calendar-shell__modal surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
+            className="teacher-calendar-shell__modal teacher-calendar-shell__lesson-details surface-panel modal-card w-full max-w-md rounded-2xl border border-purple-200/80 bg-gradient-to-br from-white via-violet-50/65 to-fuchsia-50/55 p-4 shadow-2xl"
             onSubmit={handleQuickCreateSave}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-lg font-semibold text-slate-900">Новое занятие</div>
+                <div className="text-lg font-semibold text-slate-900">Новое событие</div>
                 <div className="text-xs text-slate-500">{quickCreateDateLabel}</div>
               </div>
               <button
@@ -5303,63 +5225,16 @@ const TeacherCalendarSection = ({
               </button>
             </div>
 
-            <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Тип занятия
-            </label>
-            <div className="mt-1 inline-flex w-full items-center overflow-hidden rounded-xl border border-purple-200/80 bg-white/95 text-sm font-semibold">
-              <button
-                type="button"
-                onClick={() => setQuickCreateDraft((prev) => (prev ? {
-                  ...prev,
-                  studentId: TRIAL_WITHOUT_STUDENT_VALUE,
-                  title: String(prev.title || '').trim() || DEFAULT_ONE_TIME_LESSON_SUBJECT,
-                } : prev))}
-                disabled={quickCreateSaving || quickCreateFindingSlot}
-                className={`flex-1 px-3 py-2 ${quickCreateIsTrialWithoutStudent ? 'bg-sky-100 text-sky-700' : 'text-slate-700 hover:bg-slate-50'} disabled:cursor-not-allowed disabled:opacity-60`}
-              >
-                Пробное
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuickCreateDraft((prev) => {
-                  if (!prev) return prev;
-                  return {
-                    ...prev,
-                    studentId: firstStudentOptionId || prev.studentId,
-                    title: '',
-                  };
-                })}
-                disabled={quickCreateSaving || quickCreateFindingSlot || !firstStudentOptionId}
-                className={`flex-1 border-l border-purple-100 px-3 py-2 ${
-                  !quickCreateIsTrialWithoutStudent ? 'bg-emerald-100 text-emerald-700' : 'text-slate-700 hover:bg-slate-50'
-                } disabled:cursor-not-allowed disabled:opacity-60`}
-              >
-                С учеником
-              </button>
-            </div>
-
-            {!quickCreateIsTrialWithoutStudent && (
-              <>
-                <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Ученик
-                </label>
-                <select
-                  value={quickCreateDraft.studentId}
-                  onChange={(event) => setQuickCreateDraft((prev) => (prev ? { ...prev, studentId: event.target.value } : prev))}
-                  disabled={quickCreateSaving || quickCreateFindingSlot}
-                  className="mt-1 w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {!firstStudentOptionId && (
-                    <option value="">Нет учеников</option>
-                  )}
-                  {studentOptions.map((student) => (
-                    <option key={`quick-create-student-${student.id}`} value={student.id}>
-                      {student.label}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
+            <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="calendar-create-owner">Для кого</label>
+            <select id="calendar-create-owner" value={quickCreateDraft.studentId}
+              onChange={event => setQuickCreateDraft(previous => ({ ...previous, studentId: event.target.value }))}
+              disabled={quickCreateSaving || quickCreateFindingSlot}
+              className="mt-1 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm text-slate-800">
+              <optgroup label="Событие"><option value={PERSONAL_EVENT_VALUE}>Личное событие</option><option value={TRIAL_WITHOUT_STUDENT_VALUE}>Пробное без ученика</option></optgroup>
+              <optgroup label="Ученики">{studentOptions.map(student => <option key={student.id} value={student.id}>{student.label}</option>)}</optgroup>
+              <optgroup label="Мини-группы">{calendarCreateGroups.map(group => <option key={group.id} value={`${GROUP_EVENT_PREFIX}${group.id}`}>{group.name}</option>)}</optgroup>
+            </select>
+            {calendarCreateGroupsError && <p className="mt-2 text-xs text-amber-700">Не удалось загрузить группы. {calendarCreateGroupsError}</p>}
 
             <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Повтор
@@ -5391,26 +5266,12 @@ const TeacherCalendarSection = ({
               </button>
             </div>
 
-            {quickCreateIsTrialWithoutStudent ? (
-              <>
-                <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Название
-                </label>
-                <input
-                  type="text"
-                  value={quickCreateDraft.title}
-                  onChange={(event) => setQuickCreateDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))}
-                  disabled={quickCreateSaving || quickCreateFindingSlot}
-                  placeholder={DEFAULT_ONE_TIME_LESSON_SUBJECT}
-                  className="mt-1 w-full rounded-xl border border-purple-200/80 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:opacity-70"
-                  maxLength={80}
-                />
-              </>
-            ) : (
-              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
-                Для занятия с учеником название не требуется: в карточке будут имя ученика и время.
-              </div>
-            )}
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="calendar-create-title">Название · необязательно</label>
+            <input id="calendar-create-title" type="text" value={quickCreateDraft.title}
+              onChange={event => setQuickCreateDraft(previous => ({ ...previous, title: event.target.value }))}
+              disabled={quickCreateSaving || quickCreateFindingSlot} placeholder="Например, консультация или название встречи" maxLength={500}
+              className="mt-1 w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm text-slate-800" />
+            <p className="mt-2 text-xs text-slate-500">Сохраним и в Google Calendar. Для урока без названия используем имя ученика или группы.</p>
 
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="block">

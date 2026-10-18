@@ -19,6 +19,8 @@ import { retainWalletPaymentProjections, selectBalanceReconciliationStudents } f
 import { createStudentBalanceReadContext } from './studentBalanceReadContext.js';
 import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordinator.js';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
+import { registerTeacherCalendarEdits, projectCalendarEditEntry, overlayCalendarEdits } from './teacherCalendarEdits.js';
+import { createTeacherCalendarEditApplier } from './teacherCalendarEditApply.js';
 import { matchTeacherPlatformPayment } from './teacherPlatformPayments.js';
 import { TeacherPaymentConnections } from './teacherPaymentConnections.js';
 import { normalizePaymentSenderKey as normalizePaymentNameKey } from '../src/utils/paymentSenderLinks.js';
@@ -10498,7 +10500,8 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
     startAt: new Date(startMs).toISOString(),
   });
   if (!stableLessonId) return null;
-  const stableSession = sessions.find((session) => session.id === stableLessonId) || null;
+  const boundSession = entry?.lessonId ? sessions.find(session => session.id === entry.lessonId && session.groupId === groupId && normalizeTeacherId(session.teacherId) === teacherId) : null;
+  const stableSession = boundSession || sessions.find((session) => session.id === stableLessonId) || null;
   if (
     stableSession
     && (stableSession.groupId !== groupId || normalizeTeacherId(stableSession.teacherId) !== teacherId)
@@ -10644,7 +10647,9 @@ const enrichGoogleCalendarLearningGroupEntry = (entry, teacherId, students = [])
     teacherId,
     groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
   });
-  const group = match.group;
+  const explicitGroupId = entry?.calendarPlatformOwner?.groupId;
+  const explicitGroup = explicitGroupId ? getLearningGroupById(explicitGroupId) : null;
+  const group = explicitGroup && explicitGroup.teacherId === teacherId && !explicitGroup.deletedAt ? explicitGroup : match.group;
   if (!group || (entry?.groupId && String(entry.groupId) !== String(group.id))) {
     return {
       ...clearGoogleCalendarLearningGroupProjection(entry),
@@ -10675,13 +10680,20 @@ const enrichGoogleCalendarLearningGroupEntry = (entry, teacherId, students = [])
   };
 };
 
-const enrichGoogleCalendarEntryFromRoster = (entry, teacherId, students = []) => (
-  enrichGoogleCalendarLearningGroupEntry(
-    attachGoogleCalendarEntryStudentMatch(entry, students),
-    teacherId,
-    students,
-  )
-);
+const enrichGoogleCalendarEntryFromRoster = (entry, teacherId, students = []) => {
+  let projected = projectCalendarEditEntry(entry, teacherId, teacherCalendarEditsStore);
+  const owner = projected.calendarPlatformOwner;
+  if (owner) {
+    const student = owner.studentId ? students.find(value => value.id === owner.studentId && value.teacherId === teacherId && !value.deletedAt) : null;
+    const group = owner.groupId ? getLearningGroupById(owner.groupId) : null;
+    projected = clearGoogleCalendarLearningGroupProjection(projected);
+    projected = { ...projected, studentId: student?.id || '', studentName: student?.name || projected.subject,
+      isTeacherSlot: !student && !group,
+      ...(group && group.teacherId === teacherId && !group.deletedAt ? { groupId: group.id, isLearningGroupEvent: true, groupName: group.name } : {}),
+    };
+  } else projected = attachGoogleCalendarEntryStudentMatch(projected, students);
+  return enrichGoogleCalendarLearningGroupEntry(projected, teacherId, students);
+};
 
 const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], groups = []) => {
   if (!event || event.type !== 'VEVENT') return null;
@@ -11035,9 +11047,11 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
   }
 };
 
-const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => overlayReschedules(
-  await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options), teacherId, lessonRescheduleStore
-);
+const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
+  const entries = overlayCalendarEdits(await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options), teacherId, teacherCalendarEditsStore);
+  const students = readStudentsDb().filter(student => student.teacherId === teacherId);
+  return overlayReschedules(entries.map(entry => enrichGoogleCalendarEntryFromRoster(entry, teacherId, students)), teacherId, lessonRescheduleStore);
+};
 
 const getTeacherCalendarRefreshSettingsKey = (settings, teacherId) => [
   settings?.enabled ? '1' : '0',
@@ -11117,6 +11131,7 @@ const getTeacherOwnedScheduleEntries = (teacherId) => {
   if (!teacher) return [];
   const list = Array.isArray(teacher?.calendarSchedule) ? teacher.calendarSchedule : [];
   return list
+    .filter(entry => !entry.calendarEditGoogleMirror)
     .map((entry) => normalizeTeacherCalendarEntry(entry))
     .filter(Boolean);
 };
@@ -25002,6 +25017,7 @@ const studentAssignedLearningMaterial = (studentId, material, group = null) => {
 
 const weeklyScheduleStore = createRescheduleStore(path.join(dataDir, 'weekly-schedules.json'));
 const lessonRescheduleStore = createRescheduleStore(path.join(dataDir, 'lesson-reschedules.json'));
+const teacherCalendarEditsStore = createRescheduleStore(path.join(dataDir, 'teacher-calendar-edits.json'));
 const lessonPaceStore = createLessonPaceStore(path.join(dataDir, 'lesson-pace.json'));
 const readResolvedGroupLessonSessions = (lessons = readLearningLessonSessionsDb()) => deduplicateGroupLessonSessions(lessons, lesson => {
   const recording = getLessonReplaySummary(buildLearningGroupLessonReplayKey(lesson.id));
@@ -25125,7 +25141,7 @@ const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '', 
         }
         const item = buildGoogleCalendarScheduleEntry({type:'VEVENT',uid:e.iCalUID,start:e.start?.dateTime,end:e.end?.dateTime,
           summary:e.summary,description:e.description,location:e.location},teacherId,students,groups);
-        return item ? [item] : [];
+        return item ? [enrichGoogleCalendarEntryFromRoster(item, teacherId, students)] : [];
       });
       // The API is fresh; the read-only iCal feed may still show the old time.
       google = [...google.filter(e=>!uids.has(e.externalEventId)),...live];
@@ -25247,6 +25263,104 @@ registerLessonReschedules(app, {
     }, { logTarget: `teacher:${row.teacherId}` }).catch(error => console.warn('[reschedule] push failed:', error.message));
   },
 });
+
+const applyTeacherCalendarEdit = createTeacherCalendarEditApplier({
+  getStudent: findStudentById, getGroup: getLearningGroupById,
+  getStudentData, buildStudentGoogle: (entry, student) => buildStudentScheduleEntryFromGoogleCalendar(entry, student, { role: 'teacher', id: student.teacherId }),
+  setStudentSchedule: setStudentScheduleWithHomeworkSync,
+  readTeachers: readTeachersDb, writeTeachers: writeTeachersDb,
+  readLessons: readLearningLessonSessionsDb, writeLessons: writeLearningLessonSessionsDb,
+  createLesson: createLearningLessonSession, updateLesson: updateLearningLessonSession, normalizeLesson: normalizeLearningLessonSession,
+  createRoster: lesson => createLearningAttendanceRoster(lesson, readLearningAttendanceDb()), writeRoster: writeLearningAttendanceUpdates,
+  movePaymentMarks: (row, target) => enqueuePaymentNotification(row.teacherId, () => {
+    const marksDb = readTeacherCalendarMarksDb(), marks = normalizeTeacherCalendarMarks(marksDb[row.teacherId]);
+    const financeDb = readTeacherFinanceDb(), finance = getTeacherFinanceTeacherEntry(financeDb, row.teacherId);
+    const pupilIds = row.source.groupId ? [...new Set([...(row.source.participantIds || []), ...(target.participantIds || [])])]
+      : [row.target.studentId || ''];
+    for (const studentId of pupilIds) {
+      const student = studentId ? findStudentById(studentId) : null;
+      if (studentId && (!student || student.teacherId !== row.teacherId)) continue;
+      const source = { ...row.source, studentId }, next = { ...target, studentId };
+      const ids = [...new Set([source.id, source.externalEventId, ...(source.paymentSourceIds || []),
+        ...(source.groupId && studentId ? getGroupEntryStudentSourceIds(source, studentId) : []),
+        ...(student ? [buildStudentScheduleEntryFromGoogleCalendar(source, student, null)?.id] : [])].filter(Boolean))];
+      const paidKeys = ids.map(id => buildTeacherCalendarPaymentMarkKey(row.teacherId, { ...source, id }, source.date, 'paid'));
+      const newPaidKey = buildTeacherCalendarPaymentMarkKey(row.teacherId, next, target.date, 'paid');
+      for (const action of ['paid', 'trial']) {
+        const newKey = buildTeacherCalendarPaymentMarkKey(row.teacherId, next, target.date, action);
+        for (const id of ids) {
+          const oldKey = buildTeacherCalendarPaymentMarkKey(row.teacherId, { ...source, id }, source.date, action);
+          if (marks[oldKey] && oldKey !== newKey) { marks[newKey] ||= marks[oldKey]; delete marks[oldKey]; }
+        }
+      }
+      if (!studentId) continue;
+      const account = finance.studentPaymentBalances?.accounts?.[studentId];
+      if (account) {
+        const original = paidKeys.map(key => account.allocations[key]).find(Boolean);
+        if (original) reconcileBalanceAccount(account, [{ ...original, markKey: newPaidKey, eventId: next.id, dayKey: target.date,
+          time: target.time, durationMinutes: target.durationMinutes, identity: '', moveFromKeys: paidKeys,
+          eligible: !marks[buildTeacherCalendarPaymentMarkKey(row.teacherId, next, target.date, 'trial')],
+        }], new Date().toISOString(), { allocate: false });
+      } else {
+        let allocation = null;
+        for (const key of paidKeys) {
+          const candidate = getPaymentAllocationByMarkKey(finance, key, studentId);
+          if (candidate && paidKeys.includes(candidate.currentMarkKey)) { allocation = candidate; break; }
+        }
+        if (allocation) {
+          moveTeacherFinancePaymentAmount(finance, studentId, source.date.slice(0, 7), target.date.slice(0, 7), allocation.amount);
+          Object.assign(allocation, { currentMarkKey: newPaidKey, currentEntryId: next.id, currentDayKey: target.date,
+            currentTime: target.time, currentDurationMinutes: target.durationMinutes, targetMarkKey: newPaidKey, updatedAt: new Date().toISOString() });
+        }
+      }
+    }
+    if (finance.studentPaymentBalances?.accounts) projectStudentBalances(row.teacherId, finance, marks);
+    financeDb[row.teacherId] = finance; writeTeacherFinanceDb(financeDb);
+    marksDb[row.teacherId] = marks; writeTeacherCalendarMarksDb(marksDb);
+  }),
+  invalidate: teacherId => { teacherCalendarSyncCache.delete(teacherId); teacherCalendarRefreshResultCache.delete(teacherId); },
+});
+
+const teacherCalendarEditRunner = registerTeacherCalendarEdits(app, {
+  store: teacherCalendarEditsStore, getTeacher: findTeacherById, getStudent: findStudentById, getGroup: getLearningGroupById,
+  getEntries: getFreshLessonCalendarEntries,
+  prepareSource: source => {
+    if (!source.groupId) return source;
+    const candidates = readResolvedGroupLessonSessions().filter(lesson => lesson.groupId === source.groupId
+      && lesson.status !== 'cancelled' && (source.lessonId ? lesson.id === source.lessonId
+        : Date.parse(lesson.startAt) === Date.parse(`${source.date}T${source.time}:00+03:00`)));
+    if (candidates.length !== 1) throw Object.assign(new Error('Не удалось однозначно определить занятие группы. Обновите календарь.'), { status: 409 });
+    if (candidates[0].status === 'active') throw Object.assign(new Error('Сначала завершите текущее занятие группы.'), { status: 409 });
+    return { ...source, lessonId: candidates[0].id, participantIds: candidates[0].participantIds };
+  },
+  googleChange: async (row, { recoverOnly = false } = {}) => {
+    const connection = getTeacherCalendarGoogleConnection(row.teacherId);
+    let accessToken;
+    try {
+      if (!connection.calendarId) throw new Error('No calendar selected');
+      accessToken = await getTeacherGoogleCalendarAccessToken(row.teacherId);
+    } catch { throw Object.assign(new Error('В настройках общего календаря нажмите «Разрешить изменения» для Google Calendar.'), { status: 409, definite: true }); }
+    return moveGoogleCalendarLesson({ accessToken, calendarId: connection.calendarId, requestId: row.id,
+      iCalUid: row.source?.externalEventId || '', expectedStartAt: row.source ? new Date(`${row.source.date}T${row.source.time}:00+03:00`).toISOString()
+        : new Date(`${row.target.date}T${row.target.time}:00+03:00`).toISOString(),
+      targetStartAt: new Date(`${row.target.date}T${row.target.time}:00+03:00`).toISOString(), durationMinutes: row.target.durationMinutes,
+      summary: row.target.title, description: row.target.note, recurrence: row.target.repeatMode === 'weekly' ? ['RRULE:FREQ=WEEKLY'] : [],
+      allowConflicts: true, deterministicRecovery: true, recoverOnly });
+  },
+  applyLocal: applyTeacherCalendarEdit,
+  notify: row => notifyScheduleSyncUpdate({ scope: 'teacher-calendar-edit', action: row.operation, teacherId: row.teacherId,
+    studentId: row.target.studentId || '', entryId: row.id }),
+});
+let teacherCalendarEditsRecovering = false;
+setInterval(async () => {
+  if (teacherCalendarEditsRecovering) return;
+  teacherCalendarEditsRecovering = true;
+  try {
+    for (const row of teacherCalendarEditsStore.all().filter(value => value.status === 'applying').slice(0, 10)) {
+      try { await teacherCalendarEditRunner.retry(row); } catch { /* The calendar shows the durable pending change. */ }
+    }
+  } finally { teacherCalendarEditsRecovering = false; }
+}, 60000).unref();
 
 registerGroupPlacement(app, {
   store: studentAvailabilityStore,

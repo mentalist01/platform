@@ -36,6 +36,24 @@ function fixture(t){
   return{store,file,context,clock:value=>{now=instant(value);}};
 }
 
+test('zero-lives explanation is durable, independent of the teacher review and renewed after a corrected deduction', t => {
+  const { store, context, file } = fixture(t);
+  const work = [assigned('one', 0), assigned('two', 0)];
+  const state = store.status(student, context(work));
+  assert.equal(state.remaining, 0); assert.ok(state.studentNotice); assert.equal(state.studentNotice.readAt, '');
+  assert.throws(() => store.acknowledgeNotice(student, state.month, 'stale'), { status: 409 });
+  store.handleReview(student, state.month, 'teacher');
+  assert.equal(store.status(student, context(work)).studentNotice.id, state.studentNotice.id);
+  store.acknowledgeNotice(student, state.month, state.studentNotice.id);
+  const saved = new HomeworkLivesStore(file, { now: () => instant('10-14T10:00:00Z') }).status(student, context(work));
+  assert.ok(saved.studentNotice.readAt); assert.equal(saved.remaining, 0);
+  assert.equal(saved.pendingReviews.length, 0, 'Acknowledgement does not undo the separate teacher review');
+  store.acknowledgeNotice(student, state.month, state.studentNotice.id);
+  store.waive(student, 'one', 'Mistaken deduction', 'teacher');
+  assert.equal(store.status(student, context(work)).studentNotice, null);
+  assert.throws(() => store.acknowledgeNotice(student, state.month, state.studentNotice.id), { status: 409 });
+});
+
 test('half of every homework exhausts three lives after 3/4 of either monthly workload',t=>{
   const{store,context}=fixture(t);
   const four=context(Array.from({length:3},(_,i)=>assigned('four-'+i)),4);

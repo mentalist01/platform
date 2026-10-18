@@ -4,6 +4,7 @@ import { Info, X, MessageCircle, RotateCcw } from 'lucide-react';
 import { homeworkLivesRequest, teacherHomeworkLives, notifyHomeworkLivesUpdated } from '../services/homeworkLives';
 import { formatLives, lifeFractions, nextLivesMonth } from '../utils/homeworkLives';
 import './HomeworkLives.css';
+import HomeworkLivesNotice from './HomeworkLivesNotice.jsx';
 const StudentParentContact = React.lazy(() => import('./StudentParentContact'));
 
 const dateLabel = value => new Date(value).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', day: 'numeric', month: 'long' });
@@ -114,13 +115,22 @@ export function HomeworkLivesBadgeView({ data, error = '' }) {
 }
 
 export default function HomeworkLivesBadge({ studentId }) {
-  const { data, error } = useHomeworkLives(studentId);
-  return <HomeworkLivesBadgeView data={data} error={error} />;
+  const { data, error, refresh } = useHomeworkLives(studentId);
+  const [confirmed, setConfirmed] = useState('');
+  const notice = data?.studentNotice;
+  const confirm = async value => {
+    await homeworkLivesRequest('/notice/read', { month: value.month, id: value.id });
+    setConfirmed(value.id); notifyHomeworkLivesUpdated(); void refresh();
+  };
+  return <><HomeworkLivesBadgeView data={data} error={error} />
+    {data?.enabled && notice && !notice.readAt && confirmed !== notice.id && <HomeworkLivesNotice key={`${studentId}:${notice.id}`} notice={notice} resetsAt={data.resetsAt} onConfirm={confirm} />}
+  </>;
 }
 
 export function TeacherHomeworkLivesPanel({ studentId, studentName = '' }) {
   const { data, error, refresh } = useHomeworkLives(studentId);
   const [busy, setBusy] = useState(false), [actionError, setActionError] = useState(''), [count, setCount] = useState(4), [waiver, setWaiver] = useState(null), [reason, setReason] = useState('');
+  const [noticePreview, setNoticePreview] = useState(false);
   useEffect(()=>{setCount((data?.planLocked ? data.nextPlannedCount : data?.plannedCount) || 4);setWaiver(null);setReason('');setActionError('');},[data?.studentId,data?.plannedCount,data?.nextPlannedCount,data?.planLocked]);
   const act = async (route, body, method) => {
     setBusy(true); setActionError('');
@@ -133,12 +143,15 @@ export function TeacherHomeworkLivesPanel({ studentId, studentName = '' }) {
     {(actionError||error)&&<p role="alert">{actionError||error}</p>}<button type="button" disabled={busy} onClick={()=>act('/settings',{enabled:true},'PATCH')}>Включить систему жизней</button></section>;
   const planMonth=data.planLocked?nextLivesMonth(data.month):data.month;
   return <section className="homework-lives-panel" aria-label="Жизни ученика">
+    {noticePreview && <HomeworkLivesNotice preview notice={{ id: 'preview', month: data.month }} resetsAt={data.resetsAt}
+      onClosePreview={() => setNoticePreview(false)} onConfirm={async () => setNoticePreview(false)} />}
     <div className="homework-lives-panel__heading"><div><b>Жизни{studentName ? ` · ${studentName}` : ' ученика'}</b><small>Восстановление {dateLabel(data.resetsAt)}</small></div><PixelLives remaining={data.remaining} size="small" /><strong>{formatLives(data.remaining)} / 3</strong></div>
+    <button type="button" onClick={() => setNoticePreview(true)}>Посмотреть окно ученика при 0 жизней</button>
     <div className="homework-lives-panel__plan"><label>План ДЗ по ЕГЭ · {monthLabel(planMonth)}<input type="number" min="1" max="60" value={count} onChange={event=>setCount(Number(event.target.value))} /></label>
       <button type="button" disabled={busy||!Number.isInteger(count)||count<1||count>60} onClick={()=>act(`/${encodeURIComponent(studentId)}/plan`,{count,month:planMonth})}>Сохранить план</button></div>
     <small>Текущий план по ЕГЭ: {data.plannedCount}. Полностью пропущенная работа — до {formatLives(data.maxLossPerHomework)} жизни. План действует и в следующих месяцах, пока вы его не измените.</small>
     {data.planLocked&&<small>Текущий месяц уже рассчитан: новый план начнёт действовать со следующего.</small>}
-    {data.pendingReviews.map(review=><div className="homework-lives-panel__review" key={review.month}><div><b>Нужен разговор</b><small>Жизни закончились · {monthLabel(review.month)}</small></div>
+    {data.pendingReviews.map(review=><div className="homework-lives-panel__review" key={review.month}><div><b>Нужен разговор</b><small>Жизни закончились · {monthLabel(review.month)}</small><small>{review.studentReadAt ? `Ученик подтвердил объяснение ${dateLabel(review.studentReadAt)}` : 'Ученик ещё не подтвердил объяснение'}</small></div>
       <React.Suspense fallback={null}><StudentParentContact studentId={studentId} studentName={studentName} compact /></React.Suspense>
       <button type="button" disabled={busy} onClick={()=>act(`/${encodeURIComponent(studentId)}/review`,{month:review.month})}>Разговор проведён</button></div>)}
     {data.needsReview&&<p className="homework-lives-panel__warning">Есть работы без достоверного результата к дедлайну. За них жизни не списаны; проверьте историю.</p>}

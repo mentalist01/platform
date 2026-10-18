@@ -508,6 +508,9 @@ export const requestLearningGroupJson = async (path, options = {}) => {
 };
 
 export const api = {
+  getTeacherCalendarEdits: teacherId => requestLearningGroupJson(`/api/teacher-calendar/edits?teacherId=${encodeURIComponent(teacherId || '')}`),
+  saveTeacherCalendarEdit: (body, teacherId) => requestLearningGroupJson('/api/teacher-calendar/edits', { method: 'POST', body: { ...body, teacherId } }),
+  resolveTeacherCalendarEdit: (id, action, teacherId) => requestLearningGroupJson(`/api/teacher-calendar/edits/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: { teacherId } }),
   studentNameAvailability: body => requestLearningGroupJson('/api/students/name-availability', { method: 'POST', body }),
   lessonRecordingLibrary: (id = '', body = {}) => requestLearningGroupJson(id
     ? `/api/lesson-recording-library/${encodeURIComponent(id)}/material`

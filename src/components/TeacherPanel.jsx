@@ -1,3 +1,4 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import FileDownloadLink from './FileDownloadLink';
 import { LESSON_PRICING_OPTIONS, lessonPricingLabel, isDurationPricing, calculateLessonPrice } from '../utils/lessonPricing.js';
 import MonthlyMockExamBadge from './MonthlyMockExamBadge';
@@ -9,7 +10,6 @@ const StudentPaymentBalances = React.lazy(() => import('./StudentPaymentBalances
 import { findPaymentSenderConflict } from '../utils/paymentSenderLinks.js';
 import MonthlyMockExamStatus from './MonthlyMockExamStatus';
 import { useMonthlyMockRoster } from '../hooks/useMonthlyMockRoster';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bell, BellOff, CheckCircle2, ChevronDown, ChevronUp, Download, Eye, EyeOff, FileText, GripVertical, ImagePlus, MessageSquare, Paperclip, Pencil, Plus, RefreshCcw, Save, SendHorizontal, Settings, Trash2, UploadCloud, Users, X } from 'lucide-react';
 import { api } from '../services/api';
@@ -2911,6 +2911,7 @@ const TeacherPanel = ({
           </div>
         ) : (
         <>
+        <details className="student-directory-create"><summary>Добавить нового ученика</summary>
         <div className="flex flex-col md:flex-row gap-2 mb-4">
           <div className="min-w-0 flex-1 space-y-2">
           <input
@@ -2977,6 +2978,7 @@ const TeacherPanel = ({
             <Plus size={16}/> Добавить
           </Button>
         </div>
+        </details>
         {studentActionError && <p className="text-xs text-red-500 mb-3">{studentActionError}</p>}
         {teacherFinanceError && (
           <p className="text-xs text-amber-600 mb-3">Стоимость уроков: {teacherFinanceError}</p>
@@ -3515,6 +3517,8 @@ const TeacherPanel = ({
                         >
                           Изменить
                         </button>
+                        <details className="teacher-student-card__more" onClick={event => event.stopPropagation()} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); } }}>
+                          <summary aria-label={`Ещё действия: ${student.nickname || student.name}`}>Ещё ···</summary><div>
                         {studentIsCurrent && (
                           <>
                             <button
@@ -3525,6 +3529,7 @@ const TeacherPanel = ({
                               type="button"
                             >
                               <RefreshCcw size={16} />
+                              Обновить код доступа
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleResetStudentBoard(student); }}
@@ -3544,7 +3549,10 @@ const TeacherPanel = ({
                           type="button"
                         >
                           <Trash2 size={16} />
+                          Удалить ученика
                         </button>
+                          </div>
+                        </details>
                       </>
                     )}
                   </div>

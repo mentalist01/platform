@@ -21,6 +21,17 @@ test('real API isolates teacher/student lives, protects mutations and keeps prog
     const progressBefore=fs.readFileSync(path.join(f.data,'progress.json'),'utf8');
     const own=await f.request('/api/homework-lives',pupil);
     assert.equal(own.remaining,0);assert.equal(own.history.length,3);assert.equal(own.pendingReviews.length,1);
+    assert.equal(own.studentNotice.readAt,'');
+    const noticeBody={id:own.studentNotice.id,month:own.month};
+    await f.request('/api/homework-lives/notice/read',teacher,noticeBody,'POST',403);
+    await f.request('/api/homework-lives/notice/read',other,noticeBody,'POST',403);
+    await f.request('/api/homework-lives/notice/read',f.tokens['student-b'],noticeBody,'POST',409);
+    await f.request('/api/homework-lives/notice/read',pupil,{...noticeBody,id:'old-notice'},'POST',409);
+    const acknowledged=await f.request('/api/homework-lives/notice/read',pupil,noticeBody);
+    assert.ok(acknowledged.studentNotice.readAt);assert.equal(acknowledged.remaining,0);assert.equal(acknowledged.pendingReviews.length,1);
+    assert.equal((await f.request('/api/homework-lives/notice/read',pupil,noticeBody)).studentNotice.readAt,acknowledged.studentNotice.readAt);
+    assert.ok((await f.request('/api/homework-lives',pupil)).studentNotice.readAt);
+    assert.ok((await f.request('/api/teacher-homework-lives',teacher)).students.find(s=>s.studentId==='student-a').pendingReviews[0].studentReadAt);
     assert.equal((await f.request('/api/homework-lives',f.tokens['student-b'])).remaining,1.5);
     assert.deepEqual((await f.request('/api/teacher-homework-lives',teacher)).students.filter(s=>s.pendingReviews.length).map(s=>s.studentId),['student-a']);
     assert.deepEqual((await f.request('/api/teacher-homework-lives',other)).students,[]);
