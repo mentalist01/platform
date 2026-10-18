@@ -47,6 +47,7 @@ import { registerLessonAlarmDismissals, attachLessonAlarmSocket } from './lesson
 import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homeworkDeadlineResult } from './homeworkLives.js';
 import { homeworkLivesLessonHistory } from './homeworkLivesLessonHistory.js';
 import { registerStudentParentContacts } from './studentParentContacts.js';
+import { registerStudentContacts } from './studentContacts.js';
 import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
@@ -22828,6 +22829,12 @@ registerHomeworkReminderRoutes(app, homeworkReminders, {
 });
 
 registerStudentParentContacts(app, {
+  dataDir, staff: ensureStaffWriteAccess,
+  student: (req, res, id) => ensureStudentAccess(req, res, id),
+  students: readStudentsDb, isAdmin: isAdminRole,
+});
+
+registerStudentContacts(app, {
   dataDir, staff: ensureStaffWriteAccess,
   student: (req, res, id) => ensureStudentAccess(req, res, id),
   students: readStudentsDb, isAdmin: isAdminRole,

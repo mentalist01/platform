@@ -14,3 +14,13 @@
 .student-parent-contact__error{margin-top:7px;color:#e11d48;font-size:11px;line-height:1.5}
 .student-parent-contact__error button{margin-left:6px}
 .student-parent-contact__preview span{color:#7c3aed;overflow-wrap:anywhere}
+.student-contact-links{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;min-width:0;max-width:100%}
+.student-contact-links>.student-parent-contact{max-width:100%}
+.student-contact-links>.student-parent-contact:has(.student-parent-contact__editor){flex-basis:100%}
+.student-contact-links .student-parent-contact__editor{max-width:440px}
+.student-parent-contact--student a,.student-parent-contact--student button{border-color:rgb(13 148 136/.35);color:rgb(var(--ink));background:rgb(var(--surface))}
+.student-parent-contact--student a:hover,.student-parent-contact--student button:hover{border-color:#0f766e;color:#0f766e}
+.student-parent-contact--student .student-parent-contact__primary{background:#0f766e;border-color:#0f766e;color:#fff}
+.student-parent-contact--student .student-parent-contact__primary:hover{background:#115e59;color:#fff}
+.student-parent-contact input:focus-visible{outline:2px solid #8b5cf6;outline-offset:2px}
+.student-parent-contact--student input:focus-visible{outline-color:#0d9488}

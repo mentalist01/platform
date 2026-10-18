@@ -6,7 +6,7 @@ import { Button, Card } from './ui';
 import ChatInfoDrawer from './ChatInfoDrawer';
 import ChatCodeBlock from './ChatCodeBlock';
 import ChatAttachmentDownload from './ChatAttachmentDownload';
-import StudentParentContact from './StudentParentContact';
+import StudentContactLinks from './StudentContactLinks';
 import LinkifiedText from './LinkifiedText';
 import OnlinePresenceDot from './OnlinePresenceDot';
 import './ChatSections.css';
@@ -2453,7 +2453,7 @@ const TeacherStudentChatsSection = ({
                     </div>
                   </div>
                   <div className="teacher-chat-thread-header-actions">
-                    {!isGroupChatSelected && selectedChat?.studentId && <StudentParentContact key={selectedChat.studentId} studentId={selectedChat.studentId} studentName={selectedTitle} compact />}
+                    {!isGroupChatSelected && selectedChat?.studentId && <StudentContactLinks key={selectedChat.studentId} studentId={selectedChat.studentId} studentName={selectedTitle} compact />}
                     {isGroupChatDisabled && (
                       <span className="teacher-chat-disabled-pill rounded-full border px-2.5 py-1 text-[11px] font-black">
                         Группа выключена

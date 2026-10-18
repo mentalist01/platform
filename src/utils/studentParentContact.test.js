@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeStudentParentContact, copyParentMessage } from './studentParentContact.js';
+import { normalizeStudentParentContact, normalizeStudentContact, copyParentMessage } from './studentParentContact.js';
+
+test('pupil contacts accept the same safe messenger formats with their own validation labels', () => {
+  assert.equal(normalizeStudentContact({url:'@example_pupil'}).url,'https://t.me/example_pupil');
+  assert.equal(normalizeStudentContact({url:'+7 (999) 000-00-00'}).url,'https://t.me/+79990000000');
+  assert.equal(normalizeStudentContact({url:'https://wa.me/79990000000'}).url,'https://wa.me/79990000000');
+  assert.deepEqual(normalizeStudentContact({}),{name:'',url:''});
+  assert.throws(()=>normalizeStudentContact({url:'javascript:alert(1)'}),/ученика/);
+  assert.throws(()=>normalizeStudentContact({name:'Иван'}),/ученика/);
+});
 
 test('parent contact accepts full links, a messenger address and an empty contact', () => {
   assert.deepEqual(normalizeStudentParentContact({ name: ' Мама ', url: 't.me/example_parent' }), { name: 'Мама', url: 'https://t.me/example_parent' });
