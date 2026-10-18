@@ -75,6 +75,7 @@ function fixture(count = 2500) {
     'mutateStudentBalances', 'getPaymentAllocationByMarkKey', 'getPaymentAllocationCurrentOccurrence', 'reconcileTeacherPaymentCredits', 'walletEnabled', 'walletHasStudent'];
   vm.runInNewContext(`${normalizers}\n${selected.map(declaration).join('\n')}
     globalThis.normalizeDb = normalizeTeacherFinanceDb; globalThis.normalizeEntry = normalizeTeacherFinanceTeacherEntry;
+    globalThis.teacherEntry = getTeacherFinanceTeacherEntry;
     globalThis.project = projectStudentBalances; globalThis.mutate = mutateStudentBalances;
     globalThis.lookup = getPaymentAllocationByMarkKey; globalThis.reconcile = reconcileTeacherPaymentCredits;`, context);
   const initial = context.normalizeEntry(storedFinance.teacher);
@@ -92,6 +93,22 @@ test('actual teacher-entry and payment lookup normalization retain more than 200
   assert.equal(data.context.lookup(entry, key)?.amount, 900);
   assert.equal(Object.keys(entry.paymentAllocations).length, 2500, 'lookup normalization cannot truncate wallet projections before a later write');
   assert.deepEqual(entry.studentPaymentBalances, data.finance().teacher.studentPaymentBalances);
+});
+
+test('scoped teacher lookup matches legacy normalization and isolates account mutations', () => {
+  const data = fixture(12);
+  const db = data.finance();
+  const expected = data.context.normalizeEntry(data.context.normalizeDb(db).teacher);
+  const actual = data.context.teacherEntry(db, ' teacher ');
+  assert.deepEqual(actual, expected);
+  actual.studentPaymentBalances.accounts.egor.entries[0].creditCents = 1;
+  assert.deepEqual(data.context.teacherEntry(db, 'teacher'), expected);
+  assert.deepEqual(db, data.finance());
+  const padded = { ...db, ' teacher ': { ...db.teacher, studentProfiles: { egor: { lessonPrice: 1200 } } } };
+  assert.deepEqual(data.context.teacherEntry(padded, 'teacher'), data.context.normalizeEntry(data.context.normalizeDb(padded).teacher));
+  const corrupt = structuredClone(db);
+  corrupt.teacher.studentPaymentBalances.accounts.egor.entries[0].creditCents = -1;
+  assert.throws(() => data.context.teacherEntry(corrupt, 'teacher'), { code: 'balance_corrupt' });
 });
 
 test('actual scoped mutation leaves another account, its profile, monthly payments and marks unchanged', async () => {

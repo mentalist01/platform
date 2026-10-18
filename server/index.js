@@ -18,6 +18,7 @@ import {
 import { retainWalletPaymentProjections, selectBalanceReconciliationStudents } from './studentBalanceCore.js';
 import { createStudentBalanceReadContext } from './studentBalanceReadContext.js';
 import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordinator.js';
+import { createTeacherFinanceReader } from './teacherFinanceReader.js';
 import { createRescheduleStore, registerLessonReschedules, overlayReschedules, movedGoogleEntryId } from './lessonReschedule.js';
 import { registerTeacherCalendarEdits, projectCalendarEditEntry, overlayCalendarEdits } from './teacherCalendarEdits.js';
 import { createTeacherCalendarEditApplier } from './teacherCalendarEditApply.js';
@@ -4173,28 +4174,27 @@ const normalizeTeacherFinanceDb = (value) => {
   return normalized;
 };
 
+let teacherFinanceReader = null;
 const readTeacherFinanceDb = () => {
-  try {
-    const raw = fs.readFileSync(teacherFinanceFile, 'utf8');
-    const data = JSON.parse(raw);
-    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid finance database');
-    return normalizeTeacherFinanceDb(data);
-  } catch (error) {
-    if (error?.code === 'ENOENT') return {};
-    throw balanceError('Не удалось прочитать финансовый журнал. Изменения остановлены.', 'balance_corrupt', 503);
-  }
+  teacherFinanceReader ||= createTeacherFinanceReader(teacherFinanceFile, normalizeTeacherFinanceDb,
+    () => balanceError('Не удалось прочитать финансовый журнал. Изменения остановлены.', 'balance_corrupt', 503));
+  return teacherFinanceReader.read();
 };
 
 const writeTeacherFinanceDb = (data) => {
   const normalized = normalizeTeacherFinanceDb(data);
   writeJsonFileAtomic(teacherFinanceFile, normalized);
+  teacherFinanceReader?.invalidate();
 };
 
 const getTeacherFinanceTeacherEntry = (db, teacherId) => {
-  const normalizedDb = normalizeTeacherFinanceDb(db);
   const normalizedTeacherId = String(teacherId || '').trim();
   if (!normalizedTeacherId) return getDefaultTeacherFinanceTeacherEntry();
-  return normalizeTeacherFinanceTeacherEntry(normalizedDb[normalizedTeacherId]);
+  const source = db && typeof db === 'object' && !Array.isArray(db) ? db : {};
+  // readTeacherFinanceDb validates the complete journal. A scoped lookup only
+  // needs to normalize/copy its teacher, rather than every account twice more.
+  const value = Object.entries(source).filter(([id]) => String(id).trim() === normalizedTeacherId).at(-1)?.[1];
+  return normalizeTeacherFinanceTeacherEntry(value);
 };
 
 const getTeacherFinanceStudentAvailableCredit = (teacherEntry, studentId) => (
@@ -11089,6 +11089,13 @@ const runTeacherCalendarRefresh = (teacherId, auth, options = {}) => {
     const studentScheduleSync = calendarSyncSettings.enabled && calendarSyncSettings.icalUrl
       ? await syncTeacherStudentSchedulesFromGoogleCalendar(normalizedTeacherId, events, auth)
       : { studentCount: 0, updatedStudentCount: 0 };
+    // Include validation in the shared refresh. Several tabs polling the same
+    // cached calendar must not each recompute all payment accounts afterwards.
+    try {
+      await reconcileTeacherPaymentCredits(normalizedTeacherId, { validateAllocated: true });
+    } catch (error) {
+      console.warn('[payment-credit] calendar-refresh reconciliation failed:', error?.message || error);
+    }
     notifyScheduleSyncUpdate({
       scope: 'teacher-schedule',
       action: 'calendar-sync-refreshed',
@@ -39661,11 +39668,6 @@ app.post('/api/teacher-calendar-sync/refresh', async (req, res) => {
     const result = await runTeacherCalendarRefresh(teacher.id, req.auth, {
       force: force === true,
     });
-    try {
-      await reconcileTeacherPaymentCredits(teacher.id, { validateAllocated: true });
-    } catch (error) {
-      console.warn('[payment-credit] calendar-refresh reconciliation failed:', error?.message || error);
-    }
     return res.json(result);
   } catch (error) {
     return res.status(502).json({
