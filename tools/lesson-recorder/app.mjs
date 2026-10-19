@@ -505,6 +505,10 @@ const server = http.createServer(async (req, res) => {
         await setupIdle();
         if (!state.config.recordDirectory) throw new Error('Сначала выберите папку для видео в первом шаге');
         enableWebsocket(); await obs.setup(recordDirectory);
+      } else if (req.url === '/python/camera/choices') {
+        await setupIdle();
+        const camera = await obs.setupStudioCamera();
+        return json(res, 200, { camera });
       } else if (req.url === '/python/configure') {
         await configurePythonCapture({ obs, state, engine, save, payload,
           busy: Boolean(uploadingId || queueBusy || archive.captureBusy) });

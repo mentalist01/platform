@@ -1,7 +1,9 @@
+import { studioCameraConfig, studioCameraReason } from './studio-camera.mjs';
+
 export const pythonModes = ['platform', 'window', 'screen'];
 const labels = { platform: 'окно платформы для Python', window: 'окно редактора для Python', screen: 'монитор для Python', mic: 'микрофон для Python' };
 export function pythonCaptureConfig(value = {}) {
-  return { mode: pythonModes.includes(value.mode) ? value.mode : 'window',
+  return { mode: pythonModes.includes(value.mode) ? value.mode : 'window', camera: studioCameraConfig(value.camera),
     ...Object.fromEntries(['platform', 'window', 'screen', 'mic'].map(key => [key, typeof value[key] === 'string' ? value[key] : ''])) };
 }
 export function pythonCaptureReason(value, choices) {
@@ -11,7 +13,7 @@ export function pythonCaptureReason(value, choices) {
     const list = choices?.[key === 'window' ? 'platform' : key];
     if (choices && !list?.some(item => item.itemEnabled && item.itemValue === config[key])) return `Недоступен ${labels[key]}. Откройте окно или подключите устройство и обновите список.`;
   }
-  return '';
+  return studioCameraReason(config.camera, choices?.camera);
 }
 // OBS does not render or meter sources in an inactive scene. Keep a short
 // preview lease only while this panel is visible and the recorder is idle.
@@ -64,11 +66,13 @@ export async function configurePythonCapture({ obs, state, engine, save, payload
   } else if (active) throw new Error('OBS не подтверждает запись Python. Проверьте состояние записи.');
   if (payload.mode !== undefined && !pythonModes.includes(payload.mode)) throw new Error('Неизвестный режим записи Python');
   const previous = pythonCaptureConfig(state.config.pythonCapture);
-  const next = pythonCaptureConfig({ ...previous, ...payload });
+  const next = pythonCaptureConfig({ ...previous, ...payload, camera: { ...previous.camera, ...payload.camera } });
   const choices = await obs.choices();
   for (const key of ['platform', 'window', 'screen', 'mic']) {
     if (next[key] && next[key] !== previous[key] && !choices[key === 'window' ? 'platform' : key]?.some(item => item.itemEnabled && item.itemValue === next[key])) throw new Error(`Выберите доступный источник: ${labels[key]}`);
   }
+  const cameraReason = studioCameraReason(next.camera, choices.camera || []);
+  if (cameraReason) throw Error(cameraReason);
   if (active) {
     const reason = pythonCaptureReason(next, choices);
     if (reason) throw new Error(reason);

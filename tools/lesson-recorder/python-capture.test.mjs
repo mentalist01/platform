@@ -74,7 +74,7 @@ test('dedicated OBS sources include only their own microphone and preview does n
   for (const [type, payload] of calls) if (type === 'SetInputSettings' || type === 'SetInputMute') assert.ok(Object.values(PYTHON_INPUTS).includes(payload.inputName));
   assert.equal(await obs.preview(PYTHON_SCENES.window), 'preview');
   assert.equal(calls.some(([type]) => type === 'SetCurrentProgramScene'), false);
-  await obs.selectPython('window'); assert.equal(calls.at(-1)[1].sceneName, PYTHON_SCENES.window);
+  await obs.selectPython('window'); assert.equal(calls.findLast(([type]) => type === 'SetCurrentProgramScene')[1].sceneName, PYTHON_SCENES.window);
   assert.ok(calls.some(([type, p]) => type === 'SetSceneItemTransform' && p.sceneItemTransform.boundsWidth === 2560));
   assert.equal(calls.some(([, p]) => p.inputName === INPUTS.telemost || p.sceneName === SCENES.platform), false);
 });

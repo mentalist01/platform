@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pythonCaptureConfig, pythonCaptureReason, pythonModes } from './python-capture.mjs';
 import { selectTelemostWindow } from './conversation-audio.mjs';
+import { STUDIO_CAMERA_INPUT, studioCameraConfig, studioCameraReason, studioCameraTransform } from './studio-camera.mjs';
 
 export const SCENES = { office: 'IVAN100 — LibreOffice', share: 'IVAN100 — Демонстрация', platform: 'IVAN100 — Платформа', window: 'IVAN100 — Программа', screen: 'IVAN100 — Экран', pause: 'IVAN100 — Перерыв' };
 export const INPUTS = { office: 'IVAN100: LibreOffice', share: 'IVAN100: демонстрация', platform: 'IVAN100: платформа', window: 'IVAN100: программа', screen: 'IVAN100: монитор', mic: 'IVAN100: микрофон', telemost: 'IVAN100: Телемост' };
@@ -206,7 +207,75 @@ export class ObsClient {
       try { result[key] = (await this.call('GetInputPropertiesListPropertyItems', { inputName: INPUTS[key], propertyName })).propertyItems; }
       catch { result[key] = []; }
     }
+    try { result.camera = (await this.call('GetInputPropertiesListPropertyItems', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'video_device_id' })).propertyItems; }
+    catch { result.camera = []; }
     return result;
+  }
+  async setupStudioCamera() {
+    await this.assertCollection();
+    if ((await this.call('GetRecordStatus')).outputActive || (await this.call('GetStreamStatus')).outputActive) throw Error('Добавить камеру можно после окончания текущей записи или трансляции');
+    await this.ensurePythonSources();
+    await this.ensureStudioCamera();
+    return (await this.call('GetInputPropertiesListPropertyItems', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'video_device_id' })).propertyItems;
+  }
+  async ensureStudioCamera() {
+    await this.assertCollection();
+    const inputs = (await this.call('GetInputList')).inputs;
+    const existing = inputs.find(item => item.inputName === STUDIO_CAMERA_INPUT);
+    if (existing && existing.inputKind !== 'dshow_input') throw Error('Источник веб-камеры в OBS занят другим типом устройства');
+    if (!existing) await this.call('CreateInput', { sceneName: PYTHON_SCENES.window, inputName: STUDIO_CAMERA_INPUT, inputKind: 'dshow_input',
+      inputSettings: { video_device_id: '', deactivate_when_not_showing: true, use_custom_audio_device: false }, sceneItemEnabled: false });
+    for (const sceneName of Object.values(PYTHON_SCENES)) {
+      const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+      if (!sceneItems.some(item => item.sourceName === STUDIO_CAMERA_INPUT)) await this.call('CreateSceneItem', { sceneName, sourceName: STUDIO_CAMERA_INPUT, sceneItemEnabled: false });
+    }
+    // Camera audio must never duplicate the studio's separately selected mic.
+    await this.call('SetInputMute', { inputName: STUDIO_CAMERA_INPUT, inputMuted: true });
+    await this.call('SetInputAudioMonitorType', { inputName: STUDIO_CAMERA_INPUT, monitorType: 'OBS_MONITORING_TYPE_NONE' });
+    await this.call('SetInputAudioTracks', { inputName: STUDIO_CAMERA_INPUT, inputAudioTracks: { '1': false, '2': false, '3': false, '4': false, '5': false, '6': false } });
+  }
+  async configureStudioCamera(value) {
+    const camera = studioCameraConfig(value);
+    await this.assertCollection();
+    if (camera.enabled) {
+      await this.ensureStudioCamera();
+      const choices = (await this.call('GetInputPropertiesListPropertyItems', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'video_device_id' })).propertyItems;
+      const reason = studioCameraReason(camera, choices);
+      if (reason) throw Error(reason);
+      const wanted = {
+        video_device_id: camera.device, deactivate_when_not_showing: true, use_custom_audio_device: false,
+        res_type: 1, resolution: '1280x720', frame_interval: 333333,
+      };
+      const { inputSettings } = await this.call('GetInputSettings', { inputName: STUDIO_CAMERA_INPUT });
+      if (Object.entries(wanted).some(([key, value]) => inputSettings[key] !== value)) {
+        // DirectShow reopens a device on settings updates, even in a hidden
+        // scene. Keep it off until the studio is actually being previewed.
+        await this.setStudioCameraActive(false);
+        await this.call('SetInputSettings', { inputName: STUDIO_CAMERA_INPUT, overlay: true, inputSettings: wanted });
+      }
+    } else if (!(await this.call('GetInputList')).inputs.some(item => item.inputName === STUDIO_CAMERA_INPUT)) return;
+    const transform = camera.enabled ? studioCameraTransform(camera, await this.call('GetVideoSettings')) : null;
+    for (const sceneName of Object.values(PYTHON_SCENES)) {
+      const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+      const item = sceneItems.find(entry => entry.sourceName === STUDIO_CAMERA_INPUT);
+      if (!item) continue;
+      if (transform) {
+        await this.call('SetSceneItemTransform', { sceneName, sceneItemId: item.sceneItemId, sceneItemTransform: transform });
+        await this.call('SetSceneItemIndex', { sceneName, sceneItemId: item.sceneItemId, sceneItemIndex: sceneItems.length - 1 });
+      }
+      await this.call('SetSceneItemEnabled', { sceneName, sceneItemId: item.sceneItemId, sceneItemEnabled: camera.enabled });
+    }
+    const { currentProgramSceneName } = await this.call('GetCurrentProgramScene');
+    await this.setStudioCameraActive(camera.enabled && Object.values(PYTHON_SCENES).includes(currentProgramSceneName));
+  }
+  async setStudioCameraActive(enabled) {
+    const { inputSettings } = await this.call('GetInputSettings', { inputName: STUDIO_CAMERA_INPUT });
+    if ((inputSettings.active !== false) !== enabled) await this.call('CallInputPropertiesButton', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'activate' });
+  }
+  async activateStudioCamera(sceneName) {
+    if (!(await this.call('GetInputList')).inputs.some(item => item.inputName === STUDIO_CAMERA_INPUT)) return;
+    const { sceneItems } = await this.call('GetSceneItemList', { sceneName });
+    await this.setStudioCameraActive(sceneItems.some(item => item.sourceName === STUDIO_CAMERA_INPUT && item.sceneItemEnabled));
   }
   async configure({ platform, telemost, mic, screen }) {
     await this.assertCollection();
@@ -263,6 +332,7 @@ export class ObsClient {
     }
     if (config.mic) await this.call('SetInputSettings', { inputName: PYTHON_INPUTS.mic, inputSettings: { device_id: config.mic }, overlay: true });
     await this.call('SetInputMute', { inputName: PYTHON_INPUTS.mic, inputMuted: false });
+    await this.configureStudioCamera(config.camera);
   }
   async fitPython(mode) {
     const sceneName = PYTHON_SCENES[mode];
@@ -276,6 +346,7 @@ export class ObsClient {
     await this.assertCollection();
     await this.fitPython(mode);
     await this.call('SetCurrentProgramScene', { sceneName: PYTHON_SCENES[mode] });
+    await this.activateStudioCamera(PYTHON_SCENES[mode]);
   }
   async preview(sourceName, imageWidth = 640) {
     const sceneName = sourceName || (await this.call('GetCurrentProgramScene')).currentProgramSceneName;
