@@ -129,7 +129,7 @@ export function TeacherGroupPlacement({ students = [], onChoose, transport = api
     {data && <>
       <label className="placement-answer flex items-start gap-3">
         <input type="checkbox" checked={data.seekingGroup === true} disabled={busy} onChange={event => void setSeekingGroup(event.target.checked)} className="mt-1 h-4 w-4 accent-violet-600" />
-        <span><strong className="block">Подбираем группу</strong>Включите для ученика, которому ищете группу. На странице «Сегодня» появится приглашение заполнить анкету. Индивидуальные занятия продолжаются; после вступления в группу приглашение скрывается.</span>
+        <span><strong className="block">Подбираем группу</strong>Включите для ученика, которому ищете группу. В разделе «Домашка» появится приглашение заполнить анкету. Индивидуальные занятия продолжаются; после вступления в группу приглашение скрывается.</span>
       </label>
       {!answered.length ? <p className="placement-empty">Ученик ещё не сохранил свободное время. Его индивидуальные занятия продолжаются; после заполнения анкеты нажмите «Обновить подбор».</p> : <>
         <p className="placement-answer">Анкета сохранена {dateLabel(Math.max(...answered.map(answer => answer.answer.updatedAt)))}. Длительность: {answered.map(answer => `${answer.durationMinutes} мин`).join(', ')}. Подбор учитывает только время; уровень и состав группы выберите сами.</p>

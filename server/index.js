@@ -32508,7 +32508,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   if (isStudentRole(req.auth) && !getStudentMockLaunchAssignment(exam, data, student.teacherId)) return mockAssignmentRequired(res);
   const monthlyExam = getAssignedMonthlyMockExam(list, student.teacherId)?.id === exam.id;
   const monthlyContext = monthlyAttemptContext(data,list,exam,student);
-  if (isStudentRole(req.auth) && !monthlyExam) return res.status(403).json({code:'MOCK_HISTORY_READ_ONLY',error:'Решать можно только текущий пробник месяца в разделе «Сегодня». Остальные пробники доступны для просмотра.'});
+  if (isStudentRole(req.auth) && !monthlyExam) return res.status(403).json({code:'MOCK_HISTORY_READ_ONLY',error:'Решать можно только текущий пробник месяца в разделе «Домашка». Остальные пробники доступны для просмотра.'});
   const quotaError = monthlyQuotaError(monthlyContext,{restart:restartTimerExam === true,newAttempt:startOnly === true && !data.mockAttempts?.[exam.id]?.attemptId});
   if (quotaError) return res.status(409).json(quotaError);
 

@@ -43,7 +43,7 @@ export default function StudentHomeworkResources({ entries, tests, onOpenHomewor
             : resource.type === 'gdoc' ? <iframe src={resource.content} title={resource.title} className="h-[500px] w-full rounded-xl border border-violet-200 bg-white" />
               : <p className="whitespace-pre-wrap rounded-xl bg-white p-4 text-sm leading-7 text-slate-700">{resource.content}</p>}
       </div>}
-      {resource.hasQuestions && <button type="button" onClick={onOpenHomework} className="mt-3 text-sm font-bold text-violet-700 underline">Ответить на вопросы к видео в «Сегодня»</button>}
+      {resource.hasQuestions && <button type="button" onClick={onOpenHomework} className="mt-3 text-sm font-bold text-violet-700 underline">Ответить на вопросы к видео в разделе «Домашка»</button>}
     </article>)}
   </section>;
 }

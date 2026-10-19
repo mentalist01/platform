@@ -411,7 +411,7 @@ const StudentTodayOverview = ({
         <div>
           <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-purple-600">
             <Sparkles size={13} />
-            Сегодня · {dateLabel}
+            Домашка · {dateLabel}
           </div>
           <h2 className="student-today-overview__headline mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-[30px]">
             {`С чего начнём, ${getFirstName(studentName)}?`}

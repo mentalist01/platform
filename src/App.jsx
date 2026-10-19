@@ -19939,7 +19939,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'notes', label: 'Конспекты', icon: Folder }
       ]
       : [
-        { id: 'schedule', label: 'Сегодня', icon: Calendar },
+        { id: 'schedule', label: 'Домашка', icon: Calendar },
         ...(studentHasGroups || studentSeekingGroup ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : 'Подбор группы', icon: Users }] : []),
         { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
@@ -20086,7 +20086,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   };
   const studentMobileNavLabels = {
     ...mobileNavLabels,
-    schedule: 'Сегодня',
+    schedule: 'Домашка',
     progress: 'Практика',
   };
   const navToneById = {

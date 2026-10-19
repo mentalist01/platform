@@ -2812,7 +2812,7 @@ const LearningGroupsSection = ({
                 {tab === 'assignments' && (
                   <div className="space-y-4">
                     {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
-                      <SectionCard title="Домашнее задание для группы" subtitle="Тот же конструктор, что и для одного ученика. После назначения работа появится отдельно в разделе «Сегодня» у каждого участника.">
+                      <SectionCard title="Домашнее задание для группы" subtitle="Тот же конструктор, что и для одного ученика. После назначения работа появится отдельно в разделе «Домашка» у каждого участника.">
                         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-4">
                           <div>
                             <div className="font-bold text-slate-900">Одно задание — отдельное выполнение у каждого</div>
@@ -2928,7 +2928,7 @@ const LearningGroupsSection = ({
 
                               {assignment.status === 'draft' ? (
                                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-                                  Черновик ещё не виден ученикам. После публикации одна и та же домашка появится в обычном разделе «Сегодня» у каждого участника.
+                                  Черновик ещё не виден ученикам. После публикации одна и та же домашка появится в обычном разделе «Домашка» у каждого участника.
                                 </div>
                               ) : (
                                 <div className="space-y-3">
