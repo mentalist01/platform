@@ -578,7 +578,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
             {homework.practice?.length > 0 && <details className="student-month-report__practice" aria-label="Решено в домашке за месяц">
               <summary>Подробная статистика · {formatPracticeCount(homework.solvedTaskCount)}</summary>
               <table><thead><tr><th>Тема</th><th>Выполнено</th></tr></thead><tbody>{homework.practice.map(group => <tr key={group.taskNumber}>
-                <td>{group.taskNumber >= 100 ? 'Python' : `ЕГЭ №${group.taskNumber}`}{group.title ? ` · ${group.title}` : ''}</td><td>{group.solvedCount}</td>
+                <td>{group.taskNumber >= 100 ? 'Python' : `${group.archived ? 'Архив ·' : 'ЕГЭ'} №${group.displayNumber || group.taskNumber}`}{group.title ? ` · ${group.title}` : ''}</td><td>{group.solvedCount}</td>
               </tr>)}</tbody></table>
               <small>По датам выполнения. Повторяющиеся номера в перенесённой домашке учитываются один раз.</small>
             </details>}

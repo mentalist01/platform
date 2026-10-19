@@ -1,3 +1,4 @@
+import { getTaskPresentation } from './taskPresentation.js';
 import { isMockAttemptForHomework, resolveHomeworkTaskTargetDescriptors } from './homeworkComposer.js';
 import { mergeGroupHomeworkCarryover } from './groupHomeworkCarryover.js';
 import { isPythonHomeworkGoal, isPythonPracticeHomework } from './homeworkAssessment.js';
@@ -182,6 +183,7 @@ const classifyAttempts = ({
 
 const buildTaskGoal = ({
   goal,
+  taskPresentation,
   goalIndex,
   studentData,
   testsDb,
@@ -247,13 +249,15 @@ const buildTaskGoal = ({
   });
 
   const levelLabel = LEVEL_LABELS[levelId] || levelId;
+  const presentation = getTaskPresentation(taskNumber, taskPresentation);
   return {
     id: `task-${goalIndex}-${taskNumber}-${levelId}`,
     type: 'task',
     label: taskNumber >= 100
       ? `Python · тема ${taskNumber}`
-      : `Задание ${taskNumber} · ${levelLabel}`,
+      : `${presentation.archived ? 'Архивное задание' : 'Задание'} ${presentation.displayNumber} · ${levelLabel}`,
     taskNumber,
+    ...presentation,
     levelId,
     items,
     estimated: items.some((item) => item.estimated) || getStoredTargetQuestionIds(goal).length === 0,
@@ -491,6 +495,7 @@ export const buildHomeworkStatistics = ({
   testsDb = {},
   mockExams = [],
   mockAttemptsByExam = {},
+  taskPresentation = {},
   nowMs = Date.now(),
 } = {}) => {
   const safeNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
@@ -554,6 +559,7 @@ export const buildHomeworkStatistics = ({
             })
           : buildTaskGoal({
               goal,
+              taskPresentation,
               goalIndex,
               studentData,
               testsDb,

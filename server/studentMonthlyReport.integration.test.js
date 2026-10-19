@@ -39,11 +39,24 @@ test('teacher can generate a monthly report only for an accessible student', { t
   ]);
   write('students.json', [
     { id: 'student-one', teacherId: 'teacher-one', name: 'Илья', codeHash: codeHash('student-one-code'), createdAt: now },
+    { id: 'student-renumbered', teacherId: 'teacher-one', name: 'Вероника', createdAt: now },
+    { id: 'student-other', teacherId: 'teacher-two', name: 'Анна', createdAt: now },
   ]);
+  const monthStart = `${now.slice(0, 7)}-01T00:00:00.000Z`;
+  const history = taskNumbers => ({ progress: {}, homeworks: [{ id: 'saved-homework', issuedAt: monthStart, dueAt: now,
+    goals: taskNumbers.map(taskNumber => ({ type: 'task', taskNumber, levelId: 'basic', targetQuestions: [1], targetQuestionIds: ['q'] })),
+  }], solvedEvents: taskNumbers.map(taskNumber => ({ taskNumber, levelId: 'basic', questionId: 'q', solvedAt: monthStart })) });
+  const savedHistory = history([23, 28]);
   write('progress.json', {
     'student-one': { homeworks: [], mocks: [], mockAttempts: {}, mockAttemptResults: [], schedule: [] },
+    'student-renumbered': savedHistory,
+    'student-other': history([23]),
   });
-  write('tests.json', {});
+  write('tests.json', { 23: { basic: [{ id: 'q' }] }, 28: { basic: [{ id: 'q' }] } });
+  write('teacher-task-content.json', { teachers: { 'teacher-one': { catalog: { tasks: [
+    { taskNumber: 23, slotNumber: 13, title: 'Исполнитель и траектории' },
+    { taskNumber: 28, slotNumber: 23, title: 'Новое задание' },
+  ] } } } });
   write('mock-exams.json', []);
   write('lesson-history.json', { occurrences: {}, tombstones: {} });
 
@@ -116,6 +129,16 @@ test('teacher can generate a monthly report only for an accessible student', { t
     assert.equal(report.metrics.homework.assignedCount, 0);
     assert.match(report.text, /как Илья занимался|Илья занимался/u);
     assert.match(report.studentText, /^Илья,/u);
+
+    const moved = await request(`/api/student-month-report?studentId=student-renumbered&month=${month}`, teacherOneToken);
+    assert.deepEqual(moved.metrics.homework.practice.map(task => [task.taskNumber, task.displayNumber, task.solvedCount]), [[23, '13', 1], [28, '23', 1]]);
+    assert.match(moved.parentText, /ЕГЭ №13 \(«Исполнитель и траектории»\)/u);
+    assert.match(moved.studentText, /ЕГЭ №23 \(«Новое задание»\)/u);
+    const other = await request(`/api/student-month-report?studentId=student-other&month=${month}`, teacherTwoToken);
+    assert.equal(other.metrics.homework.practice[0].displayNumber, '23', 'another teacher must retain their own numbering');
+    const again = await request(`/api/student-month-report?studentId=student-renumbered&month=${month}`, teacherOneToken);
+    assert.equal(again.metrics.homework.practice[0].displayNumber, '13');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json'), 'utf8'))['student-renumbered'], savedHistory);
 
     const sentStatus = await request(
       '/api/student-month-report/status',

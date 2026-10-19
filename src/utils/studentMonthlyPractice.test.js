@@ -11,7 +11,7 @@ test('monthly practice counts dated homework completions once across carryovers,
     { goals: [goal(4, [solved('a', '2026-10-01T10:00:00Z'), solved('b', Date.parse('2026-10-02T10:00:00Z'), 'with-errors')]), { type: 'mock', items: [solved('exam', '2026-10-01T10:00:00Z')] }] },
   ];
   assert.deepEqual(monthlyHomeworkPractice(entries, '2026-10', Date.parse('2026-10-15T10:00:00Z'), { 4: 'Кодирование', 105: 'Цикл for' }), [
-    { taskNumber: 4, title: 'Кодирование', solvedCount: 3 }, { taskNumber: 105, title: 'Цикл for', solvedCount: 1 },
+    { taskNumber: 4, displayNumber: '4', archived: false, title: 'Кодирование', solvedCount: 3 }, { taskNumber: 105, displayNumber: '105', archived: false, title: 'Цикл for', solvedCount: 1 },
   ]);
 });
 

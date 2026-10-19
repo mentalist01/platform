@@ -1,3 +1,4 @@
+import { buildTaskPresentationMap } from '../src/utils/taskPresentation.js';
 import { calculateLessonPrice, isDurationPricing, lessonRateAt, normalizePricingHistory, recordPricingChange, matchLessonPaymentTotal } from '../src/utils/lessonPricing.js';
 import { registerWeeklySchedules, applyWeeklySchedule, weeklyReservations } from './weeklySchedule.js';
 import { deduplicateGroupScheduleEntries, deduplicateGroupLessonSessions } from './groupScheduleDuplicates.js';
@@ -37245,6 +37246,7 @@ app.get('/api/parent/overview', async (req, res) => {
       ? studentData.mockAttempts
       : {};
     const homeworkEntries = buildHomeworkStatistics({
+      taskPresentation: buildTaskPresentationMap(readClassicTaskCatalogForTeacher(student.teacherId)),
       homeworks: studentData.homeworks,
       studentData,
       testsDb,
@@ -37315,6 +37317,8 @@ app.get('/api/student-month-report', async (req, res) => {
   }
 
   try {
+    const taskCatalog = readClassicTaskCatalogForTeacher(student.teacherId);
+    const taskPresentation = buildTaskPresentationMap(taskCatalog);
     const studentData = getStudentData(student.id);
     const testsDb = getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
     const mockExams = readMockExamsDb().filter((exam) => (
@@ -37324,6 +37328,7 @@ app.get('/api/student-month-report', async (req, res) => {
       ? studentData.mockAttempts
       : {};
     const homeworkEntries = buildHomeworkStatistics({
+      taskPresentation,
       homeworks: studentData.homeworks,
       studentData,
       testsDb,
@@ -37347,8 +37352,9 @@ app.get('/api/student-month-report', async (req, res) => {
       homeworkEntries,
       mockEntries,
       lessonEntries,
+      taskPresentation,
       taskTitles: Object.fromEntries([
-        ...readClassicTaskCatalogForTeacher(student.teacherId).activeTasks.map(task => [task.taskNumber, task.title]),
+        ...[...taskCatalog.activeTasks, ...taskCatalog.archivedTasks].map(task => [task.taskNumber, task.title]),
         ...Array.from(getLeaderboardProfilePythonTaskMap(testsDb).values(), task => [task.taskNumber, task.title]),
       ]),
     });

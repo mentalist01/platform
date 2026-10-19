@@ -27,6 +27,7 @@ const getHomeworkMockExamIds = (studentData) => {
 const HomeworkStatsPage = ({
   studentId,
   student,
+  taskCatalog,
   role = 'student',
   theme = '',
   onClose,
@@ -295,6 +296,7 @@ const HomeworkStatsPage = ({
               </div>
             )}
             <HomeworkStatsSection
+              taskCatalog={taskCatalog}
               homeworks={studentData?.homeworks || []}
               studentData={studentData || {}}
               testsDb={testsDb}

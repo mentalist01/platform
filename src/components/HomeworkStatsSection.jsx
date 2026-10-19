@@ -1,3 +1,4 @@
+import { buildTaskPresentationMap } from '../utils/taskPresentation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -251,6 +252,7 @@ const HomeworkStatsSection = ({
   testsDb = null,
   mockExams = [],
   mockAttemptsByExam = {},
+  taskCatalog,
   role = 'student',
   theme = '',
 }) => {
@@ -259,14 +261,16 @@ const HomeworkStatsSection = ({
   const detailRef = useRef(null);
   const homeworkButtonRefs = useRef(new Map());
   const [referenceNowMs] = useState(() => Date.now());
+  const taskPresentation = useMemo(() => buildTaskPresentationMap(taskCatalog), [taskCatalog]);
   const allStatistics = useMemo(() => buildHomeworkStatistics({
     homeworks,
     studentData,
     testsDb: testsDb || {},
     mockExams,
     mockAttemptsByExam,
+    taskPresentation,
     nowMs: referenceNowMs,
-  }), [homeworks, mockAttemptsByExam, mockExams, referenceNowMs, studentData, testsDb]);
+  }), [homeworks, mockAttemptsByExam, mockExams, referenceNowMs, studentData, testsDb, taskPresentation]);
   const statistics = useMemo(() => homeworkAssessmentEntries(allStatistics), [allStatistics]);
   const mockExamProgressEntries = useMemo(() => buildMockExamProgressEntries({
     assignedOnly: true,

@@ -27262,6 +27262,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           ? createPortal(
               <React.Suspense fallback={null}>
                 <HomeworkStatsPage
+                  taskCatalog={taskCatalog}
                   studentId={homeworkStatsStudentId}
                   student={user.role === 'student' ? user : homeworkStatsStudent}
                   role={user.role}

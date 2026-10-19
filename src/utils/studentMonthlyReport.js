@@ -526,6 +526,7 @@ export const buildStudentMonthlyReport = ({
   mockEntries = [],
   lessonEntries = [],
   taskTitles = {},
+  taskPresentation = {},
   nowMs = Date.now(),
 } = {}) => {
   const normalizedMonth = normalizeStudentReportMonth(month) || getCurrentMonthKey(nowMs);
@@ -582,8 +583,8 @@ export const buildStudentMonthlyReport = ({
   });
   const overdueHomeworks = incompleteHomeworks.filter((entry) => !upcomingHomeworks.includes(entry));
   const evaluatedHomeworks = homeworks.filter((entry) => !upcomingHomeworks.includes(entry));
-  const lessonTopics = normalizeLessonTopicLabels(lessons.map(entry => lessonTopicWithNumbers(entry?.topic, taskTitles)), 30);
-  const practice = monthlyHomeworkPractice(Array.isArray(homeworkEntries) ? homeworkEntries : [], normalizedMonth, nowMs, taskTitles);
+  const lessonTopics = normalizeLessonTopicLabels(lessons.map(entry => lessonTopicWithNumbers(entry?.topic, taskTitles, taskPresentation)), 30);
+  const practice = monthlyHomeworkPractice(Array.isArray(homeworkEntries) ? homeworkEntries : [], normalizedMonth, nowMs, taskTitles, taskPresentation);
   const lessonTopicCount = countLessonTopicLabels(lessonTopics);
   const lessonMinutes = lessons.reduce((sum, entry) => sum + Math.max(0, Number(entry?.durationMinutes) || 0), 0);
   const latestMock = mocksInMonth[mocksInMonth.length - 1] || null;
