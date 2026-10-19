@@ -347,105 +347,55 @@ const formatMockDelta = (value) => {
   return `${delta} ${pluralize(delta, 'балл', 'балла', 'баллов')}`;
 };
 
-const mockAttemptReportNote = mocks => mocks.attemptsLimit > 1
-  ? `В отчёте учтён лучший результат из ${mocks.attemptsUsed} ${pluralize(mocks.attemptsUsed, 'попытки', 'попыток', 'попыток')}. Для этого пробника доступно до ${mocks.attemptsLimit} попыток.`
-  : 'Для этого пробника предусмотрена одна попытка.';
+const mockProgressOpinion = delta => delta > 0
+  ? delta >= 10
+    ? 'Это заметный прогресс. Дальше важно закрепить результат и продолжить работу над сложными заданиями.'
+    : 'Это хорошая прибавка. Продолжим закреплять изученное, чтобы результат рос дальше.'
+  : delta < 0
+    ? 'Снижение результата требует внимания. Разберём ошибки, чтобы понять, какие задания вызывают трудности.'
+    : 'Результат пока остаётся на прежнем уровне. Разберём ошибки и определим, что мешает двигаться дальше.';
+
+const mockComparisonText = mocks => {
+  const hasMonth = mocks.previousMonthScore != null && mocks.deltaFromPreviousMonth != null;
+  const hasStart = mocks.historyCount > 1 && mocks.deltaFromStart != null;
+  const change = delta => delta > 0 ? `вырос на ${formatMockDelta(delta)}`
+    : delta < 0 ? `снизился на ${formatMockDelta(delta)}` : 'не изменился';
+  const parts = [];
+  if (hasMonth) {
+    parts.push(`В прошлом месяце было ${formatMockScore(mocks.previousMonthScore)}. За месяц результат ${change(mocks.deltaFromPreviousMonth)}.`);
+  }
+  // The first mock is often last month's mock: do not repeat the same comparison.
+  if (hasStart && (!hasMonth || mocks.firstScore !== mocks.previousMonthScore)) {
+    parts.push(`Первый пробник был на ${formatMockScore(mocks.firstScore)}; по сравнению с ним результат ${change(mocks.deltaFromStart)}.`);
+  }
+  if (hasMonth || hasStart) parts.push(mockProgressOpinion(hasMonth ? mocks.deltaFromPreviousMonth : mocks.deltaFromStart));
+  return parts.join(' ');
+};
 
 const buildParentMockJourneyText = ({ studentName, grammar, mocks, pickPhrase }) => {
   const scoreLabel = formatMockScore(mocks.latestScore);
   const mockDate = mocks.latestDate ? ` от ${mocks.latestDate}` : '';
-  const startLabel = formatMockScore(mocks.firstScore);
-  const previousMonthLabel = formatMockScore(mocks.previousMonthScore);
-  const startDeltaLabel = formatMockDelta(mocks.deltaFromStart);
-  const monthDeltaLabel = formatMockDelta(mocks.deltaFromPreviousMonth);
-  const hasStartComparison = mocks.historyCount > 1 && mocks.deltaFromStart != null;
-  const hasMonthComparison = mocks.previousMonthScore != null && mocks.deltaFromPreviousMonth != null;
-  const currentSummary = mocks.count > 1
-    ? `${studentName} ${grammar.wrote} ${mocks.count} ${pluralize(mocks.count, 'пробник', 'пробника', 'пробников')} за месяц. Последний результат${mockDate} - ${scoreLabel}, лучший - ${formatMockScore(mocks.bestScore)}.`
-    : `${studentName} ${grammar.wrote} пробник${mockDate} на ${scoreLabel}.`;
-
-  if (!hasStartComparison && !hasMonthComparison) {
-    return pickPhrase([
-      `В этом месяце ${studentName} ${grammar.wrote} первый пробник${mockDate} и ${grammar.scored} ${scoreLabel}. Это наша отправная точка, дальше будем отслеживать прогресс.`,
-      `${studentName} ${grammar.wrote} первый пробник${mockDate} на ${scoreLabel}. Теперь у нас есть начальный результат, от которого будем двигаться дальше.`,
-      `Первый пробник ${studentName}${mockDate} - ${scoreLabel}. Это стартовый результат, дальше будем смотреть на динамику.`,
-      `Получили первый результат пробника${mockDate} - ${scoreLabel}. Зафиксировали точку старта и теперь сможем видеть рост по месяцам.`,
-      `${studentName} ${grammar.wrote} первый пробник${mockDate} на ${scoreLabel}. От этого результата будем считать дальнейший прогресс.`,
-    ], 3);
-  }
-
-  if (hasStartComparison && hasMonthComparison) {
-    const startDirection = mocks.deltaFromStart > 0
-      ? `на ${startDeltaLabel} выше самого первого результата (${startLabel})`
-      : mocks.deltaFromStart < 0
-        ? `на ${startDeltaLabel} ниже самого первого результата (${startLabel})`
-        : `совпадает с самым первым результатом (${startLabel})`;
-    const monthDirection = mocks.deltaFromPreviousMonth > 0
-      ? `на ${monthDeltaLabel} выше, чем в прошлом месяце (${previousMonthLabel})`
-      : mocks.deltaFromPreviousMonth < 0
-        ? `на ${monthDeltaLabel} ниже, чем в прошлом месяце (${previousMonthLabel})`
-        : `совпадает с результатом прошлого месяца (${previousMonthLabel})`;
-    return pickPhrase([
-      `${currentSummary} Это ${monthDirection} и ${startDirection}.`,
-      `${currentSummary} По сравнению с прошлым месяцем результат ${mocks.deltaFromPreviousMonth > 0 ? 'вырос' : mocks.deltaFromPreviousMonth < 0 ? 'снизился' : 'не изменился'} на ${monthDeltaLabel}, а от первой точки прибавка составляет ${mocks.deltaFromStart >= 0 ? '' : '-'}${startDeltaLabel}.`,
-      `${currentSummary} Для сравнения: в прошлом месяце было ${previousMonthLabel}, а начинали с ${startLabel}. Текущий результат показывает ${mocks.deltaFromStart > 0 ? `общий рост на ${startDeltaLabel}` : mocks.deltaFromStart < 0 ? `снижение от старта на ${startDeltaLabel}` : 'тот же уровень, что и в начале'}.`,
-      `${currentSummary} За последний месяц разница составила ${mocks.deltaFromPreviousMonth > 0 ? '+' : mocks.deltaFromPreviousMonth < 0 ? '-' : ''}${monthDeltaLabel}; за всё время - ${mocks.deltaFromStart > 0 ? '+' : mocks.deltaFromStart < 0 ? '-' : ''}${startDeltaLabel}.`,
-      `${currentSummary} А ведь первый пробник был на ${startLabel}. Сейчас разница со стартом - ${mocks.deltaFromStart > 0 ? '+' : mocks.deltaFromStart < 0 ? '-' : ''}${startDeltaLabel}, а с прошлым месяцем - ${mocks.deltaFromPreviousMonth > 0 ? '+' : mocks.deltaFromPreviousMonth < 0 ? '-' : ''}${monthDeltaLabel}.`,
-      `${currentSummary} Динамика хорошо видна по цифрам: старт - ${startLabel}, прошлый месяц - ${previousMonthLabel}, сейчас - ${scoreLabel}.`,
-    ], 3);
-  }
-
-  if (hasMonthComparison) {
-    const direction = mocks.deltaFromPreviousMonth > 0 ? 'лучше' : mocks.deltaFromPreviousMonth < 0 ? 'ниже' : 'такой же';
-    return pickPhrase([
-      `${currentSummary} Это на ${monthDeltaLabel} ${direction}, чем в прошлом месяце.`,
-      `${currentSummary} В прошлом месяце было ${previousMonthLabel}; разница сейчас - ${mocks.deltaFromPreviousMonth > 0 ? '+' : mocks.deltaFromPreviousMonth < 0 ? '-' : ''}${monthDeltaLabel}.`,
-      `${currentSummary} По сравнению с прошлым месяцем результат ${mocks.deltaFromPreviousMonth > 0 ? 'вырос' : mocks.deltaFromPreviousMonth < 0 ? 'снизился' : 'не изменился'} на ${monthDeltaLabel}.`,
-      `${currentSummary} Месячная динамика: было ${previousMonthLabel}, стало ${scoreLabel}.`,
-    ], 3);
-  }
-
-  const direction = mocks.deltaFromStart > 0 ? 'выше' : mocks.deltaFromStart < 0 ? 'ниже' : 'на уровне';
+  const comparison = mockComparisonText(mocks);
+  if (comparison) return `${studentName} ${grammar.wrote} пробник${mockDate} на ${scoreLabel}. ${comparison}`;
   return pickPhrase([
-    `${currentSummary} Это на ${startDeltaLabel} ${direction} самого первого результата.`,
-    `${currentSummary} Первый пробник был на ${startLabel}; разница со стартом сейчас - ${mocks.deltaFromStart > 0 ? '+' : mocks.deltaFromStart < 0 ? '-' : ''}${startDeltaLabel}.`,
-    `${currentSummary} Если смотреть на весь путь, начинали с ${startLabel}, а сейчас получили ${scoreLabel}.`,
-    `${currentSummary} От первой точки результат ${mocks.deltaFromStart > 0 ? 'вырос' : mocks.deltaFromStart < 0 ? 'снизился' : 'не изменился'} на ${startDeltaLabel}.`,
+    `В этом месяце ${studentName} ${grammar.wrote} первый пробник${mockDate} и ${grammar.scored} ${scoreLabel}. Это наша отправная точка, дальше будем отслеживать прогресс.`,
+    `${studentName} ${grammar.wrote} первый пробник${mockDate} на ${scoreLabel}. Теперь у нас есть начальный результат, от которого будем двигаться дальше.`,
+    `Первый пробник ${studentName}${mockDate} - ${scoreLabel}. Это стартовый результат, дальше будем смотреть на динамику.`,
+    `Получили первый результат пробника${mockDate} - ${scoreLabel}. Зафиксировали точку старта и теперь сможем видеть рост по месяцам.`,
+    `${studentName} ${grammar.wrote} первый пробник${mockDate} на ${scoreLabel}. От этого результата будем считать дальнейший прогресс.`,
   ], 3);
 };
 
 const buildStudentMockJourneyText = ({ mocks, pickPhrase }) => {
-  const scoreLabel = formatMockScore(mocks.latestScore);
   const mockDate = mocks.latestDate ? ` от ${mocks.latestDate}` : '';
-  const startLabel = formatMockScore(mocks.firstScore);
-  const previousMonthLabel = formatMockScore(mocks.previousMonthScore);
-  const startDeltaLabel = formatMockDelta(mocks.deltaFromStart);
-  const monthDeltaLabel = formatMockDelta(mocks.deltaFromPreviousMonth);
-  const hasStartComparison = mocks.historyCount > 1 && mocks.deltaFromStart != null;
-  const hasMonthComparison = mocks.previousMonthScore != null && mocks.deltaFromPreviousMonth != null;
-  const currentSummary = mocks.count > 1
-    ? `В этом месяце у тебя было ${mocks.count} ${pluralize(mocks.count, 'пробник', 'пробника', 'пробников')}. Последний результат${mockDate} - ${scoreLabel}, лучший - ${formatMockScore(mocks.bestScore)}.`
-    : `Твой результат пробника${mockDate} - ${scoreLabel}.`;
-
-  if (!hasStartComparison && !hasMonthComparison) {
-    return pickPhrase([
-      `${currentSummary} Это твоя отправная точка. Теперь будем шаг за шагом поднимать результат.`,
-      `${currentSummary} Первый результат зафиксирован - дальше будем сравнивать с ним твой рост.`,
-      `${currentSummary} Теперь у тебя есть стартовая точка, от которой можно уверенно двигаться дальше.`,
-    ], 6);
-  }
-  if (hasStartComparison && hasMonthComparison) {
-    return pickPhrase([
-      `${currentSummary} По сравнению с прошлым месяцем разница ${mocks.deltaFromPreviousMonth > 0 ? '+' : mocks.deltaFromPreviousMonth < 0 ? '-' : ''}${monthDeltaLabel}, а со старта - ${mocks.deltaFromStart > 0 ? '+' : mocks.deltaFromStart < 0 ? '-' : ''}${startDeltaLabel}.`,
-      `${currentSummary} Посмотри на свой путь: первый пробник - ${startLabel}, прошлый месяц - ${previousMonthLabel}, сейчас - ${scoreLabel}.`,
-      `${currentSummary} За последний месяц результат ${mocks.deltaFromPreviousMonth > 0 ? 'вырос' : mocks.deltaFromPreviousMonth < 0 ? 'снизился' : 'не изменился'} на ${monthDeltaLabel}, а относительно первого пробника разница составляет ${mocks.deltaFromStart > 0 ? '+' : mocks.deltaFromStart < 0 ? '-' : ''}${startDeltaLabel}.`,
-      `${currentSummary} Сейчас это ${mocks.deltaFromPreviousMonth > 0 ? `на ${monthDeltaLabel} лучше прошлого месяца` : mocks.deltaFromPreviousMonth < 0 ? `на ${monthDeltaLabel} ниже прошлого месяца` : 'тот же результат, что в прошлом месяце'} и ${mocks.deltaFromStart > 0 ? `на ${startDeltaLabel} лучше старта` : mocks.deltaFromStart < 0 ? `на ${startDeltaLabel} ниже старта` : 'на уровне первого пробника'}.`,
-    ], 6);
-  }
-  if (hasMonthComparison) {
-    return `${currentSummary} В прошлом месяце было ${previousMonthLabel}; сейчас разница ${mocks.deltaFromPreviousMonth > 0 ? '+' : mocks.deltaFromPreviousMonth < 0 ? '-' : ''}${monthDeltaLabel}.`;
-  }
-  return `${currentSummary} Первый пробник был на ${startLabel}; разница со стартом сейчас ${mocks.deltaFromStart > 0 ? '+' : mocks.deltaFromStart < 0 ? '-' : ''}${startDeltaLabel}.`;
+  const currentSummary = `Твой результат пробника${mockDate} - ${formatMockScore(mocks.latestScore)}.`;
+  const comparison = mockComparisonText(mocks);
+  if (comparison) return `${currentSummary} ${comparison}`;
+  return pickPhrase([
+    `${currentSummary} Это твоя отправная точка. Теперь будем шаг за шагом поднимать результат.`,
+    `${currentSummary} Первый результат зафиксирован - дальше будем сравнивать с ним твой рост.`,
+    `${currentSummary} Теперь у тебя есть стартовая точка, от которой можно уверенно двигаться дальше.`,
+  ], 6);
 };
 
 const buildStudentFacingText = ({
@@ -493,7 +443,6 @@ const buildStudentFacingText = ({
   if (metrics.homework.pythonPracticeCount && metrics.homework.assignedCount) lines.push('', 'Задачи по Python — практика перед уроком. То, что не получится самостоятельно, разберём вместе; на оценку выполнения домашней работы по ЕГЭ это не влияет.');
   if (metrics.mocks.count > 0) {
     lines.push('', buildStudentMockJourneyText({ mocks: metrics.mocks, pickPhrase }));
-    if (metrics.mocks.latestIsBestAttempt) lines.push(mockAttemptReportNote(metrics.mocks));
   } else {
     lines.push('', 'Пробника в этом месяце пока не было.');
   }
@@ -671,6 +620,12 @@ export const buildStudentMonthlyReport = ({
     `Здравствуйте! Делюсь результатами за ${messageMonthLabel}. Коротко о том, как ${studentName} ${grammar.studied} в этом месяце${asOf}.`,
   ])];
 
+  const mockText = metrics.mocks.count > 0
+    ? buildParentMockJourneyText({ studentName, grammar, mocks: metrics.mocks, pickPhrase })
+    : 'Пробника в этом месяце пока не было.';
+  const highlightMock = metrics.mocks.count > 0 && metrics.mocks.deltaFromPreviousMonth >= 20;
+  if (highlightMock) lines.push('', mockText);
+
   if (metrics.lessons.count > 0) {
     const lessonCountLabel = `${metrics.lessons.count} ${pluralize(metrics.lessons.count, 'занятие', 'занятия', 'занятий')}`;
     const topicsLabel = joinNaturalList(lessonTopics);
@@ -697,19 +652,9 @@ export const buildStudentMonthlyReport = ({
     lines.push('', metrics.homework.pythonPracticeCount ? 'По Python сначала предлагаю попробовать задачи самостоятельно. То, что пока не получается, разбираем вместе на уроке: здесь не требуется сразу решить всё без помощи.' : 'Домашних заданий в этом месяце не было.');
   }
 
+  if (!highlightMock) lines.push('', mockText);
   const practiceText = homeworkPracticeText(metrics.homework.practice, { studentName, solved: grammar.solved });
   if (practiceText) lines.push('', practiceText);
-  if (metrics.mocks.count === 0) {
-    lines.push('', 'Пробника в этом месяце пока не было.');
-  } else {
-    lines.push('', buildParentMockJourneyText({
-      studentName,
-      grammar,
-      mocks: metrics.mocks,
-      pickPhrase,
-    }));
-    if (metrics.mocks.latestIsBestAttempt) lines.push(mockAttemptReportNote(metrics.mocks));
-  }
 
   const automaticConclusion = buildAutomaticConclusion({
     homework: metrics.homework,

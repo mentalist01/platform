@@ -56,7 +56,7 @@ test('generated reports include lesson focus but no inferred dominance from many
     homeworkEntries: [{ dueAt: '2026-10-03T12:00:00Z', percent: 100, goals: [{ type: 'task', taskNumber: 105, levelId: 'python', items: Array.from({ length: 50 }, (_, i) => ({ questionId: `python-${i}`, state: 'clean', completedAt: '2026-10-02T12:00:00Z' })) }] }],
   });
   assert.equal(report.focusContext.inferred, 'ege');
-  assert.match(report.parentText, /чаще разбирали задания ЕГЭ/);
+  assert.match(report.parentText, /основной акцент сделали на заданиях ЕГЭ/);
   assert.match(report.parentText, /50 задач/);
   assert.doesNotMatch(report.parentText, /основной акцент.*Python|чаще занимались Python/);
   assert.equal(report.parentText, composeParentReportFocus(report));

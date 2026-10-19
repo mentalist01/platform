@@ -32,15 +32,14 @@ export function inferStudentReportFocus(lessons = [], taskTitles = {}, mocks = {
 
 export function studentReportFocusText(context = {}, { focus = 'auto', nextStep = '' } = {}) {
   const chosen = REPORT_FOCUS_LABELS[focus] ? focus : context.inferred || '';
-  const manual = Boolean(REPORT_FOCUS_LABELS[focus]);
   const parts = [];
   if (chosen === 'python') {
-    parts.push(manual ? 'В этом месяце основной акцент сделали на Python.' : 'В этом месяце чаще занимались Python.');
+    parts.push('В этом месяце основной акцент сделали на Python.');
     const topicNames = (context.pythonTopics || []).slice(0, 3);
     if (topicNames.length) parts.push(`В частности, разбирали ${topicNames.map(name => `«${name}»`).join(', ')}.`);
     parts.push('Это основа для заданий ЕГЭ с программированием. Здесь важно не только написать код на знакомом примере, но и применить его в новой задаче.');
   } else if (chosen === 'ege') {
-    parts.push(manual ? 'В этом месяце основной акцент сделали на заданиях ЕГЭ.' : 'В этом месяце чаще разбирали задания ЕГЭ.');
+    parts.push('В этом месяце основной акцент сделали на заданиях ЕГЭ.');
   } else if (chosen === 'mixed') {
     parts.push('В этом месяце работали и с Python, и с заданиями ЕГЭ.');
   }

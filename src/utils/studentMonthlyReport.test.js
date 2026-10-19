@@ -3,6 +3,46 @@ import test from 'node:test';
 import { buildStudentMonthlyReport, normalizeStudentReportMonth } from './studentMonthlyReport.js';
 import {buildMockExamProgressEntries} from './mockExamProgress.js';
 
+test('large monthly gains lead the parent report without attempt details or a duplicate baseline comparison', () => {
+  for (const delta of [19, 20, 21]) {
+    const report = buildStudentMonthlyReport({ student: { name: 'Андрей' }, month: '2026-10',
+      nowMs: Date.parse('2026-10-19T12:00:00Z'),
+      mockEntries: [
+        { id: 'previous', score: 7, date: '2026-09-16T12:00:00Z' },
+        { id: 'current', score: 7 + delta, date: '2026-10-16T12:00:00Z', isBestAttempt: true, attemptsUsed: 2, attemptsLimit: 3 },
+      ],
+      lessonEntries: [{ dayKey: '2026-10-01', topic: { taskNumbers: [3] } }],
+      homeworkEntries: [{ dueAt: '2026-10-02T12:00:00Z', percent: 100, goals: [{ type: 'task', taskNumber: 3, levelId: 'basic', items: [{ questionId: 'q', state: 'clean', completedAt: '2026-10-01T12:00:00Z' }] }] }],
+    });
+    const paragraphs = report.parentText.split('\n\n');
+    assert.equal(paragraphs[1].includes('пробник'), delta >= 20);
+    assert.equal((report.parentText.match(/пробник от 16 октября/gu) || []).length, 1);
+    assert.ok(report.parentText.indexOf('пробник от 16 октября') < report.parentText.indexOf('Между уроками'));
+    for (const text of [report.parentText, report.studentText]) {
+      assert.doesNotMatch(text, /попыт|лучший результат|самого первого результата/iu);
+      assert.match(text, /В прошлом месяце было 7 баллов/u);
+      assert.ok(text.includes(`вырос на ${delta} балл`));
+      assert.match(text, /Это заметный прогресс/u);
+    }
+  }
+});
+
+test('mock opinions describe a decline or no change honestly, and missing months do not become monthly gains', () => {
+  for (const current of [7, 2]) {
+    const report = buildStudentMonthlyReport({ student: { name: 'Анна' }, month: '2026-10', nowMs: Date.parse('2026-10-19T12:00:00Z'), mockEntries: [
+      { score: 7, date: '2026-09-16T12:00:00Z' }, { score: current, date: '2026-10-16T12:00:00Z' },
+    ] });
+    assert.doesNotMatch(report.parentText, /хорошая прибавка|заметный прогресс|на 0 баллов/u);
+    assert.match(report.parentText, current === 7 ? /на прежнем уровне/u : /Снижение результата требует внимания/u);
+  }
+  const gap = buildStudentMonthlyReport({ student: { name: 'Анна' }, month: '2026-10', nowMs: Date.parse('2026-10-19T12:00:00Z'), mockEntries: [
+    { score: 7, date: '2026-08-16T12:00:00Z' }, { score: 50, date: '2026-10-16T12:00:00Z' },
+  ] });
+  assert.doesNotMatch(gap.parentText.split('\n\n')[1], /пробник/u);
+  assert.doesNotMatch(gap.parentText, /За месяц|В прошлом месяце/u);
+  assert.match(gap.parentText, /Первый пробник был на 7 баллов/u);
+});
+
 test('reports use the best permitted monthly score and do not count retakes as extra exams',()=>{
   const tasks={1:{},4:{},10:{},11:{}};
   const first={examId:'exam',attemptId:'first',attemptNumber:1,isFirstAttempt:true,mode:'timer',finishedAt:'2026-10-16T14:35:00Z',tasks,solved:{1:true,4:true,10:true,11:false}};
@@ -13,7 +53,7 @@ test('reports use the best permitted monthly score and do not count retakes as e
   assert.deepEqual(buildMockExamProgressEntries({...input,includeRetakes:true}).map(e=>e.score),[20,27]);
   const report=buildStudentMonthlyReport({student:{name:'Андрей'},month:'2026-10',nowMs:Date.parse('2026-10-18T17:00:00Z'),mockEntries});
   assert.equal(report.metrics.mocks.latestScore,27);assert.equal(report.metrics.mocks.count,1);assert.equal(report.metrics.mocks.latestIsBestAttempt,true);
-  assert.match(report.parentText,/лучший результат из 2 попыток/u);assert.match(report.studentText,/лучший результат/u);
+  assert.doesNotMatch(report.parentText+report.studentText,/попыт|лучший результат/iu);
 });
 
 test('reports keep the actual mock result without automatically promising a mock review in the conclusion', () => {
