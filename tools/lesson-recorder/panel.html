@@ -73,7 +73,21 @@
 const key='__LOCAL_KEY__';const $=id=>document.getElementById(id);let current;let jobSignature='';let localError='';let step=0;let busy=false;let initialized=false;let testUrl='';let playedTestId='';
 let recoverySignature='';let refreshing=false;
 let pythonCatalog=null;let mockReviewCatalog=null;
-const mockStudio=new URLSearchParams(location.search).get('studio')==='mock-review'||new URLSearchParams(location.search).has('mockReview');
+// Older desktop shells preserve the fragment but drop the query when opening
+// recorder links. Keep the studio and exam in both parts of the URL.
+function recorderStudioRoute(page){
+  const query=new URLSearchParams(page.search||'');
+  const hash=String(page.hash||'').replace(/^#/,'');
+  const reviewHash=hash==='mock-review'||hash.startsWith('mock-review?');
+  const fragment=new URLSearchParams(reviewHash?hash.slice('mock-review'.length).replace(/^\?/, ''):'');
+  return {kind:query.get('studio')==='mock-review'||query.has('mockReview')||reviewHash?'mock-review':'python',mockReview:query.get('mockReview')||(reviewHash?fragment.get('mockReview'):'')||''};
+}
+function mockReviewStudioUrl(examId){
+  const selected=examId?encodeURIComponent(examId):'';
+  return '/?studio=mock-review'+(selected?'&mockReview='+selected:'')+'#mock-review'+(selected?'?mockReview='+selected:'');
+}
+const studioRoute=recorderStudioRoute(location);
+const mockStudio=studioRoute.kind==='mock-review';
 let pythonPausePending=null;let pythonControlRevision=0;let recordingUnavailable=false;let pythonPauseError='';let pythonPauseRecovery=null;
 function pythonTask(){return pythonCatalog?.tasks.find(t=>String(t.number)===$('python-task').value);}
 function pythonSubsection(){return pythonTask()?.subsections.find(s=>s.id===$('python-subsection').value);}
@@ -144,7 +158,7 @@ async function startMockReview(){
 }
 function chooseMockReview(){const exam=mockReviewSelection();$('mock-review-replace').checked=false;$('mock-review-replace-label').classList.toggle('hidden',!exam?.existingUrl);mockReviewButtons();}
 async function loadMockReviews(){
-  const selected=$('mock-review-exam').value||new URLSearchParams(location.search).get('mockReview');
+  const selected=$('mock-review-exam').value||studioRoute.mockReview;
   mockReviewCatalog=await request('/mock-review/catalog');
   $('mock-review-exam').innerHTML='<option value="">Выберите пробник…</option>'+mockReviewCatalog.exams.map(exam=>`<option value="${esc(exam.id)}">${esc(exam.title)}</option>`).join('');
   if(mockReviewCatalog.exams.some(exam=>exam.id===selected))$('mock-review-exam').value=selected;
@@ -308,7 +322,7 @@ for(const key of ['device','corner','size'])$('studio-camera-'+key).onchange=()=
 $('python-inline-pause').onclick=togglePythonPause;$('python-inline-stop').onclick=()=> $('python-stop').click();
 $('python-refresh').onclick=()=>act(loadPythonTopics);$('python-task').onchange=pythonSections;$('python-subsection').onchange=pythonSelection;$('python-start').onclick=async()=>{try{await startPython();window.recorderEditorContext.openEditor?.();}catch(e){localError=e.message;$('error').textContent=localError;$('error').scrollIntoView({block:'nearest'});}finally{await refresh();}};$('python-pause').onclick=togglePythonPause;$('python-stop').onclick=()=>act(async()=>{const active=current?.jobs.find(j=>['starting','recording','stopping'].includes(j.status));if(!active?.pythonTheory&&!active?.mockReview)throw Error('Проверьте текущую запись материала');await request('/material/stop',{id:active.id});$('python-status').textContent=active.pythonTimeline?'Исходник сохранён. Проверьте монтажную ленту ниже перед отправкой.':'Файл сохранён. Загрузку и прикрепление можно проверить в списке записей ниже.';pythonCatalog=null;mockReviewCatalog=null;});
 $('mock-review-refresh').onclick=()=>act(loadMockReviews);$('mock-review-exam').onchange=chooseMockReview;$('mock-review-replace').onchange=mockReviewButtons;
-$('mock-review-start').onclick=()=>{const exam=mockReviewSelection();window.open(`/?studio=mock-review${exam?'&mockReview='+encodeURIComponent(exam.id):''}#mock-review`,'_blank','noopener');};
+$('mock-review-start').onclick=()=>{const exam=mockReviewSelection();window.open(mockReviewStudioUrl(exam?.id),'_blank','noopener');};
 void refresh().then(()=>{if(new URLSearchParams(location.search).has('mockReview')){void act(loadMockReviews);$('mock-review').scrollIntoView({block:'start'});}void choices().catch(()=>{});void drives().catch(e=>{localError=e.message;});});setInterval(refresh,2500);setInterval(async()=>{if(document.hidden||document.querySelector('.python-editor--focus'))return;try{$('preview').src=(await request('/preview')).image}catch{}void pythonPreview();},2000);
 window.recorderEditorContext={kind:mockStudio?'mock-review':'python',key,request,refresh,state:()=>current,pause:setMaterialPause,pausePending:()=>pythonPausePending,startPython,loadPythonTopics,preparePython,pythonStartReason:()=>mockStudio?mockReviewStartReason():pythonStartReason(current,pythonSubsection(),busy,true),panelBusy:()=>busy};
 </script><script type="module" src="/python-editor.mjs"></script></body></html>
