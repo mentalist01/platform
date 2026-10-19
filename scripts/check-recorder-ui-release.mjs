@@ -20,7 +20,7 @@ for(const marker of ['PYTHON_SCENES','PYTHON_INPUTS','ensurePythonSources','sele
 if(!recorderSources['python-capture.mjs'])throw Error('Python capture module missing from Windows update');
 if(!recorderSources['studio-camera.mjs'])throw Error('Studio camera module missing from Windows update');
 for(const marker of ['studio-camera-enabled','studio-camera-device','studio-camera-corner','studio-camera-size','/python/camera/choices'])if(!recorderSources['panel.html'].includes(marker))throw Error(`Missing studio camera control: ${marker}`);
-for(const marker of ['mock-review-controls','studio=mock-review','startMockReview','recorderStudioRoute','mockReviewStudioUrl'])if(!recorderSources['panel.html'].includes(marker))throw Error(`Missing monthly review studio: ${marker}`);
+for(const marker of ['mock-review-controls','studio=mock-review','startMockReview','recorderStudioRoute','mockReviewStudioUrl','recorderStudioChanged','location.assign(mockReviewStudioUrl'])if(!recorderSources['panel.html'].includes(marker))throw Error(`Missing monthly review studio: ${marker}`);
 for(const marker of ['Опубликовать разбор пробника','mock-review-studio','belongs(item)'])if(!recorderSources['python-editor.mjs'].includes(marker))throw Error(`Missing shared monthly review editor: ${marker}`);
 if(!recorderSources['mock-review.mjs'].includes('pythonTimeline: createTimeline()'))throw Error('Monthly review must use the montage publication gate');
 if(!fs.readFileSync(path.join(directory,installer.slice(1))).equals(recorderPackage()))throw Error('Installer differs from the current recorder source');

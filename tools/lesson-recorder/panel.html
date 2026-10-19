@@ -86,6 +86,10 @@ function mockReviewStudioUrl(examId){
   const selected=examId?encodeURIComponent(examId):'';
   return '/?studio=mock-review'+(selected?'&mockReview='+selected:'')+'#mock-review'+(selected?'?mockReview='+selected:'');
 }
+function recorderStudioChanged(previous,page){
+  const next=recorderStudioRoute(page);
+  return previous.kind!==next.kind||next.kind==='mock-review'&&previous.mockReview!==next.mockReview;
+}
 const studioRoute=recorderStudioRoute(location);
 const mockStudio=studioRoute.kind==='mock-review';
 let pythonPausePending=null;let pythonControlRevision=0;let recordingUnavailable=false;let pythonPauseError='';let pythonPauseRecovery=null;
@@ -297,7 +301,7 @@ $('jobs').onclick=e=>{const b=e.target.closest('[data-action]');if(!b)return;act
 $('start-day').onclick=()=>act(async()=>{$('day-state').textContent='Запускаем OBS и проверяем готовность…';await request('/start-day',{});await choices();});
 $('recovery-drafts').onclick=e=>{const button=e.target.closest('[data-recover]');if(!button)return;const draft=current.recoveryDrafts.find(d=>d.id===button.dataset.recover);if(draft)act(()=>request('/recover-file',draft));};
 $('show-setup').onclick=()=>{$('setup').open=true;$('setup').scrollIntoView({block:'start',behavior:'smooth'});};
-window.addEventListener('hashchange',()=>{if(location.hash==='#setup')$('show-setup').click();});
+window.addEventListener('hashchange',()=>{if(recorderStudioChanged(studioRoute,location)){location.reload();return;}if(location.hash==='#setup')$('show-setup').click();});
 document.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>showStep(Number(b.dataset.step)));
 $('previous-step').onclick=()=>showStep(step-1);$('next-step').onclick=()=>act(async()=>{await refresh();if(!completedSteps()[step])throw Error(['Сначала сохраните папку для видео','Сначала настройте OBS и сохраните источники','Сначала подключите компьютер кодом с платформы','Сначала прослушайте пробную запись и подтвердите проверку'][step]);showStep(step+1);});
 $('refresh-drives').onclick=()=>act(drives);$('drive').onchange=()=>{$('record-directory').value=$('drive').value+'Видео\\Ivan100 Lessons';};$('save-folder').onclick=()=>act(()=>request('/storage',{directory:$('record-directory').value}));
@@ -322,7 +326,7 @@ for(const key of ['device','corner','size'])$('studio-camera-'+key).onchange=()=
 $('python-inline-pause').onclick=togglePythonPause;$('python-inline-stop').onclick=()=> $('python-stop').click();
 $('python-refresh').onclick=()=>act(loadPythonTopics);$('python-task').onchange=pythonSections;$('python-subsection').onchange=pythonSelection;$('python-start').onclick=async()=>{try{await startPython();window.recorderEditorContext.openEditor?.();}catch(e){localError=e.message;$('error').textContent=localError;$('error').scrollIntoView({block:'nearest'});}finally{await refresh();}};$('python-pause').onclick=togglePythonPause;$('python-stop').onclick=()=>act(async()=>{const active=current?.jobs.find(j=>['starting','recording','stopping'].includes(j.status));if(!active?.pythonTheory&&!active?.mockReview)throw Error('Проверьте текущую запись материала');await request('/material/stop',{id:active.id});$('python-status').textContent=active.pythonTimeline?'Исходник сохранён. Проверьте монтажную ленту ниже перед отправкой.':'Файл сохранён. Загрузку и прикрепление можно проверить в списке записей ниже.';pythonCatalog=null;mockReviewCatalog=null;});
 $('mock-review-refresh').onclick=()=>act(loadMockReviews);$('mock-review-exam').onchange=chooseMockReview;$('mock-review-replace').onchange=mockReviewButtons;
-$('mock-review-start').onclick=()=>{const exam=mockReviewSelection();window.open(mockReviewStudioUrl(exam?.id),'_blank','noopener');};
+$('mock-review-start').onclick=()=>{const exam=mockReviewSelection();location.assign(mockReviewStudioUrl(exam?.id));};
 void refresh().then(()=>{if(new URLSearchParams(location.search).has('mockReview')){void act(loadMockReviews);$('mock-review').scrollIntoView({block:'start'});}void choices().catch(()=>{});void drives().catch(e=>{localError=e.message;});});setInterval(refresh,2500);setInterval(async()=>{if(document.hidden||document.querySelector('.python-editor--focus'))return;try{$('preview').src=(await request('/preview')).image}catch{}void pythonPreview();},2000);
 window.recorderEditorContext={kind:mockStudio?'mock-review':'python',key,request,refresh,state:()=>current,pause:setMaterialPause,pausePending:()=>pythonPausePending,startPython,loadPythonTopics,preparePython,pythonStartReason:()=>mockStudio?mockReviewStartReason():pythonStartReason(current,pythonSubsection(),busy,true),panelBusy:()=>busy};
 </script><script type="module" src="/python-editor.mjs"></script></body></html>
