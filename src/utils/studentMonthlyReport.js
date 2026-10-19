@@ -698,7 +698,6 @@ export const buildStudentMonthlyReport = ({
 
   const practiceText = homeworkPracticeText(metrics.homework.practice, { studentName, solved: grammar.solved });
   if (practiceText) lines.push('', practiceText);
-  if (metrics.homework.pythonPracticeCount && metrics.homework.assignedCount) lines.push('', 'Задачи по Python — практика перед уроком. То, что не получится самостоятельно, разберём вместе; на оценку выполнения домашней работы по ЕГЭ это не влияет.');
   if (metrics.mocks.count === 0) {
     lines.push('', 'Пробника в этом месяце пока не было.');
   } else {
