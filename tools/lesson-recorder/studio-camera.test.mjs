@@ -43,7 +43,8 @@ function obsFixture() {
     if (type === 'SetCurrentProgramScene') scene = data.sceneName;
     if (type === 'GetInputSettings') return { inputSettings: { ...settings } };
     if (type === 'SetInputSettings') Object.assign(settings, data.inputSettings);
-    if (type === 'CallInputPropertiesButton') settings.active = !settings.active;
+    if (type === 'CallInputPropertiesButton') throw Error('Unknown OBS WebSocket request');
+    if (type === 'PressInputPropertiesButton') settings.active = !settings.active;
     if (type === 'GetSceneItemId') return { sceneItemId: 1 };
     if (type === 'GetSceneList') return { scenes: [...scenes.keys()].map(sceneName => ({ sceneName })) };
     if (type === 'GetInputList') return { inputs: [...inputs].map(([inputName, inputKind]) => ({ inputName, inputKind })) };

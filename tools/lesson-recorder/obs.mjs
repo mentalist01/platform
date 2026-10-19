@@ -270,7 +270,7 @@ export class ObsClient {
   }
   async setStudioCameraActive(enabled) {
     const { inputSettings } = await this.call('GetInputSettings', { inputName: STUDIO_CAMERA_INPUT });
-    if ((inputSettings.active !== false) !== enabled) await this.call('CallInputPropertiesButton', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'activate' });
+    if ((inputSettings.active !== false) !== enabled) await this.call('PressInputPropertiesButton', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'activate' });
   }
   async activateStudioCamera(sceneName) {
     if (!(await this.call('GetInputList')).inputs.some(item => item.inputName === STUDIO_CAMERA_INPUT)) return;
