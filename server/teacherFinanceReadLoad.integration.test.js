@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { participationDay } from '../src/utils/groupParticipation.js';
@@ -22,13 +23,25 @@ test('finance and student schedule browsing reuse supporting snapshots and prese
     startAt: new Date(Date.now() + (n - 80) * 3 * 86400000).toISOString(), durationMinutes: 60,
     status: n < 80 ? 'completed' : 'scheduled', participantIds: students.map(student => student.id), source: 'availability-plan', createdAt }));
   seed('learning-lesson-sessions', lessons);
+  const icalDate = value => new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const ical = ['BEGIN:VCALENDAR', 'VERSION:2.0', ...lessons.flatMap(lesson => [
+    'BEGIN:VEVENT', 'UID:' + lesson.id + '@calendar.test', 'DTSTART:' + icalDate(lesson.startAt),
+    'DTEND:' + icalDate(Date.parse(lesson.startAt) + 3600000), 'SUMMARY:' + group.name, 'END:VEVENT',
+  ]), 'END:VCALENDAR'].join('\r\n');
+  const calendarServer = http.createServer((_req, res) => res.writeHead(200, { 'Content-Type': 'text/calendar' }).end(ical));
+  await new Promise(resolve => calendarServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => { calendarServer.closeAllConnections(); calendarServer.close(); });
+  seed('teacher-calendar-sync', { t: { enabled: true, icalUrl: 'http://127.0.0.1:' + calendarServer.address().port + '/calendar.ics', updatedAt: createdAt } });
+
   seed('learning-subscriptions', { version: 1, tariffs: {}, blocks: [{ id: 'block', teacherId: 't', studentId: 's15', groupId: 'g', startsAt: lessons[0].startAt,
     tariff: { kind: 'group', price: 3600, lessonCount: 4 }, createdAt, cancelledAt: '', lessonIds: [] }] });
   seed('teacher-finances', { t: { studentProfiles: Object.fromEntries(students.map(student => [student.id, { lessonPrice: 900, pricingMode: 'perLesson' }])) } });
   const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const preload = path.join(root, 'counters.mjs');
   fs.writeFileSync(preload, `import {LearningSubscriptionStore} from ${JSON.stringify(pathToFileURL(path.join(workspace, 'server/learningSubscriptions.js')).href)};
-    const counts={reads:0,reconciles:0};for(const [method,key] of [['read','reads'],['reconcile','reconciles']]){const original=LearningSubscriptionStore.prototype[method];LearningSubscriptionStore.prototype[method]=function(...args){counts[key]++;return original.apply(this,args);};}
+    import fs from 'node:fs';
+    const counts={reads:0,reconciles:0,lessonWrites:0,attendanceWrites:0};
+    const rename=fs.renameSync;fs.renameSync=function(from,to,...args){if(String(to).endsWith('learning-lesson-sessions.json'))counts.lessonWrites++;if(String(to).endsWith('learning-attendance.json'))counts.attendanceWrites++;return rename.call(this,from,to,...args);};for(const [method,key] of [['read','reads'],['reconcile','reconciles']]){const original=LearningSubscriptionStore.prototype[method];LearningSubscriptionStore.prototype[method]=function(...args){counts[key]++;return original.apply(this,args);};}
     process.on('message',value=>{if(value==='finance-counts')process.send({...counts});});`);
   const port = await new Promise(resolve => { const server = net.createServer().listen(0, '127.0.0.1', () => { const value = server.address().port; server.close(() => resolve(value)); }); });
   let logs = '';
@@ -65,7 +78,9 @@ test('finance and student schedule browsing reuse supporting snapshots and prese
     assert.equal(next.status, 200);
   }
   const after = await counts(), reads = after.reads - before.reads, reconciles = after.reconciles - before.reconciles;
-  t.diagnostic(JSON.stringify({ months: months.length, reads, reconciles, elapsedMs: Date.now() - started }));
+  t.diagnostic(JSON.stringify({ months: months.length, reads, reconciles, lessonWrites: after.lessonWrites - before.lessonWrites, attendanceWrites: after.attendanceWrites - before.attendanceWrites, elapsedMs: Date.now() - started }));
+  assert.ok(after.lessonWrites - before.lessonWrites <= 8, 'calendar projection must batch lesson journal writes');
+  assert.ok(after.attendanceWrites - before.attendanceWrites <= 8, 'calendar projection must batch attendance writes');
   assert.ok(reads <= 30, `Finance reread subscriptions ${reads} times while browsing ${months.length} months`);
   assert.ok(reconciles <= 15, `Finance reconciled subscriptions ${reconciles} times`);
 });

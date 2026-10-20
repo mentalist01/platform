@@ -2451,7 +2451,31 @@ const readLearningJsonStore = (filePath, normalize) => {
   return result;
 };
 
+// Calendar projection is synchronous. Accumulate its already-normalized lesson
+// and attendance rows, then normalize and atomically persist each store once.
+// Readers inside the projection see preceding updates through the normal cache.
+let learningCalendarImportBatch = null;
+const withLearningCalendarImportBatch = callback => {
+  if (learningCalendarImportBatch) return callback();
+  const pending = new Map();
+  learningCalendarImportBatch = pending;
+  try {
+    return callback();
+  } finally {
+    learningCalendarImportBatch = null;
+    for (const [filePath, { value, normalize }] of pending) {
+      writeLearningJsonStore(filePath, value, normalize);
+    }
+  }
+};
+
 const writeLearningJsonStore = (filePath, value, normalize) => {
+  if (learningCalendarImportBatch
+    && (filePath === learningLessonSessionsFile || filePath === learningAttendanceFile)) {
+    learningCalendarImportBatch.set(filePath, { value, normalize });
+    learningJsonStoreCache.set(filePath, value);
+    return value;
+  }
   const normalized = normalize(value);
   const result = Array.isArray(normalized) ? normalized : [];
   writeJsonFileAtomic(filePath, result);
@@ -10319,14 +10343,15 @@ const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}
         force: Boolean(options.force),
         throwOnError: true,
       });
-  const calendarRoster = readStudentsDb().filter((candidate) => (
+  const readContext = createPaymentScheduleReadContext();
+  const calendarRoster = readContext.students().filter((candidate) => (
     isActiveStudent(candidate)
     && normalizeTeacherId(candidate?.teacherId) === teacherId
   ));
   const matchedEntries = googleEntries.filter((entry) => (
     isDayKeyWithinRange(entry?.date, syncRange.startDayKey, syncRange.endDayKey)
     && (
-      doesGoogleCalendarLearningGroupEntryIncludeStudent(entry, student)
+      doesGoogleCalendarLearningGroupEntryIncludeStudent(entry, student, readContext)
       || googleCalendarEntryMatchesStudent(entry, student, calendarRoster)
     )
   ));
@@ -10704,6 +10729,10 @@ const enrichGoogleCalendarEntryFromRoster = (entry, teacherId, students = [], ed
   return enrichGoogleCalendarLearningGroupEntry(projected, teacherId, students);
 };
 
+const enrichGoogleCalendarEntriesFromRoster = (entries, teacherId, students) => withLearningCalendarImportBatch(
+  () => entries.map(entry => enrichGoogleCalendarEntryFromRoster(entry, teacherId, students))
+);
+
 const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], groups = []) => {
   if (!event || event.type !== 'VEVENT') return null;
   if (String(event.status || '').trim().toUpperCase() === 'CANCELLED') return null;
@@ -10859,9 +10888,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
     && cacheCoversRequestedRange
     && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS
   ) {
-    const entries = cache.entries.map((entry) => (
-      enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
-    ));
+    const entries = enrichGoogleCalendarEntriesFromRoster(cache.entries, normalizedTeacherId, students);
     cache.entries = entries;
     return entries;
   }
@@ -10875,9 +10902,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
     try {
       const entries = await inFlight.promise;
       if (Number(inFlight.toMs) >= toMs - (Number.isFinite(requestedMonthEndMs) ? 0 : 86400000)) {
-        return entries.map((entry) => (
-          enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
-        ));
+        return enrichGoogleCalendarEntriesFromRoster(entries, normalizedTeacherId, students);
       }
       return fetchTeacherGoogleCalendarEntries(normalizedTeacherId, {
         ...options,
@@ -10889,9 +10914,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
         : (error?.message || 'Не удалось загрузить Google Calendar.');
       teacherCalendarRefreshResultCache.delete(normalizedTeacherId);
       if (options.throwOnError) throw new Error(message);
-      return (cache?.entries || []).map((entry) => (
-        enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
-      ));
+      return enrichGoogleCalendarEntriesFromRoster((cache?.entries || []), normalizedTeacherId, students);
     }
   }
 
@@ -10940,9 +10963,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
             lastError: '',
             calendarName: cache.calendarName || '',
           });
-          return cache.entries.map((entry) => (
-            enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
-          ));
+          return enrichGoogleCalendarEntriesFromRoster(cache.entries, normalizedTeacherId, students);
         }
         if (!response.ok) {
           throw new Error(`Google Calendar вернул HTTP ${response.status}.`);
@@ -10975,9 +10996,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
           lastError: '',
           calendarName: cache.calendarName || '',
         });
-        return cache.entries.map((entry) => (
-          enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
-        ));
+        return enrichGoogleCalendarEntriesFromRoster(cache.entries, normalizedTeacherId, students);
       }
 
       parsed = await parseGoogleCalendarInWorker(icalText, toMs);
@@ -10995,13 +11014,13 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
       if (Number.isFinite(startMs) && startMs > to.getTime()) return;
       entries.push(scheduleEntry);
     });
-    const uniqueEntries = Array.from(
+    const uniqueEntries = enrichGoogleCalendarEntriesFromRoster(Array.from(
       new Map(entries.map((entry) => [entry.id, entry])).values()
     ).sort((left, right) => {
       const leftTime = Date.parse(`${left.date}T${left.time}:00`);
       const rightTime = Date.parse(`${right.date}T${right.time}:00`);
       return (Number.isFinite(leftTime) ? leftTime : 0) - (Number.isFinite(rightTime) ? rightTime : 0);
-    }).map((entry) => enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students));
+    }), normalizedTeacherId, students);
     const currentSettings = getTeacherCalendarSyncSettings(normalizedTeacherId);
     if (currentSettings.enabled && currentSettings.icalUrl === settings.icalUrl && googleCalendarReadId(currentSettings.icalUrl, getTeacherCalendarGoogleConnection(normalizedTeacherId)) === apiCalendarId) {
       reconcileGoogleCalendarLearningLessons(normalizedTeacherId, uniqueEntries, {
@@ -11049,9 +11068,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
     }
     teacherCalendarRefreshResultCache.delete(normalizedTeacherId);
     if (options.throwOnError) throw new Error(message);
-    return (cache?.entries || []).map((entry) => (
-      enrichGoogleCalendarEntryFromRoster(entry, normalizedTeacherId, students)
-    ));
+    return enrichGoogleCalendarEntriesFromRoster((cache?.entries || []), normalizedTeacherId, students);
   } finally {
     if (teacherCalendarFetchInFlight.get(normalizedTeacherId)?.promise === loadPromise) {
       teacherCalendarFetchInFlight.delete(normalizedTeacherId);
@@ -11062,7 +11079,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
 const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
   const entries = overlayCalendarEdits(await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options), teacherId, teacherCalendarEditsStore);
   const students = readStudentsDb().filter(student => student.teacherId === teacherId);
-  return overlayReschedules(entries.map(entry => enrichGoogleCalendarEntryFromRoster(entry, teacherId, students)), teacherId, lessonRescheduleStore);
+  return overlayReschedules(enrichGoogleCalendarEntriesFromRoster(entries, teacherId, students), teacherId, lessonRescheduleStore);
 };
 
 const getTeacherCalendarRefreshSettingsKey = (settings, teacherId) => [
