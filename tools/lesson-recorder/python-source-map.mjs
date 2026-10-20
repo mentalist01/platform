@@ -1,4 +1,16 @@
 // Recording parts form one logical source; editing never rewrites the originals.
+// Failed starts have no new source: retry that exact capture rather than
+// opening an older draft and losing edits made after the failed continuation.
+export function pythonRecordingAction(job, now = Date.now()) {
+  if (!job?.pythonTimeline || !(job.pythonTheory || job.mockReview) || job.pythonArchivedAt || job.pythonTimeline.approved) return '';
+  if (job.status === 'saved' && job.file && job.pythonTimeline.finalized) return 'continue';
+  const offset = job.pythonCaptureOffset || 0;
+  if (job.status === 'error' && !job.file && !job.url && job.local && job.manual
+    && job.cutoffAt > now && !job.pythonTimeline.finalized
+    && job.pythonTimeline.sourceEnd === offset && job.pythonTimeline.openStart === offset) return 'retry';
+  return '';
+}
+
 export function pythonSources(job) {
   const sources = [...(job.pythonPreviousSources || []), {id:job.id,file:job.file,start:job.pythonCaptureOffset || 0,end:job.pythonTimeline.sourceEnd}];
   let boundary = 0;

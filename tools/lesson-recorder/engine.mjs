@@ -35,7 +35,12 @@ export class RecorderEngine {
     if (job.pendingReport === pending) { delete job.pendingReport; this.save(); }
   }
   async start(job) {
-    if (this.active()) throw new Error('Сначала завершите текущую запись');
+    if (this.startingId || this.active()) throw new Error('Сначала завершите текущую запись');
+    this.startingId = job.id;
+    try { return await this.startRecording(job); }
+    finally { this.startingId = null; }
+  }
+  async startRecording(job) {
     job = { ...job, cutoffAt: recordingDeadline(job) };
     if (job.cutoffAt <= this.now()) throw new Error('Время урока по расписанию закончилось. Запись этого занятия завершена.');
     if (this.state.jobs[job.id]?.file || fs.existsSync(ownedRecording(this.recordDirectory, job.id))) throw new Error('Файл этой записи уже существует. Продолжите урок новой частью, чтобы сохранить обе записи.');
@@ -57,6 +62,9 @@ export class RecorderEngine {
     }
   }
   async recover(job) {
+    // The live StartRecord owns confirmation. A background poll must not
+    // classify its still-initializing encoder as a failed or stopped capture.
+    if (this.startingId === job.id) return;
     const controlRevision = this.materialControlRevision;
     const status = await this.obs.status();
     const { parameterValue } = await this.obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' });
@@ -75,7 +83,7 @@ export class RecorderEngine {
         }
       }
       delete job.resumeAfterRestart;
-      job.status = job.status === 'stopping' ? 'stopping' : 'recording'; this.save(); return;
+      job.status = job.status === 'stopping' ? 'stopping' : 'recording'; job.error = ''; this.save(); return;
     }
     const file = ownedRecording(this.recordDirectory, job.id);
     if (fs.existsSync(file) && fs.statSync(file).size > 0) {
@@ -85,7 +93,7 @@ export class RecorderEngine {
       job.file = file; job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
       await this.report(job, 'saved');
     } else if (job.status === 'starting') {
-      job.status = 'error'; job.error = 'OBS не начал запись. Устраните причину и нажмите «Повторить запуск». Не записанные минуты восстановить нельзя.'; this.save();
+      job.status = 'error'; job.error = `${job.error ? `Не удалось начать запись: ${job.error}. ` : 'OBS не начал запись. '}Устраните причину и нажмите «Повторить запуск». Исходники и монтаж сохранены.`; this.save();
       await this.report(job, 'error', { error: job.error });
     } else {
       job.status = 'error'; job.error = 'OBS остановился, файл не найден. Проверьте папку записей.'; this.save();
@@ -167,6 +175,7 @@ export class RecorderEngine {
   }
   async reconcileActive() {
     const active = this.active();
+    if (active && this.startingId === active.id) return;
     // A network outage does not bypass the local safety cutoff.
     if (active) {
       const deadline = recordingDeadline(active);

@@ -237,6 +237,29 @@ test('crash after OBS start is recovered without starting another recording', as
   await f.obs.start('one'); await f.engine.tick();
   assert.equal(f.state.jobs.one.status, 'recording'); assert.deepEqual(f.counts(), [1, 0]);
 });
+
+test('background reconciliation cannot fail a live pending encoder start or launch a duplicate', async t => {
+  const f=fixture(t);let entered,release;
+  const pending=new Promise(resolve=>{release=resolve;}),ready=new Promise(resolve=>{entered=resolve;});
+  const start=f.obs.start;f.obs.start=async id=>{entered();await pending;await start(id);};
+  const starting=f.engine.start({...f.job,local:true,mockReview:{examId:'monthly'},pythonTimeline:createTimeline()});
+  await ready;
+  await f.engine.recover(f.state.jobs.one);await f.engine.reconcileActive();
+  assert.equal(f.state.jobs.one.status,'starting');assert.equal(f.state.jobs.one.error,'');
+  await assert.rejects(f.engine.start({...f.job,id:'duplicate'}),/завершите/);
+  release();await starting;assert.equal(f.state.jobs.one.status,'recording');assert.deepEqual(f.counts(),[1,0]);
+});
+
+test('failed OBS start keeps the transport error and can retry the same continuation without rolling back its montage', async t => {
+  const f=fixture(t),start=f.obs.start;
+  const timeline={...createTimeline(),sourceEnd:120,openStart:120,revision:39,clips:[{id:'last-trim',start:10,end:118}]};
+  f.obs.start=async()=>{throw Error('OBS отключился');};
+  await assert.rejects(f.engine.start({...f.job,local:true,mockReview:{examId:'monthly'},pythonTimeline:timeline,pythonCaptureOffset:120,pythonPreviousSources:[{id:'old',start:0,end:120,file:'old.mkv'}]}),/OBS отключился/);
+  await f.engine.recover(f.state.jobs.one);assert.equal(f.state.jobs.one.status,'error');assert.match(f.state.jobs.one.error,/OBS отключился/);
+  const before=structuredClone(f.state.jobs.one);f.obs.start=start;await f.engine.start(f.state.jobs.one);
+  const retried=f.state.jobs.one;assert.equal(retried.id,'one');assert.equal(retried.status,'recording');
+  assert.deepEqual(retried.pythonTimeline,before.pythonTimeline);assert.deepEqual(retried.pythonPreviousSources,before.pythonPreviousSources);
+});
 test('foreign recording is neither stopped nor overwritten', async (t) => {
   const f = fixture(t); f.foreign();
   await assert.rejects(f.engine.start(f.job), /уже идёт запись/);

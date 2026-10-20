@@ -1,6 +1,6 @@
 import { clamp, clipAtTime, timeToPixel, pixelToTime, snapTime, trimmedRange, cursorEdit, remapPlayhead,zoomScale,zoomPosition,zoomLayout,fitTimelineScale } from './python-editor-time.mjs';
 import { SourceTimelinePlayer } from './python-playback.mjs';
-import {pythonSourceAt} from './python-source-map.mjs';
+import {pythonSourceAt,pythonRecordingAction} from './python-source-map.mjs';
 import {pythonExportSpeed,pythonExportDuration,pythonPreviewSpeed} from './python-speed.mjs';
 import {createPythonLibrary} from './python-library.mjs';
 const context = window.recorderEditorContext;
@@ -239,7 +239,9 @@ function renderPreparation(state) {
   startButton.hidden = Boolean(capture);
   startButton.textContent = startPending ? 'Запускаем запись…' : preparing ? '● Начать запись' : '● Новая запись';
   startButton.disabled = Boolean(waiting || capture || preparing && context.pythonStartReason());
-  const resumable=!preparing && belongs(job()||{}) && job().status==='saved' && job().pythonTimeline.finalized && !job().pythonTimeline.approved;
+  const resumeAction=!preparing && belongs(job()||{}) && pythonRecordingAction(job());
+  const resumable=Boolean(resumeAction);
+  continueButton.textContent=resumeAction==='retry'?'● Повторить запуск записи':'● Продолжить запись в этом черновике';
   continueButton.hidden=!resumable;continueButton.disabled=Boolean(waiting||capture);
   prepareButton.disabled = Boolean(waiting || capture);
   inspectorTabs.children[1].disabled = !job();
@@ -318,6 +320,10 @@ function renderMonitor(current, state) {
   find('.pe-session').dataset.paused = String(paused);
   find('.pe-session-title').textContent = startPending ? 'Запускаем запись…' : pending ? pending.paused ? 'Завершаем дубль…' : 'Начинаем следующий дубль…' : active ? paused ? 'Запись на паузе' : `● Дубль ${count + 1} · ${clock(Math.max(0, timeline.sourceEnd - (timeline.openStart ?? timeline.sourceEnd)))}` : ready ? 'Подготовка новой записи' : current ? 'Монтаж записи' : 'Подготовка записи';
   find('.pe-session-detail').textContent = startPending || pending ? 'Ждём подтверждения OBS. Повторно нажимать не нужно.' : active ? paused ? 'Дубль добавлен в ленту. Проверьте его или запишите следующий.' : '«Завершить дубль» остановит изображение и звук и добавит фрагмент в ленту.' : ready ? 'Выберите экран, микрофон и материал справа. Запуск — здесь, под предпросмотром.' : current ? 'Выберите фрагмент, проверьте монтаж и выложите готовое видео.' : 'Настройте источники и начните запись Python.';
+  if (!startPending && !pending && current?.status==='error' && !current.pythonTimeline.approved && !preparing) {
+    find('.pe-session-title').textContent='Запись не началась';
+    find('.pe-session-detail').textContent=`${current.error || 'OBS не подтвердил запуск.'} Монтаж сохранён.${pythonRecordingAction(current)==='retry'?' Нажмите «Повторить запуск записи».':''}`;
+  }
   const meter = state.obs?.meters?.find(item => item.inputName === 'IVAN100 Python: микрофон');
   const level = Math.max(0, ...(meter?.inputLevelsMul || []).flat());
   find('.pe-mic').hidden = !active && !ready;
@@ -601,10 +607,11 @@ async function operation(op) {
   if (!job()) return;
   const current = job(), selected = selection();
   if(op==='continue'){
+    const retry=pythonRecordingAction(current)==='retry';
     startPending=true;discardPreview();render();
     try{
-      await context.request('/python/continue',{id:current.id,revision:current.pythonTimeline.revision});await context.refresh();
-      const next=context.state().jobs.find(item=>item.pythonContinuedFrom===current.id&&['starting','recording','stopping'].includes(item.status));
+      await context.request(retry?'/retry-start':'/python/continue',{id:current.id,revision:current.pythonTimeline.revision});await context.refresh();
+      const next=context.state().jobs.find(item=>(retry?item.id===current.id:item.pythonContinuedFrom===current.id)&&['starting','recording','stopping'].includes(item.status));
       if(!next)throw Error('Обновите пульт и проверьте состояние продолжения');
       projectId=next.id;selectedId='';signature='';inspectorSignature='';playhead=totalTime();reviewedRevision=-1;preparing=false;showSettings(false);render();void livePreview();
       notify('Продолжаем этот урок. Прежние фрагменты и монтаж сохранены; пауза добавит новый дубль в конец ленты.');
