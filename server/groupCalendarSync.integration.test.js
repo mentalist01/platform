@@ -51,9 +51,12 @@ test('approval publishes group occurrences, survives uncertain Google response a
   const route=`/learning-groups/${group.id}/availability`;
   const roundId=(await req(route+'/open',teacher,{startDate,durationMinutes:60,startMinute:600,endMinute:1380,days:[0,1,2,3,4,5,6]})).poll.id;
   const proposalId=(await req(route+'/propose',teacher,{roundId,slots:['0-1140','3-1140']})).poll.proposal.id;
-  for(const pupil of pupils)await req(route+'/vote',pupil,{roundId,proposalId,choice:'yes'});
+  await req(route+'/approve',pupils[0],{roundId,proposalId},403);
+  assert.deepEqual((await req(route,teacher)).poll.proposal.votes,{});
   fs.writeFileSync(faultFile,'uncertain');
-  assert.equal((await req(route+'/approve',teacher,{roundId,proposalId})).poll.status,'approved');
+  const approved=await req(route+'/approve',teacher,{roundId,proposalId});
+  assert.equal(approved.poll.status,'approved');
+  assert.deepEqual(approved.poll.proposal.votes,{},'approval publishes calendars without fabricating student agreement');
   const wait=async expected=>{for(let n=0;n<100;n++){const value=await req(route,teacher);if(value.calendarSync.status===expected)return value;await new Promise(r=>setTimeout(r,50));}throw Error('Sync did not reach '+expected+'\n'+logs);};
   await wait('error');assert.equal(JSON.parse(fs.readFileSync(remoteFile)).length,1);
   const lessons=(await req(`/learning-groups/${group.id}/lessons`,teacher)).lessons;assert.equal(lessons.length,16);

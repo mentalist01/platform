@@ -269,12 +269,12 @@ export function registerGroupAvailability(app, deps) {
           if (!proposal || proposal.id !== body.proposalId) fail('Предложение изменилось. Обновите страницу.', 409);
           const allowed = new Set(availabilitySlots(poll.config).map(slot => slot.id));
           if (proposal.slots.some(id => !allowed.has(id))) fail('Выбранное занятие выходит за часы подбора. Предложите время с окончанием до 23:00.', 409);
-          // Fetch remote calendar, then reread roster: an added pupil must not
-          // be silently omitted while waiting for a network response.
+          // The teacher makes the final scheduling decision. Votes remain
+          // feedback, while calendar conflicts and current access still block approval.
           const busy = await busyEntries(group, poll.config, true);
           group = access(req, true);
           const members = membersOf(group);
-          if (!members.length || members.some(id => !['yes', 'maybe'].includes(proposal.votes[id]?.choice))) fail('Дождитесь согласия каждого участника группы', 409);
+          if (!members.length) fail('Добавьте хотя бы одного участника перед утверждением расписания', 409);
           const blocked = busySlots(poll.config, busy);
           if (proposal.slots.some(id => blocked[id])) fail('Время занято у преподавателя. Сначала перенесите пересекающиеся занятия или предложите другое время.', 409);
           poll.plan = { id: proposal.id, config: poll.config, slots: proposal.slots, approvedAt: Date.now(), ...(deps.calendarSync ? {googleCalendarSync:true} : {}) };

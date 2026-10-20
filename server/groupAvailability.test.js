@@ -146,29 +146,50 @@ test('API isolates groups, rejects removed pupils, validates answers and preserv
   state.down=true; assert.ok((await call()).calendarError);
   assert.ok((await call('propose',{roundId,slots:['1-600','2-600']},'t','teacher')).calendarError);
 });
-test('proposal consensus is tied to current proposal, answers and roster; approval rechecks occupancy', async t=>{
+for (const choice of [null, 'yes', 'no']) test(`teacher can approve with pending votes (${choice ?? 'no replies'}), preserving feedback and plan`, async t => {
+  const {call,open,store,file,state}=await fixture(t); const roundId=await open();
+  const proposalId=(await call('propose',{roundId,slots:['0-600','3-600']})).poll.proposal.id;
+  if(choice) await call('vote',{roundId,proposalId,choice,comment:'Ответ ученика'},'a','student');
+  const votes=structuredClone(store.get('g').proposal.votes);
+  await call('approve',{roundId,proposalId},'a','student','g',403);
+  await call('approve',{roundId,proposalId},'other','teacher','g',403);
+  await call('approve',{roundId:'stale',proposalId},'t','teacher','g',409);
+  await call('approve',{roundId,proposalId:'stale'},'t','teacher','g',409);
+  const approved=await call('approve',{roundId,proposalId});
+  assert.equal(approved.poll.status,'approved');
+  assert.deepEqual(approved.poll.proposal.votes,votes);
+  assert.deepEqual(createAvailabilityStore(file).get('g').proposal.votes,votes);
+  assert.deepEqual(store.plans()[0].slots,['0-600','3-600']);
+  assert.equal(state.approved.length,1);
+  await call('approve',{roundId,proposalId});
+  assert.equal(state.approved.length,1,'repeated approval remains idempotent');
+});
+
+test('approval rechecks calendar, roster and current proposal without requiring unanimous votes', async t=>{
   const {call,open,state}=await fixture(t); const roundId=await open();
   await call('propose',{roundId,slots:['0-600','0-660']},'t','teacher','g',400);
-  let p=(await call('propose',{roundId,slots:['0-600','3-600'],comment:'Договоримся'})).poll.proposal;
-  await call('approve',{roundId,proposalId:p.id},'t','teacher','g',409);
+  const p=(await call('propose',{roundId,slots:['0-600','3-600'],comment:'Договоримся'})).poll.proposal;
   await call('vote',{roundId,proposalId:'old',choice:'yes'},'a','student','g',409);
-  const vote=(id,choice='yes')=>call('vote',{roundId,proposalId:p.id,choice},id,'student');
-  await vote('a'); await vote('b','no');
-  await call('approve',{roundId,proposalId:p.id},'t','teacher','g',409);
-  await vote('b','maybe');
+  await call('vote',{roundId,proposalId:p.id,choice:'yes'},'a','student');
   await call('answer',{roundId,version:0,choices:{}},'a','student');
-  assert.equal((await call()).poll.proposal.votes.a,undefined); await vote('a');
-  state.hook=async(_g,_c,force)=>{if(force) state.groups[0].members.push(member('c'));};
-  await call('approve',{roundId,proposalId:p.id},'t','teacher','g',409); state.hook=null;
-  await vote('c'); state.entries=[{weekdayKey:'monday',time:'10:30',subject:'secret'}];
+  assert.equal((await call()).poll.proposal.votes.a,undefined);
+  state.down=true;
+  await call('approve',{roundId,proposalId:p.id},'t','teacher','g',503); state.down=false;
+  state.entries=[{weekdayKey:'monday',time:'10:30',subject:'secret'}];
   await call('approve',{roundId,proposalId:p.id},'t','teacher','g',409); state.entries=[];
-  assert.equal((await call('approve',{roundId,proposalId:p.id})).poll.status,'approved');
-  assert.equal(state.approved.length,1);
+  state.hook=async(_g,_c,force)=>{if(force) state.groups[0].members.push(member('c'));};
+  const approved=await call('approve',{roundId,proposalId:p.id}); state.hook=null;
+  assert.equal(approved.poll.status,'approved'); assert.equal(approved.poll.members.length,3);
+  assert.deepEqual(approved.poll.proposal.votes,{});
   await call('vote',{roundId,proposalId:p.id,choice:'no'},'a','student','g',409);
   const next=(await call('open',{...config(),previousRoundId:roundId})).poll;
   assert.ok(next.plan); assert.deepEqual(next.answers,{}); assert.equal(next.proposal,null);
   await call('answer',{roundId,version:0,choices:{}},'a','student','g',409);
+  const nextProposal=(await call('propose',{roundId:next.id,slots:['0-600','3-600']})).poll.proposal.id;
+  state.groups[0].members=[];
+  await call('approve',{roundId:next.id,proposalId:nextProposal},'t','teacher','g',409);
 });
+
 test('simultaneous approvals of two groups cannot reserve the same teacher time', async t=>{
   const {call,open,state}=await fixture(t);
   const requests=[];
@@ -206,7 +227,7 @@ test('saved preference changes notify once; rejected saves and unchanged reorder
   assert.deepEqual(createAvailabilityStore(file).get('g').answers.a.teacherNotification, updated);
 });
 
-test('reopening an approved plan retains availability and lessons, includes newcomers and requires fresh consent', async t => {
+test('reopening an approved plan retains availability and lessons, includes newcomers and keeps votes informational', async t => {
   const { call, open, state, store, file } = await fixture(t);
   const roundId = await open();
   const choices = { '0-600': 'yes', '3-600': 'maybe', '5-720': 'yes' };
@@ -233,10 +254,9 @@ test('reopening an approved plan retains availability and lessons, includes newc
   await call('answer', { roundId: reopened.id, version: 0, choices }, 'c', 'student');
   const nextId = (await call('propose', { roundId: reopened.id, slots: ['0-660', '3-660'] })).poll.proposal.id;
   for (const id of ['a', 'b']) await call('vote', { roundId: reopened.id, proposalId: nextId, choice: 'yes' }, id, 'student');
-  await call('approve', { roundId: reopened.id, proposalId: nextId }, 't', 'teacher', 'g', 409);
-  await call('vote', { roundId: reopened.id, proposalId: nextId, choice: 'maybe' }, 'c', 'student');
   const changed = (await call('approve', { roundId: reopened.id, proposalId: nextId })).poll;
   assert.deepEqual(changed.plan.slots, ['0-660', '3-660']);
+  assert.equal(changed.proposal.votes.c, undefined, 'newcomer was not falsely marked as agreeing');
   assert.deepEqual(changed.answers.a.choices, choices);
   assert.deepEqual(createAvailabilityStore(file).get('g').answers, changed.answers);
   state.groups[0].status = 'completed';
