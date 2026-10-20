@@ -4271,7 +4271,7 @@ const ProgressSection = ({
                 <div>
                   {!isStudentMocksSection && <div className="progress-overview-kicker">Общий результат</div>}
                   <h2 className={`${isStudentProgressSection ? 'text-lg md:text-xl' : 'text-xl md:text-2xl'} font-bold text-gray-900`}>
-                    {isStudentMocksSection ? 'Готовность к пробникам' : role === 'student' ? 'Все задания и пробники' : 'Успеваемость'}
+                    {isStudentMocksSection ? 'Готовность к пробникам' : role === 'student' ? 'Все задания' : 'Успеваемость'}
                   </h2>
                   {!isStudentMocksSection && (
                     <p className="progress-overview-subtitle">По всем изучаемым темам курса</p>

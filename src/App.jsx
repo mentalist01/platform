@@ -3264,7 +3264,7 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'progress',
-    title: 'Все задания и пробники',
+    title: 'Все задания',
     text: 'Следи за прогрессом по заданиям и пробным.',
     emotion: 'pondering',
     target: '[data-tour="progress"]',
@@ -19942,7 +19942,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : [
         { id: 'schedule', label: 'Домашка', icon: Calendar },
         ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups || studentHasLibraryAccess ? 'Группы и записи' : 'Подбор группы', icon: Users }] : []),
-        { id: 'progress', label: 'Все задания и пробники', icon: BarChart2 },
+        { id: 'progress', label: 'Все задания', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },

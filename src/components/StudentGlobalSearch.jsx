@@ -117,7 +117,7 @@ const VIEW_COMMANDS = [
     view: 'progress',
     targetKind: 'progress-section',
     progressSection: 'progress',
-    title: 'Все задания и пробники',
+    title: 'Все задания',
     description: 'Прогресс по заданиям, точность и следующая цель.',
     cta: 'Смотреть прогресс',
     keywords: 'успеваемость прогресс практика задание задания задача задачи домашняя работа домашка дз результаты',
