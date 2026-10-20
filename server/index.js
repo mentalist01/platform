@@ -2458,21 +2458,34 @@ let learningCalendarImportBatch = null;
 const withLearningCalendarImportBatch = callback => {
   if (learningCalendarImportBatch) return callback();
   const pending = new Map();
-  learningCalendarImportBatch = pending;
+  learningCalendarImportBatch = { pending };
+  let result, callbackError, callbackFailed = false;
   try {
-    return callback();
+    result = callback();
+  } catch (error) {
+    callbackFailed = true;
+    callbackError = error;
   } finally {
     learningCalendarImportBatch = null;
+  }
+  try {
     for (const [filePath, { value, normalize }] of pending) {
       writeLearningJsonStore(filePath, value, normalize);
     }
+  } catch (error) {
+    // An unsuccessful flush must not leave an unpersisted value acknowledged
+    // in memory. Reload every affected store from disk on the next attempt.
+    for (const filePath of pending.keys()) learningJsonStoreCache.delete(filePath);
+    throw error;
   }
+  if (callbackFailed) throw callbackError;
+  return result;
 };
 
 const writeLearningJsonStore = (filePath, value, normalize) => {
   if (learningCalendarImportBatch
     && (filePath === learningLessonSessionsFile || filePath === learningAttendanceFile)) {
-    learningCalendarImportBatch.set(filePath, { value, normalize });
+    learningCalendarImportBatch.pending.set(filePath, { value, normalize });
     learningJsonStoreCache.set(filePath, value);
     return value;
   }
@@ -10508,7 +10521,10 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
   const teacherId = normalizeTeacherId(group?.teacherId);
   const externalEventId = String(entry?.externalEventId || '').trim();
   const externalOccurrenceId = String(entry?.id || '').trim();
-  const teacherMarks = teacherCalendarMarksReader.readSnapshot()[teacherId] || {};
+  const marksSnapshot = learningCalendarImportBatch
+    ? (learningCalendarImportBatch.marks ||= teacherCalendarMarksReader.readSnapshot())
+    : teacherCalendarMarksReader.readSnapshot();
+  const teacherMarks = marksSnapshot[teacherId] || {};
   const platformCancelled = isTeacherCalendarLessonCancelled(
     teacherId,
     entry,
@@ -10531,7 +10547,9 @@ const upsertGoogleCalendarLearningLesson = (entry, group, participants = []) => 
     teacherId,
     groupId,
     externalEventId,
-    startAt: new Date(startMs).toISOString(),
+    // A moved recurring instance keeps the identity of its original slot.
+    startAt: entry?.calendarIsRecurring && Number.isFinite(Date.parse(entry.calendarOriginalStartAt))
+      ? new Date(entry.calendarOriginalStartAt).toISOString() : new Date(startMs).toISOString(),
   });
   if (!stableLessonId) return null;
   const boundSession = entry?.lessonId ? sessions.find(session => session.id === entry.lessonId && session.groupId === groupId && normalizeTeacherId(session.teacherId) === teacherId) : null;
@@ -10747,7 +10765,9 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], group
   const weekdayMeta = getScheduleWeekdayMetaFromDate(startParts.dayKey);
   if (!weekdayMeta) return null;
   const summary = String(event.summary || '').trim() || 'Google Calendar';
-  const owner = groupCalendarSync?.ownerForEvent(teacherId,String(event.uid || event.id || ''));
+  const owner = groupCalendarSync?.ownerForEvent(teacherId, String(event.uid || event.id || ''), {
+    recurring: Boolean(event.isRecurring), originalStartAt: event.originalStart || start.toISOString(),
+  });
   const ownedGroup = owner && groups.find(group=>group.id===owner.groupId && group.teacherId===teacherId && !group.deletedAt && group.status!=='completed');
   const matchedStudent = owner ? null : resolveGoogleCalendarStudentMatch(event, students);
   const groupMatch = matchedStudent ? { group: null, ambiguous: false } : resolveGoogleCalendarLearningGroupMatch({
@@ -17088,8 +17108,8 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry,
       .map((student) => [String(student?.id || '').trim(), student])
       .filter(([studentId]) => Boolean(studentId))
   );
-  const marksDb = readTeacherCalendarMarksDb();
-  const teacherMarks = readContext?.paymentMarks || normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
+  const teacherMarks = readContext?.paymentMarks
+    || normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[normalizedTeacherId]);
   const nowInfo = readContext?.paymentNowInfo || getStudentSchedulePaymentNowInfo();
   const dayKey = normalizeDayKey(entry?.date);
   const startMinutes = parseScheduleMinutes(entry?.time);

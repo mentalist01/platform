@@ -36,11 +36,13 @@ test('finance and student schedule browsing reuse supporting snapshots and prese
   seed('learning-subscriptions', { version: 1, tariffs: {}, blocks: [{ id: 'block', teacherId: 't', studentId: 's15', groupId: 'g', startsAt: lessons[0].startAt,
     tariff: { kind: 'group', price: 3600, lessonCount: 4 }, createdAt, cancelledAt: '', lessonIds: [] }] });
   seed('teacher-finances', { t: { studentProfiles: Object.fromEntries(students.map(student => [student.id, { lessonPrice: 900, pricingMode: 'perLesson' }])) } });
+  seed('teacher-calendar-marks', { t: Object.fromEntries(Array.from({ length: 5000 }, (_, n) => ['unrelated-history-' + n, createdAt])) });
   const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const preload = path.join(root, 'counters.mjs');
   fs.writeFileSync(preload, `import {LearningSubscriptionStore} from ${JSON.stringify(pathToFileURL(path.join(workspace, 'server/learningSubscriptions.js')).href)};
     import fs from 'node:fs';
-    const counts={reads:0,reconciles:0,lessonWrites:0,attendanceWrites:0};
+    const counts={reads:0,reconciles:0,lessonWrites:0,attendanceWrites:0,markStats:0};
+    const stat=fs.statSync;fs.statSync=function(file,...args){if(String(file).endsWith('teacher-calendar-marks.json'))counts.markStats++;return stat.call(this,file,...args);};
     const rename=fs.renameSync;fs.renameSync=function(from,to,...args){if(String(to).endsWith('learning-lesson-sessions.json'))counts.lessonWrites++;if(String(to).endsWith('learning-attendance.json'))counts.attendanceWrites++;return rename.call(this,from,to,...args);};for(const [method,key] of [['read','reads'],['reconcile','reconciles']]){const original=LearningSubscriptionStore.prototype[method];LearningSubscriptionStore.prototype[method]=function(...args){counts[key]++;return original.apply(this,args);};}
     process.on('message',value=>{if(value==='finance-counts')process.send({...counts});});`);
   const port = await new Promise(resolve => { const server = net.createServer().listen(0, '127.0.0.1', () => { const value = server.address().port; server.close(() => resolve(value)); }); });
@@ -62,7 +64,11 @@ test('finance and student schedule browsing reuse supporting snapshots and prese
     assert.equal(snapshot.calendarPlan.total.lessonCount, expected);
     assert.equal(snapshot.calendarPlan.total.revenue, expected * 900);
   }
+  const beforeCalendar = await counts(), calendarStarted = Date.now();
   const calendar = await (await fetch(base + '/api/teacher-schedule', { headers: { Authorization: 'Bearer ' + login.token } })).json();
+  const afterCalendar = await counts();
+  const calendarMarkStats = afterCalendar.markStats - beforeCalendar.markStats;
+  t.diagnostic(JSON.stringify({ calendarMs: Date.now() - calendarStarted, calendarMarkStats }));
   assert.equal(calendar.length, lessons.length);
   assert.ok(calendar.every(entry => entry.memberPaymentStatuses.length === students.length));
   assert.ok(calendar.every(entry => entry.memberPaymentStatuses.every(member => member.lessonPrice === 900)));
@@ -77,6 +83,7 @@ test('finance and student schedule browsing reuse supporting snapshots and prese
     const next = await fetch(base + '/api/student-next-lesson?studentId=' + studentId, { headers: { Authorization: 'Bearer ' + login.token } });
     assert.equal(next.status, 200);
   }
+  assert.ok(calendarMarkStats <= 20, 'payment mark storage access must not grow once per displayed group occurrence');
   const after = await counts(), reads = after.reads - before.reads, reconciles = after.reconciles - before.reconciles;
   t.diagnostic(JSON.stringify({ months: months.length, reads, reconciles, lessonWrites: after.lessonWrites - before.lessonWrites, attendanceWrites: after.attendanceWrites - before.attendanceWrites, elapsedMs: Date.now() - started }));
   assert.ok(after.lessonWrites - before.lessonWrites <= 8, 'calendar projection must batch lesson journal writes');

@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {createRescheduleStore} from './lessonReschedule.js';
-import {createGroupCalendarSync} from './groupCalendarSync.js';
+import {createGroupCalendarSync,originalPublishedLessonStartAt} from './groupCalendarSync.js';
 import {ensureGoogleCalendarGroupLesson} from './googleCalendarWriteback.js';
 
 function fixture(t) {
@@ -36,7 +37,7 @@ function fixture(t) {
     connection:async()=>({calendarId,accessToken:'fixture'}),
     writeGoogle:value=>ensureGoogleCalendarGroupLesson({...value,fetchImpl}),
     bindLesson:(id,result)=>Object.assign(lessons.find(l=>l.id===id),{externalEventId:result.iCalUID}),now:()=>Date.parse('2030-10-19T00:00:00Z')});
-  return {build,group,poll,lessons,remote,calls,setTimeout:()=>timeout=true,setOffline:value=>offline=value,setCalendar:value=>calendarId=value};
+  return {build,group,poll,lessons,remote,calls,file,setTimeout:()=>timeout=true,setOffline:value=>offline=value,setCalendar:value=>calendarId=value};
 }
 
 test('uncertain Google write recovers after restart without duplicates; manual Google edits remain intact',async t=>{
@@ -44,12 +45,37 @@ test('uncertain Google write recovers after restart without duplicates; manual G
   assert.equal(sync.status(f.group).status,'error');assert.equal(f.remote.size,1);
   sync=f.build();sync.resume();await sync.idle();
   assert.equal(sync.status(f.group).status,'synced');assert.equal(f.remote.size,2);
+  assert.ok(Object.values(JSON.parse(fs.readFileSync(f.file)).g.records).every(record=>Number.isFinite(Date.parse(record.originalStartAt))));
   assert.equal(f.calls.filter(c=>c.method==='POST').length,2);
   const moved=[...f.remote.values()][0];moved.start.dateTime='2030-10-21T17:40:00Z';moved.summary='Поменял в Google';
   const before=f.calls.length;sync.enqueue(f.group);sync.enqueue(f.group);await sync.idle();
   assert.equal(f.calls.length,before);assert.equal(moved.summary,'Поменял в Google');
   assert.deepEqual(sync.ownerForEvent('t',moved.iCalUID),{groupId:'g',lessonId:'l0'});
   assert.equal(sync.ownerForEvent('other',moved.iCalUID),undefined);
+});
+
+test('a legacy event converted to weekly keeps only its original occurrence bound, even after an earlier import corrupted its date', t => {
+  const f=fixture(t),day='2030-10-21',slot='0-1170';
+  const id=crypto.createHash('sha256').update(`g|p|${day}|${slot}`).digest('hex').slice(0,32);
+  f.lessons[0]={...f.lessons[0],id,scheduleEntryId:`p:${slot}`,createdAt:'2030-10-19T10:00:00Z',startAt:'2031-10-20T16:30:00Z'};
+  f.poll.plan.config={startDate:day};
+  fs.writeFileSync(f.file,JSON.stringify({g:{id:'g',teacherId:'t',records:{[id]:{iCalUID:'weekly',status:'synced'}}}}));
+  const before=JSON.stringify(f.lessons),sync=f.build();
+  assert.equal(originalPublishedLessonStartAt(f.lessons[0],f.poll),'2030-10-21T16:30:00.000Z');
+  let bound=0;
+  for(let week=0;week<53;week++){
+    const originalStartAt=new Date(Date.parse('2030-10-21T16:30:00Z')+week*7*86400000).toISOString();
+    const owner=sync.ownerForEvent('t','weekly',{recurring:true,originalStartAt});
+    assert.equal(owner.groupId,'g');
+    assert.equal(owner.lessonId,week===0?id:'');
+    if(owner.lessonId)bound++;
+  }
+  assert.equal(bound,1);
+  assert.equal(JSON.stringify(f.lessons),before,'owner lookup itself never edits stored lesson data');
+  assert.deepEqual(sync.ownerForEvent('t','weekly'),{groupId:'g',lessonId:id},'a nonrecurring manual move retains its room');
+  assert.equal(sync.ownerForEvent('other','weekly',{recurring:true,originalStartAt:'2030-10-21T16:30:00Z'}),undefined);
+  const unknown={...f.lessons[0],id:'f'.repeat(32)};
+  assert.equal(originalPublishedLessonStartAt(unknown,f.poll),'','an unresolvable anchor is never guessed from its corrupted current date');
 });
 
 test('new plan cancels only its own future published lessons; pending work stays durable while Google is offline',async t=>{

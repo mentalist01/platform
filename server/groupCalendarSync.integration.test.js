@@ -26,7 +26,15 @@ test('approval publishes group occurrences, survives uncertain Google response a
       const u=new URL(url),events=JSON.parse(fs.readFileSync(file)),method=options.method||'GET';
       if(method==='POST'){const body=JSON.parse(options.body);if(events.some(e=>e.id===body.id))return new Response('{}',{status:409});const event={...body,iCalUID:body.id+'@google.com',etag:'fixture'};events.push(event);fs.writeFileSync(file,JSON.stringify(events));if(fs.existsSync(fault)){fs.unlinkSync(fault);return new Response('{}',{status:503});}return Response.json(event);}
       const id=decodeURIComponent(u.pathname.split('/').at(-1));
-      if(id==='events')return Response.json({items:events.filter(e=>e.status!=='cancelled')});
+      if(id==='events')return Response.json({items:events.filter(e=>e.status!=='cancelled').flatMap(e=>{
+        if(!e.recurrence)return[e];
+        return Array.from({length:20},(_,week)=>{
+          const start=Date.parse(e.start.dateTime)+week*7*86400000,end=Date.parse(e.end.dateTime)+week*7*86400000;
+          const delta=e.instanceMove?.week===week?e.instanceMove.deltaMs:0;
+          return{...e,id:e.id+'_'+week,recurringEventId:e.id,originalStartTime:{dateTime:new Date(start).toISOString()},
+            start:{...e.start,dateTime:new Date(start+delta).toISOString()},end:{...e.end,dateTime:new Date(end+delta).toISOString()}};
+        }).filter(instance=>Date.parse(instance.start.dateTime)<Date.parse(u.searchParams.get('timeMax')));
+      })});
       const event=events.find(e=>e.id===id);if(!event)return new Response('{}',{status:404});
       if(method==='PATCH'){Object.assign(event,JSON.parse(options.body));fs.writeFileSync(file,JSON.stringify(events));}return Response.json(event);
     };`);
@@ -35,11 +43,11 @@ test('approval publishes group occurrences, survives uncertain Google response a
   const stop=async()=>{if(child?.exitCode===null){const done=new Promise(resolve=>child.once('exit',resolve));child.kill();await done;}};
   t.after(async()=>{await stop();fs.rmSync(root,{recursive:true,force:true});});
   const boot=async()=>{
-    child=spawn(process.execPath,['--import',pathToFileURL(preload).href,'server/index.js'],{cwd:path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),env:{...process.env,
+    child=spawn(process.execPath,['--import',pathToFileURL(preload).href,process.env.GROUP_CALENDAR_BASELINE_ENTRY||'server/index.js'],{cwd:path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),env:{...process.env,
       NODE_ENV:'test',PORT:String(port),PLATFORM_DATA_DIR:data,PLATFORM_UPLOADS_DIR:path.join(root,'uploads'),PLATFORM_JSON_BACKUPS_DIR:path.join(root,'backups'),COLLAB_PERSISTENCE:'0',DISABLE_STARTUP_XP_REBALANCE:'1',LEARNING_GROUPS_ENABLED:'1',
       GOOGLE_CALENDAR_OAUTH_CLIENT_ID:'fixture',GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET:'fixture',GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY:'fixture-secret',GOOGLE_CALENDAR_OAUTH_REDIRECT_URI:'http://localhost/fixture'},stdio:['ignore','pipe','pipe']});
     child.stdout.on('data',c=>logs+=c);child.stderr.on('data',c=>logs+=c);
-    for(let n=0;n<180;n++){if(child.exitCode!==null)throw Error(logs);try{if((await fetch(`http://127.0.0.1:${port}/api/client-build-version`)).ok)return;}catch{}await new Promise(r=>setTimeout(r,100));}throw Error(logs);
+    for(let n=0;n<180;n++){if(child.exitCode!==null)throw Error(logs);try{if((await fetch(`http://127.0.0.1:${port}/api/client-build-version`)).ok)return;}catch{/* Startup can refuse connections. */}await new Promise(r=>setTimeout(r,100));}throw Error(logs);
   };
   const req=async(route,token,body,status=200)=>{
     const response=await fetch(`http://127.0.0.1:${port}/api${route}`,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},...(body?{body:JSON.stringify(body)}:{})});
@@ -74,4 +82,42 @@ test('approval publishes group occurrences, survives uncertain Google response a
   calendar=await req('/teacher-schedule',teacher);
   const found=calendar.filter(e=>e.lessonId===id);assert.equal(found.length,1);assert.equal(found[0].time,'19:10');assert.equal(found[0].groupId,group.id);
   assert.equal((await req(`/learning-groups/${group.id}/lessons`,teacher)).lessons.length,16,'Google move preserves group room identities');
+
+  // Reproduce a previously published single event manually made weekly in
+  // Google, with a legacy receipt and a date already corrupted by old imports.
+  moved.recurrence=['RRULE:FREQ=WEEKLY'];fs.writeFileSync(remoteFile,JSON.stringify(events));
+  await stop();
+  const journal=JSON.parse(fs.readFileSync(path.join(data,'group-calendar-sync.json')));
+  delete journal[group.id].records[id].originalStartAt;
+  fs.writeFileSync(path.join(data,'group-calendar-sync.json'),JSON.stringify(journal));
+  const stored=JSON.parse(fs.readFileSync(path.join(data,'learning-lesson-sessions.json')));
+  const original=stored.find(lesson=>lesson.id===id);
+  original.startAt=new Date(Date.parse(moved.start.dateTime)+364*86400000).toISOString();
+  fs.writeFileSync(path.join(data,'learning-lesson-sessions.json'),JSON.stringify(stored));
+  await boot();
+  await req('/teacher-calendar-sync/refresh',teacher,{force:true});
+  calendar=await req('/teacher-schedule',teacher);
+  const series=calendar.filter(entry=>entry.groupId===group.id&&entry.externalEventId===moved.iCalUID);
+  const expectedSeriesCount=Array.from({length:20},(_,week)=>Date.parse(moved.start.dateTime)+week*7*86400000)
+    .filter(start=>start<Date.now()+120*86400000).length;
+  assert.ok(expectedSeriesCount>8,'the regression covers instances beyond the local materialization window');
+  assert.equal(series.length,expectedSeriesCount);
+  assert.equal(new Set(series.map(entry=>entry.lessonId)).size,expectedSeriesCount,'weekly dates cannot share one lesson room');
+  assert.equal(series.filter(entry=>entry.lessonId===id).length,1);
+  const recovered=(await req(`/learning-groups/${group.id}/lessons`,teacher)).lessons.find(lesson=>lesson.id===id);
+  assert.equal(recovered.startAt,moved.start.dateTime,'the first original room is recovered without moving it to the last week');
+  assert.equal(recovered.boardDocName,original.boardDocName);
+  assert.equal(recovered.collabDocName,original.collabDocName);
+  const secondDate=new Date(Date.parse(moved.start.dateTime)+2*7*86400000).toISOString();
+  const later=series.find(entry=>entry.startAt===secondDate);
+  assert.ok(later);
+  moved.instanceMove={week:2,deltaMs:40*60000};fs.writeFileSync(remoteFile,JSON.stringify(events));
+  await req('/teacher-calendar-sync/refresh',teacher,{force:true});
+  calendar=await req('/teacher-schedule',teacher);
+  const movedInstance=calendar.find(entry=>entry.lessonId===later.lessonId);
+  assert.equal(movedInstance.startAt,new Date(Date.parse(secondDate)+40*60000).toISOString());
+  assert.equal(calendar.filter(entry=>entry.lessonId===later.lessonId).length,1,'moving one instance retains its own room');
+  const settled=fs.readFileSync(path.join(data,'learning-lesson-sessions.json'),'utf8');
+  await req('/teacher-schedule',teacher);await req('/teacher-schedule',teacher);
+  assert.equal(fs.readFileSync(path.join(data,'learning-lesson-sessions.json'),'utf8'),settled,'unchanged calendar polls must stop rewriting lesson dates');
 });
