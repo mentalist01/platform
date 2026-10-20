@@ -4,6 +4,8 @@ import { getRutubeEmbedUrl } from '../src/utils/learningGroups.js';
 
 export function groupLibraryEntitlement(student, groups, blocks, lessons, now = Date.now()) {
   if (!student || student.deletedAt) return false;
+  const grant = student.groupLibraryAccess;
+  if (student.teacherId && grant?.enabled === true && grant.teacherId === student.teacherId) return true;
   const own = groups.filter(group => group.teacherId === student.teacherId && !group.deletedAt && group.status !== 'completed'
     && getActiveLearningGroupMembers(group).some(member => member.studentId === student.id));
   return own.some(group => {
@@ -34,7 +36,7 @@ export function groupLibraryCatalog(student, groups, lessons, jobs, materials, l
     id: lesson.id, groupId: lesson.groupId, groupName: byGroup.get(lesson.groupId).name,
     topic: lesson.topic || 'Занятие группы', startAt: lesson.startAt, durationMinutes: lesson.durationMinutes,
     status: lesson.status, ownGroup: ownIds.has(lesson.groupId), canListen: !ownIds.has(lesson.groupId) && live(lesson),
-    recordingParts: (videosByLesson.get(lesson.id) || []).sort((a, b) => a.order - b.order).map(({ order, ...video }) => video),
+    recordingParts: (videosByLesson.get(lesson.id) || []).sort((a, b) => a.order - b.order).map(video => ({ url: video.url, embedUrl: video.embedUrl })),
   }));
   return { groups: visibleGroups.map(group => ({ id: group.id, name: group.name })),
     lessons: entries.filter(lesson => !lesson.ownGroup && (lesson.canListen || Date.parse(lesson.startAt) >= Date.now())).sort((a, b) => a.startAt.localeCompare(b.startAt)),

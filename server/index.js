@@ -25521,7 +25521,10 @@ app.get('/api/learning-groups', handleLearningRoute((req, res) => {
   groups = groups
     .slice()
     .sort((left, right) => Date.parse(right.updatedAt || right.createdAt || 0) - Date.parse(left.updatedAt || left.createdAt || 0));
-  return res.json({ groups: groups.map((group) => serializeLearningGroupForAuth(group, req.auth)) });
+  return res.json({
+    groups: groups.map((group) => serializeLearningGroupForAuth(group, req.auth)),
+    ...(isStudentRole(req.auth) ? { libraryAccess: hasGroupLibraryAccess(req.auth) } : {}),
+  });
 }));
 
 app.post('/api/learning-groups', handleLearningRoute(async (req, res) => {
@@ -26470,6 +26473,24 @@ const hasGroupLibraryAccess = auth => {
   const student = libraryStudent(auth);
   return LEARNING_GROUPS_ENABLED && groupLibraryEntitlement(student, readLearningGroupsDb(), learningSubscriptions.read().blocks, readLearningLessonSessionsDb());
 };
+app.patch('/api/students/:id/group-access', handleLearningRoute((req, res) => {
+  if (!ensureStaffWriteAccess(req, res)) return;
+  const students = readStudentsDb();
+  const index = students.findIndex(student => student.id === req.params.id && !student.deletedAt);
+  if (index < 0) return res.status(404).json({ error: 'Ученик не найден' });
+  const student = students[index];
+  if (!student.teacherId || (isTeacherRole(req.auth) && student.teacherId !== req.auth.id)) return forbid(res);
+  if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'Укажите, открыть или закрыть доступ' });
+  const access = {
+    enabled: req.body.enabled,
+    teacherId: student.teacherId,
+    updatedAt: new Date().toISOString(),
+    updatedBy: req.auth.id,
+  };
+  students[index] = { ...student, groupLibraryAccess: access };
+  writeStudentsDb(students);
+  return res.json({ access, allowed: hasGroupLibraryAccess({ role: 'student', id: student.id }) });
+}));
 const libraryLessonIsLive = lesson => {
   const group = getLearningGroupById(lesson.groupId);
   if (!group || group.deletedAt || group.status === 'completed' || !LEARNING_GROUP_RTC_ENABLED) return false;

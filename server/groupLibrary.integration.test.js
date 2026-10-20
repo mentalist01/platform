@@ -175,5 +175,64 @@ test('cross-group listeners receive media only and do not join billing or attend
     await a.take('session-ended');
     assert.equal((await request('/api/student-group-library', { token: observer.token })).allowed, false);
     a.send({ type: 'join', roomId: nextLesson.rtcRoomId }); await a.take('error');
+    const grantPath = '/api/students/s1/group-access';
+    await request(grantPath, { token: observer.token, method: 'PATCH', body: { enabled: true }, status: 403 });
+    await request('/api/students/s7/group-access', { method: 'PATCH', body: { enabled: true }, status: 403 });
+    await request(grantPath, { method: 'PATCH', body: { enabled: 'true' }, status: 400 });
+    await request('/api/students/not-found/group-access', { method: 'PATCH', body: { enabled: true }, status: 404 });
+    const groupsBefore = fs.readFileSync(path.join(dataDir, 'learning-groups.json'), 'utf8');
+    const grant = await request(grantPath, { method: 'PATCH', body: { enabled: true, teacherId: 'other', updatedBy: 's1' } });
+    assert.equal(grant.allowed, true);
+    assert.equal(grant.access.teacherId, 't');
+    assert.equal(grant.access.updatedBy, 't');
+    assert.equal((await request('/api/learning-groups', { token: observer.token })).libraryAccess, true);
+    assert.equal((await request('/api/student-group-library', { token: observer.token })).allowed, true);
+    a.send({ type: 'join', roomId: nextLesson.rtcRoomId }); assert.equal((await a.take('joined')).listenOnly, true);
+    await request(root + '/lessons/' + nextLesson.id + '/voice-channels', { token: observer.token, status: 403 });
+    a.send({ type: 'signal', roomId: nextLesson.rtcRoomId, targetId: jt.selfId, signal: bad }); await a.take('error');
+    assert.equal(fs.readFileSync(path.join(dataDir, 'learning-groups.json'), 'utf8'), groupsBefore);
+    const revoke = await request(grantPath, { method: 'PATCH', body: { enabled: false } });
+    assert.equal(revoke.allowed, false);
+    a.send({ type: 'signal', roomId: nextLesson.rtcRoomId, targetId: jt.selfId, signal: good }); await a.take('session-ended');
+    assert.equal((await request('/api/learning-groups', { token: observer.token })).libraryAccess, false);
+    a.send({ type: 'join', roomId: nextLesson.rtcRoomId }); await a.take('error');
   } finally { await Promise.all(sockets.map(closeWebSocket)); await stopServer(child); fs.rmSync(tempRoot, { recursive: true, force: true }); }
+});
+
+test('ungrouped access persists across restart, lists on the teacher card, and student cannot self-grant', { timeout: 60000 }, async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'group-grant-'));
+  const dataDir = path.join(tempRoot, 'data'); fs.mkdirSync(dataDir);
+  const seed = (name, value) => fs.writeFileSync(path.join(dataDir, name), JSON.stringify(value));
+  seed('teachers.json', [{ id: 't', name: 'Teacher', code: '120001' }, { id: 'other', name: 'Other', code: '120002' }]);
+  seed('students.json', [{ id: 's', name: 'Student', teacherId: 't', code: '120101' }, { id: 'deleted', name: 'Deleted', teacherId: 't', code: '120102', deletedAt: new Date().toISOString() }]);
+  seed('progress.json', {});
+  const port = await getFreePort(), baseUrl = 'http://127.0.0.1:' + port;
+  let child, logs = '';
+  const start = async () => {
+    child = spawn(process.execPath, ['server/index.js'], { cwd: workspaceDir, env: { ...process.env, NODE_ENV: 'test', PORT: String(port), PLATFORM_DATA_DIR: dataDir, PLATFORM_UPLOADS_DIR: path.join(tempRoot, 'uploads'), PLATFORM_JSON_BACKUPS_DIR: path.join(tempRoot, 'backups'), COLLAB_PERSISTENCE: '0', DISABLE_STARTUP_XP_REBALANCE: '1', LEARNING_GROUPS_ENABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', chunk => { logs += chunk; }); child.stderr.on('data', chunk => { logs += chunk; });
+    await waitForServer(baseUrl, child, () => logs);
+  };
+  try {
+    await start();
+    const teacher = await login(baseUrl, '120001'), student = await login(baseUrl, '120101'), other = await login(baseUrl, '120002');
+    const request = (url, options = {}) => jsonRequest(baseUrl, url, { token: teacher.token, ...options });
+    assert.equal((await request('/api/student-group-library', { token: student.token })).allowed, false);
+    await request('/api/students/s/group-access', { token: other.token, method: 'PATCH', body: { enabled: true }, status: 403 });
+    await request('/api/students/deleted/group-access', { method: 'PATCH', body: { enabled: true }, status: 404 });
+    await request('/api/students/s', { token: student.token, method: 'PATCH', body: { groupLibraryAccess: { enabled: true, teacherId: 't' } }, status: 403 });
+    await request('/api/students/s/group-access', { method: 'PATCH', body: { enabled: true } });
+    assert.equal((await request('/api/students')).find(entry => entry.id === 's').groupLibraryAccess.enabled, true);
+    await stopServer(child);
+    await start();
+    const reloadedStudent = await login(baseUrl, '120101');
+    const groups = await request('/api/learning-groups', { token: reloadedStudent.token });
+    assert.deepEqual(groups.groups, []);
+    assert.equal(groups.libraryAccess, true);
+    assert.equal((await request('/api/student-group-library', { token: reloadedStudent.token })).allowed, true);
+    assert.equal(fs.existsSync(path.join(dataDir, 'learning-subscriptions.json')), false, 'grant creates no purchase or group membership');
+  } finally {
+    await stopServer(child);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

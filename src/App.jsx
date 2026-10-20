@@ -3264,7 +3264,7 @@ const STUDENT_TOUR_STEPS = [
   },
   {
     id: 'progress',
-    title: 'Успеваемость',
+    title: 'Все задания и пробники',
     text: 'Следи за прогрессом по заданиям и пробным.',
     emotion: 'pondering',
     target: '[data-tour="progress"]',
@@ -18768,6 +18768,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [studentGroupAccess, setStudentGroupAccess] = useState({ userId: '', hasGroups: false, loaded: false });
   const [studentAvailabilityState, setStudentAvailabilityState] = useState({ userId: '', prompt: null });
   const { hasGroups: studentHasGroups, seekingGroup: studentSeekingGroup } = getStudentGroupNavigationAccess(user.id, studentGroupAccess, studentAvailabilityState);
+  const studentHasLibraryAccess = studentGroupAccess.userId === user.id && studentGroupAccess.libraryAccess === true;
   const [studentLessonWorkspace, setStudentLessonWorkspace] = useState(() => ({
     status: user.role === 'student' ? 'loading' : 'individual',
     group: null,
@@ -19940,8 +19941,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Домашка', icon: Calendar },
-        ...(studentHasGroups || studentSeekingGroup ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : 'Подбор группы', icon: Users }] : []),
-        { id: 'progress', label: 'Успеваемость', icon: BarChart2 },
+        ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups || studentHasLibraryAccess ? 'Группы и записи' : 'Подбор группы', icon: Users }] : []),
+        { id: 'progress', label: 'Все задания и пробники', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
@@ -19958,7 +19959,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
-        ...(studentHasGroups || studentSeekingGroup ? ['groups'] : []),
+        ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? ['groups'] : []),
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
@@ -19970,7 +19971,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'lesson',
       ]
       : []
-  ), [studentCanSeeReview, studentHasGroups, studentSeekingGroup, user.role]);
+  ), [studentCanSeeReview, studentHasGroups, studentSeekingGroup, studentHasLibraryAccess, user.role]);
   const studentLessonNavIds = STUDENT_CALL_SECTION_ENABLED
     ? ['call', 'board', 'collab']
     : ['board', 'collab'];
@@ -21664,7 +21665,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       );
       if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
       // Accessible archives still need a navigation entry for old materials.
-      setStudentGroupAccess({ userId: user.id, hasGroups: normalizeLearningGroupList(groupsPayload).length > 0, loaded: true });
+      setStudentGroupAccess({ userId: user.id, hasGroups: normalizeLearningGroupList(groupsPayload).length > 0, libraryAccess: groupsPayload?.libraryAccess === true, loaded: true });
       if (activeGroups.length === 0) {
         setStudentLessonWorkspace({ status: 'individual', group: null, error: '' });
         setActiveLearningLesson(null);
@@ -25410,7 +25411,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                           <n.icon size={18} />
                         </span>
                         <span className="min-w-0">
-                          <span className="sidebar-nav-label block whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm">{n.label}</span>
+                          <span className="sidebar-nav-label block whitespace-nowrap text-[13px] font-semibold leading-tight md:text-sm" style={user.role === 'student' && n.id === 'progress' ? { whiteSpace: 'normal', lineHeight: 1.3 } : undefined}>{n.label}</span>
                           {isFeatured && (
                             <span className={`mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.12em] ${
                               isActive ? 'bg-amber-300 text-slate-950' : 'bg-amber-200/75 text-amber-800'
@@ -26146,7 +26147,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           {view === 'recording' && user.role === 'teacher' && <LessonRecordingSection recorder={desktopRecorder} />}
           {view === 'meetings' && user.role === 'teacher' && <GuestMeetingsSection user={user} theme={theme} />}
           {view === 'groups' && ['teacher', 'student'].includes(user.role) && (
-            <StudentGroupLibrary user={user} theme={theme} openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
+            <StudentGroupLibrary user={user} theme={theme} startWithRecordings={!studentHasGroups && studentHasLibraryAccess} openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
             <LearningGroupsSection
               role={user.role}
               userId={user.id}

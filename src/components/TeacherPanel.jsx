@@ -32,6 +32,7 @@ import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import StudentMonthlyReportModal from './StudentMonthlyReportModal';
 import StudentContactLinks from './StudentContactLinks';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
+import StudentGroupAccess from './StudentGroupAccess.jsx';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import {
   QUESTION_INSERT_MODE_CUSTOM,
@@ -3464,6 +3465,7 @@ const TeacherPanel = ({
                         </p>
                         <div className="mt-2"><StudentContactLinks studentId={student.id} studentName={student.name} compact /></div>
                         <StudentPlacementNote studentId={student.id} studentName={student.name} />
+                        <StudentGroupAccess key={student.id} student={student} onUpdated={onStudentUpdated} />
                       </>
                     )}
                   </div>

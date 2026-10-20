@@ -15,6 +15,18 @@ test('unpaid, future, cancelled, recordings-only, removed and other teacher do n
   assert.equal(access({ ...student, teacherId: 'another' }, groups, [], [], now), false);
   assert.equal(access(student, groups.map(group => ({ ...group, members: [] })), [], [], now), false);
 });
+test('teacher grant works before membership and cannot carry across deletion or teacher transfer', () => {
+  const grant = { enabled: true, teacherId: 't', updatedBy: 't', updatedAt: new Date(now).toISOString() };
+  const ungrouped = { ...student, groupLibraryAccess: grant };
+  assert.equal(access(ungrouped, [], [], [], now), true);
+  assert.equal(access({ ...ungrouped, groupLibraryAccess: { ...grant, enabled: false } }, [], [], [], now), false);
+  assert.equal(access({ ...ungrouped, deletedAt: new Date(now).toISOString() }, [], [], [], now), false);
+  assert.equal(access({ ...ungrouped, teacherId: 'another' }, [], [], [], now), false);
+  assert.equal(access({ ...ungrouped, teacherId: '' }, [], [], [], now), false);
+  assert.equal(access({ ...ungrouped, groupLibraryAccess: true }, [], [], [], now), false);
+  assert.equal(access({ ...ungrouped, groupLibraryAccess: { ...grant, enabled: false } }, groups, [], [], now), true, 'removing a manual grant preserves a valid group tariff');
+});
+
 test('catalog contains only same teacher group videos, including recovery parts; no roster or private lesson recordings', () => {
   const lessons = [{ id: 'l', groupId: 'foreign', teacherId: 't', startAt: '2026-10-05T10:00:00Z', topic: 'Графы', participantIds: ['secret'], status: 'active' }, { id: 'other-l', groupId: 'other', teacherId: 'another', startAt: '2026-10-05T10:00:00Z' }];
   const url = n => `https://rutube.ru/video/private/${String(n).padStart(32, 'a')}/?p=fixture`;

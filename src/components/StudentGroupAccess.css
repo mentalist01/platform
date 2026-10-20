@@ -1,0 +1,20 @@
+.student-group-access{display:flex;align-items:center;gap:12px;padding:15px;margin-top:12px;border:1px solid #baa1ea;border-radius:14px;background:#f5f0ff;color:#302047;cursor:default}
+.student-group-access__icon{display:grid;place-items:center;flex-shrink:0;width:40px;height:40px;border-radius:11px;background:#e5d8ff;color:#6631b9}
+.student-group-access__copy{flex:1;min-width:0}
+.student-group-access h4{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 5px;font-size:14px;font-weight:750;color:inherit}
+.student-group-access h4 span{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#066443;background:#d2f5e4;padding:3px 7px;border-radius:20px}
+.student-group-access p{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:1.6;color:#554266}
+.student-group-access small{display:block;margin-top:4px;font-size:11px;color:#41594e}
+.student-group-access>button{display:flex;align-items:center;justify-content:center;gap:7px;flex-shrink:0;border:1px solid #6d28d9;border-radius:10px;padding:10px 13px;background:#6d28d9;color:white;font-size:12px;font-weight:700;cursor:pointer}
+.student-group-access>button:hover{background:#5720af}
+.student-group-access>button:focus-visible{outline:3px solid #a78bfa;outline-offset:3px}
+.student-group-access>button:disabled{opacity:.65;cursor:wait}
+.student-group-access.is-enabled{border-color:#62ad91;background:#edf9f3}
+.student-group-access.is-enabled>button{background:#fff;border-color:#88ae9e;color:#255d47}
+.student-group-access__message{margin-top:6px;font-size:12px;color:#166047}
+.student-group-access__error{margin-top:6px;font-size:12px;color:#b42318}
+html[data-theme='dark'] .student-group-access{background:#282039;border-color:#76618d;color:#f1eaff}
+html[data-theme='dark'] .student-group-access p,html[data-theme='dark'] .student-group-access small{color:#cdc0df}
+html[data-theme='dark'] .student-group-access.is-enabled{background:#17392d;border-color:#489c79}
+html[data-theme='dark'] .student-group-access__message{color:#9de6c7}
+@media(max-width:650px){.student-group-access{flex-wrap:wrap}.student-group-access>button{margin-left:52px}.student-group-access p>svg{display:none}}
