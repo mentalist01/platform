@@ -2,14 +2,16 @@
 <style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}video{width:100%;height:100%;object-fit:contain}</style></head>
 <body><video autoplay muted playsinline></video><script>
 const key = location.hash.slice(1); const video = document.querySelector('video');
-let pc = null; let current = ''; let busy = false; let lastFrame = 0;
-function frames() { lastFrame = Date.now(); video.requestVideoFrameCallback?.(frames); }
+let pc = null; let current = ''; let busy = false; let hasFrame = false; let lastConnected = 0; let pendingAnswer = null;
+// Screen capture may send no new frames while a spreadsheet is unchanged.
+// Its last decoded image remains valid until the track or connection ends.
+function frames() { hasFrame = true; video.requestVideoFrameCallback?.(frames); }
 video.requestVideoFrameCallback?.(frames);
 async function api(body) {
  const response = await fetch('/share-source', { method: body ? 'POST' : 'GET', headers: { 'X-Share-Key': key, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
  if (!response.ok) throw new Error('Disconnected'); return response.json();
 }
-function close() { pc?.close(); pc = null; current = ''; video.srcObject = null; lastFrame = 0; }
+function close() { pc?.close(); pc = null; current = ''; video.srcObject = null; hasFrame = false; lastConnected = 0; pendingAnswer = null; }
 async function tick() {
  if (busy) return; busy = true;
  try {
@@ -17,19 +19,27 @@ async function tick() {
   if (!next) { close(); return; }
   if (current !== next.id || !pc || ['failed','closed'].includes(pc.connectionState)) {
    close(); current = next.id; pc = new RTCPeerConnection({ iceServers: [] });
-   pc.ontrack = (event) => { if (event.track.kind === 'video') { video.srcObject = new MediaStream([event.track]); video.play().catch(() => {}); } };
-   await pc.setRemoteDescription(next.offer);
-   await pc.setLocalDescription(await pc.createAnswer());
-   await new Promise(resolve => {
-    const timer = setTimeout(done, 3000);
-    function done() { clearTimeout(timer); pc?.removeEventListener('icegatheringstatechange', change); resolve(); }
-    function change() { if (pc?.iceGatheringState === 'complete') done(); }
-    pc.addEventListener('icegatheringstatechange', change); change();
-   });
-   await api({ id: current, answer: pc.localDescription.toJSON() });
+   pc.ontrack = (event) => { if (event.track.kind === 'video') { hasFrame = false; video.srcObject = new MediaStream([event.track]); video.play().catch(() => {}); } };
+   try {
+    await pc.setRemoteDescription(next.offer);
+    await pc.setLocalDescription(await pc.createAnswer());
+    await new Promise(resolve => {
+     const timer = setTimeout(done, 3000);
+     function done() { clearTimeout(timer); pc?.removeEventListener('icegatheringstatechange', change); resolve(); }
+     function change() { if (pc?.iceGatheringState === 'complete') done(); }
+     pc.addEventListener('icegatheringstatechange', change); change();
+    });
+    pendingAnswer = pc.localDescription.toJSON();
+   } catch (error) { close(); throw error; }
   }
-  await api({ id: current, ready: pc.connectionState === 'connected' && video.videoWidth > 0 && Date.now() - lastFrame < 4000 });
- } catch { close(); } finally { busy = false; }
+  // Retry signalling on this same peer: the sender may already have accepted
+  // its answer even if the local HTTP response was lost.
+  if (pendingAnswer) { await api({ id: current, answer: pendingAnswer }); pendingAnswer = null; }
+  if (pc.connectionState === 'connected') lastConnected = Date.now();
+  const connected = pc.connectionState === 'connected' || (pc.connectionState === 'disconnected' && lastConnected && Date.now() - lastConnected < 5000);
+  const liveTrack = video.srcObject?.getVideoTracks().some(track => track.readyState === 'live');
+  await api({ id: current, ready: Boolean(connected && liveTrack && hasFrame && video.videoWidth > 0) });
+ } catch { /* A signalling hiccup must not tear down an established video feed. */ } finally { busy = false; }
 }
 void tick(); setInterval(tick, 1000);
 </script></body></html>
