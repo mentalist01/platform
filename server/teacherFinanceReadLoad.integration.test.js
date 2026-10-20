@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { participationDay } from '../src/utils/groupParticipation.js';
 
-test('browsing finance months keeps a single supporting snapshot and preserves monthly lesson totals', { timeout: 120000 }, async t => {
+test('finance and student schedule browsing reuse supporting snapshots and preserve lesson prices', { timeout: 120000 }, async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'finance-read-load-'));
   const data = path.join(root, 'data'); fs.mkdirSync(data);
   const seed = (name, value) => fs.writeFileSync(path.join(data, name + '.json'), JSON.stringify(value));
@@ -53,6 +53,17 @@ test('browsing finance months keeps a single supporting snapshot and preserves m
   assert.equal(calendar.length, lessons.length);
   assert.ok(calendar.every(entry => entry.memberPaymentStatuses.length === students.length));
   assert.ok(calendar.every(entry => entry.memberPaymentStatuses.every(member => member.lessonPrice === 900)));
+  for (const studentId of ['s0', 's15']) {
+    const response = await fetch(base + '/api/student-schedule?studentId=' + studentId, { headers: { Authorization: 'Bearer ' + login.token } });
+    assert.equal(response.status, 200);
+    const schedule = await response.json();
+    assert.ok(schedule.some(entry => entry.groupId === 'g'));
+    const states = schedule.flatMap(entry => Object.values(entry.payment?.statesByDate || {}));
+    assert.ok(states.length > 40);
+    assert.ok(states.every(state => state.amount === 900), 'student schedule retains the historical personal lesson price');
+    const next = await fetch(base + '/api/student-next-lesson?studentId=' + studentId, { headers: { Authorization: 'Bearer ' + login.token } });
+    assert.equal(next.status, 200);
+  }
   const after = await counts(), reads = after.reads - before.reads, reconciles = after.reconciles - before.reconciles;
   t.diagnostic(JSON.stringify({ months: months.length, reads, reconciles, elapsedMs: Date.now() - started }));
   assert.ok(reads <= 30, `Finance reread subscriptions ${reads} times while browsing ${months.length} months`);

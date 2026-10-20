@@ -16832,43 +16832,49 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
   const studentId = String(student?.id || '').trim();
   const teacherId = normalizeTeacherId(student?.teacherId);
   materializeAvailabilitySchedules();
+  if (studentId && teacherId) {
+    try {
+      await reconcileTeacherPaymentCredits(teacherId, { studentId });
+    } catch (error) {
+      console.warn('[payment-credit] schedule reconciliation failed:', error?.message || error);
+    }
+  }
+  let rawGoogleEntries = [];
+  if (studentId && teacherId) {
+    try {
+      rawGoogleEntries = await fetchTeacherGoogleCalendarEntries(teacherId);
+    } catch {
+      rawGoogleEntries = [];
+    }
+  }
+  // Import/reconciliation can update lessons. Take one fresh view only after
+  // both awaits; all per-occurrence calculations below use that same view.
+  const readContext = createPaymentScheduleReadContext();
   const groupEntries = availabilityCalendarEntries(teacherId, true, true);
   const resolveGroupPaymentEntry = createStudentGroupPaymentEntryResolver(
-    groupEntries, studentId, getGroupEntryStudentSourceIds
+    groupEntries, studentId, (entry, id) => getGroupEntryStudentSourceIds(entry, id, readContext)
   );
   const rawBaseSchedule = deduplicateGroupScheduleEntries([
     ...(Array.isArray(schedule) ? schedule : []),
     ...groupEntries
-      .map(entry => projectGoogleCalendarEntryForPaymentStudent(entry, student)).filter(Boolean),
+      .map(entry => projectGoogleCalendarEntryForPaymentStudent(entry, student, readContext)).filter(Boolean),
   ].map(resolveGroupPaymentEntry));
   if (!studentId || !teacherId) return rawBaseSchedule;
-
-  try {
-    await reconcileTeacherPaymentCredits(teacherId, { studentId });
-  } catch (error) {
-    console.warn('[payment-credit] schedule reconciliation failed:', error?.message || error);
-  }
 
   const marksDb = readTeacherCalendarMarksDb();
   const teacherMarks = normalizeTeacherCalendarMarks(marksDb[teacherId]);
   const baseSchedule = filterTeacherCalendarCancelledSchedule(
     teacherId,
-    rawBaseSchedule.filter(entry=>!entry.isLearningGroupEvent || isGroupEntryAssigned(entry,studentId) || hasGroupEntryPaidMark({...entry,teacherId},studentId)),
+    rawBaseSchedule.filter(entry => !entry.isLearningGroupEvent || isGroupEntryAssigned(entry, studentId, null, readContext)
+      || hasGroupEntryPaidMark({ ...entry, teacherId }, studentId, readContext)),
     teacherMarks
   );
   const nowInfo = getStudentSchedulePaymentNowInfo();
   if (!Number.isFinite(nowInfo.todayNumber)) return baseSchedule;
 
-  let googleEntries = [];
-  try {
-    googleEntries = (await fetchTeacherGoogleCalendarEntries(teacherId))
-      .map((entry) => projectGoogleCalendarEntryForPaymentStudent(entry, student))
-      .filter(Boolean)
-      .map(resolveGroupPaymentEntry);
-    googleEntries = filterTeacherCalendarCancelledSchedule(teacherId, googleEntries, teacherMarks);
-  } catch {
-    googleEntries = [];
-  }
+  const googleEntries = filterTeacherCalendarCancelledSchedule(teacherId, rawGoogleEntries
+    .map(entry => projectGoogleCalendarEntryForPaymentStudent(entry, student, readContext))
+    .filter(Boolean).map(resolveGroupPaymentEntry), teacherMarks);
 
   const googleEntryByMatchKey = new Map();
   googleEntries.forEach((entry) => {
@@ -16899,13 +16905,14 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
         endMinutes: occurrence.endMinutes,
         teacherMarks,
         nowInfo,
+        readContext,
       });
       if (!paymentState) return;
       paymentState.amount = paymentState.trial || paymentState.cancelled ? 0
         : getLessonPriceForPaymentOccurrence(financeEntry, studentId, {
           ...sourceEntry, dayKey: occurrence.dayKey,
           paidAt: paymentState.paid ? teacherMarks[paymentState.paidMarkKey] : '',
-        }).lessonPrice;
+        }, readContext).lessonPrice;
       statesByDate[occurrence.dayKey] = paymentState;
       if (
         paymentState.overdue
