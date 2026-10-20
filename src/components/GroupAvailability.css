@@ -99,6 +99,10 @@
 .ga-approved h3{margin-bottom:16px}
 .ga-approved p{margin-top:15px}
 .ga-approved .ga-eyebrow{color:#42937b}
+.ga-google-sync{display:grid;gap:9px;margin-top:18px;padding:15px;border:1px solid #70a88d;border-radius:12px;background:var(--ga-bg);color:var(--ga-ink)}
+.ga-google-sync strong{font-size:14px}.ga-google-sync span{font-size:12px}.ga-google-sync p{margin:0!important;font-size:13px!important}.ga-google-sync button{justify-self:start}
+.ga-google-sync--error{border-color:#bf7334;background:#fff6e8;color:#6b3813}
+.dark .ga-google-sync--error,[data-theme=dark] .ga-google-sync--error{background:#442c1a;color:#ffe0b7}
 .ga-footnote{display:flex;align-items:flex-start;gap:8px;margin-top:24px!important;font-size:11px!important}
 .ga-footnote svg{flex-shrink:0;margin-top:3px}
 .ga-setup{max-width:780px;margin:0 auto;padding:10px 0}

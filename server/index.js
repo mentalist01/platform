@@ -30,6 +30,8 @@ import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } f
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
+import { createGroupCalendarSync } from './groupCalendarSync.js';
+import { ensureGoogleCalendarGroupLesson } from './googleCalendarWriteback.js';
 import {registerGroupAvailabilityShare} from './groupAvailabilityShare.js';
 import { createStudentAvailabilityStore } from './studentAvailability.js';
 import { registerGroupPlacement } from './groupPlacement.js';
@@ -9627,6 +9629,7 @@ const GOOGLE_CALENDAR_SYNC_TIME_ZONE = String(
   process.env.PLATFORM_CALENDAR_TIME_ZONE || process.env.TZ || 'Europe/Moscow'
 ).trim() || 'Europe/Moscow';
 const teacherCalendarSyncCache = new Map();
+let groupCalendarSync;
 const teacherCalendarFetchInFlight = new Map();
 const teacherCalendarRefreshInFlight = new Map();
 const teacherCalendarRefreshResultCache = new Map();
@@ -10695,7 +10698,7 @@ const enrichGoogleCalendarEntryFromRoster = (entry, teacherId, students = [], ed
     projected = clearGoogleCalendarLearningGroupProjection(projected);
     projected = { ...projected, studentId: student?.id || '', studentName: student?.name || projected.subject,
       isTeacherSlot: !student && !group,
-      ...(group && group.teacherId === teacherId && !group.deletedAt ? { groupId: group.id, isLearningGroupEvent: true, groupName: group.name } : {}),
+      ...(group && group.teacherId === teacherId && !group.deletedAt ? { groupId: group.id, isLearningGroupEvent: true, groupName: group.name, lessonId:owner.lessonId || '' } : {}),
     };
   } else projected = attachGoogleCalendarEntryStudentMatch(projected, students);
   return enrichGoogleCalendarLearningGroupEntry(projected, teacherId, students);
@@ -10715,13 +10718,15 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], group
   const weekdayMeta = getScheduleWeekdayMetaFromDate(startParts.dayKey);
   if (!weekdayMeta) return null;
   const summary = String(event.summary || '').trim() || 'Google Calendar';
-  const matchedStudent = resolveGoogleCalendarStudentMatch(event, students);
+  const owner = groupCalendarSync?.ownerForEvent(teacherId,String(event.uid || event.id || ''));
+  const ownedGroup = owner && groups.find(group=>group.id===owner.groupId && group.teacherId===teacherId && !group.deletedAt && group.status!=='completed');
+  const matchedStudent = owner ? null : resolveGoogleCalendarStudentMatch(event, students);
   const groupMatch = matchedStudent ? { group: null, ambiguous: false } : resolveGoogleCalendarLearningGroupMatch({
     title: summary,
     teacherId,
     groups,
   });
-  const matchedGroup = groupMatch.group;
+  const matchedGroup = ownedGroup || groupMatch.group;
   const participants = matchedGroup
     ? getGoogleCalendarLearningGroupParticipants(matchedGroup, students)
     : [];
@@ -10763,7 +10768,7 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], group
       groupName: matchedGroup.name,
       participantIds: participants.map((participant) => participant.studentId),
       participants,
-      lessonId: '',
+      lessonId: ownedGroup ? owner.lessonId : '',
       telemostUrl,
       telemostUrlOverride: telemostUrl,
     } : {}),
@@ -10772,6 +10777,7 @@ const buildGoogleCalendarScheduleEntry = (event, teacherId, students = [], group
     source: 'google-ical',
     externalCalendarProvider: 'Google Calendar',
     externalEventId: externalId,
+    ...(ownedGroup ? {calendarPlatformOwner:{groupId:ownedGroup.id,lessonId:owner.lessonId}} : {}),
     calendarOriginalStartAt: originalStartAt,
     calendarMovedFromId: originalId,
     calendarIsRecurring: Boolean(event.isRecurring),
@@ -25411,7 +25417,28 @@ registerGroupAvailabilityShare(app, {
   getEntries:(teacherId, throughDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay),
 });
 
+groupCalendarSync = createGroupCalendarSync({
+  store:createRescheduleStore(path.join(dataDir,'group-calendar-sync.json')),polls:availabilityStore,
+  getGroup:getLearningGroupById,readLessons:readLearningLessonSessionsDb,materialize:()=>materializeAvailabilitySchedules(true),
+  connection:async teacherId=>{
+    const value=getTeacherCalendarGoogleConnection(teacherId);
+    if (!value.calendarId || !value.encryptedTokens) throw Error('В общем календаре разрешите изменения в Google Calendar и выберите календарь. Затем нажмите «Повторить синхронизацию».');
+    return {calendarId:value.calendarId,accessToken:await getTeacherGoogleCalendarAccessToken(teacherId)};
+  },writeGoogle:ensureGoogleCalendarGroupLesson,
+  bindLesson:(id,result)=>{
+    const lessons=readLearningLessonSessionsDb(),lesson=lessons.find(value=>value.id===id);
+    if (!lesson || !result.iCalUID) return;
+    writeLearningLessonSessionsDb(lessons.map(value=>value.id===id?normalizeLearningLessonSession({...value,
+      externalCalendarProvider:'Google Calendar',externalEventId:result.iCalUID}):value));
+  },
+  notify:group=>{
+    teacherCalendarSyncCache.delete(group.teacherId);teacherCalendarRefreshResultCache.delete(group.teacherId);
+    notifyScheduleSyncUpdate({scope:'group-availability',action:'calendar-synced',teacherId:group.teacherId,entryId:group.id});
+  },
+});
 registerGroupAvailability(app, {
+  calendarSync:groupCalendarSync,
+  notifyApproved:group=>notifyScheduleSyncUpdate({scope:'group-availability',action:'approved',teacherId:group.teacherId,entryId:group.id}),
   store: availabilityStore, getGroup: getLearningGroupById, canManage: canManageLearningGroup,
   rememberAnswer: rememberLearningStudentAvailability,
   seedAnswer: seedLearningStudentAvailability,
@@ -25443,7 +25470,8 @@ registerGroupAvailability(app, {
       .map(entry => annotateTeacherCalendarCancellation(group.teacherId, entry, marks));
   },
 });
-setInterval(() => { try { materializeAvailabilitySchedules(); } catch (error) { console.error('[group-availability] schedule refresh failed:', error.message); } }, 300000).unref();
+setInterval(() => { try { materializeAvailabilitySchedules(); groupCalendarSync.resume(); } catch (error) { console.error('[group-availability] schedule refresh failed:', error.message); } }, 300000).unref();
+if (LEARNING_GROUPS_ENABLED) setImmediate(()=>groupCalendarSync.resume());
 
 app.get('/api/learning-groups', handleLearningRoute((req, res) => {
   materializeAvailabilitySchedules();

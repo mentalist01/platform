@@ -154,6 +154,7 @@ export function registerGroupAvailability(app, deps) {
     // must not expose answers of former participants to the group.
     delete publicPoll.memberTransfers;
     return { canManage: canEdit, closed: group.status === 'completed', blocked, calendarError,
+      ...(canEdit && deps.calendarSync ? {calendarSync:deps.calendarSync.status(group,poll)} : {}),
       poll: { ...publicPoll, includeBusyTimes, members: memberIds.map(id => ({ id, name: getStudentName(id, auth) })),
         answers: Object.fromEntries(memberIds.filter(id => poll.answers[id]).map(id => {
           const answer = { ...poll.answers[id] };
@@ -170,12 +171,13 @@ export function registerGroupAvailability(app, deps) {
     res.setHeader('Cache-Control', 'no-store');
     let release; let tail; let lockKey; let answerNotification = null;
     try {
-      let group = access(req, ['open', 'reopen', 'approve', 'settings'].includes(action));
+      const management = ['open', 'reopen', 'approve', 'settings', 'sync-calendar'].includes(action);
+      let group = access(req, management);
       if (action !== 'get') {
         lockKey = group.teacherId;
         const previous = locks.get(lockKey) || Promise.resolve();
         tail = new Promise(resolve => { release = resolve; }); locks.set(lockKey, tail);
-        await previous; group = access(req, ['open', 'reopen', 'approve', 'settings'].includes(action));
+        await previous; group = access(req, management);
         if (group.status === 'completed') fail('Группа завершена', 409);
       }
       let poll = store.get(group.id); const body = req.body || {};
@@ -184,7 +186,11 @@ export function registerGroupAvailability(app, deps) {
         if (poll.hoursVersion !== 1) { poll.config = { ...poll.config, endMinute: AVAILABILITY_END_MINUTE }; poll.hoursVersion = 1; }
         poll.config = currentAvailabilityConfig(poll.config);
       }
-      if (action === 'open') {
+      const repeatedApproval = action === 'approve' && poll?.status === 'approved' && poll.id === body.roundId && poll.plan?.id === body.proposalId;
+      if (action === 'sync-calendar' || repeatedApproval) {
+        if (!poll?.plan || poll.status !== 'approved' || poll.plan.id !== (body.planId || body.proposalId)) fail('Расписание изменилось. Обновите страницу.',409);
+        if (deps.calendarSync) poll.plan.googleCalendarSync = true;
+      } else if (action === 'open') {
         if ((poll?.id || '') !== (body.previousRoundId || '')) fail('Подбор уже изменился. Обновите страницу.', 409);
         const config = availabilityConfig(body);
         if (body.includeBusyTimes !== undefined && typeof body.includeBusyTimes !== 'boolean') fail('Выберите режим подбора времени');
@@ -271,14 +277,18 @@ export function registerGroupAvailability(app, deps) {
           if (!members.length || members.some(id => !['yes', 'maybe'].includes(proposal.votes[id]?.choice))) fail('Дождитесь согласия каждого участника группы', 409);
           const blocked = busySlots(poll.config, busy);
           if (proposal.slots.some(id => blocked[id])) fail('Время занято у преподавателя. Сначала перенесите пересекающиеся занятия или предложите другое время.', 409);
-          poll.plan = { id: proposal.id, config: poll.config, slots: proposal.slots, approvedAt: Date.now() };
+          poll.plan = { id: proposal.id, config: poll.config, slots: proposal.slots, approvedAt: Date.now(), ...(deps.calendarSync ? {googleCalendarSync:true} : {}) };
           poll.status = 'approved';
         }
       }
-      group = access(req, ['open', 'reopen', 'approve', 'settings'].includes(action));
+      group = access(req, management);
       if (action !== 'get') {
         if (group.status === 'completed') fail('Группа завершена', 409);
-        poll.updatedAt = Date.now(); store.put(group.id, poll); if (action === 'approve') materialize();
+        poll.updatedAt = Date.now(); store.put(group.id, poll);
+        if (action === 'approve' || action === 'sync-calendar') {
+          materialize(); deps.calendarSync?.enqueue(group);
+          deps.notifyApproved?.(group);
+        }
         if (answerNotification && deps.notifyAnswer) {
           try { await deps.notifyAnswer(group, poll, answerNotification); }
           catch (error) { console.warn('[group-availability] answer notification failed:', error.message); }
@@ -289,5 +299,5 @@ export function registerGroupAvailability(app, deps) {
     finally { if (release) { release(); if (locks.get(lockKey) === tail) locks.delete(lockKey); } }
   };
   app.get('/api/learning-groups/:groupId/availability', route('get'));
-  for (const action of ['open', 'reopen', 'settings', 'answer', 'propose', 'vote', 'approve']) app.post(`/api/learning-groups/:groupId/availability/${action}`, route(action));
+  for (const action of ['open', 'reopen', 'settings', 'answer', 'propose', 'vote', 'approve', 'sync-calendar']) app.post(`/api/learning-groups/:groupId/availability/${action}`, route(action));
 }

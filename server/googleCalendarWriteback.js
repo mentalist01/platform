@@ -334,6 +334,44 @@ export async function moveGoogleCalendarLesson({ accessToken, calendarId, reques
   }
 }
 
+// One deterministic event per approved group occurrence. A timed-out POST is
+// recovered by ID; an acknowledged or manually moved event is never recreated.
+export async function ensureGoogleCalendarGroupLesson({ accessToken, calendarId, teacherId, group, lesson, cancelled = false, fetchImpl = fetch }) {
+  if (!calendarId || !teacherId || group?.teacherId !== teacherId || lesson?.teacherId !== teacherId || lesson.groupId !== group.id) throw Error('Некорректное занятие группы');
+  const id = crypto.createHash('sha256').update(`ivan100-group:${teacherId}:${lesson.id}`).digest('hex');
+  const base = `/calendars/${encodeURIComponent(calendarId)}/events`;
+  const request = options => googleCalendarApiRequest({ accessToken, fetchImpl, ...options });
+  const owned = event => {
+    const p = event.extendedProperties?.private;
+    if (p?.ivan100GroupId !== group.id || p?.ivan100LessonId !== lesson.id || p?.ivan100TeacherId !== teacherId) throw Object.assign(Error('Событие в Google не принадлежит этому занятию. Проверьте календарь.'), {status:409});
+    return event;
+  };
+  const read = async () => {
+    try { return owned(await request({path:`${base}/${id}`})); }
+    catch (error) { if ([404,410].includes(error.status)) return null; throw error; }
+  };
+  let event = await read();
+  if (cancelled) {
+    if (event && event.status !== 'cancelled') await request({path:`${base}/${id}?sendUpdates=none`,method:'PATCH',headers:event.etag?{'If-Match':event.etag}:{},body:{status:'cancelled'}});
+    return {eventId:id,iCalUID:event?.iCalUID || '',calendarId,cancelled:true};
+  }
+  if (!event) {
+    const start = Date.parse(lesson.startAt), end = start + lesson.durationMinutes * 60000;
+    if (!Number.isFinite(start) || !(end > start)) throw Error('Некорректное время занятия');
+    try {
+      event = await request({path:`${base}?sendUpdates=none`,method:'POST',body:{id,summary:group.name,
+        description:lesson.telemostUrl || group.telemostUrl || '',
+        start:{dateTime:new Date(start).toISOString(),timeZone:'Europe/Moscow'},end:{dateTime:new Date(end).toISOString(),timeZone:'Europe/Moscow'},
+        extendedProperties:{private:{ivan100GroupId:group.id,ivan100LessonId:lesson.id,ivan100TeacherId:teacherId}},
+      }});
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      event = await read(); if (!event) throw error;
+    }
+  }
+  return {eventId:event.id || id,iCalUID:event.iCalUID || '',calendarId,cancelled:event.status === 'cancelled'};
+}
+
 const chooseOccurrence = (events, expectedStartMs) => {
   const candidates = (Array.isArray(events) ? events : [])
     .filter((event) => normalizeText(event?.id) && normalizeText(event?.status) !== 'cancelled');
