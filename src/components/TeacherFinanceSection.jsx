@@ -377,11 +377,12 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const load = async () => {
       if (financeLoadedRef.current) setMonthLoading(true);
       else setLoading(true);
       try {
-        const data = await api.getTeacherFinance(selectedMonth, teacherId);
+        const data = await api.getTeacherFinance(selectedMonth, teacherId, { signal: controller.signal });
         if (cancelled) return;
         applySnapshot(data);
         setError('');
@@ -395,9 +396,12 @@ const TeacherFinanceSection = ({ teacherId, students = [], studentsLoading }) =>
         }
       }
     };
-    load();
+    // Fast month browsing only loads the month the teacher stops on.
+    const timer = setTimeout(load, 180);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      controller.abort();
     };
   }, [selectedMonth, teacherId, subscriptionRefresh]);
 

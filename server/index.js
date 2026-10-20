@@ -10253,18 +10253,18 @@ const getGroupEntryStudentSourceIds = (entry, studentId, readContext = null) => 
   const projected = buildStudentScheduleEntryFromGoogleCalendar(entry,{id:studentId,teacherId},null);
   return [entry.id, `${entry.id}:${studentId}`, projected?.id].filter(Boolean);
 };
-const hasGroupEntryPaidMark = (entry, studentId) => {
+const hasGroupEntryPaidMark = (entry, studentId, readContext = null) => {
   const day = participationOccurrence(entry).day;
-  const teacherId = entry.teacherId || readLearningGroupsDb().find(g=>g.id===entry.groupId)?.teacherId;
-  const ids = getGroupEntryStudentSourceIds(entry,studentId);
+  const teacherId = entry.teacherId || (readContext ? readContext.groups() : readLearningGroupsDb()).find(g=>g.id===entry.groupId)?.teacherId;
+  const ids = getGroupEntryStudentSourceIds(entry,studentId,readContext);
   const marks = teacherCalendarMarksReader.readSnapshot()[teacherId];
   return ids.some(id => marks?.[buildTeacherCalendarPaymentMarkKey(teacherId,{...entry,id,studentId},day,'paid')]);
 };
-const doesGoogleCalendarLearningGroupEntryIncludeStudent = (entry, student) => {
+const doesGoogleCalendarLearningGroupEntryIncludeStudent = (entry, student, readContext = null) => {
   const groupId = String(entry?.groupId || '').trim();
   const studentId = String(student?.id || '').trim();
   if (!entry?.isLearningGroupEvent || !groupId || !studentId || !isCurrentStudent(student)) return false;
-  const group = readLearningGroupsDb().find((candidate) => (
+  const group = (readContext ? readContext.groups() : readLearningGroupsDb()).find((candidate) => (
     candidate.id === groupId
     && !candidate.deletedAt
     && !candidate.completedAt
@@ -10272,7 +10272,7 @@ const doesGoogleCalendarLearningGroupEntryIncludeStudent = (entry, student) => {
   ));
   if (!group || normalizeTeacherId(group.teacherId) !== normalizeTeacherId(student.teacherId)) return false;
   return getActiveLearningGroupMembers(group).some((member) => member.studentId === studentId)
-    && (isGroupEntryAssigned(entry,studentId,group) || hasGroupEntryPaidMark(entry,studentId));
+    && (isGroupEntryAssigned(entry,studentId,group,readContext) || hasGroupEntryPaidMark(entry,studentId,readContext));
 };
 
 const syncStudentScheduleFromGoogleCalendar = async (student, auth, options = {}) => {
@@ -16647,6 +16647,18 @@ const getStudentSchedulePaymentEventStudentId = (entry, sourceEntry, studentId) 
   return String(entry?.studentId || studentId || '').trim();
 };
 
+// A finance/calendar response reads each supporting store once after remote I/O.
+// Reusing this view avoids repeated disk reads and subscription reconciliation per lesson.
+const createPaymentScheduleReadContext = () => createStudentBalanceReadContext({
+  readSubscriptions: () => learningSubscriptions.read(),
+  reconcileSubscriptions: (lessons, data) => learningSubscriptions.reconcile(lessons, data),
+  readLessons: readLearningLessonSessionsDb,
+  readResolvedLessons: readResolvedGroupLessonSessions,
+  readGroups: readLearningGroupsDb,
+  readStudents: readStudentsDb,
+  readPaymentNotifications: readPaymentNotificationsDb,
+});
+
 const buildStudentSchedulePaymentState = ({
   teacherId,
   studentId,
@@ -16657,6 +16669,7 @@ const buildStudentSchedulePaymentState = ({
   endMinutes,
   teacherMarks,
   nowInfo,
+  readContext = null,
 }) => {
   const normalizedTeacherId = normalizeTeacherId(teacherId);
   const normalizedDayKey = normalizeDayKey(dayKey);
@@ -16691,7 +16704,7 @@ const buildStudentSchedulePaymentState = ({
     paymentEvent,
     normalizedDayKey
   );
-  const subscription = getLearningSubscriptionOccurrence(eventStudentId, paymentEvent);
+  const subscription = getLearningSubscriptionOccurrence(eventStudentId, paymentEvent, readContext);
   const paidMarked = Boolean(paidMarkKey && teacherMarks?.[paidMarkKey]) || Boolean(subscription?.block.payment);
   const trialMarked = isExplicitTrialLesson(paymentEvent) || Boolean(trialMarkKey && teacherMarks?.[trialMarkKey]);
   const cancelled = isTeacherCalendarLessonCancelled(
@@ -16708,7 +16721,7 @@ const buildStudentSchedulePaymentState = ({
       || (dayNumber === nowInfo.todayNumber && endMinutes <= nowInfo.currentMinutes)
     );
   const finished = !cancelled && (subscription ? subscription.lesson.status === 'completed' : chronologicallyFinished);
-  const participationRequired = isGroupEntryAssigned(paymentEvent,eventStudentId);
+  const participationRequired = isGroupEntryAssigned(paymentEvent,eventStudentId,null,readContext);
   const status = cancelled
     ? 'cancelled'
     : (trialMarked
@@ -16991,12 +17004,12 @@ const doesPaymentScheduleEntryMatchStudent = (entry, student, readContext = null
   return false;
 };
 
-const projectGoogleCalendarEntryForPaymentStudent = (entry, student) => {
+const projectGoogleCalendarEntryForPaymentStudent = (entry, student, readContext = null) => {
   if (entry?.isLearningGroupEvent && entry?.groupId) {
-    if (!doesGoogleCalendarLearningGroupEntryIncludeStudent(entry, student)) return null;
+    if (!doesGoogleCalendarLearningGroupEntryIncludeStudent(entry, student, readContext)) return null;
     const paymentSource = {
       paymentSourceId: entry.id,
-      paymentSourceIds: getGroupEntryStudentSourceIds(entry, student.id),
+      paymentSourceIds: getGroupEntryStudentSourceIds(entry, student.id, readContext),
       paymentSourceType: entry.source,
       status: entry.status,
       cancelled: entry.cancelled,
@@ -17011,27 +17024,27 @@ const projectGoogleCalendarEntryForPaymentStudent = (entry, student) => {
     };
     return { ...buildStudentScheduleEntryFromGoogleCalendar(entry, student, null), ...paymentSource };
   }
-  return doesPaymentScheduleEntryMatchStudent(entry, student) ? entry : null;
+  return doesPaymentScheduleEntryMatchStudent(entry, student, readContext) ? entry : null;
 };
 
-const expandGoogleCalendarLearningGroupPaymentEntries = (teacherId, entries = []) => {
+const expandGoogleCalendarLearningGroupPaymentEntries = (teacherId, entries = [], readContext = null) => {
   const normalizedTeacherId = normalizeTeacherId(teacherId);
-  const students = readStudentsDb().filter((student) => (
+  const students = (readContext ? readContext.students() : readStudentsDb()).filter((student) => (
     isCurrentStudent(student)
     && normalizeTeacherId(student?.teacherId) === normalizedTeacherId
   ));
   return (Array.isArray(entries) ? entries : []).flatMap((entry) => {
     if (!entry?.isLearningGroupEvent || !entry?.groupId) return [entry];
     return students
-      .map((student) => projectGoogleCalendarEntryForPaymentStudent(entry, student))
+      .map((student) => projectGoogleCalendarEntryForPaymentStudent(entry, student, readContext))
       .filter(Boolean);
   });
 };
 
-const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry, financeSnapshot = null) => {
+const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry, financeSnapshot = null, readContext = null) => {
   if (!entry?.isLearningGroupEvent || !entry?.groupId) return [];
   const normalizedTeacherId = normalizeTeacherId(teacherId);
-  const group = readLearningGroupsDb().find((candidate) => (
+  const group = (readContext ? readContext.groups() : readLearningGroupsDb()).find((candidate) => (
     candidate.id === String(entry.groupId || '').trim()
     && candidate.teacherId === normalizedTeacherId
     && !candidate.deletedAt
@@ -17043,7 +17056,7 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry,
       : LEARNING_GROUP_DEFAULT_LESSON_PRICE
   );
   const studentsById = new Map(
-    readStudentsDb()
+    (readContext ? readContext.students() : readStudentsDb())
       .filter((student) => (
         isCurrentStudent(student)
         && normalizeTeacherId(student?.teacherId) === normalizedTeacherId
@@ -17052,8 +17065,8 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry,
       .filter(([studentId]) => Boolean(studentId))
   );
   const marksDb = readTeacherCalendarMarksDb();
-  const teacherMarks = normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
-  const nowInfo = getStudentSchedulePaymentNowInfo();
+  const teacherMarks = readContext?.paymentMarks || normalizeTeacherCalendarMarks(marksDb[normalizedTeacherId]);
+  const nowInfo = readContext?.paymentNowInfo || getStudentSchedulePaymentNowInfo();
   const dayKey = normalizeDayKey(entry?.date);
   const startMinutes = parseScheduleMinutes(entry?.time);
   const durationMinutes = normalizeScheduleDurationMinutes(entry?.durationMinutes);
@@ -17068,7 +17081,7 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry,
       const studentId = String(rawStudentId || '').trim();
       const student = studentsById.get(studentId);
       if (!student) return null;
-      const projectedEntry = projectGoogleCalendarEntryForPaymentStudent(entry, student);
+      const projectedEntry = projectGoogleCalendarEntryForPaymentStudent(entry, student, readContext);
       if (!projectedEntry) return {studentId,studentName:String(student.name || 'Ученик'),status:'not-required',participationRequired:false,paid:false,lessonPrice:0};
       const payment = buildStudentSchedulePaymentState({
         teacherId: normalizedTeacherId,
@@ -17079,6 +17092,7 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry,
         startMinutes,
         endMinutes,
         teacherMarks,
+        readContext,
         nowInfo,
       });
       if (!payment) return null;
@@ -17095,18 +17109,18 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry,
         trialMarkKey: payment.trialMarkKey,
         lessonPrice: getLessonPriceForPaymentOccurrence(
           financeEntry, studentId,
-          { ...projectedEntry, paidAt: teacherMarks[payment.paidMarkKey] }
+          { ...projectedEntry, paidAt: teacherMarks[payment.paidMarkKey] }, readContext
         ).lessonPrice || lessonPrice,
       };
     })
     .filter(Boolean);
 };
 
-const annotateGoogleCalendarLearningGroupPaymentStatuses = (teacherId, entry, financeSnapshot = null) => (
+const annotateGoogleCalendarLearningGroupPaymentStatuses = (teacherId, entry, financeSnapshot = null, readContext = null) => (
   entry?.isLearningGroupEvent && entry?.groupId
     ? {
         ...entry,
-        memberPaymentStatuses: buildGoogleCalendarLearningGroupMemberPaymentStatuses(teacherId, entry, financeSnapshot),
+        memberPaymentStatuses: buildGoogleCalendarLearningGroupMemberPaymentStatuses(teacherId, entry, financeSnapshot, readContext),
       }
     : entry
 );
@@ -17114,16 +17128,16 @@ const annotateGoogleCalendarLearningGroupPaymentStatuses = (teacherId, entry, fi
 const getPaymentScheduleEntries = async (teacherId, options = {}) => {
   const localEntries = getTeacherScheduleEntries(teacherId, options);
   materializeAvailabilitySchedules();
-  const agreedEntries = expandGoogleCalendarLearningGroupPaymentEntries(teacherId, availabilityCalendarEntries(teacherId, true));
-  const googleEntries = expandGoogleCalendarLearningGroupPaymentEntries(
-    teacherId,
-    await fetchTeacherGoogleCalendarEntries(teacherId, {
-      throughMonth: options.googleCalendarThroughMonth,
-      throwOnError: options.throwOnGoogleError === true,
-    })
-  );
+  const rawGoogleEntries = await fetchTeacherGoogleCalendarEntries(teacherId, {
+    throughMonth: options.googleCalendarThroughMonth,
+    throwOnError: options.throwOnGoogleError === true,
+  });
+  // Google import may update lesson sessions; take the snapshot afterwards.
+  const readContext = createPaymentScheduleReadContext();
+  const agreedEntries = expandGoogleCalendarLearningGroupPaymentEntries(teacherId, availabilityCalendarEntries(teacherId, true), readContext);
+  const googleEntries = expandGoogleCalendarLearningGroupPaymentEntries(teacherId, rawGoogleEntries, readContext);
   return [...localEntries, ...agreedEntries, ...googleEntries].filter(entry => !entry.isLearningGroupEvent || !entry.studentId
-    || isGroupEntryAssigned(entry,entry.studentId) || hasGroupEntryPaidMark(entry,entry.studentId));
+    || isGroupEntryAssigned(entry,entry.studentId,null,readContext) || hasGroupEntryPaidMark(entry,entry.studentId,readContext));
 };
 
 const doesTeacherCalendarEntryOccurOnDay = (entry, dayKey) => {
@@ -17390,6 +17404,7 @@ const buildTeacherFinanceProfitability = async (
   } catch {
     scheduleEntries = getTeacherScheduleEntries(normalizedTeacherId, { includeDeletedStudents: true });
   }
+  const readContext = createPaymentScheduleReadContext();
   const scheduleEntriesBySourceId = new Map();
   scheduleEntries.forEach((entry) => {
     const sourceEntryId = String(entry?.id || entry?.externalEventId || '').trim();
@@ -17407,7 +17422,7 @@ const buildTeacherFinanceProfitability = async (
   const groupOccurrencesBySource = new Map();
   availabilityCalendarEntries(normalizedTeacherId).forEach((entry) => {
     (entry.participantIds || []).forEach((studentId) => {
-      getGroupEntryStudentSourceIds(entry,studentId).forEach((sourceId) => {
+      getGroupEntryStudentSourceIds(entry,studentId,readContext).forEach((sourceId) => {
         groupOccurrencesBySource.set(`${sourceId}:${studentId}:${entry.date}:${entry.time}`,entry);
       });
     });
@@ -17415,7 +17430,7 @@ const buildTeacherFinanceProfitability = async (
   Object.entries(currentLedger).forEach(([occurrenceKey,ledgerEntry]) => {
     if (ledgerEntry.paid) return;
     const entry = groupOccurrencesBySource.get(`${ledgerEntry.sourceEntryId}:${ledgerEntry.studentId}:${ledgerEntry.dayKey}:${ledgerEntry.time}`);
-    if (!entry || isGroupEntryAssigned(entry,ledgerEntry.studentId) || hasGroupEntryPaidMark(entry,ledgerEntry.studentId)) return;
+    if (!entry || isGroupEntryAssigned(entry,ledgerEntry.studentId,null,readContext) || hasGroupEntryPaidMark(entry,ledgerEntry.studentId,readContext)) return;
     delete nextLedger[occurrenceKey];
     ledgerDeletes.add(occurrenceKey);
   });
@@ -17489,6 +17504,7 @@ const buildTeacherFinanceProfitability = async (
         startMinutes: occurrence.startMinutes,
         endMinutes: occurrence.endMinutes,
         teacherMarks,
+        readContext,
         nowInfo: lifetimeNowInfo,
       });
       if (paymentState?.cancelled) {
@@ -17534,7 +17550,8 @@ const buildTeacherFinanceProfitability = async (
     const { lessonPrice: resolvedLessonPrice } = getLessonPriceForPaymentOccurrence(
       currentEntry,
       occurrence.studentId,
-      occurrence
+      occurrence,
+      readContext
     );
     const lessonPrice = existing?.lessonPrice > 0
       ? existing.lessonPrice
@@ -17593,13 +17610,15 @@ const buildTeacherFinanceProfitability = async (
       startMinutes: occurrence.startMinutes,
       endMinutes: occurrence.endMinutes,
       teacherMarks,
+      readContext,
       nowInfo,
     });
     if (!paymentState || paymentState.cancelled) return;
     const { lessonPrice } = getLessonPriceForPaymentOccurrence(
       currentEntry,
       studentId,
-      { ...occurrence, paidAt: paymentState.paid ? teacherMarks[paymentState.paidMarkKey] : '' }
+      { ...occurrence, paidAt: paymentState.paid ? teacherMarks[paymentState.paidMarkKey] : '' },
+      readContext
     );
     const existing = calendarOccurrencesByKey.get(occurrence.occurrenceKey);
     if (existing) {
@@ -17652,6 +17671,7 @@ const buildTeacherFinanceProfitability = async (
           startMinutes: occurrence.startMinutes,
           endMinutes: occurrence.endMinutes,
           teacherMarks,
+          readContext,
           nowInfo,
         });
         if (!paymentState || paymentState.cancelled) return;
@@ -17697,7 +17717,7 @@ const buildTeacherFinanceProfitability = async (
   });
   const monthlyPlanOccurrences = Array.from(monthlyPlanOccurrencesByKey.values());
   const calendarAmountsByStudent = {};
-  const subscriptionBlocks = learningSubscriptions.reconcile(readLearningLessonSessionsDb()).blocks
+  const subscriptionBlocks = readContext.reconciledSubscriptions().blocks
     .filter(block => block.teacherId === normalizedTeacherId && !block.cancelledAt);
   students.forEach((student) => {
     const profile = currentEntry.studentProfiles[student.id];
@@ -37725,6 +37745,9 @@ app.get('/api/teacher-schedule', async (req, res) => {
     .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
     .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(entry, homeworkProgressByStudentId));
   const googleEntries = await fetchTeacherGoogleCalendarEntries(teacher.id);
+  const readContext = createPaymentScheduleReadContext();
+  readContext.paymentMarks = teacherMarks;
+  readContext.paymentNowInfo = getStudentSchedulePaymentNowInfo();
   const availabilityEntries = availabilityCalendarEntries(teacher.id, true);
   const financeSnapshot = [...availabilityEntries, ...googleEntries].some(entry => entry?.isLearningGroupEvent && entry?.groupId)
     ? getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacher.id) : null;
@@ -37732,11 +37755,11 @@ app.get('/api/teacher-schedule', async (req, res) => {
     ...localEntries,
     ...availabilityEntries
       .map(entry => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
-      .map(entry => annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry, financeSnapshot)),
+      .map(entry => annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry, financeSnapshot, readContext)),
     ...googleEntries
       .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
       .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(
-        annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry, financeSnapshot),
+        annotateGoogleCalendarLearningGroupPaymentStatuses(teacher.id, entry, financeSnapshot, readContext),
         homeworkProgressByStudentId
       )),
   ]));

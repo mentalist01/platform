@@ -2777,12 +2777,12 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getTeacherFinance: async (month, teacherId = '') => {
+  getTeacherFinance: async (month, teacherId = '', options = {}) => {
     const params = new URLSearchParams();
     if (month) params.append('month', String(month));
     if (teacherId) params.append('teacherId', String(teacherId));
     const qs = params.toString();
-    const res = await apiFetch(qs ? `/api/teacher-finance?${qs}` : '/api/teacher-finance');
+    const res = await apiFetch(qs ? `/api/teacher-finance?${qs}` : '/api/teacher-finance', { signal: options.signal });
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
