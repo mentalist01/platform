@@ -35,6 +35,36 @@ test('persisted legacy overrun is clamped on load before reconnect or resume', t
   assert.throws(() => restarted.resume(device, job.id, () => true), /подключитесь/);
   assert.equal(restarted.poll(device, true, () => false, () => true).jobs[0].desired, 'stop');
 });
+
+test('repeated starts refresh the same lesson time in both directions without creating another recording', t => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  const occurrence = { key: 'bound', studentId: 'pupil', startMs: f.now() - 1000, endMs: f.now() + 1000 };
+  const first = f.store.start('teacher', occurrence, 'Lesson', occurrence.endMs);
+  f.store.report(device, first.id, { status: 'recording' });
+  const moved = { ...occurrence, startMs: occurrence.startMs + 100, endMs: occurrence.endMs + 2000 };
+  const extended = f.store.start('teacher', moved, 'Lesson', moved.endMs);
+  assert.equal(extended.id, first.id); assert.equal(extended.cutoffAt, moved.endMs);
+  assert.equal(extended.occurrence.startMs, moved.startMs);
+  f.advance(1001); assert.equal(f.store.poll(device, true, () => false, () => true).jobs[0].desired, 'record');
+  const shortened = { ...moved, endMs: f.now() + 100 };
+  assert.equal(f.store.start('teacher', shortened, 'Lesson', shortened.endMs).cutoffAt, shortened.endMs);
+  f.advance(100); assert.equal(f.store.poll(device, true, () => false, () => true).jobs[0].desired, 'stop');
+  assert.equal(f.store.libraryJobs('teacher').length, 1);
+});
+
+test('calendar refresh is scoped to a live bound job, retains its safety limit and survives restart', t => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  const occurrence = { key: 'bound', studentId: 'pupil', startMs: f.now() - 1000, endMs: f.now() + 1000 };
+  const first = f.store.start('teacher', occurrence, 'Lesson', occurrence.endMs);
+  assert.equal(f.store.updateSchedule('other', first.id, { ...occurrence, endMs: f.now() + 2000 }), null);
+  assert.equal(f.store.updateSchedule('teacher', first.id, { ...occurrence, studentId: 'other', endMs: f.now() + 2000 }), null);
+  const endMs = f.now() + 6 * 3600_000 - 1000;
+  assert.equal(f.store.updateSchedule('teacher', first.id, { ...occurrence, endMs }).cutoffAt, f.now() + 5 * 3600_000);
+  const restored = createDesktopRecordingStore(f.file, { now: f.now });
+  assert.equal(restored.poll(device, true, () => false, () => true).jobs[0].cutoffAt, f.now() + 5 * 3600_000);
+  restored.stop(occurrence.key, 'explicit-hangup');
+  assert.equal(restored.updateSchedule('teacher', first.id, occurrence), null, 'A calendar change cannot resurrect a stopped recording');
+});
 test('group hangup is immediate, channel changes keep one file, and rejoining creates a bound continuation', t => {
   const f=fixture(t); const {device}=f.connect('teacher');f.connect('other');
   const occurrence={key:'group',lessonId:'group1'};

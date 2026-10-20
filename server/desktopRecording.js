@@ -77,6 +77,20 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     libraryJobs: teacherId => jobs(teacherId).map(publicJob),
     activeLessonKeys: teacherId => new Set(jobs(teacherId)
       .filter(job => job.desired === 'record' && job.cutoffAt > now()).map(job => job.occurrence.key)),
+    updateSchedule(teacherId, id, occurrence) {
+      const job = db.jobs[id];
+      if (!job || job.teacherId !== teacherId || job.desired !== 'record' || !['waiting', 'recording'].includes(job.status)
+        || !occurrence?.key || occurrence.key !== job.occurrence.key
+        || (occurrence.lessonId || '') !== (job.occurrence.lessonId || '')
+        || (occurrence.studentId || '') !== (job.occurrence.studentId || '')
+        || !Number.isFinite(occurrence.startMs) || !Number.isFinite(occurrence.endMs)
+        || occurrence.endMs <= occurrence.startMs || occurrence.endMs - occurrence.startMs > 6 * 3600_000) return null;
+      const cutoffAt = Math.min(occurrence.endMs, job.startedAt + 5 * 3600_000);
+      if (job.cutoffAt !== cutoffAt || JSON.stringify(job.occurrence) !== JSON.stringify(occurrence)) {
+        job.occurrence = { ...occurrence }; job.cutoffAt = cutoffAt; job.updatedAt = now(); save();
+      }
+      return publicJob(job);
+    },
     recentLessonJobs: (teacherId, since) => jobs(teacherId)
       .filter(job => job.startedAt >= since)
       .map(({ occurrence, status, startedAt, stoppedAt }) => ({ occurrence, status, startedAt, stoppedAt })),
@@ -155,7 +169,8 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
         && audioMode === 'platform';
       if (previous && !newGroupPart) {
         if (previous.desired === 'record') {
-          previous.cutoffAt = Math.min(recordingDeadline(previous), cutoffAt);
+          previous.occurrence = { ...occurrence };
+          previous.cutoffAt = Math.min(cutoffAt, previous.startedAt + 5 * 3600_000);
           previous.lastActiveAt = now(); previous.stopRequestedAt = 0;
           if (['platform', 'telemost'].includes(audioMode)) previous.audioMode = audioMode;
           save();
@@ -252,10 +267,10 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   };
 }
 
-export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, archiveStatus, archiveMaterial, lessonTopic, pythonCatalog, pythonMaterial, mockReviewCatalog, mockReviewMaterial } = {}) {
-  const handle = (fn) => (req, res) => {
+export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, refreshSchedule, archiveStatus, archiveMaterial, lessonTopic, pythonCatalog, pythonMaterial, mockReviewCatalog, mockReviewMaterial } = {}) {
+  const handle = (fn) => async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    try { fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось сохранить состояние записи' }); }
+    try { await fn(req, res); } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось сохранить состояние записи' }); }
   };
   app.post('/api/desktop-recorder/pair', handle((req, res) => res.json(store.exchange(req.body?.code, req.body?.name))));
   app.use('/api/desktop-recorder', (req, res, next) => {
@@ -263,7 +278,10 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, arc
     if (!device) return res.status(401).json({ error: 'Подключите компьютер заново' });
     req.recorderDevice = device; next();
   });
-  app.post('/api/desktop-recorder/poll', handle((req, res) => res.json(store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive))));
+  app.post('/api/desktop-recorder/poll', handle(async (req, res) => {
+    await refreshSchedule?.(req.recorderDevice.teacherId);
+    res.json(store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive));
+  }));
   app.post('/api/desktop-recorder/archive/status', handle((req, res) => {
     if (!archiveStatus) return res.status(503).json({ error: 'Добавление материалов из пульта ещё не настроено' });
     res.json(archiveStatus(req.recorderDevice.teacherId));
@@ -295,19 +313,23 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, arc
     const result = archiveMaterial(req.recorderDevice.teacherId, req.body || {});
     res.status(result.created ? 201 : 200).json(result);
   }));
-  app.post('/api/desktop-recorder/start-day', handle((req, res) => {
+  app.post('/api/desktop-recorder/start-day', handle(async (req, res) => {
+    await refreshSchedule?.(req.recorderDevice.teacherId);
     store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive);
     res.json(store.configure(req.recorderDevice.teacherId, true));
   }));
   app.post('/api/desktop-recorder/share', handle((req, res) => res.json(store.share.device(req.recorderDevice.teacherId, req.body || {}))));
   app.post('/api/desktop-recorder/recover', handle((req, res) => res.json(store.recoverFile(req.recorderDevice, req.body?.id, req.body?.recoveryId))));
-  app.post('/api/desktop-recorder/resume', handle((req, res) => res.json(store.resume(req.recorderDevice, req.body?.id, isActive))));
+  app.post('/api/desktop-recorder/resume', handle(async (req, res) => {
+    await refreshSchedule?.(req.recorderDevice.teacherId);
+    res.json(store.resume(req.recorderDevice, req.body?.id, isActive));
+  }));
   app.post('/api/desktop-recorder/jobs/:id', handle((req, res) => res.json(store.report(req.recorderDevice, req.params.id, req.body))));
   // Device credentials never reach the normal platform routes.
   app.use('/api/desktop-recorder', (_req, res) => res.status(404).json({ error: 'Not found' }));
 }
 
-export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolveLesson, legacyRecordingEnabled = false }) {
+export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolveLesson, refreshSchedule, legacyRecordingEnabled = false }) {
   const handle = (fn, teacherOnly = true) => async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (teacherOnly && req.auth?.role !== 'teacher') return res.status(403).json({ error: 'Только для учителя' });
@@ -327,6 +349,7 @@ export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolve
   app.put('/api/desktop-recording/settings', handle((req, res) => res.json(store.configure(req.auth.id, req.body?.enabled))));
   app.delete('/api/desktop-recording/device', handle((req, res) => { store.revoke(req.auth.id); res.json({ ok: true }); }));
   app.post('/api/desktop-recording/start', handle(async (req, res) => {
+    await refreshSchedule?.(req.auth.id);
     const result = await resolveLesson(req, res);
     if (!result) return;
     const { occurrence, cutoffAt, audioMode } = result;

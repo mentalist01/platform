@@ -237,6 +237,13 @@ test('real platform routes isolate devices and expose one group recording to its
   await sendRtc(pupilRtc,{type:'join',roomId:general},'joined');
   const groupJob=await request('/desktop-recording/start',{body:{learningLessonId:'boundary-group',audioMode:'platform'}});
   await request(`/desktop-recorder/jobs/${groupJob.id}`,{token,body:{status:'recording'}});
+  const movedStart = new Date(now - 10 * 60000).toISOString();
+  await request('/learning-groups/g1/lessons/boundary-group', { method: 'PATCH', body: { startAt: movedStart, durationMinutes: 90 } });
+  const movedGroup = (await request('/desktop-recorder/poll', { token, body: { ready: true } })).jobs.find(job => job.id === groupJob.id);
+  assert.equal(movedGroup.occurrence.key, groupJob.occurrence.key);
+  assert.equal(movedGroup.occurrence.startMs, Date.parse(movedStart));
+  assert.equal(movedGroup.cutoffAt, Date.parse(movedStart) + 90 * 60000, 'Device polling refreshes a changed group timetable without a new browser start');
+  assert.equal((await request('/desktop-recording/start', { body: { learningLessonId: 'boundary-group', audioMode: 'platform' } })).id, groupJob.id);
   await sendRtc(teacherRtc,{type:'join',roomId:separate},'joined');
   let polled=await request('/desktop-recorder/poll',{token,body:{ready:true}});
   assert.equal(polled.jobs.find(j=>j.id===groupJob.id).desired,'record','Changing group channel preserves capture');

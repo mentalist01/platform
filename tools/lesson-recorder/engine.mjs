@@ -184,6 +184,22 @@ export class RecorderEngine {
     if (!this.state.config.token) return;
     for (const job of Object.values(this.state.jobs)) if (job.pendingReport && job.status !== 'recording') await this.flushReport(job);
     const remote = await this.api('/poll', { ready: this.ready() });
+    // Only a server-confirmed update of this exact recording may move its
+    // deadline. Keep the output/ID and the independent offline stop timer.
+    for (const wanted of remote.jobs) {
+      const local = this.state.jobs[wanted.id];
+      if (!local || !['starting', 'recording'].includes(local.status) || local.local || local.manual
+        || local.pythonTheory || local.mockReview || wanted.desired !== 'record'
+        || !local.occurrence?.key || wanted.occurrence?.key !== local.occurrence.key
+        || (wanted.occurrence.lessonId || '') !== (local.occurrence.lessonId || '')
+        || (wanted.occurrence.studentId || '') !== (local.occurrence.studentId || '')) continue;
+      const deadline = recordingDeadline(wanted);
+      if (!Number.isFinite(deadline) || !Number.isFinite(wanted.occurrence.endMs) || deadline <= 0) continue;
+      const occurrence = { ...local.occurrence, ...wanted.occurrence };
+      if (local.cutoffAt !== deadline || JSON.stringify(local.occurrence) !== JSON.stringify(occurrence)) {
+        local.occurrence = occurrence; local.cutoffAt = deadline; this.save();
+      }
+    }
     // Complete the old file before considering the next lesson, regardless of
     // server ordering. Uploading that file is independent of the next capture.
     this.currentLesson = remote.currentLesson || null;

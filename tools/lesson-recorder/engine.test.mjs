@@ -46,6 +46,32 @@ test('a server transport handoff updates live conversation mode while keeping th
   assert.equal(capture.audioMode,'platform','Explicitly chosen fallback sources retain control');
 });
 
+test('extending an ongoing lesson updates its local auto-stop without splitting the recording', async t => {
+  const f = fixture(t);
+  const occurrence = { key: 'bound-lesson', studentId: 'pupil', startMs: 99000, endMs: 101000 };
+  await f.engine.start({ ...f.job, occurrence, cutoffAt: occurrence.endMs });
+  const capture = f.engine.active();
+  const updated = { ...f.job, occurrence: { ...occurrence, startMs: 99500, endMs: 102000 }, cutoffAt: 102000 };
+  f.remote({ enabled: true, currentLesson: updated, jobs: [updated] }); await f.engine.tick();
+  assert.equal(capture.occurrence.startMs, 99500);
+  assert.equal(capture.cutoffAt, 102000);
+  f.advance(1000); await f.engine.enforceDeadline();
+  assert.equal(f.engine.active(), capture); assert.deepEqual(f.counts(), [1, 0]);
+  f.advance(1000); await f.engine.enforceDeadline();
+  assert.deepEqual(f.counts(), [1, 1]); assert.equal(capture.status, 'saved');
+});
+
+test('a confirmed shorter end applies immediately but another lesson cannot change the deadline', async t => {
+  const f = fixture(t);
+  const occurrence = { key: 'bound-lesson', studentId: 'pupil', startMs: 99000, endMs: 101000 };
+  await f.engine.start({ ...f.job, occurrence });
+  f.remote({ enabled: true, jobs: [{ ...f.job, occurrence: { ...occurrence, key: 'different-lesson', endMs: 200000 }, cutoffAt: 200000 }] });
+  await f.engine.tick(); assert.equal(f.engine.active().cutoffAt, 101000);
+  f.remote({ enabled: true, jobs: [{ ...f.job, occurrence: { ...occurrence, endMs: 100500 }, cutoffAt: 100500 }] });
+  await f.engine.tick(); assert.equal(f.engine.active().cutoffAt, 100500);
+  f.advance(500); await f.engine.enforceDeadline(); assert.deepEqual(f.counts(), [1, 1]);
+});
+
 test('Python pause and resume keep one active file, do not publish, and survive reconciliation', async t => {
   const f = fixture(t); await f.engine.start({ ...f.job, local: true, pythonTheory: {} });
   const result = await f.engine.setPythonPaused('one', true);

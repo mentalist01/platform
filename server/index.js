@@ -68,6 +68,7 @@ import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonPart
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
+import { refreshedRecordingOccurrence } from './recordingSchedule.js';
 import { addRecorderMaterial, recordingLibrary, addLessonRecordingMaterial } from './recorderMaterials.js';
 import { studentNameAvailability, assertStudentNamesAvailable } from './studentNameAvailability.js';
 import { recorderPythonCatalog, attachRecorderPythonTheory } from './recorderPythonTheory.js';
@@ -10888,6 +10889,8 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
   const sourceKey = `${settings.icalUrl}|${apiCalendarId}`;
   const force = Boolean(options.force);
   const now = Date.now();
+  const cacheTtlMs = Number.isFinite(options.maxAgeMs)
+    ? Math.max(0, Math.min(GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS, options.maxAgeMs)) : GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS;
   const defaultToMs = now + (GOOGLE_CALENDAR_SYNC_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
   const requestedMonthEndMs = getGoogleCalendarSyncMonthEndMs(options.throughMonth);
   const toMs = Number.isFinite(requestedMonthEndMs)
@@ -10906,7 +10909,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
     && cache
     && cache.sourceKey === sourceKey
     && cacheCoversRequestedRange
-    && now - cache.loadedAtMs < GOOGLE_CALENDAR_SYNC_CACHE_TTL_MS
+    && now - cache.loadedAtMs < cacheTtlMs
   ) {
     const entries = enrichGoogleCalendarEntriesFromRoster(cache.entries, normalizedTeacherId, students);
     cache.entries = entries;
@@ -22702,7 +22705,50 @@ const hasGroupRecordingStudent = lessonId => {
   }
   return false;
 };
+const recordingCalendarChecks = new Map();
+const refreshDesktopRecordingSchedule = async teacherId => {
+  const jobs = desktopRecordings.libraryJobs(teacherId).filter(job => job.desired === 'record'
+    && ['waiting', 'recording'].includes(job.status));
+  if (!jobs.length) return;
+  const nowMs = Date.now();
+  const refreshEveryMs = jobs.some(job => job.cutoffAt - nowMs <= 60_000) ? 5000 : 30_000;
+  let check = recordingCalendarChecks.get(teacherId);
+  const calendarLoadedAt = teacherCalendarSyncCache.get(teacherId)?.loadedAtMs || 0;
+  if (!check || (!check.promise && (nowMs - check.checkedAt >= refreshEveryMs || calendarLoadedAt > check.checkedAt))) {
+    check = { checkedAt: nowMs, entries: check?.entries || [] }; recordingCalendarChecks.set(teacherId, check);
+    check.promise = fetchTeacherGoogleCalendarEntries(teacherId, { maxAgeMs: refreshEveryMs })
+      .then(entries => { check.entries = entries; }).catch(() => {}).finally(() => { check.promise = null; });
+  }
+  if (check.promise) await check.promise;
+  for (const job of jobs) {
+    let occurrence;
+    if (job.occurrence.lessonId) {
+      const context = getLearningGroupReplayContext(job.occurrence.lessonId);
+      if (context?.group.teacherId !== teacherId || context.lesson.status !== 'active') continue;
+      occurrence = buildLearningGroupReplayOccurrence(context);
+    } else {
+      const student = findStudentById(job.occurrence.studentId);
+      if (!student || student.teacherId !== teacherId) continue;
+      const schedule = getTeacherCalendarActiveSchedule(teacherId, [
+        ...(getStudentData(student.id).schedule || []),
+        ...check.entries.filter(entry => doesPaymentScheduleEntryMatchStudent(entry, student)),
+      ]);
+      occurrence = refreshedRecordingOccurrence({ ...job, teacherId }, schedule, GOOGLE_CALENDAR_SYNC_TIME_ZONE);
+    }
+    if (!occurrence) continue;
+    const updated = desktopRecordings.updateSchedule(teacherId, job.id, occurrence);
+    if (!updated || job.occurrence.lessonId) continue;
+    const studentId = job.occurrence.studentId;
+    const active = activeLessonReplayOccurrenceByStudentId.get(studentId);
+    if (active?.occurrence.key === job.occurrence.key) active.occurrence = updated.occurrence;
+    const telemost = activeTelemostLessonReplayByStudentId.get(studentId);
+    if (telemost?.occurrence.key === job.occurrence.key) {
+      telemost.occurrence = updated.occurrence; telemost.autoFinishAtMs = updated.cutoffAt + TELEMOST_LESSON_BUFFER_MS;
+    }
+  }
+};
 registerDesktopDeviceRoutes(app, desktopRecordings, {
+  refreshSchedule: refreshDesktopRecordingSchedule,
   lessonTopic: (teacherId,payload) => {
     const teacher=readTeachersDb().find(t=>t.id===teacherId);
     if(!teacher || !isTeacherSubscriptionAccessAllowed({...teacher,role:'teacher'}))throw Object.assign(new Error('Доступ к платформе приостановлен'),{status:402});
@@ -22964,6 +23010,7 @@ registerHomeworkLives(app, homeworkLives, {
 
 registerDesktopRecordingRoutes(app, desktopRecordings, {
   legacyRecordingEnabled,
+  refreshSchedule: refreshDesktopRecordingSchedule,
   teacherFor: (auth) => findStudentById(isParentRole(auth) ? auth.studentId : auth.id)?.teacherId,
   resolveLesson: async (req, res) => {
     let occurrence; let cutoffAt; let audioMode = 'telemost';
@@ -22986,7 +23033,14 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
       if (!student) return null;
       if (hasActivePlatformLessonCall(student)) audioMode = 'platform';
       const activity = getTelemostLessonReplayEntry(student.id);
-      if (activity) {
+      const recording = desktopRecordings.libraryJobs(req.auth.id).find(job => job.desired === 'record'
+        && ['waiting', 'recording'].includes(job.status) && !job.occurrence.lessonId
+        && job.occurrence.studentId === student.id);
+      if (recording && (activity || hasActivePlatformLessonCall(student))) {
+        occurrence = recording.occurrence; cutoffAt = recording.cutoffAt;
+        if (req.body?.audioMode === 'telemost') audioMode = 'telemost';
+      }
+      else if (activity) {
         occurrence = activity.occurrence; cutoffAt = occurrence.endMs;
         if (req.body?.audioMode === 'telemost') audioMode = 'telemost';
       }
