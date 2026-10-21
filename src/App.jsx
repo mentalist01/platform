@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
 import BoardMinimap from './components/BoardMinimap.jsx';
+import { BoardFileUpload, BoardFileDownloads } from './components/BoardFiles.jsx';
+import { normalizeBoardFileFields, drawBoardFileCard } from './utils/boardFile.js';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
 import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
@@ -1127,6 +1129,18 @@ const normalizeBoardStoredItem = (rawValue) => {
     authorId: typeof source.authorId === 'string' ? source.authorId : '',
   };
   if (!base.id || !base.type) return null;
+  if (base.type === 'file') {
+    const fields = normalizeBoardFileFields(source);
+    if (!fields) return null;
+    return {
+      ...base, ...fields,
+      x: Math.max(-1e6, Math.min(1e6, Number(source.x) || 0)),
+      y: Math.max(-1e6, Math.min(1e6, Number(source.y) || 0)),
+      width: Math.max(1, Math.min(1e6, Number(source.width) || 360)),
+      height: Math.max(1, Math.min(1e6, Number(source.height) || 112)),
+      locked: Boolean(source.locked), superLocked: Boolean(source.superLocked), votes: 0,
+    };
+  }
   if (base.type === 'stroke') {
     const points = trimBoardStrokePoints(source.points);
     if (points.length === 0) return null;
@@ -1314,6 +1328,7 @@ const estimateBoardItemBytes = (item) => {
   }
   if (item.type === 'shape') return sharedBytes + 72;
   if (item.type === 'text') return sharedBytes + 56 + String(item.text || '').length * 2;
+  if (item.type === 'file') return sharedBytes + 96 + String(item.assetUrl || '').length + String(item.name || '').length * 2;
   if (item.type === 'task') {
     const screenshots = Array.isArray(item.screenshots) ? item.screenshots : [];
     const textBytes = [
@@ -12951,7 +12966,7 @@ export const BoardCanvasSection = ({
       } else if (item.type === 'line' || item.type === 'arrow') {
         includePoint(item.start?.x, item.start?.y);
         includePoint(item.end?.x, item.end?.y);
-      } else if (item.type === 'shape' || item.type === 'text' || item.type === 'task') {
+      } else if (item.type === 'shape' || item.type === 'text' || item.type === 'task' || item.type === 'file') {
         includePoint(item.x, item.y);
         includePoint((item.x || 0) + (item.width || 0), (item.y || 0) + (item.height || 0));
       } else if (item.type === 'image') {
@@ -13003,7 +13018,7 @@ export const BoardCanvasSection = ({
       if (img) imageMap.set(source, img);
     }));
 
-    const hasVectorItems = boardItems.some((item) => ['stroke', 'line', 'arrow', 'shape', 'text', 'task'].includes(item?.type));
+    const hasVectorItems = boardItems.some((item) => ['stroke', 'line', 'arrow', 'shape', 'text', 'task', 'file'].includes(item?.type));
     const baseScale = hasVectorItems && !imageItems.length
       ? BOARD_EXPORT_VECTOR_BASE_SCALE
       : BOARD_EXPORT_BASE_SCALE;
@@ -13056,6 +13071,7 @@ export const BoardCanvasSection = ({
       if (item.type === 'arrow') drawArrow(ctx, item);
       if (item.type === 'shape') drawShape(ctx, item);
       if (item.type === 'text') drawTextItem(ctx, item);
+      if (item.type === 'file') drawBoardFileCard(ctx, item);
       if (item.type === 'task') {
         drawBoardTaskCard(ctx, item, (screenshot) => imageMap.get(getBoardTaskImageSource(screenshot)) || null);
       }
@@ -14032,7 +14048,7 @@ export const BoardCanvasSection = ({
       let hit = false;
       if (item.type === 'stroke') hit = hitTestStroke(item, point, BOARD_ERASER_RADIUS);
       else if (item.type === 'line' || item.type === 'arrow') hit = hitTestLine(item, point, BOARD_ERASER_RADIUS);
-      else if (item.type === 'shape' || item.type === 'text' || item.type === 'task') hit = isPointInRect(point, {
+      else if (item.type === 'shape' || item.type === 'text' || item.type === 'task' || item.type === 'file') hit = isPointInRect(point, {
         x: item.x || 0,
         y: item.y || 0,
         width: item.width || 0,
@@ -14074,7 +14090,7 @@ export const BoardCanvasSection = ({
       const maxY = Math.max(start.y || 0, end.y || 0);
       return { minX, minY, maxX, maxY };
     }
-    if (item.type === 'shape' || item.type === 'text' || item.type === 'task') {
+    if (item.type === 'shape' || item.type === 'text' || item.type === 'task' || item.type === 'file') {
       const x = item.x || 0;
       const y = item.y || 0;
       const w = item.width || 0;
@@ -14161,7 +14177,7 @@ export const BoardCanvasSection = ({
         }
         if (item.type === 'stroke') return hitTestStroke(item, point, BOARD_SELECTION_HIT_RADIUS);
         if (item.type === 'line' || item.type === 'arrow') return hitTestLine(item, point, BOARD_SELECTION_HIT_RADIUS);
-        if (item.type === 'shape' || item.type === 'text' || item.type === 'task') {
+        if (item.type === 'shape' || item.type === 'text' || item.type === 'task' || item.type === 'file') {
           const x = item.x || 0;
           const y = item.y || 0;
           return point.x >= x && point.x <= x + (item.width || 0) && point.y >= y && point.y <= y + (item.height || 0);
@@ -14211,7 +14227,7 @@ export const BoardCanvasSection = ({
             y: item.y || 0,
           };
         }
-        if (item.type === 'shape' || item.type === 'text' || item.type === 'task') {
+        if (item.type === 'shape' || item.type === 'text' || item.type === 'task' || item.type === 'file') {
           return {
             id: item.id,
             type: item.type,
@@ -14252,7 +14268,7 @@ export const BoardCanvasSection = ({
               start: { x: (item.start?.x || 0) + dx, y: (item.start?.y || 0) + dy },
               end: { x: (item.end?.x || 0) + dx, y: (item.end?.y || 0) + dy },
             };
-          } else if (current.type === 'image' || current.type === 'shape' || current.type === 'text' || current.type === 'task') {
+          } else if (current.type === 'image' || current.type === 'shape' || current.type === 'text' || current.type === 'task' || current.type === 'file') {
             next = { ...current, x: (item.x || 0) + dx, y: (item.y || 0) + dy };
           }
           yItems.delete(i, 1);
@@ -14541,6 +14557,7 @@ export const BoardCanvasSection = ({
 
   const drawBoardItemToScene = useCallback((ctx, item) => {
     if (!ctx || !item) return;
+    if (item.type === 'file') { drawBoardFileCard(ctx, item); return; }
     if (item.type === 'stroke') {
       drawStroke(ctx, item);
       return;
@@ -17189,6 +17206,13 @@ export const BoardCanvasSection = ({
         })}
         {!boardReadOnly && (
         <div className="board-tool-rail" role="toolbar" aria-label="Инструменты доски">
+          {!isSandbox && <BoardFileUpload key={roomId} surface={containerRef}
+            doc={docRef} yItems={yItemsRef} undo={undoManagerRef} origin={localOriginRef}
+            studentId={effectiveStudentId} lessonId={learningLessonId} roomId={liveRoomId} userId={userId}
+            zoom={zoom} offset={offset} readOnly={boardReadOnly || status !== 'connected'}
+            point={getBoardPastePoint} capacity={ensureBoardCanAddItems} error={setPasteError}
+            select={entry => { setTool('select'); setSelectedImageId(null); setSelectedIds([entry.id]); setSelectionBox({ x: entry.x, y: entry.y, width: entry.width, height: entry.height }); }}
+          />}
           <button
             type="button"
             onClick={() => {
@@ -17506,6 +17530,7 @@ export const BoardCanvasSection = ({
           onWheel={handleWheel}
           onContextMenu={(e) => e.preventDefault()}
         />
+        <BoardFileDownloads items={boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
         <div
           className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
           aria-label={boardReadOnly ? 'Завершённые задания на доске' : 'Интерактивные задания на доске'}

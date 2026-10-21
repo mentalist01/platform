@@ -1,3 +1,4 @@
+import { normalizeBoardFileFields } from '../src/utils/boardFile.js';
 const REPLAY_VERSION = 1;
 
 export const LESSON_REPLAY_MAX_EVENTS = 6000;
@@ -130,6 +131,16 @@ const normalizeBoardItem = (value) => {
       width: clampNumber(value.width, 1, 1_000_000, 1),
       height: clampNumber(value.height, 1, 1_000_000, 1),
       fontSize: clampNumber(value.fontSize, 10, 160, 22),
+    };
+  }
+  if (type === 'file') {
+    const fields = normalizeBoardFileFields(value);
+    if (!fields) return null;
+    return { ...base, ...fields,
+      x: clampNumber(value.x, -1_000_000, 1_000_000),
+      y: clampNumber(value.y, -1_000_000, 1_000_000),
+      width: clampNumber(value.width, 1, 1_000_000, 360),
+      height: clampNumber(value.height, 1, 1_000_000, 112),
     };
   }
   if (type === 'task') {

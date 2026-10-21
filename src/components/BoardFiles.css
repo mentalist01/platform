@@ -1,0 +1,10 @@
+.board-file-downloads { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.board-file-download { position: absolute; transform-origin: top left; pointer-events: none; }
+.board-file-download-button { position: absolute; left: 240px; top: 72px; width: 104px; height: 28px; display: flex; align-items: center; justify-content: center; gap: 5px; border-radius: 8px; background: #7c3aed; color: white; font: 600 12px system-ui; text-decoration: none; pointer-events: auto; }
+.board-file-download-button:hover { background: #6d28d9; }
+.board-file-download-button:focus-visible { outline: 3px solid #c4b5fd; outline-offset: 3px; }
+.board-file-download-button[aria-busy] { opacity: .7; cursor: wait; }
+.board-file-download [role=alert] { position: absolute; top: 112px; background: white; border-radius: 8px; }
+.board-file-notice { position: absolute; left: 72px; bottom: 64px; z-index: 50; padding: 10px 16px; border: 1px solid #ddd0ff; border-radius: 12px; background: white; color: #6d28d9; font: 600 13px system-ui; white-space: nowrap; }
+.board-file-drop-hint { position: absolute; inset: 12px; z-index: 90; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 2px dashed #8b5cf6; border-radius: 20px; background: #f5f0fff2; color: #6d28d9; font: 700 20px system-ui; pointer-events: none; }
+.board-file-drop-hint span { font-size: 14px; font-weight: 400; }

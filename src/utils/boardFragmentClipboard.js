@@ -1,8 +1,9 @@
+import { normalizeBoardFileFields } from './boardFile.js';
 export const BOARD_FRAGMENT_MARKER = '__IVAN100_BOARD_FRAGMENT_V1__:';
 export const BOARD_FRAGMENT_STORAGE = 'ivan100_board_fragment_v1';
 export const BOARD_FRAGMENT_TTL = 30 * 60 * 1000;
 const MAX_BYTES = 12 * 1024 * 1024;
-const TYPES = new Set(['stroke', 'line', 'arrow', 'shape', 'text', 'image', 'task']);
+const TYPES = new Set(['stroke', 'line', 'arrow', 'shape', 'text', 'image', 'task', 'file']);
 const FIELDS = ['color', 'width', 'height', 'x', 'y', 'strokeWidth', 'fontSize', 'shape', 'text',
   'naturalWidth', 'naturalHeight', 'flipX', 'hasFrame', 'hyperlink', 'heading', 'taskNumber',
   'taskDisplayNumber', 'taskTitle', 'levelId', 'levelLabel', 'questionId', 'questionNumber',
@@ -46,6 +47,10 @@ const normalizeItem = source => {
     item.start = point(source.start); item.end = point(source.end);
     if (!item.start || !item.end) return null;
   } else if (!point(item) || !(item.width > 0) || !(item.height > 0) || item.width > 1e7 || item.height > 1e7) return null;
+  if (item.type === 'file') {
+    const file = normalizeBoardFileFields(source); if (!file) return null;
+    Object.assign(item, file);
+  }
   if (item.type === 'image') {
     const image = imageFields(source); if (!image) return null;
     Object.assign(item, image);

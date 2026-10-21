@@ -9,6 +9,7 @@ import { PYTHON_RUNNER_SCRIPT } from './pythonRunnerSource.js';
 import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
+import { normalizeBoardFileName } from '../src/utils/boardFile.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   normalizeStudentBalances, createBalanceAccount, balanceCents, balanceSummary,
@@ -20634,6 +20635,13 @@ const boardAssetUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: BOARD_ASSET_MAX_FILE_BYTES },
 });
+const boardFileUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, done) => done(null, uploadsDir),
+    filename: (_req, _file, done) => done(null, `board-asset-pending-${crypto.randomUUID()}.tmp`),
+  }),
+  limits: { files: 1, fields: 4, fieldSize: 2048, fileSize: MAX_UPLOAD_FILE_BYTES },
+});
 const lessonReplaySnapshotUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -22174,7 +22182,11 @@ const handleUploadRequest = (req, res) => {
     }
   }
 
-  if (hasForcedDownloadFlag(req.query.download)) {
+  if (boardAsset?.kind === 'file') {
+    res.attachment(boardAsset.name);
+    res.type('application/octet-stream');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  } else if (hasForcedDownloadFlag(req.query.download)) {
     res.attachment(getUploadDownloadName(ownedFile, safeName));
   }
 
@@ -41720,9 +41732,10 @@ app.delete('/api/student-next-lesson/:id', (req, res) => {
   res.json({ homeworks: updated.homeworks || [], latest: nextLesson });
 });
 
-app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, next) => {
+const handleBoardAssetUpload = (kind) => async (req, res, next) => {
+  const isFile = kind === 'file';
   try {
-    if (!req.file?.buffer?.length) return res.status(400).json({ error: 'Изображение не найдено' });
+    if (!req.file || (!isFile && !req.file.buffer?.length)) return res.status(400).json({ error: 'Файл не найден' });
     const requestedStudentId = typeof req.body?.studentId === 'string' ? req.body.studentId.trim() : '';
     const requestedLessonId = typeof req.body?.lessonId === 'string' ? req.body.lessonId.trim() : '';
     let learningLesson = null;
@@ -41757,23 +41770,34 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
       }
     } else {
       const effectiveStudentId = requestedStudentId || (isStudentRole(req.auth) ? req.auth.id : '');
+      if (isStudentRole(req.auth) && requestedStudentId && requestedStudentId !== req.auth.id) return forbid(res);
       if (!effectiveStudentId) return res.status(400).json({ error: 'studentId required' });
       student = ensureStudentAccess(req, res, effectiveStudentId);
       if (!student) return;
     }
 
-    const mimeType = detectBoardAssetMimeType(req.file.buffer);
+    const mimeType = isFile ? 'application/octet-stream' : detectBoardAssetMimeType(req.file.buffer);
     if (!mimeType) {
       return res.status(415).json({ error: 'Поддерживаются изображения PNG, JPEG, WebP и GIF' });
     }
 
-    const hash = getBoardAssetHash(req.file.buffer);
-    const storageName = buildBoardAssetStorageName(hash, mimeType);
+    const name = isFile ? normalizeBoardFileName(normalizeFileName(req.file.originalname)) : '';
+    let hash;
+    if (isFile) {
+      const digest = crypto.createHash('sha256');
+      for await (const chunk of fs.createReadStream(req.file.path)) digest.update(chunk);
+      hash = digest.digest('hex');
+    } else hash = getBoardAssetHash(req.file.buffer);
+    // A file's original name is part of its identity, even when its bytes match.
+    const storageName = isFile
+      ? `board-asset-${getBoardAssetHash(Buffer.from(`${hash}\0${name}`))}.bin`
+      : buildBoardAssetStorageName(hash, mimeType);
     if (!storageName) return res.status(400).json({ error: 'Некорректное изображение' });
 
     let entries = readBoardAssetsDb();
     let entry = entries.find((item) => (
       item.hash === hash
+      && (isFile ? item.kind === 'file' && item.name === name : item.kind !== 'file')
       && (learningGroup
         ? (learningLesson?item.lessonId === learningLesson.id:(!item.lessonId&&item.groupId===learningGroup.id))
         : (!item.lessonId && !item.groupId && item.studentId === student.id))
@@ -41790,13 +41814,14 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
         return sum + Math.max(0, Number(item.sizeBytes) || 0);
       }, 0);
       if (currentTotal + req.file.size > BOARD_ASSET_MAX_TOTAL_BYTES_PER_STUDENT) {
-        return res.status(413).json({ error: 'Для доски исчерпан лимит хранения изображений' });
+        return res.status(413).json({ error: 'Для доски исчерпан лимит хранения файлов' });
       }
     }
 
     const filePath = path.join(uploadsDir, storageName);
     if (!fs.existsSync(filePath)) {
-      await writeFileAtomicAsync(filePath, req.file.buffer);
+      if (isFile) await fs.promises.rename(req.file.path, filePath);
+      else await writeFileAtomicAsync(filePath, req.file.buffer);
     }
 
     if (!entry) {
@@ -41808,6 +41833,7 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
         ...(learningGroup ? {groupId:learningGroup.id,...(learningLesson?{lessonId:learningLesson.id}:{})} : {}),
         storageName,
         mimeType,
+        ...(isFile ? { kind: 'file', name } : {}),
         hash,
         sizeBytes: req.file.size,
         createdAt,
@@ -41822,6 +41848,7 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
       url: `/uploads/${entry.storageName}`,
       storageName: entry.storageName,
       mimeType: entry.mimeType,
+      ...(isFile ? { kind: 'file', name: entry.name } : {}),
       sizeBytes: entry.sizeBytes,
       hash: entry.hash,
       ...(entry.groupId ? { groupId: entry.groupId } : {}),
@@ -41829,8 +41856,12 @@ app.post('/api/board-assets', boardAssetUpload.single('file'), async (req, res, 
     });
   } catch (error) {
     return next(error);
+  } finally {
+    if (isFile && req.file?.path) await fs.promises.unlink(req.file.path).catch(() => {});
   }
-});
+};
+app.post('/api/board-assets', boardAssetUpload.single('file'), handleBoardAssetUpload('image'));
+app.post('/api/board-files', boardFileUpload.single('file'), handleBoardAssetUpload('file'));
 
 app.post('/api/test-files', (req, res, next) => {
   if (!ensureStaffWriteAccess(req, res)) return;

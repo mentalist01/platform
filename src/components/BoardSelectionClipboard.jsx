@@ -7,6 +7,7 @@ import { useBoardSelectionResize } from './BoardSelectionResize.jsx';
 import { useBoardAlignment } from './BoardAlignmentGuides.jsx';
 import { fitBoardFragmentToViewport } from '../utils/boardSelectionResize.js';
 import { selectionMovePreview } from '../utils/boardAlignment.js';
+import { BOARD_FILE_MAX_BYTES } from '../utils/boardFile.js';
 
 const editable = target => target?.isContentEditable || Boolean(target?.closest?.('input,textarea,select,[contenteditable="true"]'));
 export default function BoardSelectionClipboard(props) {
@@ -61,8 +62,23 @@ export default function BoardSelectionClipboard(props) {
         const stored = await uploads.get(source);
         delete image.dataUrl; Object.assign(image, stored);
       };
+      const transferFile = async entry => {
+        const key = `file:${entry.assetUrl}:${entry.name}`;
+        if (!uploads.has(key)) uploads.set(key, (async () => {
+          const response = await authenticatedUploadsFetch(entry.assetUrl);
+          if (!response.ok) throw new Error('Не удалось загрузить файл исходной доски');
+          const blob = await response.blob();
+          if (blob.size > BOARD_FILE_MAX_BYTES) throw new Error('Файл фрагмента больше 64 МБ');
+          return api.uploadBoardFile(new File([blob], entry.name), c.target.studentId, {
+            lessonId: c.target.lessonId, roomId: c.target.roomId,
+          });
+        })());
+        const stored = await uploads.get(key);
+        Object.assign(entry, { assetId: stored.id, assetUrl: stored.url, name: stored.name, sizeBytes: stored.sizeBytes });
+      };
       for (const entry of c.target.sandbox ? [] : entries) {
         if (entry.type === 'image') await transfer(entry);
+        if (entry.type === 'file') await transferFile(entry);
         if (entry.type === 'task') for (const image of entry.screenshots) await transfer(image);
       }
       if (!mounted.current || latest.current.target.readOnly || latest.current.target.roomId !== c.target.roomId || c.refs.doc.current !== doc) return;

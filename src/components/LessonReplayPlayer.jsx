@@ -1,4 +1,7 @@
 import React, { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition } from 'react';
+import FileDownloadLink from './FileDownloadLink.jsx';
+import { formatBoardFileSize } from '../utils/boardFile.js';
+import './BoardFiles.css';
 import {
   Brush,
   Code2,
@@ -491,6 +494,17 @@ const ReplayBoardItems = React.memo(({ items, arrowMarkerId }) => (
         );
       }
       if (item.type === 'task') return <ReplayBoardTask key={key} item={item} />;
+      if (item.type === 'file') return <g key={key} transform={`translate(${item.x} ${item.y}) scale(${item.width / 360} ${item.height / 112})`}>
+        <rect x="1" y="1" width="358" height="110" rx="16" fill="white" stroke="#d9ccfc"/>
+        <rect x="16" y="16" width="44" height="48" rx="10" fill="#f0e9ff"/>
+        <text x="38" y="45" textAnchor="middle" fill="#7c3aed" fontSize="11" fontWeight="bold">ФАЙЛ</text>
+        <text x="74" y="35" fill="#28233c" fontSize="15" fontWeight="600">{item.name.length > 29 ? `${item.name.slice(0, 28)}…` : item.name}</text>
+        <text x="74" y="56" fill="#80768f" fontSize="12">{formatBoardFileSize(item.sizeBytes)}</text>
+        <text x="16" y="91" fill="#80768f" fontSize="12">Файл к занятию</text>
+        <foreignObject x="240" y="72" width="104" height="28" onPointerDown={event => event.stopPropagation()}>
+          <FileDownloadLink className="board-file-download-button" style={{ left: 0, top: 0 }} href={item.assetUrl} download={item.name}>↓ Скачать</FileDownloadLink>
+        </foreignObject>
+      </g>;
       if (item.type === 'image' && item.assetUrl) {
         const source = resolveAuthenticatedUploadsUrl(item.assetUrl);
         return <image key={key} href={source} x={item.x || 0} y={item.y || 0} width={item.width || 1} height={item.height || 1} preserveAspectRatio="none" transform={item.flipX ? `translate(${(item.x || 0) * 2 + (item.width || 1)} 0) scale(-1 1)` : undefined} />;

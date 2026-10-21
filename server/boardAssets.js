@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import path from 'path';
+import { normalizeBoardFileName } from '../src/utils/boardFile.js';
 
 const MIME_EXTENSION = Object.freeze({
   'image/png': '.png',
@@ -74,7 +75,9 @@ export const normalizeBoardAssetEntry = (value) => {
   const hash = String(value.hash || '').trim().toLowerCase();
   const sizeBytes = Math.max(0, Math.floor(Number(value.sizeBytes) || 0));
   const createdAt = String(value.createdAt || '').trim();
-  if (!id || (!studentId && !lessonId && !groupId) || !storageName || !getBoardAssetExtension(mimeType)) return null;
+  const isFile = value.kind === 'file';
+  if (!id || (!studentId && !lessonId && !groupId) || !storageName) return null;
+  if (isFile ? !/^board-asset-[a-f0-9]{64}\.bin$/.test(storageName) : !getBoardAssetExtension(mimeType)) return null;
   if ((lessonId || groupId) && (!groupId || !teacherId)) return null;
   if (!storageName.startsWith('board-asset-')) return null;
   return {
@@ -82,7 +85,8 @@ export const normalizeBoardAssetEntry = (value) => {
     studentId,
     teacherId,
     storageName,
-    mimeType,
+    mimeType: isFile ? 'application/octet-stream' : mimeType,
+    ...(isFile ? { kind: 'file', name: normalizeBoardFileName(value.name) } : {}),
     hash: /^[a-f0-9]{64}$/.test(hash) ? hash : '',
     sizeBytes,
     createdAt,

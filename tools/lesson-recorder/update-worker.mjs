@@ -7,7 +7,12 @@ export function updatePaths(root, task) {
   root = path.resolve(root); task = path.resolve(task);
   if (path.dirname(path.dirname(task)) !== root || path.basename(path.dirname(task)) !== 'updates'
     || !/^[a-f0-9-]{36}$/.test(path.basename(task))) throw new Error('Invalid update directory');
-  return { root, task, app: path.join(root, 'app'), candidate: path.join(task, 'candidate'), backup: path.join(task, 'previous') };
+  const id = path.basename(task);
+  // Updates may be a junction to another disk. Stage and swap beside app so
+  // activation and rollback still use atomic, same-volume renames.
+  return { root, task, app: path.join(root, 'app'), candidate: path.join(task, 'candidate'),
+    staged: path.join(root, `update-app-${id}`), backup: path.join(root, `previous-app-${id}`),
+    failed: path.join(root, `failed-app-${id}`) };
 }
 export async function activateUpdate({ root, task, parentPid, launch, healthy }) {
   const paths = updatePaths(root, task);
@@ -20,6 +25,7 @@ export async function activateUpdate({ root, task, parentPid, launch, healthy })
   };
   let moved = false; let installed = false; let child;
   try {
+    fs.cpSync(paths.candidate, paths.staged, { recursive: true, errorOnExist: true, force: false });
     if (parentPid) {
       for (let attempt = 0; attempt < 90; attempt++) {
         let alive = true; try { process.kill(parentPid, 0); } catch (error) { if (error.code === 'ESRCH') alive = false; else throw error; }
@@ -29,20 +35,20 @@ export async function activateUpdate({ root, task, parentPid, launch, healthy })
       }
     }
     fs.renameSync(paths.app, paths.backup); moved = true;
-    fs.renameSync(paths.candidate, paths.app); installed = true;
+    fs.renameSync(paths.staged, paths.app); installed = true;
     child = await launch(paths.app, paths.root);
     if (!await healthy(state.releaseId, child)) throw new Error('Новая версия не запустилась. Восстановлена предыдущая версия.');
     write({ status: 'complete', error: '' });
   } catch (error) {
     if (child) { child.kill(); await new Promise(resolve => child.exitCode !== null ? resolve() : child.once('exit', resolve)); }
-    if (installed) fs.renameSync(paths.app, path.join(paths.task, 'failed'));
+    if (installed) fs.renameSync(paths.app, paths.failed);
     if (moved) fs.renameSync(paths.backup, paths.app);
     write({ status: 'error', error: String(error.message).slice(0, 240) });
     if (moved) await launch(paths.app, paths.root);
     throw error;
   }
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [root, task, pid] = process.argv.slice(2);
   const launch = (app, directory) => new Promise((resolve, reject) => {
     const log = fs.openSync(path.join(task, 'startup.log'), 'a');

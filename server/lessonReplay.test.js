@@ -31,6 +31,17 @@ const eventContext = {
   nowMs: START_MS,
 };
 
+test('board file cards survive replay persistence without inline bytes or auth tokens', () => {
+  const file = { id: 'file-one', type: 'file', assetId: 'asset', assetUrl: `/uploads/board-asset-${'a'.repeat(64)}.bin?_auth=secret`, name: 'Данные.xlsx', sizeBytes: 123, x: 100, y: 200, width: 360, height: 112 };
+  const saved = appendLessonReplayEvents(createLessonReplay(occurrence, START_MS), [
+    { id: 'attachment', type: 'board', payload: { items: [file] } },
+  ], eventContext).replay;
+  const reloaded = normalizeLessonReplay(JSON.parse(JSON.stringify(saved)));
+  assert.equal(reloaded.events[0].payload.items[0].type, 'file');
+  assert.equal(reloaded.events[0].payload.items[0].name, file.name);
+  assert.equal(reloaded.events[0].payload.items[0].assetUrl, file.assetUrl.split('?')[0]);
+});
+
 test('solution names survive saving and reloading code, runs and code viewports', () => {
   const events = [
     { type: 'code', payload: { code: 'print(43)', action: 'snapshot' } },

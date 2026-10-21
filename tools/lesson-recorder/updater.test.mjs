@@ -33,7 +33,8 @@ test('activation replaces only app, retains a backup and leaves settings and rec
   const f = fixture(t); let launched;
   await activateUpdate({ ...f, launch: async app => { launched = fs.readFileSync(path.join(app, 'version'), 'utf8'); }, healthy: async id => id === 'target' });
   assert.equal(launched, 'new');
-  assert.equal(fs.readFileSync(path.join(f.task, 'previous', 'version'), 'utf8'), 'old');
+  assert.equal(fs.readFileSync(path.join(updatePaths(f.root, f.task).backup, 'version'), 'utf8'), 'old');
+  assert.equal(fs.readFileSync(path.join(f.task, 'candidate', 'version'), 'utf8'), 'new');
   assert.equal(fs.readFileSync(path.join(f.root, 'state.json'), 'utf8'), 'settings-and-jobs');
   assert.equal(fs.readFileSync(path.join(f.root, 'video.mkv'), 'utf8'), 'recording');
   assert.equal(JSON.parse(fs.readFileSync(path.join(f.root, 'update-status.json'))).status, 'complete');
