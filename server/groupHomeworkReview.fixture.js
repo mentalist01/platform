@@ -9,7 +9,8 @@ export const createHomeworkReviewFixture = fixedPort => createGroupHomeworkFixtu
     { id: 'review-python', title: 'Домашняя работа · Python', goals: [python], recipients: ['student-a', 'student-b'], studyTrack: 'python' },
     { id: 'review-multi', title: 'Два ответа', goals: [{ type: 'task', taskNumber: 26, levelId: 'basic', targetQuestions: [1], targetQuestionIds: ['two'] }], recipients: ['student-a'], studyTrack: 'ege' }];
   write('learning-groups', [{ id: groupId, teacherId: 'teacher-a', name: 'Группа 2', status: 'active', createdAt: at(-72),
-    members: ['student-a', 'student-b'].map(studentId => ({ studentId, status: 'active', joinedAt: at(-72) })) }]);
+    members: [...['student-a', 'student-b'].map(studentId => ({ studentId, status: 'active', joinedAt: at(-72) })),
+      { studentId: 'student-c', status: 'removed', joinedAt: at(-96), leftAt: at(-72) }] }]);
   write('learning-assignments', assignments.map(a => ({ ...a, groupId, teacherId: 'teacher-a', status: 'assigned',
     recipientIds: a.recipients, recipientMode: 'selected', createdAt: at(-48), publishedAt: at(-48), dueAt: at(24),
     homework: { studyTrack: a.studyTrack, goals: a.goals } })));

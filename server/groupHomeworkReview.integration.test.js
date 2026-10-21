@@ -10,6 +10,7 @@ test('group homework review shows exact recipients, isolated assignment results,
   try {
     const before = fs.readFileSync(path.join(f.data, 'progress.json'), 'utf8');
     const overview = await f.request(route, teacher);
+    assert.equal(overview.members.length, 2, 'Removed pupils who were never recipients do not clutter the roster');
     const anna = overview.members.find(m => m.studentId === 'student-a');
     assert.deepEqual(anna.summary, { total: 5, completed: 2, clean: 1, corrected: 1, wrong: 1, untouched: 2,
       percent: 40, errors: 2, checklistTotal: 0, checklistCompleted: 0 });

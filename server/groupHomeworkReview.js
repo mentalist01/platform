@@ -92,7 +92,8 @@ export function registerGroupHomeworkReview(app, deps) {
     const ctx = context(req, res); if (!ctx) return;
     const { group, assignment } = ctx;
     const shared = deps.shared(group.teacherId);
-    const ids = [...new Set([...list(assignment.recipientIds), ...list(group.members).map(m => m.studentId)])];
+    const ids = [...new Set([...list(assignment.recipientIds), ...list(group.members)
+      .filter(member => member.status === 'active').map(member => member.studentId)])];
     const members = ids.map(studentId => ({ studentId, student: deps.summary(studentId, req.auth),
       ...snapshot(req, group, assignment, studentId, false, shared) }));
     res.json({ assignmentId: assignment.id, members, updatedAt: new Date().toISOString() });
