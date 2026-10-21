@@ -36,6 +36,7 @@ import { getClassicTask } from '../data/classicTaskRuntime';
 import MockExamBadges, { MockExamBadgeSticker } from './MockExamBadges';
 import MockExamAnalysisModal from './MockExamAnalysisModal';
 import {getMockAttemptViews,mockAttemptLabel} from '../utils/mockExamAttemptView.js';
+import {getMockExamRemainingMs} from '../utils/mockExamCompletion';
 import MockChestOpeningOverlay from './MockChestOpeningOverlay';
 import MockExamEditorModal from './MockExamEditorModal';
 import MockExamModal from './MockExamModal';
@@ -564,20 +565,11 @@ const getMockNextRewardInfo = (score, mode) => {
 };
 
 const getMockTimerRemainingMs = (attempt, nowMs = Date.now()) => {
-  if (String(attempt?.timerPausedAt || '').trim()) {
-    const pausedRemainingMs = Math.max(0, Math.floor(Number(attempt?.timerRemainingMs) || 0));
-    return Number.isFinite(pausedRemainingMs) ? pausedRemainingMs : 0;
-  }
-  const expiresAtMs = Date.parse(String(attempt?.timerExpiresAt || ''));
-  if (!Number.isFinite(expiresAtMs)) return null;
-  return Math.max(0, expiresAtMs - nowMs);
+  return getMockExamRemainingMs(attempt, nowMs);
 };
 
 const getMockTimerRemainingAtFinishMs = (attempt) => {
-  const finishedAtMs = Date.parse(String(attempt?.timerFinishedAt || ''));
-  const expiresAtMs = Date.parse(String(attempt?.timerExpiresAt || ''));
-  if (!Number.isFinite(finishedAtMs) || !Number.isFinite(expiresAtMs)) return 0;
-  return Math.max(0, expiresAtMs - finishedAtMs);
+  return getMockExamRemainingMs(attempt, Date.now(), 0);
 };
 
 const isMockTimerAttemptPaused = (attempt) => (

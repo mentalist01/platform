@@ -1,4 +1,6 @@
 import StudentMonthlyMockReview from './StudentMonthlyMockReview';
+import MockExamCompletionOverlay from './MockExamCompletionOverlay';
+import {getMockExamRemainingMs,isMockAttemptFinished} from '../utils/mockExamCompletion';
 import FileDownloadLink from './FileDownloadLink';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -304,6 +306,8 @@ const MockExamModal = ({
   const [successBurst, setSuccessBurst] = useState(null);
   const [artifactDropBurst, setArtifactDropBurst] = useState(null);
   const [chestOpeningRewards, setChestOpeningRewards] = useState([]);
+  const [completionResult, setCompletionResult] = useState(null);
+  const completionRewardsRef = useRef(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [displayAttempt, setDisplayAttempt] = useState(() => (
     initialAttempt && typeof initialAttempt === 'object' ? initialAttempt : {}
@@ -373,20 +377,17 @@ const MockExamModal = ({
     });
   };
   const isTimerMode = effectiveAttemptMode === MOCK_ATTEMPT_MODE_TIMER;
+  const countdownFinished = isMockAttemptFinished(activeAttempt);
   const rewardsDisabled = Boolean(exam?.rewardsDisabled || activeAttempt?.rewardsDisabled);
   const artifactHintText = rewardsDisabled
     ? 'Персональный пробник работает как тренировка: без опыта, монет, артефактов и сундуков.'
     : isTimerMode
       ? 'Артефакты выпадают только из сундуков за рубежи таймера.'
       : 'Артефакты не выпадают в обычном режиме. Запусти таймерный пробник и открывай сундуки за рубежи.';
-  const timerPaused = isTimerMode && Boolean(String(activeAttempt?.timerPausedAt || '').trim()) && !String(activeAttempt?.timerFinishedAt || '').trim();
+  const timerPaused = isTimerMode && Boolean(String(activeAttempt?.timerPausedAt || '').trim()) && !countdownFinished;
   const timerExpiresAtMs = isTimerMode ? Date.parse(String(activeAttempt?.timerExpiresAt || '')) : Number.NaN;
   const timerDurationMs = Math.max(60 * 1000, Math.floor(Number(activeAttempt?.timerDurationMs) || MOCK_EXAM_TIMER_DURATION_MS));
-  const timerRemainingMs = timerPaused
-    ? Math.max(0, Math.floor(Number(activeAttempt?.timerRemainingMs) || 0))
-    : (isTimerMode && Number.isFinite(timerExpiresAtMs)
-    ? Math.max(0, timerExpiresAtMs - nowMs)
-    : timerDurationMs);
+  const timerRemainingMs = getMockExamRemainingMs(activeAttempt, nowMs, timerDurationMs);
   const timerExpired = isTimerMode && (timerPaused || Number.isFinite(timerExpiresAtMs)) && timerRemainingMs <= 0;
   const timerLabel = formatMockTimerDuration(timerRemainingMs);
 
@@ -549,6 +550,10 @@ const MockExamModal = ({
     setSaveStatus('');
   }, [readOnly, attemptMode, exam?.id, hasRequestedTaskScope, initialAttempt, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved, studentId]);
 
+  // A saved result can replace the exam with its immutable task snapshot.
+  // That parent echo must not dismiss the result the pupil has just earned.
+  useEffect(()=>{setCompletionResult(null);completionRewardsRef.current=null;},[exam?.id,studentId]);
+
   useEffect(() => {
     if (readOnly) return;
     if (skipNextDraftWriteRef.current) {
@@ -567,15 +572,15 @@ const MockExamModal = ({
   }, [readOnly, activeDraftAttemptKey, answers, effectiveAttemptMode, exam?.id, hasRequestedTaskScope, modalTaskNumbers, studentId]);
 
   useEffect(() => {
-    if (!isTimerMode || timerPaused) return undefined;
+    if (!isTimerMode || timerPaused || countdownFinished || readOnly) return undefined;
     setNowMs(Date.now());
     const timerId = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timerId);
-  }, [isTimerMode, timerPaused, activeAttempt?.timerExpiresAt]);
+  }, [isTimerMode, timerPaused, countdownFinished, readOnly, activeAttempt?.timerExpiresAt]);
 
   useEffect(() => {
     setCoachNoteIndex(0);
-    if (!isTimerMode || MOCK_EXAM_COACH_NOTES.length <= 1) return undefined;
+    if (!isTimerMode || countdownFinished || readOnly || MOCK_EXAM_COACH_NOTES.length <= 1) return undefined;
     const rotationTimer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       setCoachNoteIndex((currentIndex) => (
@@ -583,7 +588,7 @@ const MockExamModal = ({
       ));
     }, MOCK_EXAM_COACH_NOTE_ROTATION_MS);
     return () => window.clearInterval(rotationTimer);
-  }, [exam?.id, isTimerMode]);
+  }, [exam?.id, isTimerMode, countdownFinished, readOnly]);
 
   useEffect(() => {
     setSaveError('');
@@ -1067,12 +1072,20 @@ const MockExamModal = ({
         setResults(nextResults);
         const mockChestRewards = getMockChestRewards(saved);
         const mockArtifactDrop = mockChestRewards.length > 0 ? null : getFeaturedMockArtifactDrop(saved);
-        if (mockChestRewards.length > 0) {
-          setChestOpeningRewards(mockChestRewards);
-        } else if (mockArtifactDrop) {
-          triggerArtifactDropBurst(mockArtifactDrop);
-        }
         const savedSecondaryScore = getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(savedSolved));
+        const fullExam = !hasRequestedTaskScope || modalTaskNumbers.length === Object.keys(exam.tasks || {}).length;
+        if (fullExam && isMockAttemptFinished(saved)) {
+          completionRewardsRef.current={chests:mockChestRewards,artifact:mockArtifactDrop};
+          setCompletionResult({
+            score:savedSecondaryScore,
+            bestScore:saved.bestAttempt ? getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(readAttemptSolved(saved.bestAttempt))) : null,
+            completedAt:saved.timerFinishedAt || saved.finishedAt,
+            attemptNumber:Number(saved.attemptNumber)||1,
+            timedOut:isTimerMode && timerExpired,
+            hasRewards:mockChestRewards.length>0 || Boolean(mockArtifactDrop),
+          });
+        } else if (mockChestRewards.length>0) setChestOpeningRewards(mockChestRewards);
+        else if (mockArtifactDrop) triggerArtifactDropBurst(mockArtifactDrop);
         const timerChestsGained = Math.max(0, Math.floor(Number(saved?.timerChestsGained) || 0));
         setSaveStatus(
           saved?.timerRewardsDisabled
@@ -1091,6 +1104,14 @@ const MockExamModal = ({
     }
   };
   handleFinishExamRef.current = handleFinishExam;
+
+  const dismissCompletion = () => {
+    setCompletionResult(null);
+    const rewards=completionRewardsRef.current;completionRewardsRef.current=null;
+    if(rewards?.chests?.length)setChestOpeningRewards(rewards.chests);
+    else if(rewards?.artifact)triggerArtifactDropBurst(rewards.artifact);
+    window.requestAnimationFrame(()=>modalCardRef.current?.focus?.());
+  };
 
   useEffect(() => {
     if (
@@ -1624,8 +1645,8 @@ const MockExamModal = ({
         role="dialog"
         aria-modal="true"
         aria-label={`Пробник «${exam.title || 'Без названия'}»`}
-        aria-hidden={finishConfirmOpen || timerConfirmationRequest ? 'true' : undefined}
-        inert={finishConfirmOpen || timerConfirmationRequest ? true : undefined}
+        aria-hidden={finishConfirmOpen || timerConfirmationRequest || completionResult ? 'true' : undefined}
+        inert={finishConfirmOpen || timerConfirmationRequest || completionResult ? true : undefined}
         tabIndex={-1}
         className={`modal-card mock-exam-modal-card ${isTimerMode ? 'mock-exam-modal--timer' : ''} relative flex h-[calc(100dvh-0.5rem)] max-h-none w-full max-w-[112rem] flex-col overflow-hidden rounded-[1.5rem] border p-3 shadow-2xl sm:h-[calc(100dvh-1rem)] sm:p-4 lg:h-[calc(100dvh-1.5rem)] ${shellClassName}`}
         style={shellStyle}
@@ -2337,6 +2358,8 @@ const MockExamModal = ({
           ))}
         </div>
       )}
+
+      {completionResult && <MockExamCompletionOverlay result={completionResult} theme={theme} onClose={dismissCompletion} />}
 
       {chestOpeningRewards.length > 0 && (
         <MockChestOpeningOverlay

@@ -1,0 +1,41 @@
+.mock-completion-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;overflow:auto;padding:24px;background:#141026bc;backdrop-filter:blur(12px);animation:mock-result-fade .25s ease-out}
+.mock-completion-card{position:relative;isolation:isolate;width:min(100%,510px);max-height:calc(100dvh - 48px);overflow:auto;border:1px solid #e5ddfc;border-radius:32px;padding:32px 38px 24px;background:radial-gradient(ellipse at 50% 0%,#ede6ff 0,transparent 62%),#fff;box-shadow:0 35px 110px #08051b5e;text-align:center;color:#242137;animation:mock-result-arrive .6s cubic-bezier(.16,1,.3,1);outline:none}
+.mock-completion-card[data-tone=excellent]{background:radial-gradient(ellipse at 50% 0%,#fff0cd,transparent 55%),#fff;border-color:#f7dfae}
+.mock-completion-close{position:absolute;right:16px;top:16px;display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:10px;background:#ffffff9c;color:#706482;cursor:pointer}
+.mock-completion-eyebrow{display:flex;justify-content:center;align-items:center;gap:7px;margin:2px 18px 20px;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:#766194}
+.mock-completion-medal{position:relative;z-index:1;display:grid;place-items:center;width:52px;height:52px;margin:0 auto -17px;background:linear-gradient(140deg,#8b5cf6,#b667ec);border:5px solid #f7f2ff;border-radius:18px;color:#fff;box-shadow:0 8px 22px #8b5cf62e;transform:rotate(-7deg)}
+.mock-completion-card[data-tone=excellent] .mock-completion-medal{background:linear-gradient(140deg,#f2ba55,#ed8b3c);border-color:#fff7e7;box-shadow:0 8px 22px #edac5b40}
+.mock-completion-score{position:relative;width:190px;height:190px;margin:0 auto;display:grid;place-items:center}
+.mock-completion-score svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;transform:rotate(-90deg)}
+.mock-completion-score circle{fill:none;stroke:#ede7fa;stroke-width:8}
+.mock-completion-score circle.mock-completion-score-progress{stroke:#9460e8;stroke-linecap:round;animation:mock-result-ring 1s ease-out both}
+.mock-completion-card[data-tone=excellent] .mock-completion-score-progress{stroke:#e5a044}
+.mock-completion-score strong{display:block;font-size:70px;font-weight:900;line-height:1;letter-spacing:-.07em;font-variant-numeric:tabular-nums;color:#4d2f7b}
+.mock-completion-score span{display:block;margin-top:7px;font-size:12px;color:#8a7e9a}
+.mock-completion-score-label{font-size:11px;color:#8a7e9a;margin:0 0 18px}
+.mock-completion-card h2{font-size:27px;line-height:1.15;font-weight:850;letter-spacing:-.035em;margin:0 0 13px}
+.mock-completion-message{font-size:14px;line-height:1.75;color:#746982;margin:0}
+.mock-completion-benchmark{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid #eae1f6;border-radius:13px;background:#f8f5fd;margin-top:20px;text-align:left;font-size:11px;color:#89759f}
+.mock-completion-benchmark strong{font-size:11px;font-weight:700;color:#6c5488}
+.mock-completion-best{font-size:12px;line-height:1.7;color:#786a8a;margin:12px 0 0}
+.mock-completion-continue{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;border:0;border-radius:15px;background:linear-gradient(110deg,#7c3aed,#a044dc);color:#fff;margin-top:23px;padding:15px 18px;font-size:14px;font-weight:750;cursor:pointer;box-shadow:0 8px 22px #7c3aed28;transition:filter .15s,transform .15s}
+.mock-completion-continue:hover{filter:brightness(1.07);transform:translateY(-1px)}
+.mock-completion-note{font-size:10px;line-height:1.6;color:#a093af;margin:12px 0 0}
+.mock-completion-card button:focus-visible{outline:3px solid #b9a0ef;outline-offset:4px}
+.mock-completion-confetti{position:fixed;inset:0;overflow:hidden;pointer-events:none}
+.mock-completion-confetti i{position:absolute;left:var(--x);top:-20px;width:9px;height:15px;background:var(--color);border-radius:3px;animation:mock-result-confetti 2.8s var(--delay) cubic-bezier(.12,.46,.7,1) both}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-card{background:radial-gradient(ellipse at 50% 0%,#37264e,transparent 65%),#191724;border-color:#4f3a66;color:#f3eafa}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-card[data-tone=excellent]{background:radial-gradient(ellipse at 50% 0%,#483426,transparent 65%),#191724;border-color:#6c5137}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-score strong{color:#e5ccff}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-score circle{stroke:#3b304c}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-score circle.mock-completion-score-progress{stroke:#bc91ff}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-message{color:#c3b4d3}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-benchmark{background:#241e31;border-color:#4f3a66}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-benchmark strong{color:#d2b7ed}
+.mock-completion-backdrop[data-theme=dark] .mock-completion-close{background:#ffffff0d;color:#cdbbdf}
+@keyframes mock-result-fade{from{opacity:0}to{opacity:1}}
+@keyframes mock-result-arrive{from{opacity:0;transform:translateY(28px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes mock-result-ring{from{stroke-dasharray:0 490.1}}
+@keyframes mock-result-confetti{0%{opacity:0;transform:translateY(0) rotate(0)}10%{opacity:1}85%{opacity:1}100%{opacity:0;transform:translateY(105vh) rotate(var(--spin))}}
+@media(max-width:540px){.mock-completion-backdrop{padding:14px}.mock-completion-card{max-height:calc(100dvh - 28px);border-radius:25px;padding:29px 23px 20px}.mock-completion-card h2{font-size:25px}.mock-completion-benchmark{flex-direction:column;gap:4px;text-align:center}.mock-completion-score{width:170px;height:170px}.mock-completion-score strong{font-size:62px}}
+@media(prefers-reduced-motion:reduce){.mock-completion-backdrop,.mock-completion-card,.mock-completion-score-progress,.mock-completion-confetti i{animation:none!important;transition:none!important}.mock-completion-confetti{display:none}.mock-completion-continue:hover{transform:none}}

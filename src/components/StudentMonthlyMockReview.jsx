@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { LockKeyhole, PlayCircle } from 'lucide-react';
 import { getMonthlyMockReview, surrenderMonthlyMockReview } from '../services/monthlyMockReview';
 import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../utils/learningGroups';
@@ -11,6 +11,7 @@ export default function StudentMonthlyMockReview({ examId, month, title, initial
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const lockedHintId=useId();
   const key = `${examId}:${month}`;
   const review = loaded?.key === key ? loaded.value : initialReview;
   useEffect(() => {
@@ -28,6 +29,10 @@ export default function StudentMonthlyMockReview({ examId, month, title, initial
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? 'Скрыть видеоразбор' : 'Смотреть видеоразбор'}</button>
       {expanded && <><iframe src={getRutubeEmbedUrl(url)} title={`Видеоразбор · ${title}`} allow="clipboard-write; autoplay" allowFullScreen loading="lazy" /><a href={getRutubeWatchUrl(url)} target="_blank" rel="noreferrer">Открыть на Rutube</a><RutubeViewingHelp /></>}
     </> : <>
+      <span className="monthly-review-locked" tabIndex={0} role="button" aria-disabled="true" aria-label="Видеоразбор пока закрыт" aria-describedby={lockedHintId}>
+        <button type="button" disabled tabIndex={-1}><LockKeyhole size={16} aria-hidden="true"/>Смотреть видеоразбор</button>
+        <span id={lockedHintId} role="tooltip" className="monthly-review-locked__hint">Видеоразбор откроется после завершения всех попыток пробника.</span>
+      </span>
       <p>Разбор уже записан. Он откроется, когда вы завершите все попытки. Можно отказаться от оставшихся попыток и посмотреть его сейчас.</p>
       {review.canSurrender && (!confirming ? <button type="button" onClick={() => setConfirming(true)}>Сдаться и посмотреть разбор</button> : <div className="monthly-review-confirm" role="group" aria-label="Подтверждение сдачи пробника">
         <strong>Закрыть оставшиеся попытки?</strong>
