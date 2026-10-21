@@ -1307,6 +1307,11 @@ export const api = {
   getLearningGroupLessonAttendance: async (groupId, lessonId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'attendance'))
   ),
+  setLearningGroupLessonAbsence: async (groupId, lessonId, studentId, absent) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'absence'), {
+      method: 'PUT', body: {studentId, absent},
+    })
+  ),
   getLearningVoiceChannels: async (groupId, lessonId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels'))
   ),

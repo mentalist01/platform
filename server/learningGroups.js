@@ -498,6 +498,9 @@ export const normalizeLearningLessonSession = (value) => {
     participantIds,
     startAt,
     ...(value.participationOverrides ? {participationOverrides: Object.fromEntries(Object.entries(value.participationOverrides).filter(([id, assigned]) => participantIds.includes(id) && typeof assigned === 'boolean'))} : {}),
+    ...(value.absenceWaivers ? {absenceWaivers: Object.fromEntries(Object.entries(value.absenceWaivers)
+      .filter(([id, mark]) => participantIds.includes(id) && normalizeIsoTimestamp(mark?.markedAt))
+      .map(([id, mark]) => [id, {markedAt: normalizeIsoTimestamp(mark.markedAt), markedById: cleanText(mark.markedById, 180)}]))} : {}),
     durationMinutes: normalizeDurationMinutes(value.durationMinutes),
     topic: cleanText(value.topic || value.subject, 500),
     note: cleanText(value.note, 2000),

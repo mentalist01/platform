@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import { createStudentBalanceReadContext } from './studentBalanceReadContext.js';
 import { LearningSubscriptionStore, subscriptionOccurrence } from './learningSubscriptions.js';
 import { deduplicateGroupLessonSessions } from './groupScheduleDuplicates.js';
-import { isGroupLessonAssigned, participationOccurrence } from '../src/utils/groupParticipation.js';
+import { isGroupLessonAssigned, isGroupLessonAbsenceWaived, participationOccurrence } from '../src/utils/groupParticipation.js';
 import { calculateLessonPrice, lessonRateAt } from '../src/utils/lessonPricing.js';
 import { balanceCents, createBalanceAccount } from './studentPaymentBalances.js';
 
@@ -44,7 +44,7 @@ function fixture() {
     reconcile(lessons, data) { counters.reconcile += 1; return LearningSubscriptionStore.prototype.reconcile.call(this, lessons, data); },
   };
   const context = {
-    createStudentBalanceReadContext, subscriptionOccurrence, deduplicateGroupLessonSessions, isGroupLessonAssigned, participationOccurrence,
+    createStudentBalanceReadContext, subscriptionOccurrence, deduplicateGroupLessonSessions, isGroupLessonAssigned, isGroupLessonAbsenceWaived, participationOccurrence,
     calculateLessonPrice, lessonRateAt, balanceCents, createBalanceAccount,
     learningSubscriptions: store,
     readLearningGroupsDb: () => { counters.groups += 1; return clone(groups); },
@@ -78,7 +78,7 @@ function fixture() {
     getPaymentAllocationByMarkKey: (entry, key, studentId) => Object.values(entry.paymentAllocations).find(allocation => allocation.studentId === studentId
       && [allocation.currentMarkKey, allocation.originMarkKey].includes(key)),
   };
-  const names = ['getLearningSubscriptionOccurrence', 'resolveGroupParticipationOccurrence', 'isGroupEntryAssigned', 'getGroupEntryStudentSourceIds',
+  const names = ['getLearningSubscriptionOccurrence', 'resolveGroupParticipationOccurrence', 'isGroupEntryAssigned', 'isGroupEntryAbsenceWaived', 'isGroupEntryChargeable', 'getGroupEntryStudentSourceIds',
     'doesPaymentScheduleEntryMatchStudent', 'getLessonPriceForPaymentOccurrence', 'walletStudentEligible', 'walletMarkParts',
     'getWalletOccurrences', 'seedStudentBalance', 'readResolvedGroupLessonSessions'];
   vm.runInNewContext(`${names.map(declaration).join('\n')}\nglobalThis.api = {${names.join(',')}};`, context);

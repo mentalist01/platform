@@ -10,7 +10,7 @@ const scope = { normalizeTeacherId: String, normalizeDayKey: String, normalizeSc
   getStudentSchedulePaymentEventStudentId: (_entry, _source, student) => student,
   buildTeacherCalendarPaymentMarkKey: key, buildTeacherCalendarCancellationMarkKey: () => '',
   getLearningSubscriptionOccurrence: () => null, isExplicitTrialLesson: () => false,
-  isTeacherCalendarLessonCancelled: () => false, isGroupEntryAssigned: () => true,
+  isTeacherCalendarLessonCancelled: () => false, isGroupEntryAssigned: () => true, isGroupEntryAbsenceWaived: () => false,
   dayKeyToNumber: date => Date.parse(date) / 86400000 };
 const build = vm.runInNewContext(`${helper}\nbuildStudentSchedulePaymentState`, scope);
 const options = { teacherId: 'teacher', studentId: 'pupil', dayKey: '2026-10-07', startMinutes: 1200, endMinutes: 1260,

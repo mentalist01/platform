@@ -37,3 +37,9 @@ export function isGroupLessonAssigned(group, studentId, lesson) {
 }
 export const requiredGroupLessonParticipants = (group, lesson) => (lesson.participantIds || [])
   .filter(id => isGroupLessonAssigned(group, id, lesson));
+
+// A teacher can waive one missed lesson without changing enrolment or access.
+// Automatic connection attendance never creates a payment exemption.
+export const isGroupLessonAbsenceWaived = (lesson, studentId) => Boolean(
+  studentId && lesson?.absenceWaivers?.[studentId]?.markedAt
+);

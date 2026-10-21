@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants} from './groupParticipation.js';
+import {isGroupLessonAssigned, isGroupLessonAbsenceWaived, participationOccurrence, requiredGroupLessonParticipants} from './groupParticipation.js';
 import {normalizeLearningGroup,normalizeLearningLessonSession,updateLearningLessonSession} from '../../server/learningGroups.js';
 test('dated participation history applies in Moscow without changing previous lessons or other members',()=>{
   const group=normalizeLearningGroup({id:'g',teacherId:'t',name:'Group',members:[{studentId:'a',participationPlans:[{from:'2026-10-01',mode:'selected',slots:['wednesday|20:00']},{from:'2026-11-01',mode:'all',slots:[]}]},{studentId:'b'}]});
@@ -31,4 +31,15 @@ test('saving or editing a plan today preserves lessons that already started toda
   assert.equal(isGroupLessonAssigned(group,'a',lesson('12:00')),true);
   assert.equal(isGroupLessonAssigned(group,'a',lesson('14:00')),false);
   assert.equal(isGroupLessonAssigned(group,'a',lesson('20:00')),false);
+});
+test('a missed lesson exemption survives a time edit and never changes another pupil or enrolment',()=>{
+  const group={members:[{studentId:'a'},{studentId:'b'}]};
+  const lesson=normalizeLearningLessonSession({id:'l',groupId:'g',teacherId:'t',participantIds:['a','b'],startAt:'2026-10-07T17:00:00Z',
+    absenceWaivers:{a:{markedAt:'2026-10-07T18:00:00Z',markedById:'t'},foreign:{markedAt:'2026-10-07T18:00:00Z'},b:{markedAt:'invalid'}}});
+  const moved=updateLearningLessonSession(lesson,{startAt:'2026-10-08T18:00:00Z'});
+  assert.equal(isGroupLessonAbsenceWaived(moved,'a'),true);
+  assert.equal(isGroupLessonAbsenceWaived(moved,'b'),false);
+  assert.equal(isGroupLessonAbsenceWaived(moved,'foreign'),false);
+  assert.equal(isGroupLessonAssigned(group,'a',moved),true);
+  assert.deepEqual(moved.absenceWaivers,lesson.absenceWaivers);
 });

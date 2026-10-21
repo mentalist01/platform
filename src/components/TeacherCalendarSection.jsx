@@ -2,6 +2,7 @@ import { isScheduleEntryInDateRange } from '../utils/scheduleDateRange';
 import { isExplicitTrialLesson } from '../utils/calendarLessonType.js';
 import { LessonAlarmSettings } from './LessonAlarmControls';
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
+import GroupCalendarParticipant from './GroupCalendarParticipant.jsx';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
 import CalendarEventEditor from './CalendarEventEditor.jsx';
@@ -600,9 +601,10 @@ const getLearningGroupPaymentState = (
       event.endMinutes,
       now
     );
+    const absenceWaived = member.absenceWaived === true;
     const status = cancelled
       ? 'cancelled'
-      : (trialMarked ? 'trial' : (paidMarked ? 'paid' : (member.participationRequired===false ? 'not-required' : (finished ? 'unpaid' : 'pending'))));
+      : (trialMarked ? 'trial' : (paidMarked ? 'paid' : (member.participationRequired===false || absenceWaived ? 'not-required' : (finished ? 'unpaid' : 'pending'))));
     return {
       ...member,
       paidMarkKey,
@@ -612,7 +614,7 @@ const getLearningGroupPaymentState = (
       cancelled,
       finished,
       status,
-      shouldRemindPayment: member.participationRequired!==false && !cancelled && finished && !paidMarked && !trialMarked,
+      shouldRemindPayment: !absenceWaived && member.participationRequired!==false && !cancelled && finished && !paidMarked && !trialMarked,
     };
   });
   const paidCount = members.filter((member) => member.status === 'paid').length;
@@ -2836,6 +2838,30 @@ const TeacherCalendarSection = ({
     lessonPanelMarks,
     teacherId,
   ]);
+
+  const handleGroupMemberAbsenceToggle = useCallback(async (member) => {
+    if (!eventDetails?.groupId || !eventDetails?.lessonId || eventDetailsCancelled || lessonPanelFinanceBusy) return;
+    const source = eventDetails, studentId = member.studentId, absent = !member.absenceWaived;
+    setLessonPanelFinanceBusy(`group-absence:${studentId}`);
+    setLessonPanelError(''); setLessonPanelSuccess('');
+    try {
+      const result = await api.setLearningGroupLessonAbsence(source.groupId, source.lessonId, studentId, absent);
+      const patch = entry => {
+        if (entry?.groupId !== source.groupId || entry?.lessonId !== source.lessonId) return entry;
+        return {...entry, memberPaymentStatuses: getLearningGroupCalendarParticipants(entry, studentNameById).map(item => (
+          item.studentId === studentId ? {...item, absenceWaived:Boolean(result.lesson?.absenceWaivers?.[studentId])} : item
+        ))};
+      };
+      calendarSnapshotGuard.current.invalidate();
+      setEntries(previous => previous.map(patch));
+      setEventDetails(patch);
+      setLessonPanelSuccess(absent ? `${member.studentName}: пропуск отмечен, оплата за этот урок не требуется.`
+        : `${member.studentName}: отметка пропуска отменена. Оплата снова учитывается.`);
+      void loadTeacherCalendar({silent:true});
+    } catch (failure) {
+      setLessonPanelError(failure.message || 'Не удалось изменить отметку пропуска.');
+    } finally { setLessonPanelFinanceBusy(''); }
+  }, [eventDetails, eventDetailsCancelled, lessonPanelFinanceBusy, loadTeacherCalendar, studentNameById]);
 
   const handleEventDetailsCancellationToggle = useCallback(async () => {
     if (
@@ -5362,39 +5388,12 @@ const TeacherCalendarSection = ({
                     </div>
                     <div className="mt-2 space-y-1.5">
                       {(eventDetailsGroupPayment?.members || eventDetailsGroupParticipants).map((member) => {
-                        const busy = lessonPanelFinanceBusy === `group-paid:${member.studentId}`;
-                        const status = String(member?.status || 'pending');
-                        const paid = status === 'paid';
-                        const trial = status === 'trial';
-                        const cancelled = status === 'cancelled';
-                        const statusLabel = cancelled
-                          ? 'Отменено'
-                          : trial
-                          ? 'Пробное'
-                          : (paid ? 'Оплатил(а)' : (status === 'not-required' ? 'Не участвует по расписанию' : (status === 'unpaid' ? 'Не оплатил(а)' : 'Ожидаем оплату')));
                         return (
-                          <div key={`group-payment-${member.studentId}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-semibold text-slate-800">{member.studentName || 'Ученик'}</span>
-                              <CalendarStudentPayer studentId={member.studentId} senders={eventDetailsPaymentSenders} compact />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleGroupMemberPaymentToggle(member)}
-                              disabled={status==='not-required' || cancelled || trial || eventDetailsCancelled || Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
-                              className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-60 ${
-                                cancelled
-                                  ? 'border-slate-300 bg-slate-100 text-slate-600'
-                                  : paid
-                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                  : (status === 'unpaid'
-                                    ? 'border-rose-200 bg-rose-50 text-rose-700'
-                                    : 'border-amber-200 bg-amber-50 text-amber-700')
-                              }`}
-                            >
-                              {busy ? '...' : statusLabel}
-                            </button>
-                          </div>
+                          <GroupCalendarParticipant key={`group-payment-${member.studentId}`} member={member}
+                            senders={eventDetailsPaymentSenders} cancelled={eventDetailsCancelled}
+                            busy={Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
+                            canMarkAbsence={Boolean(eventDetails.lessonId) && eventDetailsStatusLabel !== 'Урок'}
+                            onPayment={handleGroupMemberPaymentToggle} onAbsence={handleGroupMemberAbsenceToggle} />
                         );
                       })}
                     </div>

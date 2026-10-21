@@ -7,7 +7,7 @@ export function participationSlots(group, lessons) {
   return [...new Set([...(group.schedule || []), ...lessons.filter(l => l.groupId === group.id && l.status !== 'cancelled')]
     .map(l => participationOccurrence(l).slot).filter(s => /^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\|([01]\d|2[0-3]):[0-5]\d$/.test(s)))].sort();
 }
-export function registerGroupParticipation(app, {handle, manageGroup, lessons, saveGroup, saveLesson, payment, notify, syncHomework}) {
+export function registerGroupParticipation(app, {handle, manageGroup, lessons, saveGroup, saveLesson, payment, notify, syncHomework, withPaymentLock = (_id, action) => action()}) {
   const member = (group, id) => {
     const value = group.members.find(m => m.studentId === id && m.status === 'active');
     if (!value) invalid('Ученик не состоит в группе', 404);
@@ -25,6 +25,34 @@ export function registerGroupParticipation(app, {handle, manageGroup, lessons, s
     return {from, mode:body.mode, slots:body.mode === 'all' ? [] : slots};
   };
   const base = '/api/learning-groups/:groupId';
+  app.put(`${base}/lessons/:lessonId/absence`, handle(async (req,res) => {
+    const group = manageGroup(req,res,req.params.groupId); if (!group) return;
+    const studentId = String(req.body?.studentId || '').trim();
+    const absent = req.body?.absent;
+    if (typeof absent !== 'boolean') invalid('Укажите, пропустил ли ученик занятие');
+    const result = await withPaymentLock(group.teacherId, async () => {
+      const lesson = lessons().find(l=>l.id===req.params.lessonId && l.groupId===group.id);
+      if (!lesson || !lesson.participantIds.includes(studentId)) invalid('Ученик не является участником этого занятия',404);
+      if (lesson.status === 'cancelled') invalid('Занятие отменено',409);
+      if (absent && Date.parse(lesson.startAt) > Date.now()) invalid('Отметить пропуск можно после начала занятия',409);
+      if (absent) {
+        const state = await payment(group,studentId,lesson);
+        if (state.paid) invalid('Занятие уже оплачено. Сначала отмените оплату, затем отметьте пропуск.',409);
+        if (state.subscriptionId) invalid('Занятие входит в абонемент. Его оплату нужно изменить в абонементе.',409);
+      }
+      // Re-read after remote payment lookup: preserve a simultaneous time edit.
+      const latest = lessons().find(l=>l.id===lesson.id && l.groupId===group.id);
+      if (!latest || latest.status==='cancelled' || !latest.participantIds.includes(studentId)
+        || (absent && Date.parse(latest.startAt)>Date.now())) invalid('Занятие изменилось. Обновите страницу.',409);
+      const absenceWaivers = {...latest.absenceWaivers};
+      if (absent) absenceWaivers[studentId] ||= {markedAt:new Date().toISOString(),markedById:req.auth.id};
+      else delete absenceWaivers[studentId];
+      const updated = {...latest,absenceWaivers,updatedAt:new Date().toISOString()};
+      saveLesson(updated); notify(group);
+      return {lesson:updated,absent};
+    });
+    res.json(result);
+  }));
   app.put(`${base}/members/:studentId/homework-track`, handle((req,res) => {
     const group = manageGroup(req,res,req.params.groupId); if (!group) return;
     if (group.status === 'completed') invalid('Группа завершена',409);

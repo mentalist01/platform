@@ -66,7 +66,7 @@ import { BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed } from './blankWorkbo
 import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscriptionAccess, subscriptionOccurrence, subscriptionDay } from './learningSubscriptions.js';
 import { registerGroupParticipation } from './groupParticipation.js';
 import {isGroupHomeworkTrackAllowed, groupHomeworkRecipients} from '../src/utils/groupHomeworkTracks.js';
-import { isGroupLessonAssigned, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
+import { isGroupLessonAssigned, isGroupLessonAbsenceWaived, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
@@ -10280,7 +10280,7 @@ const resolveGroupParticipationOccurrence = (entry, readContext = null) => {
   const parts = participationOccurrence(entry);
   const lesson = (readContext ? readContext.resolvedLessons() : readResolvedGroupLessonSessions()).find(l => l.groupId === entry.groupId && l.status !== 'cancelled'
     && (entry.lessonId ? l.id === entry.lessonId : participationOccurrence(l).day === parts.day && participationOccurrence(l).time === parts.time));
-  return lesson ? {...entry, participationSlot:lesson.participationSlot,participationOverrides:lesson.participationOverrides || {}} : entry;
+  return lesson ? {...entry, participationSlot:lesson.participationSlot,participationOverrides:lesson.participationOverrides || {},absenceWaivers:lesson.absenceWaivers || {}} : entry;
 };
 const isGroupEntryAssigned = (entry, studentId, groupValue = null, readContext = null) => {
   if (!entry?.isLearningGroupEvent && !entry?.groupId) return true;
@@ -10288,6 +10288,12 @@ const isGroupEntryAssigned = (entry, studentId, groupValue = null, readContext =
   const group = groupValue || (readContext ? readContext.groups() : readLearningGroupsDb()).find(g => g.id === entry.groupId);
   return Boolean(group && isGroupLessonAssigned(group, studentId, resolveGroupParticipationOccurrence(entry, readContext)));
 };
+const isGroupEntryAbsenceWaived = (entry, studentId, readContext = null) => Boolean(
+  entry?.groupId && isGroupLessonAbsenceWaived(resolveGroupParticipationOccurrence(entry, readContext), studentId)
+);
+const isGroupEntryChargeable = (entry, studentId, readContext = null) => (
+  !isGroupEntryAbsenceWaived(entry, studentId, readContext) && isGroupEntryAssigned(entry, studentId, null, readContext)
+);
 const getGroupEntryStudentSourceIds = (entry, studentId, readContext = null) => {
   const teacherId = entry.teacherId || (readContext ? readContext.groups() : readLearningGroupsDb()).find(g=>g.id===entry.groupId)?.teacherId;
   const projected = buildStudentScheduleEntryFromGoogleCalendar(entry,{id:studentId,teacherId},null);
@@ -16764,11 +16770,12 @@ const buildStudentSchedulePaymentState = ({
     );
   const finished = !cancelled && (subscription ? subscription.lesson.status === 'completed' : chronologicallyFinished);
   const participationRequired = isGroupEntryAssigned(paymentEvent,eventStudentId,null,readContext);
+  const absenceWaived = isGroupEntryAbsenceWaived(paymentEvent,eventStudentId,readContext);
   const status = cancelled
     ? 'cancelled'
     : (trialMarked
     ? 'trial'
-    : (paidMarked ? 'paid' : (!participationRequired ? 'not-required' : (finished ? 'unpaid' : 'pending'))));
+    : (paidMarked ? 'paid' : (!participationRequired || absenceWaived ? 'not-required' : (finished ? 'unpaid' : 'pending'))));
   return {
     date: normalizedDayKey,
     status,
@@ -16779,6 +16786,7 @@ const buildStudentSchedulePaymentState = ({
     trial: trialMarked,
     cancelled,
     participationRequired,
+    absenceWaived,
     paidMarkKey,
     trialMarkKey,
     cancelledMarkKey,
@@ -17131,7 +17139,8 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry,
       const student = studentsById.get(studentId);
       if (!student) return null;
       const projectedEntry = projectGoogleCalendarEntryForPaymentStudent(entry, student, readContext);
-      if (!projectedEntry) return {studentId,studentName:String(student.name || 'Ученик'),status:'not-required',participationRequired:false,paid:false,lessonPrice:0};
+      if (!projectedEntry) return {studentId,studentName:String(student.name || 'Ученик'),status:'not-required',participationRequired:false,
+        absenceWaived:isGroupEntryAbsenceWaived(entry,studentId,readContext),paid:false,lessonPrice:0};
       const payment = buildStudentSchedulePaymentState({
         teacherId: normalizedTeacherId,
         studentId,
@@ -17150,6 +17159,7 @@ const buildGoogleCalendarLearningGroupMemberPaymentStatuses = (teacherId, entry,
         studentName: String(student?.name || student?.nickname || 'Ученик').trim() || 'Ученик',
         status: payment.status,
         participationRequired: payment.participationRequired,
+        absenceWaived: payment.absenceWaived,
         paid: payment.paid,
         trial: payment.trial,
         finished: payment.finished,
@@ -17186,7 +17196,7 @@ const getPaymentScheduleEntries = async (teacherId, options = {}) => {
   const agreedEntries = expandGoogleCalendarLearningGroupPaymentEntries(teacherId, availabilityCalendarEntries(teacherId, true), readContext);
   const googleEntries = expandGoogleCalendarLearningGroupPaymentEntries(teacherId, rawGoogleEntries, readContext);
   return [...localEntries, ...agreedEntries, ...googleEntries].filter(entry => !entry.isLearningGroupEvent || !entry.studentId
-    || isGroupEntryAssigned(entry,entry.studentId,null,readContext) || hasGroupEntryPaidMark(entry,entry.studentId,readContext));
+    || isGroupEntryChargeable(entry,entry.studentId,readContext) || hasGroupEntryPaidMark(entry,entry.studentId,readContext));
 };
 
 const doesTeacherCalendarEntryOccurOnDay = (entry, dayKey) => {
@@ -17479,7 +17489,7 @@ const buildTeacherFinanceProfitability = async (
   Object.entries(currentLedger).forEach(([occurrenceKey,ledgerEntry]) => {
     if (ledgerEntry.paid) return;
     const entry = groupOccurrencesBySource.get(`${ledgerEntry.sourceEntryId}:${ledgerEntry.studentId}:${ledgerEntry.dayKey}:${ledgerEntry.time}`);
-    if (!entry || isGroupEntryAssigned(entry,ledgerEntry.studentId,null,readContext) || hasGroupEntryPaidMark(entry,ledgerEntry.studentId,readContext)) return;
+    if (!entry || isGroupEntryChargeable(entry,ledgerEntry.studentId,readContext) || hasGroupEntryPaidMark(entry,ledgerEntry.studentId,readContext)) return;
     delete nextLedger[occurrenceKey];
     ledgerDeletes.add(occurrenceKey);
   });
@@ -17964,7 +17974,7 @@ const getWalletOccurrences = (teacherId, student, entry, marks, entries, readCon
         eligible: !isTeacherCalendarLessonCancelled(teacherId, event, dayKey, marks)
           && !isTeacherCalendarLessonCancelled(teacherId, { ...event, id: source.paymentSourceId || source.id }, dayKey, marks)
           && !isExplicitTrialLesson(event) && !trialKeys.some(key => marks[key]) && !getLearningSubscriptionOccurrence(student.id, event, readContext)
-          && (!source.groupId || isGroupEntryAssigned(source, student.id, null, readContext)),
+          && (!source.groupId || isGroupEntryChargeable(source, student.id, readContext)),
       });
     }
   }
@@ -24505,6 +24515,8 @@ const serializeLearningLessonForAuth = (lesson, auth = null, groupValue = null) 
   return {
     ...lesson,
     requiredParticipantIds: requiredGroupLessonParticipants(group,lesson),
+    ...(isStudentRole(auth) ? {absenceWaivers:lesson.absenceWaivers?.[auth.id]
+      ? {[auth.id]:lesson.absenceWaivers[auth.id]} : {}} : {}),
     ...(isStudentRole(auth) ? { subscriptionAccess: { live: liveAccess } } : {}),
     ...(isStudentRole(auth) ? {participationRequired:Boolean(getLearningSubscriptionOccurrence(auth.id, { groupId: group?.id, lessonId: lesson.id })) || isGroupLessonAssigned(group,auth.id,lesson)} : {}),
     recording: { available: recording.available === true, provider: recording.provider || 'platform', status: recording.status || '' },
@@ -25796,6 +25808,7 @@ registerGroupParticipation(app, {
   saveLesson:lesson => writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(),lesson)),
   notify:notifyLearningGroupScheduleAccess,
   syncHomework:synchronizeLearningGroupHomeworksForStudent,
+  withPaymentLock:enqueuePaymentNotification,
   payment:async (group,studentId,lesson) => {
     const parts = participationOccurrence(lesson);
     const entries = (await getPaymentScheduleEntries(group.teacherId)).filter(e => e.groupId===group.id && e.studentId===studentId
@@ -39386,6 +39399,9 @@ app.post('/api/teacher-lesson-payment/preview', async (req, res) => {
     const occurrence = { ...source, studentId: student.id, dayKey, date: dayKey };
     const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacher.id]);
     const key = buildTeacherCalendarPaymentMarkKey(teacher.id, occurrence, dayKey, 'paid');
+    if (isGroupEntryAbsenceWaived(occurrence, student.id)) {
+      throw balanceError('Отмечен пропуск без оплаты. Сначала отмените отметку пропуска.');
+    }
     if (isTeacherCalendarLessonCancelled(teacher.id, occurrence, dayKey, marks) || isExplicitTrialLesson(occurrence)
       || marks[buildTeacherCalendarPaymentMarkKey(teacher.id, occurrence, dayKey, 'trial')]) {
       throw balanceError('Отменённое или пробное занятие не требует оплаты.');
@@ -39422,6 +39438,9 @@ app.post('/api/teacher-lesson-payment', serializeWalletRoute(async (req, res) =>
       return res.status(404).json({ error: 'Занятие ученика не найдено' });
     }
     const occurrence = { ...source, studentId: student.id, dayKey, date: dayKey };
+    if (paid && isGroupEntryAbsenceWaived(occurrence, student.id)) {
+      throw balanceError('Отмечен пропуск без оплаты. Сначала отмените отметку пропуска.');
+    }
     if (walletHasStudent(teacher.id, student.id)) {
       const result = await enqueuePaymentNotification(teacher.id, () => mutateStudentBalances(teacher.id, {
         action: ({ wallet, entry, occurrencesByStudent, now }) => {

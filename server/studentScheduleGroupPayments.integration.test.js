@@ -15,7 +15,7 @@ test('past-week group payments agree in student reminders; real debts and partic
   const write = (name, value) => fs.writeFileSync(path.join(dataDir, `${name}.json`), JSON.stringify(value));
   const dates = [10, 9].map(days => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10));
   const createdAt = '2025-01-01T00:00:00Z';
-  const members = ['paid', 'unpaid', 'parttime', 'former', 'waived'];
+  const members = ['paid', 'unpaid', 'parttime', 'former', 'waived', 'absent'];
   const stamp = date => `${date.replaceAll('-', '')}T170000Z`;
   const ical = ['BEGIN:VCALENDAR', 'VERSION:2.0', ...dates.flatMap((date, i) => [
     'BEGIN:VEVENT', `UID:group-${i}`, `DTSTART:${stamp(date)}`, `DTEND:${stamp(date).replace('170000', '180000')}`,
@@ -27,7 +27,7 @@ test('past-week group payments agree in student reminders; real debts and partic
   const lessons = dates.map((date, i) => ({
     id: `actual-${i}`, teacherId: 'teacher', groupId: 'group', startAt: `${date}T17:00:00.000Z`,
     durationMinutes: 60, topic: 'Group 2', source: 'availability-plan', status: 'completed',
-    participantIds: members, participationOverrides: { waived: false }, createdAt, updatedAt: createdAt,
+    participantIds: members, participationOverrides: { waived: false }, absenceWaivers: {absent: {markedAt:createdAt,markedById:'teacher'}}, createdAt, updatedAt: createdAt,
   }));
   const group = { id: 'group', teacherId: 'teacher', name: 'Group 2', pricePerLesson: 900,
     plannedStartDate: '2025-01-01', startedAt: createdAt, createdAt, updatedAt: createdAt, maxStudents: 10,
@@ -79,7 +79,7 @@ test('past-week group payments agree in student reminders; real debts and partic
       const login = await request('/api/login', '', { code: `${id}-code` });
       const schedule = await request('/api/student-schedule', login.token);
       const reminders = getStudentPaymentReminderItems(schedule);
-      if (['paid', 'parttime', 'waived'].includes(id)) {
+      if (['paid', 'parttime', 'waived', 'absent'].includes(id)) {
         assert.deepEqual(reminders, [], `${id}: no false historical debt`);
         assert.ok(!schedule.some(e => e.isPaymentOverdueOccurrence), `${id}: no false overdue rows from the separate Google pass`);
       } else {

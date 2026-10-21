@@ -41,6 +41,8 @@ function fixture({ groupCount = 100, corrupt = false } = {}) {
     readStudentsDb: () => students,
     isCurrentStudent: () => true,
     getStudentSchedulePaymentNowInfo: () => ({}),
+    createPaymentScheduleReadContext: () => ({groups:context.readLearningGroupsDb,students:context.readStudentsDb}),
+    isGroupEntryAbsenceWaived: () => false,
     normalizeDayKey: identity, normalizeScheduleDurationMinutes: Number,
     parseScheduleMinutes: () => 1200,
     projectGoogleCalendarEntryForPaymentStudent: identity,
