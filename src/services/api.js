@@ -1369,6 +1369,8 @@ export const api = {
   getLearningGroupAssignmentSubmissions: async (groupId, assignmentId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'submissions'))
   ),
+  getLearningGroupHomeworkReview: (groupId, assignmentId, studentId) => requestLearningGroupJson(
+    getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'homework-review', ...(studentId ? [studentId] : []))),
   reviewLearningGroupAssignmentSubmission: async (groupId, assignmentId, studentId, payload = {}) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'assignments', assignmentId, 'submissions', studentId, 'review'), {
       method: 'PATCH',

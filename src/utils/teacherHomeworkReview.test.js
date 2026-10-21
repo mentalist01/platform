@@ -167,6 +167,13 @@ test('review filters and sorts timed work with missing telemetry last', () => {
   );
 });
 
+test('review error filter retains corrected mistakes as well as unresolved answers', () => {
+  const items = [{ key: 'fixed', solved: true, hadErrors: true },
+    { key: 'wrong', solved: false, answerHistory: [{ correct: false }] },
+    { key: 'clean', solved: true }, { key: 'untouched', solved: false }];
+  assert.deepEqual(filterTeacherHomeworkReviewItems(items, 'errors').map(item => item.key), ['fixed', 'wrong']);
+});
+
 test('review sorts by difficulty and keeps unknown estimates last', () => {
   const items = [
     { key: 'medium', question: { difficulty: { score: 50 } } },

@@ -46,6 +46,7 @@ import {
 import { api, resolveAuthenticatedApiUrl, withStoredAuthToken } from '../services/api';
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import GroupHomeworkCancellationPanel from './GroupHomeworkCancellationPanel';
+import GroupHomeworkReviewPanel from './GroupHomeworkReviewPanel.jsx';
 import LearningGroupChat from './LearningGroupChat';
 import GroupAvailability from './GroupAvailability';
 const GroupAvailabilityShare = React.lazy(() => import('./GroupAvailabilityShare'));
@@ -2930,6 +2931,8 @@ const LearningGroupsSection = ({
                                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
                                   Черновик ещё не виден ученикам. После публикации одна и та же домашка появится в обычном разделе «Домашка» у каждого участника.
                                 </div>
+                              ) : isTeacher ? (
+                                <GroupHomeworkReviewPanel key={assignmentId} groupId={selectedGroup.id} assignment={assignment}/>
                               ) : (
                                 <div className="space-y-3">
                                   <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm leading-relaxed text-violet-800">

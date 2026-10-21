@@ -183,6 +183,8 @@ const TeacherHomeworkReviewModal = ({
   sourceError = '',
   questionDifficultyIndex = {},
   mockTaskAnalyticsByExam = {},
+  refreshProgress = true,
+  initialFilter = 'all',
   onClose,
 }) => {
   const itemSignature = useMemo(() => (
@@ -226,7 +228,7 @@ const TeacherHomeworkReviewModal = ({
     const sourceItems = Array.isArray(itemsRef.current) ? itemsRef.current : [];
     setResolvedItems(sourceItems);
     setCurrentIndex(0);
-    setItemFilter('all');
+    setItemFilter(initialFilter);
     setItemSort('fastest');
     setLoadError('');
 
@@ -240,7 +242,7 @@ const TeacherHomeworkReviewModal = ({
         }])
     ).values());
 
-    if (!studentId || taskScopes.length === 0) {
+    if (!refreshProgress || !studentId || taskScopes.length === 0) {
       setLoading(false);
       return () => { active = false; };
     }
@@ -290,7 +292,7 @@ const TeacherHomeworkReviewModal = ({
       });
 
     return () => { active = false; };
-  }, [itemSignature, open, studentId]);
+  }, [itemSignature, open, studentId, refreshProgress, initialFilter]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -568,6 +570,7 @@ const TeacherHomeworkReviewModal = ({
                     ['all', 'Все', resolvedItems.length],
                     ['completed', 'Сделано', completedCount],
                     ['pending', 'Не сделано', pendingItems.length],
+                    ['errors', 'С ошибками', filterTeacherHomeworkReviewItems(resolvedItems, 'errors').length],
                   ].map(([value, label, count]) => (
                     <button
                       key={value}

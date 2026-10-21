@@ -10,6 +10,7 @@ import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
 import { normalizeBoardFileName } from '../src/utils/boardFile.js';
+import { registerGroupHomeworkReview } from './groupHomeworkReview.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   normalizeStudentBalances, createBalanceAccount, balanceCents, balanceSummary,
@@ -26254,6 +26255,18 @@ registerGroupHomeworkCancellations(app, {
   syncStudent: synchronizeLearningGroupHomeworksForStudent, studentData: getStudentData, testsDb: readTestsDbForTeacher,
   notify: (group, studentId) => notifyScheduleSyncUpdate({ scope: 'homework-progress', action: 'homework-targets-changed',
     teacherId: group.teacherId, studentId, entryId: group.id }),
+});
+
+registerGroupHomeworkReview(app, {
+  handle: handleLearningRoute, manageGroup: ensureLearningGroupManageAccess,
+  assignment: getLearningAssignmentById, student: findStudentById, studentData: getStudentData,
+  canReadStudent: canAccessStudentByRole, summary: serializeLearningStudentSummary,
+  shared: teacherId => ({ testsDb: getTestsDbWithPythonInfiniteTraining(readTestsDbForTeacher(teacherId)),
+    mockExams: readMockExamsDb(), taskPresentation: buildTaskPresentationMap(readClassicTaskCatalogForTeacher(teacherId)), nowMs: Date.now(),
+    answerRules: { count: (question, taskNumber, mock) => mock ? getMockAnswerCountForTask(taskNumber, question) : getAnswerCountForQuestion(question, taskNumber), expected: getExpectedAnswersForQuestion } }),
+  prepareData: (data, testsDb) => ({ ...data, homeworks: (data.homeworks || []).map(entry => ({ ...entry,
+    goals: getNormalizedHomeworkGoals(entry, testsDb), learningEgeCancellations: groupEgeCancellationsForAssignment(
+      readGroupHomeworkCancellations(), entry.learningGroupId, entry.learningAssignmentId) })) }),
 });
 
 app.get('/api/learning-groups/:groupId/assignments/:assignmentId/submission', handleLearningRoute((req, res) => {

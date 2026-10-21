@@ -228,6 +228,7 @@ export const filterTeacherHomeworkReviewItems = (items, filter = 'all') => {
   const list = Array.isArray(items) ? items : [];
   if (filter === 'completed') return list.filter((item) => item?.solved);
   if (filter === 'pending') return list.filter((item) => !item?.solved);
+  if (filter === 'errors') return list.filter((item) => item?.hadErrors || item?.answerHistory?.some(entry => entry.correct === false));
   return list;
 };
 
