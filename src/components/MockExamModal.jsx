@@ -1576,7 +1576,7 @@ const MockExamModal = ({
 
     return (
       <div className={`mock-exam-timer-actions ${compact ? 'mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap' : 'mt-3 flex flex-col gap-2'}`}>
-        {activeAttempt?.monthlyPolicy && <p className="basis-full text-sm font-semibold">Пробник №{activeAttempt.monthlyPolicy.ordinal} · использовано {activeAttempt.monthlyPolicy.usedAttempts} из {activeAttempt.monthlyPolicy.maxAttempts} попыток. В результат идёт лучшая.</p>}
+        {activeAttempt?.monthlyPolicy && <p className="basis-full text-sm font-semibold">Пробник №{activeAttempt.monthlyPolicy.ordinal} · использовано {activeAttempt.monthlyPolicy.usedAttempts} из {activeAttempt.monthlyPolicy.maxAttempts} попыток. {activeAttempt.monthlyPolicy.perfect ? '100 баллов — пробник полностью пройден.' : 'В результат идёт лучшая.'}</p>}
         {(attemptFinished || timerExpired || timerResultsVisible) && (!activeAttempt?.monthlyPolicy || activeAttempt.monthlyPolicy.canRestart) && typeof onRestartTimerAttempt === 'function' && (
           <Button
             type="button"
@@ -1801,7 +1801,7 @@ const MockExamModal = ({
               </div>
 
               {renderTimerExamActions(false)}
-                  {showMonthlyReview && activeAttempt?.monthlyPolicy && <StudentMonthlyMockReview examId={exam.id} month={activeAttempt.monthlyPolicy.month} refreshKey={activeAttempt.monthlyPolicy.reviewUnlocked} title={exam.title} onResolved={onClose} />}
+                  {showMonthlyReview && activeAttempt?.monthlyPolicy && <StudentMonthlyMockReview examId={exam.id} month={activeAttempt.monthlyPolicy.month} refreshKey={activeAttempt.monthlyPolicy.reviewUnlocked} title={exam.title} />}
             </div>
 
             <div className={`mock-exam-task-rail flex min-h-0 flex-col rounded-[1.4rem] border p-3 ${panelClassName}`}>
@@ -1883,7 +1883,7 @@ const MockExamModal = ({
               </div>
 
               {renderTimerExamActions(true)}
-              {showMonthlyReview && activeAttempt?.monthlyPolicy && <StudentMonthlyMockReview examId={exam.id} month={activeAttempt.monthlyPolicy.month} refreshKey={activeAttempt.monthlyPolicy.reviewUnlocked} title={exam.title} onResolved={onClose} />}
+              {showMonthlyReview && activeAttempt?.monthlyPolicy && <StudentMonthlyMockReview examId={exam.id} month={activeAttempt.monthlyPolicy.month} refreshKey={activeAttempt.monthlyPolicy.reviewUnlocked} title={exam.title} />}
 
               {renderTaskPicker(true)}
             </div>

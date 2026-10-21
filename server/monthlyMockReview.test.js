@@ -10,7 +10,7 @@ const recordingId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const exam = { id: 'exam', title: 'Пробник', access: { all: true }, tasks: { 1: {}, 2: {} }, monthlyAssignments: { a: [month], b: [month] } };
 const withReview = setMonthlyReviewVideo(exam, 'a', url);
 
-test('only a finished last allowed attempt or explicit surrender unlocks a recorded review', () => {
+test('a finished last attempt or saved 100 unlocks a review; legacy forfeits remain read-only', () => {
   const finishedAt=new Date(now).toISOString();
   const attempt={attemptId:'third',attemptNumber:3,monthlyMockMonth:month,monthlyMockOrdinal:1,status:'finished',finishedAt};
   const data={mockAttempts:{exam:{...attempt,targetTaskKeys:['1']}}};
@@ -23,6 +23,11 @@ test('only a finished last allowed attempt or explicit surrender unlocks a recor
   assert.equal(monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,url);
   data.mockAttempts.exam={...attempt,attemptNumber:1,monthlyMockOrdinal:5};
   assert.equal(monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,url,'fifth monthly mock has only one attempt');
+  data.mockAttempts.exam={...attempt,attemptNumber:1,secondaryScore:100};
+  assert.equal(monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,url,'100 on first completion unlocks');
+  data.mockAttempts.exam={...attempt,attemptNumber:1,secondaryScore:100,status:'active',finishedAt:undefined};
+  assert.equal(monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,undefined,'unfinished 100 cannot unlock');
+  assert.equal(Object.hasOwn(monthlyReviewForStudent(withReview,'a',{},month,now),'canSurrender'),false);
   data.mockAttempts={};
   data.monthlyMockSurrenders=[{examId:'exam',teacherId:'a',month,surrenderedAt:finishedAt}];
   assert.equal(monthlyReviewForStudent(withReview,'a',data,month,now).reviewVideoUrl,url);

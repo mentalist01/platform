@@ -32,7 +32,7 @@ export default function MonthlyMockReviewEditor({ exam, onSaved }) {
       <Video size={15} />{exam.monthlyReviewVideoUrl ? 'Видеоразбор прикреплён' : 'Добавить видеоразбор'}
     </button>
     {expanded && <div className="monthly-review-editor__body">
-      <p>Ученик сможет посмотреть видео после всех попыток или по кнопке «Сдаться и посмотреть разбор».</p>
+      <p>Ученик сможет посмотреть видео после завершения всех попыток или сразу после результата 100 баллов.</p>
       <label>Ссылка на видеоразбор Rutube<input type="url" placeholder="https://rutube.ru/video/..." value={url} maxLength={3000} disabled={busy} onChange={event => { setUrl(event.target.value); setSaved(false); }} /></label>
       <div className="monthly-review-editor__actions">
         <button type="button" disabled={busy} onClick={async () => {

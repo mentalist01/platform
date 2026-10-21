@@ -30,3 +30,24 @@ test('earlier assigned full mocks count once per month, self-practice and partia
   assert.equal(getMonthlyMockAttemptPolicy({...input,studentData:{mockAttemptResults:[{...result,assignmentSource:'self'}]}}).ordinal,1);
   assert.equal(getMonthlyMockAttemptPolicy({...input,studentData:{mockAttemptResults:[{...result,targetTaskKeys:['1']}]}}).ordinal,1);
 });
+
+test('a completed 100 closes attempts and unlocks review; drafts, other months and out-of-quota results cannot',()=>{
+  const tasks=Object.fromEntries(Array.from({length:27},(_,i)=>[i+1,{}]));
+  const solved=Object.fromEntries(Object.keys(tasks).map(key=>[key,true]));
+  const exam={id:'perfect',tasks,monthlyAssignments:{teacher:['2026-10']}};
+  const finished={attemptId:'first',attemptNumber:1,monthlyMockMonth:'2026-10',monthlyMockOrdinal:1,finishedAt:'2026-10-16T12:00Z',solved,examSnapshot:exam};
+  const policy=attempt=>getMonthlyMockAttemptPolicy({...options,exam,exams:[exam],studentData:{mockAttempts:{perfect:attempt}}});
+  const closed=policy(finished);assert.equal(closed.perfect,true);assert.equal(closed.remainingAttempts,0);assert.equal(closed.usedAttempts,1);assert.equal(closed.reviewUnlocked,true);assert.equal(closed.canRestart,false);
+  for(const attempt of [
+    {...finished,finishedAt:'',status:'active',timerStartedAt:finished.finishedAt},
+    {...finished,finishedAt:'2026-10-19T12:00Z'},
+    {...finished,monthlyMockMonth:'2026-09'},
+    {...finished,attemptNumber:4},
+    {...finished,targetTaskKeys:['1']},
+    {...finished,solved:{...solved,27:false},secondaryScore:100},
+  ])assert.equal(policy(attempt).perfect,false);
+  const data={mockAttempts:{perfect:{attemptId:'draft',attemptNumber:2,monthlyMockMonth:'2026-10',timerStartedAt:finished.finishedAt}},mockAttemptResults:[{...finished,examId:exam.id}]};
+  const history=getMonthlyMockAttemptPolicy({...options,exam,exams:[exam],studentData:data});
+  assert.equal(history.perfect,true);assert.equal(history.active,false);assert.equal(history.reviewUnlocked,true);
+  assert.equal(getBestMonthlyMockAttempt({...options,exam,exams:[exam],studentData:data}).score,100);
+});

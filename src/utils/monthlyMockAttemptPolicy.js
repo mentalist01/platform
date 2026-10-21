@@ -66,8 +66,13 @@ export function getMonthlyMockAttemptPolicy({studentData={},exams=[],exam,teache
     item.teacherId===teacherId&&item.examId===exam.id&&item.month===month&&Date.parse(item.surrenderedAt)<=now);
   const exhausted=!active&&usedAttempts>=maxAttempts&&records.some(item=>
     (Number(item.attemptNumber)||1)===maxAttempts&&Number.isFinite(Date.parse(finish(item)))&&Date.parse(finish(item))<=now);
-  return {month,ordinal,maxAttempts,usedAttempts,remainingAttempts:surrendered?0:Math.max(0,maxAttempts-usedAttempts),active:active&&!surrendered,archived,surrendered,reviewUnlocked:surrendered||exhausted,
-    canRestart:!surrendered&&!archived&&!active&&usedAttempts>0&&usedAttempts<maxAttempts};
+  const perfect=records.some(item=>(Number(item.attemptNumber)||1)<=maxAttempts
+    &&Number.isFinite(Date.parse(finish(item)))&&Date.parse(finish(item))<=now&&getMonthlyAttemptScore(item,exam)===100);
+  // Old forfeits remain read-only because their answer review was already opened.
+  // New completions close early only for a saved perfect result.
+  const closed=surrendered||perfect;
+  return {month,ordinal,maxAttempts,usedAttempts,remainingAttempts:closed?0:Math.max(0,maxAttempts-usedAttempts),active:active&&!closed,archived,surrendered,perfect,reviewUnlocked:closed||exhausted,
+    canRestart:!closed&&!archived&&!active&&usedAttempts>0&&usedAttempts<maxAttempts};
 }
 export function getMonthlyAttemptScore(attempt,exam){
   if(!attempt||!finish(attempt))return null;

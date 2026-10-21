@@ -12,9 +12,10 @@ export function monthlyAttemptContext(data,exams,exam,student,requestedMonth='')
   return {policy,best:getBestMonthlyMockAttempt({...options,policy})};
 }
 
-export function monthlyQuotaError(context,{restart=false,newAttempt=false}={}){
+export function monthlyQuotaError(context,{restart=false,newAttempt=false,repeatFinish=false}={}){
   if(!context)return null;
   const policy=context.policy;
+  if(policy.perfect&&!repeatFinish)return {code:'MOCK_ALREADY_PERFECT',error:'Пробник уже пройден на 100 баллов. Повторные попытки не нужны; доступен просмотр результата и записанного видеоразбора.'};
   if(policy.surrendered)return {code:'MOCK_ATTEMPTS_SURRENDERED',error:'Вы отказались от оставшихся попыток и открыли разбор. Доступен только просмотр; лучший завершённый результат сохранён.'};
   if(policy.archived)return {code:'MOCK_HISTORY_READ_ONLY',error:'Этот пробник находится в истории. Доступен только просмотр.'};
   if((restart||newAttempt)&&policy.usedAttempts>=policy.maxAttempts)return {

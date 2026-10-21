@@ -20044,7 +20044,7 @@ const serializeMockExamEntry = (exam, options = {}) => {
     const student = options.student || {teacherId:options.monthlyTeacherId};
     const context = monthlyAttemptContext(options.studentData,options.exams || [exam],exam,student);
     if (context) safeExam.monthlyPolicy = context.policy;
-    if (options.sanitizeForStudent) safeExam.readOnly = !context || context.policy.archived || context.policy.surrendered;
+    if (options.sanitizeForStudent) safeExam.readOnly = !context || context.policy.archived || context.policy.surrendered || context.policy.perfect;
   }
   safeExam.monthlyPublicationDay = getMonthlyMockPublication(exam, options.monthlyTeacherId)?.day || 1;
   if (options.studentData) safeExam.canStart = Boolean(getStudentMockLaunchAssignment(exam, options.studentData, options.monthlyTeacherId));
@@ -32046,29 +32046,11 @@ app.get('/api/mock-exams/:id/monthly-review', (req, res) => {
     attemptPolicy:monthlyAttemptContext(data,exams,exam,student,month)?.policy});
 });
 
-// Surrender belongs to one pupil, teacher, exam and month. It never fabricates
-// a completed attempt or replaces the best result with an unfinished draft.
+// Older pages must not be able to forfeit attempts through the retired action.
 app.post('/api/mock-exams/:id/monthly-review/surrender', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   if (req.body?.studentId && req.body.studentId !== req.auth.id) return forbid(res);
-  if (req.body?.confirm !== true) return res.status(400).json({error:'Подтвердите отказ от оставшихся попыток.'});
-  const student = ensureStudentAccess(req,res,req.auth.id);
-  if (!student) return;
-  const month = req.body.month;
-  if (!getMonthlyMockPeriod(month) || month > getMonthlyMockMonth()) return res.status(400).json({error:'Некорректный месяц'});
-  const exams=readMockExamsDb(),exam=exams.find(item=>item.id===req.params.id);
-  if (!exam || !isMockExamVisibleToStudent(exam,student.id) || getAssignedMonthlyMockExam(exams,student.teacherId,month)?.id !== exam.id
-    || !isMonthlyMockPublished(exam,student.teacherId,month)) return forbid(res);
-  if (!monthlyReviewUrl(exam,student.teacherId)) return res.status(409).json({error:'Видеоразбор ещё не записан. Попытки сохранены.'});
-  const data=getStudentData(student.id),now=Date.now();
-  const context=monthlyAttemptContext(data,exams,exam,student,month);
-  let updated=data;
-  if (!context.policy.reviewUnlocked) updated=setStudentData(student.id,{...data,monthlyMockSurrenders:[
-    ...normalizeMonthlyMockSurrenders(data.monthlyMockSurrenders),{teacherId:student.teacherId,examId:exam.id,month,surrenderedAt:new Date(now).toISOString()},
-  ]});
-  res.setHeader('Cache-Control','no-store');
-  return res.json({...monthlyReviewForStudent(exam,student.teacherId,updated,month,now,{exams,studentCreatedAt:student.createdAt}),
-    attemptPolicy:monthlyAttemptContext(updated,exams,exam,student,month).policy});
+  return res.status(410).json({code:'MOCK_SURRENDER_DISABLED',error:'Отказ от попыток недоступен. Разбор откроется после завершения всех попыток или результата 100 баллов.'});
 });
 
 app.get('/api/mock-exams/task-analytics', (req, res) => {
@@ -32218,7 +32200,7 @@ app.get('/api/mock-exams/attempt', (req, res) => {
     ...serializeMockAttemptForClient(normalizedVisibleAttempt, { sanitizeForStudent: isStudentRole(req.auth) }),
     requiredMode,
     ...(context ? {monthlyPolicy:context.policy,bestAttempt:context.best ? serializeMockAttemptForClient(context.best.attempt,{sanitizeForStudent:isStudentRole(req.auth)}) : null} : {}),
-    readOnly: isStudentRole(req.auth) && (!context || context.policy.archived || context.policy.surrendered),
+    readOnly: isStudentRole(req.auth) && (!context || context.policy.archived || context.policy.surrendered || context.policy.perfect),
     ...(isStaffViewer ? {
       attemptHistory: firstHistory,
       firstAttempt: firstHistory[0] || null,
@@ -32676,7 +32658,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const monthlyExam = getAssignedMonthlyMockExam(list, student.teacherId)?.id === exam.id;
   const monthlyContext = monthlyAttemptContext(data,list,exam,student);
   if (isStudentRole(req.auth) && !monthlyExam) return res.status(403).json({code:'MOCK_HISTORY_READ_ONLY',error:'Решать можно только текущий пробник месяца в разделе «Домашка». Остальные пробники доступны для просмотра.'});
-  const quotaError = monthlyQuotaError(monthlyContext,{restart:restartTimerExam === true,newAttempt:startOnly === true && !data.mockAttempts?.[exam.id]?.attemptId});
+  const repeatFinish = !startOnly && !restartTimerExam && (finishAttempt === true || finishTimerExam === true) && Boolean(data.mockAttempts?.[exam.id]?.finishedAt);
+  const quotaError = monthlyQuotaError(monthlyContext,{restart:restartTimerExam === true,newAttempt:startOnly === true && !data.mockAttempts?.[exam.id]?.attemptId,repeatFinish});
   if (quotaError) return res.status(409).json(quotaError);
 
   const requiredMode = monthlyExam ? normalizeMockExamAccess(exam.access).mode : getRequiredMockExamModeForStudent(exam, data);
@@ -32804,6 +32787,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
         requiredMode,
         finalized: true,
         idempotent: true,
+        ...(monthlyContext ? {monthlyPolicy:monthlyContext.policy,bestAttempt:serializeMockAttemptForClient(monthlyContext.best?.attempt || null,{sanitizeForStudent:isStudentRole(req.auth)})} : {}),
       });
     }
     return res.status(409).json({ error: 'Этот результат пробника уже заморожен.' });

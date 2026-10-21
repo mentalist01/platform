@@ -26,9 +26,9 @@ export function monthlyReviewForStudent(exam, teacherId, studentData, month, now
   const url = monthlyReviewUrl(exam, teacherId);
   if (!url) return { hasReviewVideo: false };
   const policy = getMonthlyMockAttemptPolicy({ ...options, studentData, exam, teacherId, month, now });
-  // Do not send even the private URL until every allowed attempt is finished,
-  // or the pupil has explicitly forfeited the remaining attempts for this exam.
-  return { hasReviewVideo: true, canSurrender: !policy.reviewUnlocked,
+  // A completed perfect result unlocks the review without extra attempts.
+  // Historical forfeits stay closed, but new forfeits cannot be created.
+  return { hasReviewVideo: true,
     ...(policy.reviewUnlocked ? { reviewVideoUrl: url } : {}) };
 }
 

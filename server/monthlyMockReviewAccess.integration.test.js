@@ -2,53 +2,72 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createGroupHomeworkFixture } from './groupHomework.fixture.js';
-import { getMonthlyMockMonth, getMonthlyMockPeriod } from '../src/utils/monthlyMockExam.js';
+import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
+import {getMonthlyMockMonth} from '../src/utils/monthlyMockExam.js';
 
-test('review stays secret through retakes; surrender is durable, scoped and preserves the best completed result', {timeout:60000}, async () => {
-  const month=getMonthlyMockMonth(),past=getMonthlyMockMonth(getMonthlyMockPeriod(month).startMs-1000);
-  const url='https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=FictionalReview';
-  const tasks=Object.fromEntries(['1','4','10','11'].map(key=>[key,{question:key,answer:key}]));
-  const f=await createGroupHomeworkFixture(undefined,write=>{
-    write('mock-exams',[
-      {id:'monthly',title:'Пробник',tasks,access:{all:true,mode:'timer'},monthlyAssignments:{'teacher-a':[month]},monthlyReviewVideos:{'teacher-a':{url}}},
-      {id:'past',title:'Архив без разбора',tasks,access:{all:true,mode:'timer'},monthlyAssignments:{'teacher-a':[past]}},
-    ]);
-  });
-  const a=f.tokens['student-a'],b=f.tokens['student-b'];
-  const send=(token,body,status=200)=>f.request('/api/mock-exams/attempt',token,{examId:'monthly',mode:'timer',...body},'PUT',status);
-  const review=token=>f.request('/api/mock-exams/monthly/monthly-review?month='+month,token);
-  const surrender=(token,body={month,confirm:true},status=200)=>f.request('/api/mock-exams/monthly/monthly-review/surrender',token,body,'POST',status);
-  try {
+const url='https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=FictionalReview';
+
+test('review stays secret until all attempts end and the retired surrender action never changes progress',{timeout:60000},async()=>{
+  const month=getMonthlyMockMonth(),tasks=Object.fromEntries(['1','4','10','11'].map(key=>[key,{question:key,answer:key}]));
+  const f=await createGroupHomeworkFixture(undefined,write=>write('mock-exams',[
+    {id:'monthly',title:'Пробник',tasks,access:{all:true,mode:'timer'},monthlyAssignments:{'teacher-a':[month]},monthlyReviewVideos:{'teacher-a':{url}}},
+  ]));
+  const a=f.tokens['student-a'];
+  const send=(body,status=200)=>f.request('/api/mock-exams/attempt',a,{examId:'monthly',mode:'timer',...body},'PUT',status);
+  const review=()=>f.request('/api/mock-exams/monthly/monthly-review?month='+month,a);
+  try{
     for(let number=1;number<=3;number++){
-      await send(a,{startOnly:true,...(number>1?{restartTimerExam:true}:{})});
-      assert.equal((await review(a)).reviewVideoUrl,undefined,'active last attempt cannot unlock');
-      await send(a,{finishTimerExam:true,answers:{1:'1',4:'4',10:'10',11:number===2?'11':'wrong'}});
-      assert.equal((await review(a)).reviewVideoUrl,number===3?url:undefined);
-      const card=await f.request('/api/monthly-mock-status',a);
-      assert.equal(card.assignment.reviewVideoUrl,number===3?url:undefined);
+      await send({startOnly:true,...(number>1?{restartTimerExam:true}:{})});
+      const locked=await review();assert.equal(locked.reviewVideoUrl,undefined);assert.equal(Object.hasOwn(locked,'canSurrender'),false);
+      const before=fs.readFileSync(path.join(f.data,'progress.json'),'utf8');
+      const response=await f.request('/api/mock-exams/monthly/monthly-review/surrender',a,{month,confirm:true},'POST',410);
+      assert.equal(response.code,'MOCK_SURRENDER_DISABLED');assert.equal(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'),before);
+      await send({finishTimerExam:true,answers:{1:'1',4:'4',10:'10',11:number===2?'11':'wrong'}});
+      assert.equal((await review()).reviewVideoUrl,number===3?url:undefined);
+      const card=await f.request('/api/monthly-mock-status',a);assert.equal(card.assignment.reviewVideoUrl,number===3?url:undefined);
     }
-    await send(b,{startOnly:true});await send(b,{finishTimerExam:true,answers:{1:'1',4:'4',10:'10'}});
-    await send(b,{startOnly:true,restartTimerExam:true});await send(b,{saveTimerProgress:true,answers:{1:'wrong'}});
-    const stored=()=>JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'))['student-b'];
-    const before=stored();
-    await surrender(b,{month,confirm:false},400);
-    await surrender(b,{month,confirm:true,studentId:'student-a'},403);
-    await surrender(f.tokens['teacher-a'],undefined,403);
-    await surrender(f.tokens['student-c'],undefined,403);
-    const result=await surrender(b);
-    assert.equal(result.reviewVideoUrl,url);assert.equal(result.attemptPolicy.surrendered,true);assert.equal(result.attemptPolicy.remainingAttempts,0);
-    for(const body of [{startOnly:true,restartTimerExam:true},{resumeTimerExam:true},{finishTimerExam:true},{saveTimerProgress:true,answers:{11:'11'}}]){
-      assert.equal((await send(b,body,409)).code,'MOCK_ATTEMPTS_SURRENDERED');
-    }
-    const after=stored();assert.deepEqual(after.mockAttempts,before.mockAttempts);assert.deepEqual(after.mockAttemptResults,before.mockAttemptResults);
-    await surrender(b);assert.equal(stored().monthlyMockSurrenders.length,1,'retry is idempotent');
-    const attempt=await f.request('/api/mock-exams/attempt?examId=monthly',b);
-    assert.equal(attempt.readOnly,true);assert.equal(attempt.attemptNumber,1,'unfinished second attempt cannot replace best');
-    const card=await f.request('/api/monthly-mock-status',b);assert.equal(card.rows[0].score,20);assert.equal(card.assignment.reviewVideoUrl,url);
-    const progress=JSON.stringify(await f.request('/api/progress?studentId=student-b',b));
-    assert.ok(!progress.includes('FictionalReview'),'private URL is not leaked through exam snapshots');
-    await f.request('/api/mock-exams/past/monthly-review/surrender',b,{month:past,confirm:true},'POST',409);
-    assert.equal(stored().monthlyMockSurrenders.length,1,'missing video does not forfeit attempts');
-  } finally { await f.stop(); }
+    const card=await f.request('/api/monthly-mock-status',a);assert.equal(card.rows[0].score,27);
+    const progress=JSON.stringify(await f.request('/api/progress?studentId=student-a',a));
+    assert.ok(!progress.includes('FictionalReview'),'private URL stays out of saved exam snapshots');
+  }finally{await f.stop();}
+});
+
+test('100 on the first or second completed attempt closes retries and unlocks review in both modes',{timeout:60000},async()=>{
+  const month=getMonthlyMockMonth(),counts={17:2,18:2,20:2,25:20,26:2,27:4};
+  const answers=Object.fromEntries(Array.from({length:27},(_,i)=>[String(i+1),counts[i+1]?Array.from({length:counts[i+1]},()=>String(i+1)):String(i+1)]));
+  const tasks=Object.fromEntries(Object.entries(answers).map(([key,answer])=>[key,{question:key,...(Array.isArray(answer)?{answers:answer}:{answer})}]));
+  for(const mode of ['timer','classic']){
+    const f=await createGroupHomeworkFixture(undefined,write=>write('mock-exams',[
+      {id:'monthly',title:'Пробник',tasks,access:{all:true,mode},monthlyAssignments:{'teacher-a':[month]},monthlyReviewVideos:{'teacher-a':{url}}},
+    ]));
+    const send=(token,body,status=200)=>f.request('/api/mock-exams/attempt',token,{examId:'monthly',mode,...body},'PUT',status);
+    const finish=mode==='timer'?{finishTimerExam:true}:{finishAttempt:true};
+    try{
+      for(const id of ['student-a','student-b']){
+        const token=f.tokens[id];await send(token,{startOnly:true});
+        if(id==='student-b'){
+          const nearly=await send(token,{...finish,answers:{...answers,27:'wrong'}});
+          assert.equal(nearly.monthlyPolicy.perfect,false);assert.equal(nearly.monthlyPolicy.canRestart,true);
+          assert.equal((await f.request('/api/mock-exams/monthly/monthly-review?month='+month,token)).reviewVideoUrl,undefined);
+          await send(token,{startOnly:true,restartTimerExam:true});
+        }
+        const result=await send(token,{...finish,answers});
+        assert.equal(result.monthlyPolicy.perfect,true);assert.equal(result.monthlyPolicy.remainingAttempts,0);assert.equal(result.monthlyPolicy.canRestart,false);
+        assert.equal(result.monthlyPolicy.usedAttempts,id==='student-a'?1:2);
+        const stored=()=>JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'))[id];
+        const before=stored();
+        const repeated=await send(token,{...finish,answers:{1:'wrong'}});
+        assert.equal(repeated.idempotent,true);assert.equal(repeated.monthlyPolicy.perfect,true);
+        for(const body of [{startOnly:true,restartTimerExam:true},{startOnly:true},{resumeTimerExam:true},{saveTimerProgress:true,answers:{1:'wrong'}}]){
+          assert.equal((await send(token,body,409)).code,'MOCK_ALREADY_PERFECT');
+        }
+        assert.deepEqual(stored(),before,'neither retries nor a repeated finish may change the saved score, rewards or history');
+        const attempt=await f.request('/api/mock-exams/attempt?examId=monthly',token);assert.equal(attempt.readOnly,true);assert.equal(attempt.monthlyPolicy.perfect,true);
+        assert.equal((await f.request('/api/mock-exams',token)).find(e=>e.id==='monthly').readOnly,true);
+        const review=await f.request('/api/mock-exams/monthly/monthly-review?month='+month,token);assert.equal(review.reviewVideoUrl,url);
+        const card=await f.request('/api/monthly-mock-status',token);assert.equal(card.assignment.reviewVideoUrl,url);assert.equal(card.rows[0].score,100);assert.equal(card.rows[0].attemptPolicy.remainingAttempts,0);
+        const report=await f.request('/api/student-month-report?studentId='+id+'&month='+month,f.tokens['teacher-a']);assert.equal(report.metrics.mocks.latestScore,100);
+      }
+    }finally{await f.stop();}
+  }
 });

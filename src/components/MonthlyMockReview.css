@@ -16,8 +16,6 @@
 .student-monthly-mock__review iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 16px; border: 0; margin-top: 16px; background: #0f172a; }
 .student-monthly-mock__review a { display: inline-block; margin-top: 10px; color: #7c3aed; font-size: 12px; text-decoration: underline; }
 .student-monthly-mock__review p { font-size: 13px; color: #64748b; }
-.monthly-review-confirm { margin-top: 14px; padding: 18px; border: 1px solid #c4b5fd; border-radius: 14px; background: #f5f3ff; }
-.student-monthly-mock__review .monthly-review-cancel { background: white; color: #4c1d95; border: 1px solid #8b5cf6; }
 .student-monthly-mock__review button:disabled { opacity: .55; cursor: wait; }
 .student-monthly-mock__review button:focus-visible { outline: 3px solid #a78bfa; outline-offset: 3px; }
 .monthly-review-locked{position:relative;display:inline-flex;max-width:100%;border-radius:12px;cursor:not-allowed;outline:none}
@@ -27,7 +25,6 @@
 .monthly-review-locked:focus-visible{outline:3px solid #a78bfa;outline-offset:3px}
 html[data-theme='dark'] .student-monthly-mock__review .monthly-review-locked button:disabled{background:#282c38;border-color:#414654;color:#939aaa}
 @media(prefers-reduced-motion:reduce){.monthly-review-locked__hint{transition:none}}
-html[data-theme='dark'] .monthly-review-confirm { background: #282034; border-color: #8b5cf6; }
 html[data-theme='dark'] .monthly-review-editor__body { background: #282034; border-color: #55416d; color: #e2d8f2; }
 html[data-theme='dark'] .monthly-review-editor__body input { background: #211d2d; color: #eee4ff; border-color: #55416d; }
 html[data-theme='dark'] .monthly-review-editor__toggle, html[data-theme='dark'] .student-monthly-mock__review-heading, html[data-theme='dark'] .student-monthly-mock__review a { color: #c4b5fd; }

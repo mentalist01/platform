@@ -14,6 +14,7 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
   const completed = status === 'completed';
   const exempt = status === 'exempt';
   const surrendered = row?.attemptPolicy?.surrendered;
+  const perfect = row?.attemptPolicy?.perfect === true;
   const started = status === 'in_progress' && !surrendered;
   const deadline = new Date(period.endMs - 1).toLocaleDateString('ru-RU', {
     timeZone: MONTHLY_MOCK_TIME_ZONE, day: 'numeric', month: 'long',
@@ -52,9 +53,9 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
           <span className="student-monthly-mock__art-dot" />
         </div>
         <div className="student-monthly-mock__description">
-          <span className="student-monthly-mock__eyebrow">{surrendered ? 'Разбор открыт' : completed ? 'Ещё один шаг вперёд' : started ? 'Осталось завершить пробник' : exempt ? 'Дополнительная практика' : 'Ваш следующий шаг'}</span>
+          <span className="student-monthly-mock__eyebrow">{perfect ? 'Все 100 — отличная работа!' : surrendered ? 'Разбор открыт' : completed ? 'Ещё один шаг вперёд' : started ? 'Осталось завершить пробник' : exempt ? 'Дополнительная практика' : 'Ваш следующий шаг'}</span>
           <h4>{assignment.title}</h4>
-          {row?.attemptPolicy && <p><strong>Ваш пробник №{row.attemptPolicy.ordinal} · использовано {row.attemptPolicy.usedAttempts} из {row.attemptPolicy.maxAttempts} попыток</strong><br/>В отчёт идёт лучший результат.{row.attemptPolicy.surrendered ? ' Оставшиеся попытки закрыты, разбор открыт.' : row.attemptPolicy.remainingAttempts > 0 ? ` Осталось попыток: ${row.attemptPolicy.remainingAttempts}.` : ' Все попытки использованы.'}</p>}
+          {row?.attemptPolicy && <p><strong>Ваш пробник №{row.attemptPolicy.ordinal} · использовано {row.attemptPolicy.usedAttempts} из {row.attemptPolicy.maxAttempts} попыток</strong><br/>В отчёт идёт лучший результат.{perfect ? ' Пробник пройден на 100 баллов — повторные попытки не нужны.' : row.attemptPolicy.surrendered ? ' Оставшиеся попытки закрыты, разбор открыт.' : row.attemptPolicy.remainingAttempts > 0 ? ` Осталось попыток: ${row.attemptPolicy.remainingAttempts}.` : ' Все попытки использованы.'}</p>}
           <p>{surrendered ? 'Вы открыли разбор и закрыли оставшиеся попытки. Лучший завершённый результат сохранён.' : completed ? 'Вы завершили пробник этого месяца. Можно вернуться к заданиям и посмотреть свой результат.' : exempt ? 'Преподаватель разрешил не проходить пробник в этом месяце. Вы можете решить его для практики.' : started ? 'Пробник уже начат. Вернитесь к заданиям и доведите его до конца.' : 'Проверьте свои знания и узнайте, что уже получается, а над чем ещё стоит поработать.'}</p>
           <div className="student-monthly-mock__facts">
             <span><ListChecks size={16} aria-hidden="true" />{assignment.taskCount} заданий</span>
@@ -73,7 +74,7 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
         <p className="student-monthly-mock__action-hint">{completed ? 'Результат этого месяца сохранён' : exempt ? 'Прохождение по желанию' : 'Один полный пробник за месяц'}</p>
       </div>
     </div>}
-    {assignment && <StudentMonthlyMockReview examId={assignment.examId} month={period.month} title={assignment.title} initialReview={assignment} onResolved={onRefresh} />}
+    {assignment && <StudentMonthlyMockReview examId={assignment.examId} month={period.month} title={assignment.title} initialReview={assignment} />}
   </section>;
 }
 
