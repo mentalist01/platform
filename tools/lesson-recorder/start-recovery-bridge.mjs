@@ -38,12 +38,14 @@ export async function recoverFailedStart({ state, process, obs, request, exists 
   if (!job) return false;
   const file = ownedRecording(state.recordDirectory, job.id);
   if (exists(file)) return false;
-  const [record, stream, profile] = await Promise.all([
+  await obs.assertCollection();
+  const [record, stream] = await Promise.all([
     obs.call('GetRecordStatus'), obs.call('GetStreamStatus'),
-    obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' }),
   ]);
-  if (record.outputActive || stream.outputActive || obs.recordingStartPending
-    || profile.parameterValue !== `lesson-${job.id}` || exists(file)) return false;
+  if (record.outputActive || stream.outputActive || obs.recordingStartPending || exists(file)) return false;
+  // An inactive encoder has no output owner. After a crash its saved filename
+  // may even belong to the previous lesson. The panel sets a new unique name;
+  // requiring that idle name to match the failed job prevented recovery.
   // Revalidate after the independent OBS reads; the user may have clicked start.
   const fresh = await request('/state');
   if (!failedStartRecoveryTarget(fresh, process, now) || fresh.currentLesson.id !== job.id) return false;
@@ -89,7 +91,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
           const identity = target && `${target.id}:${process.pid}`;
           if (identity && !attempted.has(identity)) {
             attempted.add(identity);
-            if (await recoverFailedStart({ state, process, obs, request })) log('retry-accepted', { id: target.id });
+            const accepted = await recoverFailedStart({ state, process, obs, request });
+            log(accepted ? 'retry-accepted' : 'retry-safety-blocked', { id: target.id });
           }
         }
       } catch (error) { log('check-failed', { message: String(error.message).slice(0, 100) }); }

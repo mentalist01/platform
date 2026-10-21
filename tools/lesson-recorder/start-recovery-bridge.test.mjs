@@ -2,11 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { failedStartRecoveryTarget, recoverFailedStart } from './start-recovery-bridge.mjs';
 const id = 'c0b33b1c-bf9b-442a-b19f-51090b43e882', now = 100000;
+const obsProcess = { pid: 101, startedAt: 85000 };
 const state = () => ({ ready: true, obs: { outputActive: false }, recordDirectory: 'D:/recordings',
   currentLesson: { id, desired: 'record', cutoffAt: 200000, occurrence: { key: 'current' } },
   jobs: [{ id, status: 'error', error: 'Не удалось начать запись: OBS отключился.', createdAt: 80000, occurrence: { key: 'current' } }],
 });
-const obsProcess = { pid: 101, startedAt: 85000 };
+
+test('restored idle filenames do not prevent recovery, while a different OBS profile does', async () => {
+  for (const mode of ['old-filename', 'different-profile']) {
+    let retried = false;
+    const obs = {
+      assertCollection: async () => { if (mode === 'different-profile') throw Error('Different OBS profile'); },
+      call: async type => type === 'GetProfileParameter' ? { parameterValue: 'old-lesson' } : { outputActive: false },
+    };
+    const operation = recoverFailedStart({ state: state(), process: obsProcess, obs, now, exists: () => false,
+      request: async route => { if (route === '/retry-start') retried = true; return state(); } });
+    if (mode === 'different-profile') await assert.rejects(operation, /Different OBS profile/);
+    else assert.equal(await operation, true);
+    assert.equal(retried, mode === 'old-filename');
+  }
+});
+
 test('bridge only accepts an unrecorded live lesson after a proven OBS process replacement', () => {
   assert.equal(failedStartRecoveryTarget(state(), obsProcess, now).id, id);
   for (const change of [s => { s.obs.outputActive = true; }, s => { s.jobs[0].status = 'recording'; },
@@ -19,9 +35,9 @@ test('bridge only accepts an unrecorded live lesson after a proven OBS process r
   assert.equal(failedStartRecoveryTarget(state(), { ...obsProcess, startedAt: 79000 }, now), null);
 });
 test('bridge retries through existing panel API only after independent ownership/stream/file checks', async () => {
-  for (const mode of ['ok', 'stream', 'record', 'foreign', 'file', 'changed']) {
+  for (const mode of ['ok', 'stream', 'record', 'file', 'changed']) {
     const requests = [];
-    const obs = { call: async type => type === 'GetProfileParameter'
+    const obs = { assertCollection: async () => {}, call: async type => type === 'GetProfileParameter'
       ? { parameterValue: mode === 'foreign' ? 'foreign' : `lesson-${id}` }
       : { outputActive: (type === 'GetRecordStatus' && mode === 'record') || (type === 'GetStreamStatus' && mode === 'stream') } };
     const request = async (route, body) => {
