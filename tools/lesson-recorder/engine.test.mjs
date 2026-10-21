@@ -266,6 +266,81 @@ test('foreign recording is neither stopped nor overwritten', async (t) => {
   f.state.jobs.one = { ...f.job, status: 'recording' }; f.advance(2000);
   await assert.rejects(f.engine.tick(), /другая запись/); assert.deepEqual(f.counts(), [0, 0]);
 });
+
+const failedLessonStart = async (t, overrides = {}) => {
+  const f = fixture(t), start = f.obs.start;
+  const job = { ...f.job, cutoffAt: 200000, occurrence: { key: 'lesson-one', studentId: 'pupil' }, ...overrides };
+  f.obs.start = async () => { throw Object.assign(new Error('OBS отключился'), { obsTransport: true }); };
+  await assert.rejects(f.engine.start(job), /OBS отключился/);
+  await f.engine.recover(f.state.jobs.one);
+  f.obs.start = start; f.advance(5001);
+  f.remote({ enabled: true, currentLesson: job, jobs: [job] });
+  return { ...f, retryJob: job, start };
+};
+
+test('a failed lesson start retries after OBS reconnect with the same lesson and filename', async t => {
+  const f = await failedLessonStart(t);
+  await f.engine.tick();
+  assert.equal(f.state.jobs.one.status, 'recording');
+  assert.equal(f.state.jobs.one.id, f.retryJob.id); assert.equal(f.state.jobs.one.startRetryCount, 1);
+  assert.deepEqual(f.counts(), [1, 0]);
+  await f.engine.tick(); assert.deepEqual(f.counts(), [1, 0]);
+});
+
+test('a late live output is adopted after a dropped connection without sending StartRecord again', async t => {
+  const f = await failedLessonStart(t);
+  await f.start('one');
+  await f.engine.tick();
+  assert.equal(f.state.jobs.one.status, 'recording'); assert.deepEqual(f.counts(), [1, 0]);
+});
+
+test('automatic failed-start recovery is bounded to two retries', async t => {
+  const f = await failedLessonStart(t); let attempts = 0;
+  f.obs.start = async () => { attempts++; throw Object.assign(new Error('OBS отключился'), { obsTransport: true }); };
+  for (let i = 0; i < 2; i++) {
+    await assert.rejects(f.engine.tick(), /OBS отключился/);
+    await f.engine.recover(f.state.jobs.one); f.advance(15001);
+  }
+  await f.engine.tick();
+  assert.equal(attempts, 2); assert.equal(f.state.jobs.one.startRetryCount, 2);
+});
+
+test('failed-start recovery never overwrites an existing file or touches another OBS output', async t => {
+  for (const mode of ['file', 'foreign']) {
+    const f = await failedLessonStart(t);
+    const source = ownedRecording(f.root, 'one');
+    if (mode === 'file') fs.writeFileSync(source, 'keep this recording'); else f.foreign();
+    await f.engine.tick();
+    assert.equal(f.state.jobs.one.status, 'error'); assert.deepEqual(f.counts(), [0, 0]);
+    if (mode === 'file') assert.equal(fs.readFileSync(source, 'utf8'), 'keep this recording');
+  }
+});
+
+test('automatic retry requires a connected live lesson, unchanged pupil and a valid deadline', async t => {
+  for (const mode of ['disconnected', 'disabled', 'different-pupil', 'different-lesson', 'expired', 'delay']) {
+    const f = await failedLessonStart(t);
+    const wanted = { ...f.retryJob, occurrence: { ...f.retryJob.occurrence } };
+    let currentLesson = wanted;
+    if (mode === 'disconnected') currentLesson = null;
+    if (mode === 'different-pupil') wanted.occurrence.studentId = 'other';
+    if (mode === 'different-lesson') wanted.occurrence.key = 'other';
+    if (mode === 'expired') wanted.cutoffAt = 1;
+    if (mode === 'delay') f.state.jobs.one.startRetryAfter = 200000;
+    f.remote({ enabled: mode !== 'disabled', currentLesson, jobs: [wanted] });
+    await f.engine.tick(); assert.deepEqual(f.counts(), [0, 0], mode);
+  }
+});
+
+test('a plain encoder timeout and material drafts do not trigger automatic StartRecord retries', async t => {
+  for (const overrides of [{ local: true, mockReview: {} }, { local: true, pythonTheory: {} }, { manual: true }]) {
+    const f = await failedLessonStart(t, overrides);
+    await f.engine.tick(); assert.deepEqual(f.counts(), [0, 0]);
+  }
+  const f = await failedLessonStart(t);
+  delete f.state.jobs.one.startFailureRetryable;
+  f.state.jobs.one.error = 'OBS ещё не подтвердил запуск записи';
+  await f.engine.tick(); assert.deepEqual(f.counts(), [0, 0]);
+});
 test('OBS file paths cannot escape the recording directory or select another lesson', (t) => {
   const f = fixture(t);
   assert.throws(() => ownedRecording(f.root, 'one', path.join(f.root, '..', 'secret.mkv')));

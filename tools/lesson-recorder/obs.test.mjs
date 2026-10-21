@@ -50,6 +50,23 @@ test('stop waits until output is inactive before another lesson can take over th
   assert.equal(await obs.stop(), 'lesson-python.mkv'); assert.equal(reads, 3); assert.equal(stops, 1);
 });
 
+test('an unconfirmed encoder start cannot be initialized again by retry or prepare', async () => {
+  const obs = new ObsClient(); let starts = 0;
+  obs.assertCollection = async () => {}; obs.select = async () => {}; obs.launch = async () => {};
+  obs.call = async type => {
+    if (type === 'StartRecord') starts++;
+    return { outputActive: false };
+  };
+  obs.waitRecordingState = async (_owner, options) => {
+    assert.equal(options.timeoutMs, 30000);
+    throw Error('OBS ещё не подтвердил запуск записи');
+  };
+  await assert.rejects(obs.start('one'), /не подтвердил/);
+  await assert.rejects(obs.start('one'), /повторная команда/);
+  await assert.rejects(obs.prepare({}, 'unused'), /повторная команда/);
+  assert.equal(starts, 1);
+});
+
 test('unconfirmed transitions and a changed output owner never claim success or issue another start/stop', async () => {
   const obs = new ObsClient(); let active = false; let owner = 'lesson-python'; const calls = [];
   obs.call = async type => { calls.push(type); return type === 'GetProfileParameter' ? { parameterValue: owner } : { outputActive: active }; };

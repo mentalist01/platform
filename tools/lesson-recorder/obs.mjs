@@ -13,10 +13,12 @@ export const PYTHON_SCENES = { platform: 'IVAN100 Python — Платформа'
 export const PYTHON_INPUTS = { platform: 'IVAN100 Python: платформа', window: 'IVAN100 Python: редактор', screen: 'IVAN100 Python: монитор', mic: 'IVAN100 Python: микрофон' };
 const COLLECTION = 'IVAN100 Lessons';
 const sha = (text) => crypto.createHash('sha256').update(text).digest('base64');
+const transportError = message => Object.assign(new Error(message), { obsTransport: true });
 
 export class ObsClient {
-  constructor({ configDir = path.join(process.env.APPDATA || '', 'obs-studio'), executable = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' } = {}) {
+  constructor({ configDir = path.join(process.env.APPDATA || '', 'obs-studio'), executable = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', webSocketClass = globalThis.WebSocket } = {}) {
     this.configDir = configDir; this.executable = executable; this.pending = new Map();
+    this.webSocketClass = webSocketClass;
     this.audioSignals = {};
   }
   observeAudioMeters(inputs, now = Date.now()) {
@@ -35,19 +37,23 @@ export class ObsClient {
   async open() {
     const config = JSON.parse(fs.readFileSync(path.join(this.configDir, 'plugin_config', 'obs-websocket', 'config.json'), 'utf8'));
     if (!config.server_enabled) throw new Error('Откройте настройку OBS в пульте');
-    const socket = new WebSocket(`ws://127.0.0.1:${config.server_port || 4455}`);
+    const socket = new this.webSocketClass(`ws://127.0.0.1:${config.server_port || 4455}`);
     this.socket = socket;
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { socket.close(); reject(new Error('OBS не отвечает')); }, 5000);
-      const failed = () => { clearTimeout(timer); reject(new Error('Нет подключения к OBS')); };
+      const timer = setTimeout(() => { socket.close(); reject(transportError('OBS не отвечает')); }, 5000);
+      const failed = () => { clearTimeout(timer); reject(transportError('Нет подключения к OBS')); };
       socket.addEventListener('error', failed, { once: true });
       socket.addEventListener('close', () => {
+        // A delayed close from a replaced socket must not disconnect its successor.
+        if (this.socket !== socket) { failed(); return; }
         this.connected = false;
+        this.recordingStartPending = false;
         this.audioSignals = {};
-        for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error('OBS отключился')); }
+        for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(transportError('OBS отключился')); }
         this.pending.clear(); failed();
       });
       socket.addEventListener('message', (event) => {
+        if (this.socket !== socket) return;
         let message; try { message = JSON.parse(event.data); } catch { return; }
         const { op, d } = message;
         if (op === 0) {
@@ -57,6 +63,10 @@ export class ObsClient {
         }
         if (op === 2) { clearTimeout(timer); this.connected = true; resolve(); }
         if (op === 5 && d.eventType === 'InputVolumeMeters') this.observeAudioMeters(d.eventData.inputs);
+        if (op === 5 && d.eventType === 'RecordStateChanged') {
+          if (d.eventData.outputState === 'OBS_WEBSOCKET_OUTPUT_STARTING') this.recordingStartPending = true;
+          if (['OBS_WEBSOCKET_OUTPUT_STARTED', 'OBS_WEBSOCKET_OUTPUT_STOPPED'].includes(d.eventData.outputState)) this.recordingStartPending = false;
+        }
         if (op === 7) {
           const request = this.pending.get(d.requestId);
           if (!request) return;
@@ -70,10 +80,13 @@ export class ObsClient {
   async call(requestType, requestData = {}, attempt = 0) {
     await this.connect();
     const result = await new Promise((resolve, reject) => {
+      const socket = this.socket;
+      if (socket?.readyState !== 1) { reject(transportError('Нет подключения к OBS')); return; }
       const requestId = crypto.randomUUID();
       const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error(`OBS: ${requestType} — время ожидания истекло`)); }, 10000);
       this.pending.set(requestId, { resolve, reject, timer });
-      this.socket.send(JSON.stringify({ op: 6, d: { requestType, requestId, requestData } }));
+      try { socket.send(JSON.stringify({ op: 6, d: { requestType, requestId, requestData } })); }
+      catch (error) { clearTimeout(timer); this.pending.delete(requestId); reject(transportError(`OBS отключился: ${error.message}`)); }
     }).catch(async (error) => {
       if (error.code !== 207 || attempt >= 20) throw error;
       await delay(200); return this.call(requestType, requestData, attempt + 1);
@@ -97,6 +110,7 @@ export class ObsClient {
   }
   async prepare(config, recordDirectory, audioMode, captureProfile) {
     await this.launch();
+    this.assertNoPendingStart();
     const recording = await this.call('GetRecordStatus');
     const stream = await this.call('GetStreamStatus');
     if (recording.outputActive || stream.outputActive) throw new Error('В OBS уже идёт запись или трансляция');
@@ -375,15 +389,27 @@ export class ObsClient {
   }
   async start(id, captureProfile, captureMode) {
     await this.assertCollection();
+    this.assertNoPendingStart();
     if ((await this.call('GetRecordStatus')).outputActive) throw new Error('В OBS уже идёт запись. Завершите её или восстановите текущую запись в пульте.');
     if (captureProfile === 'python') await this.selectPython(captureMode);
     else await this.select('platform');
     await this.call('SetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting', parameterValue: `lesson-${id}` });
-    await this.call('StartRecord');
+    this.recordingStartPending = true;
+    try { await this.call('StartRecord'); }
+    catch (error) {
+      // A rejected RPC did not start an encoder. A transport timeout remains
+      // ambiguous until the output event or a connection reset establishes it.
+      if (typeof error.code === 'number') this.recordingStartPending = false;
+      throw error;
+    }
     // The RPC accepts the command before the encoder becomes active. Keep the
     // persisted starting job until OBS confirms it, so reconciliation cannot
     // mistake a delayed Python start for a stopped, unbound lesson recording.
-    await this.waitRecordingState(`lesson-${id}`, { active: true });
+    await this.waitRecordingState(`lesson-${id}`, { active: true, timeoutMs: 30000 });
+    this.recordingStartPending = false;
+  }
+  assertNoPendingStart() {
+    if (this.recordingStartPending) throw new Error('OBS ещё запускает предыдущую запись. Дождитесь подтверждения; повторная команда запуска заблокирована.');
   }
   async stop() {
     await this.assertCollection();

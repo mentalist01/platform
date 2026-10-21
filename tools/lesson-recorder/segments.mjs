@@ -9,8 +9,17 @@ export function recordingSegments(job, jobs, directory) {
     seen.add(current.id);
     if (current.occurrence?.key !== key) throw new Error('Части относятся к разным ученикам или урокам');
     const file = ownedRecording(directory, current.id, current.file);
-    if (!current.file || !fs.existsSync(file) || !fs.statSync(file).size) throw new Error('Не найдена предыдущая часть урока. Исходные файлы сохранены; проверьте папку записей.');
-    result.unshift(file);
+    const exists = fs.existsSync(file);
+    // A failed StartRecord can be the predecessor of a valid continuation.
+    // It contains no footage. Only skip a proven failed start, never a missing
+    // recorded part, a zero-byte file, or the requested final part itself.
+    const neverStarted = current !== job && current.status === 'error' && !current.file && !exists
+      && (current.startFailedBeforeRecording === true
+        || /^(?:Не удалось начать запись:|OBS не начал запись\.)/.test(current.error || ''));
+    if (!neverStarted) {
+      if (!current.file || !exists || !fs.statSync(file).size) throw new Error('Не найдена предыдущая часть урока. Исходные файлы сохранены; проверьте папку записей.');
+      result.unshift(file);
+    }
     if (!current.previousJobId) break;
     current = jobs[current.previousJobId];
     if (!current) throw new Error('Предыдущая часть записана на другом компьютере. Требуется восстановление записи.');

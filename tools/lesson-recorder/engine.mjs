@@ -53,11 +53,18 @@ export class RecorderEngine {
     this.state.jobs[job.id] = local; this.save();
     try {
       await this.obs.start(job.id, job.captureProfile, job.captureConfig?.mode);
-      local.status = 'recording'; this.save();
+      local.status = 'recording';
+      delete local.startFailureRetryable; delete local.startRetryAfter;
+      delete local.startFailedBeforeRecording;
+      this.save();
       if (local.cutoffAt <= this.now()) { await this.stop(local); return; }
       await this.report(local, 'recording');
     } catch (error) {
       // Keep starting until reconciliation establishes whether OBS accepted the request.
+      if (local.status === 'starting' && error.obsTransport && !job.local && !job.manual && !job.pythonTheory && !job.mockReview) {
+        local.startFailureRetryable = true;
+        local.startRetryAfter = this.now() + 5000;
+      }
       local.error = error.message; this.save(); throw error;
     }
   }
@@ -93,6 +100,7 @@ export class RecorderEngine {
       job.file = file; job.status = 'saved'; job.stoppedAt = this.now(); job.error = ''; this.save();
       await this.report(job, 'saved');
     } else if (job.status === 'starting') {
+      job.startFailedBeforeRecording = true;
       job.status = 'error'; job.error = `${job.error ? `Не удалось начать запись: ${job.error}. ` : 'OBS не начал запись. '}Устраните причину и нажмите «Повторить запуск». Исходники и монтаж сохранены.`; this.save();
       await this.report(job, 'error', { error: job.error });
     } else {
@@ -188,6 +196,35 @@ export class RecorderEngine {
       this.restartJobs.delete(active.id);
     }
   }
+  async retryFailedLessonStart(local, wanted, remote) {
+    // A lost control connection is not evidence that StartRecord failed. Adopt
+    // our already-running output first. Never overwrite a file, touch another
+    // output, retry a material draft, or retry without a live server-bound lesson.
+    if (local?.status !== 'error' || !local.startFailureRetryable
+      || local.local || local.manual || local.pythonTheory || local.mockReview
+      || local.file || this.active() || !remote.enabled || !this.ready()
+      || remote.currentLesson?.id !== local.id || wanted.desired !== 'record'
+      || !local.occurrence?.key || wanted.occurrence?.key !== local.occurrence.key
+      || (wanted.occurrence?.studentId || '') !== (local.occurrence.studentId || '')
+      || (wanted.occurrence?.lessonId || '') !== (local.occurrence.lessonId || '')
+      || recordingDeadline(wanted) <= this.now() || !Number.isFinite(recordingDeadline(wanted))
+      || (local.startRetryCount || 0) >= 2 || (local.startRetryAfter || 0) > this.now()) return;
+    local.startRetryCount = (local.startRetryCount || 0) + 1;
+    local.startRetryAfter = this.now() + 15000; this.save();
+    await this.obs.launch();
+    const status = await this.obs.status();
+    if (status.outputActive) {
+      const profile = await this.obs.call('GetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting' });
+      if (profile.parameterValue !== `lesson-${local.id}`) return;
+      local.status = 'starting';
+      await this.recover(local);
+      delete local.startFailureRetryable; delete local.startRetryAfter; this.save();
+      if (local.status === 'recording') await this.report(local, 'recording');
+      return;
+    }
+    if (fs.existsSync(ownedRecording(this.recordDirectory, local.id))) return;
+    await this.start({ ...local, occurrence: { ...wanted.occurrence }, cutoffAt: recordingDeadline(wanted) });
+  }
   async tick() {
     await this.reconcileActive();
     if (!this.state.config.token) return;
@@ -251,6 +288,7 @@ export class RecorderEngine {
       if (wanted.desired === 'stop') continue;
       if (!remote.enabled || !this.ready() || recordingDeadline(wanted) <= this.now()) continue;
       if (!local && !this.active()) await this.start(wanted);
+      else if (local?.status === 'error') await this.retryFailedLessonStart(local, wanted, remote);
       else if (local?.status === 'recording' && !local.fallbackMode) await this.report(local, 'recording');
     }
     for (const job of Object.values(this.state.jobs)) {
