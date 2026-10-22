@@ -68,7 +68,7 @@ import {
 } from '../utils/learningGroups';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
 import { weeklyHomeworkDeadline, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
-import { groupHomeworkDefaultDueAt, groupHomeworkLessonChoices } from '../utils/groupStudyPlan';
+import { groupHomeworkDefaultDueAt, groupHomeworkLessonChoices, groupHomeworkStudyTrackAt } from '../utils/groupStudyPlan';
 import GroupStudyPlanSettings from './GroupStudyPlanSettings';
 import { normalizeHomeworkAssignmentTier } from '../utils/homeworkAssignmentTier';
 import {
@@ -890,14 +890,15 @@ const LearningGroupsSection = ({
       goal.type === GOAL_TYPE_MOCK ? Boolean(goal.mockExamId) : Boolean(goal.taskNumber)
     ));
     const dueAt = template.dueAt || assignment?.dueAt || '';
+    const studyTrack = template.studyTrack || (!assignment ? groupHomeworkStudyTrackAt(selectedGroup, Date.now(), lessons) : 'ege');
     const useStudyPlan = !assignment && Boolean(selectedGroup?.studyPlan);
     const plannedDueAt = useStudyPlan
-      ? groupHomeworkDefaultDueAt(selectedGroup, template.studyTrack || 'ege', Date.now(), lessons) : '';
+      ? groupHomeworkDefaultDueAt(selectedGroup, studyTrack, Date.now(), lessons) : '';
     return {
       homeWork: template.homeWork ?? assignment?.content ?? assignment?.instructions ?? '',
-      studyTrack: template.studyTrack || 'ege',
+      studyTrack,
       carryoverEge: assignment ? template.carryoverEge === true : true,
-      title: assignment?.title || 'Домашняя работа · ЕГЭ',
+      title: assignment?.title || `Домашняя работа · ${homeworkStudyTrackLabel(studyTrack)}`,
       lessonLink: template.lessonLink || '',
       boardLink: template.boardLink || '',
       dueAt: dueAt ? toDateTimeLocal(dueAt) : useStudyPlan ? toDateTimeLocal(plannedDueAt) : getDefaultGroupHomeworkDueAt(),

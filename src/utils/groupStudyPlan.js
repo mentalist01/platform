@@ -19,6 +19,20 @@ const weekOf = ms => {
   return moscowDay(ms - ((local.getUTCDay() + 6) % 7) * DAY);
 };
 
+export const groupHomeworkStudyTrackAt = (group, nowMs = Date.now(), lessons = []) => {
+  const plan = normalizeGroupStudyPlan(group?.studyPlan);
+  if (plan?.mode !== 'split') return 'ege';
+  const lesson = lessons.find(entry => (!entry.groupId || entry.groupId === group.id)
+    && entry.status !== 'cancelled' && Number.isFinite(Date.parse(entry.startAt))
+    && moscowDay(Date.parse(entry.startAt)) === moscowDay(Number(nowMs)));
+  if (lesson) {
+    const slot = lesson.participationSlot ? lesson : group.schedule?.find(entry => entry.id === lesson.scheduleEntryId);
+    if (slot) return groupLessonStudyTrack(group, slot);
+  }
+  const weekday = WEEKDAYS[new Date(Number(nowMs) + 3 * 3600000).getUTCDay()];
+  return weekday === plan.pythonWeekday ? 'python' : 'ege';
+};
+
 // Use the configured direction, not a lesson's editable title. Known cancelled
 // or moved occurrences override their weekly slot without creating new lessons.
 export const groupHomeworkLessonChoices = (group, track = 'ege', nowMs = Date.now(), lessons = []) => {
@@ -43,7 +57,7 @@ export const groupHomeworkLessonChoices = (group, track = 'ege', nowMs = Date.no
         && Number.isFinite(Date.parse(lesson.startAt)) && weekOf(Date.parse(lesson.startAt)) === weekOf(nominal));
       if (known && ['cancelled', 'completed'].includes(known.status)) continue;
       const due = known ? Date.parse(known.startAt) : nominal;
-      if (due <= now) continue;
+      if (due <= now || moscowDay(due) === moscowDay(now)) continue;
       choices.push({ dueAt: new Date(due).toISOString(), subject: entry.subject || '', studyTrack: groupLessonStudyTrack(group, entry), lessonId: known?.id || '' });
     }
   }

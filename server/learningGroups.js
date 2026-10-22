@@ -1,6 +1,6 @@
 import {normalizeGroupHomeworkTrack, groupHomeworkRecipients} from '../src/utils/groupHomeworkTracks.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
-import { groupHomeworkLessonChoices, normalizeGroupStudyPlan } from '../src/utils/groupStudyPlan.js';
+import { groupHomeworkLessonChoices, groupHomeworkStudyTrackAt, normalizeGroupStudyPlan } from '../src/utils/groupStudyPlan.js';
 import { normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
 import { normalizeParticipationPlans, participationOccurrence } from '../src/utils/groupParticipation.js';
 import { getPythonHomeworkTheorySelection } from '../src/utils/pythonTheoryHomework.js';
@@ -669,11 +669,11 @@ export const createLearningAssignment = (groupValue, payload = {}, options = {})
   }
   if (payload.useStudyPlanDeadline === true) {
     if (!group.studyPlan) fail('Сначала настройте режим обучения группы', 'group_study_plan_required');
-    const track = payload.homework?.studyTrack || payload.homeworkTemplate?.studyTrack || 'ege';
+    const track = payload.homework?.studyTrack || payload.homeworkTemplate?.studyTrack || groupHomeworkStudyTrackAt(group, Date.parse(getNowIso(options.now)), options.lessons || []);
     const choice = groupHomeworkLessonChoices(group, track, Date.parse(getNowIso(options.now)), options.lessons || [])[0];
     if (!choice) fail('Не найдено следующее занятие этого направления. Проверьте расписание группы', 'group_homework_lesson_required');
     payload = { ...payload, dueAt: choice.dueAt, lessonId: choice.lessonId || '',
-      homework: { ...(payload.homework || payload.homeworkTemplate), dueAt: choice.dueAt, dueAtMode: 'manual' } };
+      homework: { ...(payload.homework || payload.homeworkTemplate), studyTrack: track, dueAt: choice.dueAt, dueAtMode: 'manual' } };
   }
   const id = cleanText(options.id || payload.id, 180);
   const title = cleanText(payload.title, 240);

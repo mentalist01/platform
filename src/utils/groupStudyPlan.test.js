@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupHomeworkDefaultDueAt, groupHomeworkLessonChoices, groupLessonStudyTrack } from './groupStudyPlan.js';
+import { groupHomeworkDefaultDueAt, groupHomeworkLessonChoices, groupHomeworkStudyTrackAt, groupLessonStudyTrack } from './groupStudyPlan.js';
 const schedule = [{ id: 'wed', weekdayKey: 'wednesday', time: '20:00', subject: 'Занятие' }, { id: 'fri', weekdayKey: 'friday', time: '20:00', subject: 'Занятие' }];
 const group = { id: 'g', schedule, studyPlan: { mode: 'split', pythonWeekday: 'friday' } };
 const now = Date.parse('2026-10-07T18:10Z');
@@ -12,10 +12,13 @@ test('split deadlines follow the selected direction; EGE-only uses the immediate
   assert.equal(groupHomeworkDefaultDueAt(swapped, 'ege', now), '2026-10-09T17:00:00.000Z');
   assert.equal(groupHomeworkDefaultDueAt(swapped, 'python', now), '2026-10-14T17:00:00.000Z');
 });
-test('Moscow boundary and exact lesson start select a future occurrence', () => {
-  assert.equal(groupHomeworkDefaultDueAt(group, 'python', Date.parse('2026-10-09T16:59:59Z')), '2026-10-09T17:00:00.000Z');
+test('homework issued on a lesson day goes to the next day of that direction, even before class starts', () => {
+  assert.equal(groupHomeworkStudyTrackAt(group, Date.parse('2026-10-09T09:00Z')), 'python');
+  assert.equal(groupHomeworkStudyTrackAt(group, now), 'ege');
+  assert.equal(groupHomeworkStudyTrackAt({ ...group, studyPlan: { mode: 'ege-only' } }, Date.parse('2026-10-09T09:00Z')), 'ege');
+  assert.equal(groupHomeworkDefaultDueAt(group, 'python', Date.parse('2026-10-09T16:59:59Z')), '2026-10-16T17:00:00.000Z');
   assert.equal(groupHomeworkDefaultDueAt(group, 'python', Date.parse('2026-10-09T17:00Z')), '2026-10-16T17:00:00.000Z');
-  assert.equal(groupHomeworkDefaultDueAt({ ...group, schedule: [{ id: 'sun', weekdayKey: 'sunday', time: '01:00' }], studyPlan: { mode: 'ege-only' } }, 'ege', Date.parse('2026-10-10T21:30Z')), '2026-10-10T22:00:00.000Z');
+  assert.equal(groupHomeworkDefaultDueAt({ ...group, schedule: [{ id: 'sun', weekdayKey: 'sunday', time: '01:00' }], studyPlan: { mode: 'ege-only' } }, 'ege', Date.parse('2026-10-10T20:30Z')), '2026-10-10T22:00:00.000Z');
 });
 test('known cancellation and moved lesson override the slot without generating sessions', () => {
   const lessons = [{ id: 'cancel', groupId: 'g', scheduleEntryId: 'fri', startAt: '2026-10-09T17:00Z', status: 'cancelled' }];
