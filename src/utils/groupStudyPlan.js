@@ -1,10 +1,19 @@
 import { weeklyHomeworkDeadline, weeklyHomeworkLessonChoices } from './concurrentHomework.js';
+import { availabilitySlots, AVAILABILITY_WEEKDAYS } from './groupAvailability.js';
 
 const DAY = 86400000;
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 export const normalizeGroupStudyPlan = plan => ['split', 'ege-only'].includes(plan?.mode)
   ? { mode: plan.mode, pythonWeekday: plan.mode === 'split' && WEEKDAYS.includes(plan.pythonWeekday) ? plan.pythonWeekday : '' }
   : null;
+
+export const approvedGroupStudySchedule = plan => plan?.config && Array.isArray(plan.slots)
+  ? availabilitySlots(plan.config).filter(slot => plan.slots.includes(slot.id)).map(slot => ({
+    id: `${plan.id}:${slot.id}`, weekdayKey: AVAILABILITY_WEEKDAYS[slot.day], time: slot.time,
+    durationMinutes: plan.config.durationMinutes, repeatFrom: plan.config.startDate,
+  })) : [];
+export const groupStudySchedule = group => Array.isArray(group?.studySchedule) && group.studySchedule.length
+  ? group.studySchedule : (group?.schedule || []).filter(entry => !entry.date);
 
 export const groupLessonStudyTrack = (group, entry) => {
   const plan = normalizeGroupStudyPlan(group?.studyPlan);
@@ -26,7 +35,7 @@ export const groupHomeworkStudyTrackAt = (group, nowMs = Date.now(), lessons = [
     && entry.status !== 'cancelled' && Number.isFinite(Date.parse(entry.startAt))
     && moscowDay(Date.parse(entry.startAt)) === moscowDay(Number(nowMs)));
   if (lesson) {
-    const slot = lesson.participationSlot ? lesson : group.schedule?.find(entry => entry.id === lesson.scheduleEntryId);
+    const slot = lesson.participationSlot ? lesson : groupStudySchedule(group).find(entry => entry.id === lesson.scheduleEntryId);
     if (slot) return groupLessonStudyTrack(group, slot);
   }
   const weekday = WEEKDAYS[new Date(Number(nowMs) + 3 * 3600000).getUTCDay()];
@@ -37,16 +46,17 @@ export const groupHomeworkStudyTrackAt = (group, nowMs = Date.now(), lessons = [
 // or moved occurrences override their weekly slot without creating new lessons.
 export const groupHomeworkLessonChoices = (group, track = 'ege', nowMs = Date.now(), lessons = []) => {
   const plan = normalizeGroupStudyPlan(group?.studyPlan);
-  if (!plan) return weeklyHomeworkLessonChoices(group?.schedule, nowMs);
+  if (!plan) return weeklyHomeworkLessonChoices(groupStudySchedule(group), nowMs);
   const now = Number(nowMs);
-  const local = new Date(now + 3 * 3600000);
   const choices = [];
-  for (const entry of group?.schedule || []) {
+  for (const entry of groupStudySchedule(group)) {
     if (plan.mode === 'split' && groupLessonStudyTrack(group, entry) !== track) continue;
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(entry.time || '')) continue;
     const weekday = WEEKDAYS.indexOf(entry.weekdayKey);
     if (!entry.date && weekday < 0) continue;
-    const firstDay = entry.date || moscowDay(now + ((weekday - local.getUTCDay() + 7) % 7) * DAY);
+    const anchor = Math.max(now, Date.parse(`${entry.repeatFrom || moscowDay(now)}T00:00:00+03:00`));
+    const local = new Date(anchor + 3 * 3600000);
+    const firstDay = entry.date || moscowDay(anchor + ((weekday - local.getUTCDay() + 7) % 7) * DAY);
     const first = Date.parse(`${firstDay}T${entry.time}:00+03:00`);
     if (!Number.isFinite(first)) continue;
     for (let week = 0; week < (entry.date ? 1 : 4); week += 1) {

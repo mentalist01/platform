@@ -32,6 +32,7 @@ import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } f
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
+import { approvedGroupStudySchedule } from '../src/utils/groupStudyPlan.js';
 import { createGroupCalendarSync } from './groupCalendarSync.js';
 import { ensureGoogleCalendarGroupLesson } from './googleCalendarWriteback.js';
 import {registerGroupAvailabilityShare} from './groupAvailabilityShare.js';
@@ -24492,6 +24493,7 @@ const serializeLearningGroupForAuth = (group, auth) => {
     });
   return {
     ...serialized,
+    studySchedule: getLearningGroupStudySchedule(group),
     ...(isStudentRole(auth) ? { subscriptionAccess: { live: liveAccess, learning: getLearningSubscriptionAccess(auth.id, group.id).allowed } } : {}),
     ...(staffView || currentStudentMember ? {} : { schedule: [] }),
     telemostUrl: canUseTelemost ? serialized.telemostUrl : '',
@@ -25248,6 +25250,10 @@ registerLessonPace(app, {
   teacherStudents: auth => readStudentsDb().filter(student => !student.deletedAt && student.teacherId === auth.id),
 });
 const availabilityStore = createAvailabilityStore(path.join(dataDir, 'group-availability.json'));
+const getLearningGroupStudySchedule = group => {
+  const approved = approvedGroupStudySchedule(availabilityStore.get(group.id)?.plan);
+  return approved.length ? approved : (group.schedule || []).filter(entry => !entry.date);
+};
 const studentAvailabilityStore = createStudentAvailabilityStore(path.join(dataDir, 'student-availability.json'));
 studentAvailabilityStore.migrate({ groups: readLearningGroupsDb(), polls: availabilityStore.all(), students: readStudentsDb() });
 const rememberLearningStudentAvailability = (group, poll, studentId, answer, blocked) => {
@@ -25714,6 +25720,7 @@ app.patch('/api/learning-groups/:groupId', handleLearningRoute((req, res) => {
   }
   const updated = updateLearningGroup(group, req.body || {}, {
     actorId: req.auth.id,
+    studySchedule: getLearningGroupStudySchedule(group),
     allowCompletedArchiveEdit: group.status === 'completed',
   });
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
@@ -26158,6 +26165,7 @@ app.post('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, 
     id: crypto.randomUUID(),
     actorId: req.auth.id,
     lessons: req.body?.useStudyPlanDeadline === true ? readLearningLessonSessionsDb().filter(lesson => lesson.groupId === group.id) : [],
+    studySchedule: getLearningGroupStudySchedule(group),
   });
   writeLearningAssignmentsDb([assignment, ...readLearningAssignmentsDb()]);
   synchronizeLearningGroupAssignmentHomeworks(assignment, {

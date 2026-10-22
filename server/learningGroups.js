@@ -360,7 +360,7 @@ export const updateLearningGroup = (groupValue, patch = {}, options = {}) => {
   const next = { ...group };
   if (Object.prototype.hasOwnProperty.call(patch, 'studyPlan')) {
     const plan = normalizeGroupStudyPlan(patch.studyPlan);
-    const weekdays = [...new Set(group.schedule.filter(entry => !entry.date).map(entry => entry.weekdayKey))];
+    const weekdays = [...new Set((options.studySchedule || group.schedule).filter(entry => !entry.date).map(entry => entry.weekdayKey))];
     if (!plan || (plan.mode === 'split' && (weekdays.length !== 2 || !weekdays.includes(plan.pythonWeekday)))) {
       fail('Для режима ЕГЭ + Python утвердите два дня занятий и выберите день Python', 'invalid_group_study_plan');
     }
@@ -669,8 +669,9 @@ export const createLearningAssignment = (groupValue, payload = {}, options = {})
   }
   if (payload.useStudyPlanDeadline === true) {
     if (!group.studyPlan) fail('Сначала настройте режим обучения группы', 'group_study_plan_required');
-    const track = payload.homework?.studyTrack || payload.homeworkTemplate?.studyTrack || groupHomeworkStudyTrackAt(group, Date.parse(getNowIso(options.now)), options.lessons || []);
-    const choice = groupHomeworkLessonChoices(group, track, Date.parse(getNowIso(options.now)), options.lessons || [])[0];
+    const scheduledGroup = { ...group, studySchedule: options.studySchedule || group.schedule };
+    const track = payload.homework?.studyTrack || payload.homeworkTemplate?.studyTrack || groupHomeworkStudyTrackAt(scheduledGroup, Date.parse(getNowIso(options.now)), options.lessons || []);
+    const choice = groupHomeworkLessonChoices(scheduledGroup, track, Date.parse(getNowIso(options.now)), options.lessons || [])[0];
     if (!choice) fail('Не найдено следующее занятие этого направления. Проверьте расписание группы', 'group_homework_lesson_required');
     payload = { ...payload, dueAt: choice.dueAt, lessonId: choice.lessonId || '',
       homework: { ...(payload.homework || payload.homeworkTemplate), studyTrack: track, dueAt: choice.dueAt, dueAtMode: 'manual' } };

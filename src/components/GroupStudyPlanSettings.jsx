@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { CalendarDays, Check, Code2, BookOpen, Save } from 'lucide-react';
 import { LEARNING_GROUP_WEEKDAYS } from '../utils/learningGroups';
-import { groupLessonStudyTrack, normalizeGroupStudyPlan } from '../utils/groupStudyPlan';
+import { groupLessonStudyTrack, groupStudySchedule, normalizeGroupStudyPlan } from '../utils/groupStudyPlan';
 
 export default function GroupStudyPlanSettings({ group, onSave, busy = false }) {
   const saved = normalizeGroupStudyPlan(group.studyPlan);
-  const schedule = (group.schedule || []).filter(entry => !entry.date);
+  const schedule = groupStudySchedule(group);
   const days = [...new Set(schedule.map(entry => entry.weekdayKey))];
   const [editing, setEditing] = useState(false);
   const [mode, setMode] = useState(saved?.mode || 'split');

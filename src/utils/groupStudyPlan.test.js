@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupHomeworkDefaultDueAt, groupHomeworkLessonChoices, groupHomeworkStudyTrackAt, groupLessonStudyTrack } from './groupStudyPlan.js';
+import { approvedGroupStudySchedule, groupHomeworkDefaultDueAt, groupHomeworkLessonChoices, groupHomeworkStudyTrackAt, groupLessonStudyTrack } from './groupStudyPlan.js';
 const schedule = [{ id: 'wed', weekdayKey: 'wednesday', time: '20:00', subject: 'Занятие' }, { id: 'fri', weekdayKey: 'friday', time: '20:00', subject: 'Занятие' }];
 const group = { id: 'g', schedule, studyPlan: { mode: 'split', pythonWeekday: 'friday' } };
 const now = Date.parse('2026-10-07T18:10Z');
@@ -30,4 +30,12 @@ test('known cancellation and moved lesson override the slot without generating s
 test('unconfigured groups retain weekly deadlines; missing directions cannot silently use the other track', () => {
   assert.equal(groupHomeworkDefaultDueAt({ schedule }, 'ege', now), '2026-10-14T18:10:00.000Z');
   assert.equal(groupHomeworkDefaultDueAt({ ...group, schedule: [schedule[0]] }, 'python', now), '');
+});
+
+test('approved availability provides both directions without duplicating the calendar and respects its start date', () => {
+  const studySchedule = approvedGroupStudySchedule({ id: 'approved', config: { startDate: '2026-10-26', durationMinutes: 60, startMinute: 600, endMinute: 1380, days: [0,1,2,3,4,5,6] }, slots: ['1-960', '3-1140'] });
+  assert.deepEqual(studySchedule.map(entry => [entry.weekdayKey, entry.time]), [['tuesday', '16:00'], ['thursday', '19:00']]);
+  const approved = { ...group, schedule: [], studySchedule, studyPlan: { mode: 'split', pythonWeekday: 'thursday' } };
+  assert.equal(groupHomeworkDefaultDueAt(approved, 'ege', Date.parse('2026-10-22T20:00Z')), '2026-10-27T13:00:00.000Z');
+  assert.equal(groupHomeworkDefaultDueAt(approved, 'python', Date.parse('2026-10-22T20:00Z')), '2026-10-29T16:00:00.000Z');
 });
