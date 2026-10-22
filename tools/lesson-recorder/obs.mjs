@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pythonCaptureConfig, pythonCaptureReason, pythonModes } from './python-capture.mjs';
 import { selectTelemostWindow } from './conversation-audio.mjs';
@@ -14,12 +15,26 @@ export const PYTHON_INPUTS = { platform: 'IVAN100 Python: платформа', w
 const COLLECTION = 'IVAN100 Lessons';
 const sha = (text) => crypto.createHash('sha256').update(text).digest('base64');
 const transportError = message => Object.assign(new Error(message), { obsTransport: true });
+const exec = promisify(execFile);
+
+async function runningObsProcesses() {
+  if (process.platform !== 'win32') return [];
+  // A failed WebSocket connection does not mean OBS is absent: it may be
+  // waiting in its startup dialog, including a dialog hidden by Windows.
+  const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    "$ErrorActionPreference='Stop'; @([System.Diagnostics.Process]::GetProcessesByName('obs64') | ForEach-Object { $_.Id }) | ConvertTo-Json -Compress"],
+  { windowsHide: true, timeout: 5000, maxBuffer: 65536 });
+  const result = JSON.parse(stdout.trim() || '[]');
+  return Array.isArray(result) ? result : [result];
+}
 
 export class ObsClient {
-  constructor({ configDir = path.join(process.env.APPDATA || '', 'obs-studio'), executable = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', webSocketClass = globalThis.WebSocket } = {}) {
+  constructor({ configDir = path.join(process.env.APPDATA || '', 'obs-studio'), executable = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', webSocketClass = globalThis.WebSocket,
+    processProbe = runningObsProcesses, spawnProcess = spawn, wait = delay } = {}) {
     this.configDir = configDir; this.executable = executable; this.pending = new Map();
     this.webSocketClass = webSocketClass;
     this.audioSignals = {};
+    Object.assign(this, { processProbe, spawnProcess, wait });
   }
   observeAudioMeters(inputs, now = Date.now()) {
     this.meters = inputs;
@@ -95,12 +110,27 @@ export class ObsClient {
     return result;
   }
   async launch() {
-    try { await this.connect(); return; } catch { /* not running */ }
+    if (this.launching) return this.launching;
+    this.launching = this.launchOnce().finally(() => { this.launching = null; });
+    return this.launching;
+  }
+  async launchOnce() {
+    try { await this.connect(); return; } catch (error) { if (!error.obsTransport) throw error; }
     if (!fs.existsSync(this.executable)) throw new Error('OBS Studio не найден');
-    const child = spawn(this.executable, ['--minimize-to-tray', '--disable-shutdown-check', '--profile', COLLECTION, '--collection', COLLECTION], { cwd: path.dirname(this.executable), detached: true, stdio: 'ignore', windowsHide: true });
-    child.on('error', () => {}); child.unref();
-    for (let i = 0; i < 15; i++) { await delay(1000); try { await this.connect(); return; } catch { /* starting */ } }
-    throw new Error('OBS не запустился. Проверьте его окно.');
+    let running;
+    try { running = await this.processProbe(); }
+    catch { throw new Error('Не удалось проверить запущенный OBS. Откройте OBS вручную; повторный экземпляр не запущен.'); }
+    let child, failure;
+    if (!running.length) {
+      child = this.spawnProcess(this.executable, ['--minimize-to-tray', '--disable-shutdown-check', '--profile', COLLECTION, '--collection', COLLECTION], { cwd: path.dirname(this.executable), detached: true, stdio: 'ignore', windowsHide: true });
+      child.on('error', error => { failure = error; }); child.unref();
+    }
+    for (let i = 0; i < 15; i++) {
+      await this.wait(1000);
+      if (failure || child?.exitCode != null) throw new Error('OBS завершился при запуске. Откройте OBS и проверьте сообщение об ошибке.');
+      try { await this.connect(); return; } catch (error) { if (!error.obsTransport) throw error; }
+    }
+    throw new Error('OBS запущен, но не подключился к пульту. Откройте окно OBS: возможно, он ждёт ответа после некорректного завершения. Новые экземпляры не запускаются.');
   }
   async assertCollection() {
     const value = await this.call('GetSceneCollectionList');
