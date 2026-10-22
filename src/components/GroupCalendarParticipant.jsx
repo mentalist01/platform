@@ -12,8 +12,10 @@ export default function GroupCalendarParticipant({member, senders, cancelled, bu
       <span className="block truncate text-xs font-semibold text-slate-800">{member.studentName || 'Ученик'}</span>
       <CalendarStudentPayer studentId={member.studentId} senders={senders} compact />
       {!unavailable && canMarkAbsence && <button type="button" onClick={() => onAbsence(member)}
-        disabled={busy || (!absent && (paid || trial || status === 'not-required'))}
-        title={paid ? 'Сначала отмените оплату, затем отметьте пропуск' : 'Оплата за этот урок не требуется. Отметку можно отменить.'}
+        disabled={busy || (!absent && (paid || trial))}
+        title={absent ? 'Отменить отметку пропуска этого занятия' : paid ? 'Сначала отмените оплату, затем отметьте пропуск'
+          : status === 'not-required' ? 'Оплата уже не требуется. Можно сохранить отметку пропуска.'
+            : 'Отметить пропуск этого занятия без начисления оплаты'}
         className="mt-1 rounded-md px-1 py-1 text-[11px] font-semibold text-slate-500 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-50">
         {absent ? 'Отменить отметку пропуска' : 'Не был на занятии'}
       </button>}

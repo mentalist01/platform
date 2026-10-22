@@ -15,12 +15,15 @@ test('teacher can waive and restore one missed group lesson across calendar, deb
   const before=new Date(Date.now()-40*86400000).toISOString();
   const days=[-5,-3,2].map(offset=>participationDay(Date.now()+offset*86400000));
   write('teachers',[{id:'t',code:'teacher',name:'Teacher',createdAt:before},{id:'other',code:'other',name:'Other'}]);
-  write('students',['a','b'].map(id=>({id,teacherId:'t',code:id,name:id,grade:'11',studyStatus:'active',createdAt:before})));
+  const pupils=['a','b','left','inactive'];
+  write('students',pupils.map(id=>({id,teacherId:'t',code:id,name:id,grade:'11',studyStatus:id==='inactive'?'inactive':'active',createdAt:before})));
   write('tests',{}); write('mock-exams',[]);
-  write('progress',Object.fromEntries(['a','b'].map(id=>[id,{schedule:[],homeworks:[],mockAttempts:{}}])));
+  write('progress',Object.fromEntries(pupils.map(id=>[id,{schedule:[],homeworks:[],mockAttempts:{}}])));
   write('learning-groups',[{id:'g',teacherId:'t',name:'Группа 2',status:'active',startedAt:before,createdAt:before,pricePerLesson:1000,
-    members:['a','b'].map(studentId=>({studentId,status:'active',joinedAt:before}))}]);
-  write('learning-lesson-sessions',days.map((day,index)=>({id:'l'+index,groupId:'g',teacherId:'t',participantIds:['a','b'],
+    members:pupils.map(studentId=>({studentId,status:['left','inactive'].includes(studentId)?'removed':'active',joinedAt:before}))},
+    {id:'next',teacherId:'t',name:'Группа 3',status:'active',startedAt:before,createdAt:before,pricePerLesson:1000,
+      members:[{studentId:'left',status:'active',joinedAt:before}]}]);
+  write('learning-lesson-sessions',days.map((day,index)=>({id:'l'+index,groupId:'g',teacherId:'t',participantIds:pupils,
     startAt:day+'T20:00:00+03:00',durationMinutes:60,topic:'Lesson',source:'availability-plan',status:index===2?'scheduled':'completed',createdAt:before,updatedAt:before})));
   const paidKey=`t:learning-group-session-l0:${days[0]}:b:20:00:paid`;
   write('teacher-calendar-marks',{t:{[paidKey]:before}});
@@ -54,11 +57,21 @@ test('teacher can waive and restore one missed group lesson across calendar, deb
   const occurrence={id:'learning-group-session-l0',groupId:'g',studentId:'a',date:days[0],dayKey:days[0],time:'20:00',durationMinutes:60};
   await call('/api/teacher-lesson-payment',teacher,{occurrence,paid:true},'POST',409);
   assert.deepEqual(second.lesson.absenceWaivers,first.lesson.absenceWaivers,'Repeated marking is idempotent');
-  assert.deepEqual(second.lesson.participantIds,['a','b']);assert.deepEqual(second.lesson.participationOverrides||{},{});
+  assert.deepEqual(second.lesson.participantIds,pupils);assert.deepEqual(second.lesson.participationOverrides||{},{});
   const rows=await call('/api/teacher-schedule',teacher), row=rows.find(e=>e.lessonId==='l0');
   assert.equal(row.memberPaymentStatuses.find(m=>m.studentId==='a').absenceWaived,true);
   assert.equal(row.memberPaymentStatuses.find(m=>m.studentId==='a').status,'not-required');
   assert.equal(row.memberPaymentStatuses.find(m=>m.studentId==='b').status,'paid');
+  assert.equal(row.memberPaymentStatuses.find(m=>m.studentId==='left').status,'not-required');
+  assert.ok(!row.memberPaymentStatuses.some(m=>m.studentId==='inactive'),'Inactive pupil is not a payment row');
+  const groupsBefore=fs.readFileSync(path.join(data,'learning-groups.json'),'utf8');
+  await mark('left',true,a,403);
+  const markedLeft=await mark('left',true);
+  assert.ok(markedLeft.lesson.absenceWaivers.left,'Transfer does not block an explicit historical absence');
+  const transferredRow=(await call('/api/teacher-schedule',teacher)).find(e=>e.lessonId==='l0').memberPaymentStatuses.find(m=>m.studentId==='left');
+  assert.equal(transferredRow.status,'not-required');assert.equal(transferredRow.absenceWaived,true);
+  await mark('left',false);
+  assert.equal(fs.readFileSync(path.join(data,'learning-groups.json'),'utf8'),groupsBefore,'Historical absence does not change the new group');
   const peerLesson=await call('/api/learning-groups/g/lessons/l0',b);
   assert.deepEqual(peerLesson.lesson.absenceWaivers,{},'Other pupils do not receive the private absence mark');
   const schedule=await call('/api/student-schedule',a);

@@ -3,6 +3,7 @@ import { isExplicitTrialLesson } from '../utils/calendarLessonType.js';
 import { LessonAlarmSettings } from './LessonAlarmControls';
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 import GroupCalendarParticipant from './GroupCalendarParticipant.jsx';
+import { getLearningGroupCalendarParticipants } from '../utils/groupCalendarParticipants.js';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
 import CalendarEventEditor from './CalendarEventEditor.jsx';
@@ -303,33 +304,6 @@ const formatMinutesAsDisplayTime = (minutes, use24HourFormat = true) => {
 const isLearningGroupCalendarEntry = (entry) => Boolean(
   entry?.isLearningGroupEvent && String(entry?.groupId || '').trim()
 );
-
-const getLearningGroupCalendarParticipants = (entry, studentNameById = {}) => {
-  if (!isLearningGroupCalendarEntry(entry)) return [];
-  const byId = new Map();
-  const addParticipant = (value) => {
-    const studentId = String(value?.studentId || value?.id || value || '').trim();
-    if (!studentId) return;
-    const previous = byId.get(studentId) || {};
-    const studentName = String(
-      value?.studentName
-      || value?.name
-      || studentNameById[studentId]
-      || previous.studentName
-      || 'Ученик'
-    ).trim();
-    byId.set(studentId, {
-      ...previous,
-      ...(value && typeof value === 'object' ? value : {}),
-      studentId,
-      studentName,
-    });
-  };
-  (Array.isArray(entry?.participantIds) ? entry.participantIds : []).forEach(addParticipant);
-  (Array.isArray(entry?.participants) ? entry.participants : []).forEach(addParticipant);
-  (Array.isArray(entry?.memberPaymentStatuses) ? entry.memberPaymentStatuses : []).forEach(addParticipant);
-  return Array.from(byId.values());
-};
 
 const isTrialEntry = (entry) => (
   !entry?.calendarPersonalEvent && !isLearningGroupCalendarEntry(entry) && (!String(entry?.studentId || '').trim() || isExplicitTrialLesson(entry))
