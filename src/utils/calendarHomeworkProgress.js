@@ -1,4 +1,4 @@
-import { homeworkAssessmentEntries } from './homeworkStats.js';
+import { getHomeworkDisplayAssessment } from './homeworkStats.js';
 
 const DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^(\d{1,2}):(\d{2})$/;
@@ -48,7 +48,7 @@ export const buildCalendarHomeworkProgressEntries = ({
     ])
   );
 
-  return homeworkAssessmentEntries(statistics)
+  return statistics.map(getHomeworkDisplayAssessment).filter(Boolean)
     .map((entry) => {
       const homeworkId = normalizeText(entry?.id);
       const source = sourceById.get(homeworkId) || {};

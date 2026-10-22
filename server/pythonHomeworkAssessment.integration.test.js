@@ -39,10 +39,17 @@ test('API exempts Python, repairs old damage and reports EGE without altering as
     assert.equal(report.metrics.homework.averagePercent, 100);
     assert.equal(report.metrics.homework.practice.find(g => g.taskNumber === 4).solvedCount, 1);
     const practiceReport = await f.request(`/api/student-month-report?studentId=student-b&month=${month}`, f.tokens['teacher-a']);
-    assert.equal(practiceReport.metrics.homework.averagePercent, null);
+    assert.equal(practiceReport.metrics.homework.averagePercent, 100);
+    assert.equal(practiceReport.metrics.homework.practiceOnly, true);
     assert.equal(practiceReport.metrics.homework.evaluatedCount, 0);
     assert.equal(practiceReport.metrics.homework.pythonPracticeCount, 1);
-    assert.doesNotMatch(practiceReport.parentText, /очень плохо|слабый результат|0%/u);
+    assert.doesNotMatch(practiceReport.parentText, /очень плохо|слабый результат|(?<!\d)0%/u);
+    const parent = await f.request('/api/parent/login', '', { code: 'student-b-code' });
+    const overview = await f.request('/api/parent/overview', parent.token);
+    assert.equal(overview.homework.summary.averagePercent, 100);
+    assert.equal(overview.homework.summary.practiceOnly, true);
+    assert.equal(overview.homework.summary.homeworkCount, 0);
+    assert.equal(overview.homework.summary.fullyCompletedCount, 0);
     assert.equal(fs.readFileSync(path.join(f.data, 'progress.json'), 'utf8'), before);
     await f.request('/api/student-month-report?studentId=student-a', f.tokens['teacher-b'], undefined, 'GET', 403);
   } finally { await f.stop(); }

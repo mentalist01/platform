@@ -37476,7 +37476,8 @@ app.get('/api/parent/overview', async (req, res) => {
       },
       homework: {
         summary: {
-          ...summarizeHomeworkStatistics(overallParentHomeworkEntries),
+          ...summarizeHomeworkStatistics(homeworkEntries.length > 0 && homeworkEntries.every(entry => entry.practiceOnly)
+            ? homeworkEntries : overallParentHomeworkEntries),
           totalAssignedCount: reliableParentHomeworkEntries.length,
           pendingCount: measurableParentHomeworkEntries.length - overallParentHomeworkEntries.length,
         },

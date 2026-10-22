@@ -312,8 +312,9 @@ const HomeworkStatsSection = ({
     ? null
     : yearOptions.find((year) => year.key === resolvedSelectedYear) || null;
   const summary = useMemo(
-    () => summarizeHomeworkStatistics(filteredStatistics),
-    [filteredStatistics]
+    () => summarizeHomeworkStatistics(allStatistics.filter(entry => resolvedSelectedYear === 'all'
+      || !resolvedSelectedYear || entry.academicYear?.key === resolvedSelectedYear)),
+    [allStatistics, resolvedSelectedYear]
   );
 
   useEffect(() => {
@@ -486,12 +487,14 @@ const HomeworkStatsSection = ({
             </span>
             <div>
               <strong className={`block ${dark ? 'text-white' : 'text-slate-900'}`}>
-                {filteredStatistics.length === 0
+                {summary.practiceOnly ? 'Выполнение домашки — 100%' : filteredStatistics.length === 0
                   ? 'В выбранном периоде нет домашки по ЕГЭ'
                   : 'В выбранном периоде пока нечего сравнивать'}
               </strong>
               <span className="mt-0.5 block text-xs leading-relaxed">
-                {filteredStatistics.length === 0
+                {summary.practiceOnly
+                  ? 'ЕГЭ не задано. Python — практика без оценки; её фактический прогресс виден в домашке и разделе «Изучение Python».'
+                  : filteredStatistics.length === 0
                   ? 'Python остаётся практикой без оценки. Прогресс по нему виден в домашке и разделе «Изучение Python». Можно также посмотреть динамику пробников.'
                   : 'Домашние работы есть, но в них нет заданий с доступной автоматической проверкой.'}
               </span>

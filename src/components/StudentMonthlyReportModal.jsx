@@ -205,7 +205,7 @@ const downloadReportImage = async ({ report, text, studentName, month, audience 
     {
       label: 'ДОМАШКА',
       value: report?.metrics?.homework?.averagePercent == null ? '—' : `${report.metrics.homework.averagePercent}%`,
-      note: report?.metrics?.homework?.averagePercent == null ? (report?.metrics?.homework?.pythonPracticeCount ? 'Python — практика без оценки' : 'пока нет результата') : 'выполнение домашки по ЕГЭ',
+      note: report?.metrics?.homework?.practiceOnly ? 'ЕГЭ не задано · Python без оценки' : report?.metrics?.homework?.averagePercent == null ? 'пока нет результата' : 'выполнение домашки по ЕГЭ',
       color: '#059669',
       fill: '#ecfdf5',
     },
@@ -524,7 +524,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
                 tone="homework"
                 label="Домашняя работа"
                 value={homework.averagePercent == null ? '—' : `${homework.averagePercent}%`}
-                note={homework.averagePercent == null ? (homework.pythonPracticeCount ? 'Python — практика без оценки' : 'пока нет результата') : 'выполнение домашки по ЕГЭ'}
+                note={homework.practiceOnly ? 'ЕГЭ не задано · Python без оценки' : homework.averagePercent == null ? 'пока нет результата' : 'выполнение домашки по ЕГЭ'}
               />
               <MetricCard
                 icon={BarChart3}

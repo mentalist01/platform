@@ -652,13 +652,27 @@ export const homeworkAssessmentEntries = (entries = []) => (
   (Array.isArray(entries) ? entries : []).map(getHomeworkAssessment).filter(Boolean)
 );
 
+// Calendar presentation includes a neutral 100% for Python-only work. Keep it
+// out of graded averages, task counts, deadline assessments and rewards.
+export const getHomeworkDisplayAssessment = entry => {
+  if (!entry) return null;
+  if (!entry.practiceOnly && !isPythonPracticeHomework(entry)) return getHomeworkAssessment(entry);
+  return {
+    ...entry, ...summarizeItems([]), percent: 100, checkpointPercent: 100,
+    goals: [], checklist: { totalCount: 0, completedCount: 0, items: [] },
+    status: 'practice', isOverdue: false, completedAt: '', completedOnTime: null,
+    totalWrongAttempts: 0, lateCompletedCount: 0, checkpointCompletedCount: 0, checkpointWrongCount: 0,
+  };
+};
+
 export const summarizeHomeworkStatistics = (entries = []) => {
   const measurable = homeworkAssessmentEntries(entries).filter((entry) => entry.totalCount > 0);
+  const practiceOnly = entries.length > 0 && entries.every(entry => entry?.practiceOnly || isPythonPracticeHomework(entry));
   const averagePercent = measurable.length > 0
     ? clampPercent(
         measurable.reduce((sum, entry) => sum + (Number(entry.percent) || 0), 0) / measurable.length
       )
-    : 0;
+    : practiceOnly ? 100 : 0;
   const fullyCompletedCount = measurable.filter((entry) => entry.percent === 100).length;
   const onTimeCount = measurable.filter((entry) => entry.completedOnTime === true).length;
   const withErrorsCount = measurable.filter((entry) => (
@@ -675,6 +689,7 @@ export const summarizeHomeworkStatistics = (entries = []) => {
     : recentAverage;
 
   return {
+    practiceOnly,
     homeworkCount: measurable.length,
     averagePercent,
     fullyCompletedCount,

@@ -435,7 +435,7 @@ const buildStudentFacingText = ({
         pickPhrase,
       }));
   } else {
-    lines.push('', metrics.homework.pythonPracticeCount ? 'По Python попробуй сначала решить задачи сам, а то, что не получится, разберём вместе на уроке.' : 'Домашних заданий в этом месяце не было.');
+    lines.push('', metrics.homework.pythonPracticeCount ? 'Выполнение домашки — 100%: задания ЕГЭ в этом месяце не задавались. По Python попробуй сначала решить задачи сам, а то, что не получится, разберём вместе на уроке.' : 'Домашних заданий в этом месяце не было.');
   }
 
   const practiceText = homeworkPracticeText(metrics.homework.practice, { studentAudience: true, solved: getStudentGrammar(studentName).solved });
@@ -532,6 +532,7 @@ export const buildStudentMonthlyReport = ({
   });
   const overdueHomeworks = incompleteHomeworks.filter((entry) => !upcomingHomeworks.includes(entry));
   const evaluatedHomeworks = homeworks.filter((entry) => !upcomingHomeworks.includes(entry));
+  const practiceOnly = homeworks.length === 0 && pythonPracticeCount > 0;
   const lessonTopics = normalizeLessonTopicLabels(lessons.map(entry => lessonTopicWithNumbers(entry?.topic, taskTitles, taskPresentation)), 30);
   const practice = monthlyHomeworkPractice(Array.isArray(homeworkEntries) ? homeworkEntries : [], normalizedMonth, nowMs, taskTitles, taskPresentation);
   const lessonTopicCount = countLessonTopicLabels(lessonTopics);
@@ -546,7 +547,7 @@ export const buildStudentMonthlyReport = ({
     ? Math.round(evaluatedHomeworks.reduce((sum, entry) => (
       sum + Math.max(0, Math.min(100, Number(entry?.percent) || 0))
     ), 0) / evaluatedHomeworks.length)
-    : null;
+    : practiceOnly ? 100 : null;
   const previousAveragePercent = previousMonthHomeworks.length > 0
     ? Math.round(previousMonthHomeworks.reduce((sum, entry) => (
       sum + Math.max(0, Math.min(100, Number(entry?.percent) || 0))
@@ -562,6 +563,7 @@ export const buildStudentMonthlyReport = ({
       topicCount: lessonTopicCount,
     },
     homework: {
+      practiceOnly,
       assignedCount: homeworks.length,
       pythonPracticeCount,
       completedCount: completedHomeworks.length,
@@ -573,7 +575,7 @@ export const buildStudentMonthlyReport = ({
       withErrorsCount: evaluatedHomeworks.filter((entry) => Number(entry?.withErrorsCount) > 0 || Number(entry?.wrongCount) > 0).length,
       averagePercent,
       previousAveragePercent,
-      deltaFromPreviousMonth: averagePercent != null && previousAveragePercent != null
+      deltaFromPreviousMonth: !practiceOnly && averagePercent != null && previousAveragePercent != null
         ? averagePercent - previousAveragePercent
         : null,
       practice,
@@ -649,7 +651,7 @@ export const buildStudentMonthlyReport = ({
       ? 'По домашней работе за этот месяц пока нет результата.'
       : buildHomeworkProgressText({ studentName, averagePercent: metrics.homework.averagePercent, pickPhrase }));
   } else {
-    lines.push('', metrics.homework.pythonPracticeCount ? 'По Python сначала предлагаю попробовать задачи самостоятельно. То, что пока не получается, разбираем вместе на уроке: здесь не требуется сразу решить всё без помощи.' : 'Домашних заданий в этом месяце не было.');
+    lines.push('', metrics.homework.pythonPracticeCount ? 'Выполнение домашки — 100%: задания ЕГЭ в этом месяце не задавались. По Python сначала предлагаю попробовать задачи самостоятельно. То, что пока не получается, разбираем вместе на уроке: здесь не требуется сразу решить всё без помощи.' : 'Домашних заданий в этом месяце не было.');
   }
 
   if (!highlightMock) lines.push('', mockText);

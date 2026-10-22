@@ -17,6 +17,7 @@ const LearningGroupsSection = React.lazy(() => import('./LearningGroupsSection')
 import { buildLearningGroupTargetValue, parseLessonTargetValue } from '../utils/lessonTargets';
 import { partitionConcurrentHomeworks, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
 import { getLearningAssignmentState } from '../utils/learningAssignmentState';
+import { getHomeworkCompletionProgress } from '../utils/homeworkAssessment';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
 import { StudentPaceHistory } from './StudentLessonPace';
 import TheoryRecordingPlayer from './TheoryRecordingPlayer';
@@ -3289,7 +3290,10 @@ const ScheduleSection = ({
     const sectionLabel = isNextSection
       ? (homeworkStudyTrackLabel(entry.studyTrack) || (tracksNextLesson ? 'К следующему уроку' : 'Текущая домашка'))
       : 'Предыдущая домашка';
-    const summaryStatus = goalsSummary.goalCount === 0
+    const practiceOnly = getHomeworkCompletionProgress(entry).practiceOnly;
+    const summaryStatus = practiceOnly
+      ? { label: 'Python · практика без оценки', tone: 'border-violet-200 bg-violet-50 text-violet-700' }
+      : goalsSummary.goalCount === 0
       ? (isLearningGroupHomework
         ? { label: 'Общее задание', tone: 'border-violet-200 bg-violet-50 text-violet-700' }
         : { label: 'Цели не заданы', tone: 'border-slate-200 bg-white text-slate-600' })
@@ -3308,12 +3312,9 @@ const ScheduleSection = ({
     const visibleChecklistItems = scheduleCompactMode ? checklistItems.slice(0, 4) : checklistItems;
     const hiddenChecklistCount = Math.max(checklistItems.length - visibleChecklistItems.length, 0);
     const completedChecklistCount = checklistItems.filter((item) => Boolean(item.completedAt)).length;
-    const hasHomeworkProgress = goalsSummary.totalCount > 0 || checklistItems.length > 0;
-    const homeworkProgressPercent = goalsSummary.totalCount > 0
-      ? goalsSummary.progressPercent
-      : (checklistItems.length > 0
-        ? Math.round((completedChecklistCount / checklistItems.length) * 100)
-        : 0);
+    const completionProgress = getHomeworkCompletionProgress(entry, goalViews, checklistItems);
+    const hasHomeworkProgress = completionProgress.percent != null;
+    const homeworkProgressPercent = completionProgress.percent ?? 0;
     const lessonUrl = normalizeHttpUrl(entry?.lessonLink);
     const boardUrl = normalizeHttpUrl(entry?.boardLink);
     const learningVideoMaterials = (Array.isArray(entry?.learningMaterials) ? entry.learningMaterials : [])
@@ -3671,6 +3672,7 @@ const ScheduleSection = ({
                   {hasHomeworkProgress ? `${homeworkProgressPercent}%` : '—'}
                 </span>
               </div>
+              {practiceOnly && <span className="text-xs font-semibold text-emerald-700">ЕГЭ не задано</span>}
               {role === 'teacher' && (isLearningGroupHomework ? (
                 <div className="max-w-[260px] rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-right text-[10px] font-bold leading-relaxed text-violet-700">
                   Общее задание: управляйте им в разделе «Мини-группы».
@@ -4095,27 +4097,27 @@ const ScheduleSection = ({
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-purple-500">
-                  Прогресс по целям
+                  Выполнение домашки
                 </div>
                 <div className="mt-1 text-sm font-semibold text-gray-900">
-                  {goalsSummary.totalCount > 0
-                    ? `Выполнено ${goalsSummary.solvedCount} из ${goalsSummary.totalCount}`
+                  {practiceOnly ? 'ЕГЭ не задано · Python — практика без оценки' : completionProgress.totalCount > 0
+                    ? `Выполнено ${completionProgress.completedCount} из ${completionProgress.totalCount}`
                     : `Целей задано: ${goalsSummary.goalCount}`}
                 </div>
               </div>
               <div className="rounded-xl border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-700">
-                {goalsSummary.totalCount > 0 ? `${goalsSummary.progressPercent}%` : 'без тестов'}
+                {hasHomeworkProgress ? `${homeworkProgressPercent}%` : 'без тестов'}
               </div>
             </div>
-            {goalsSummary.totalCount > 0 && (
+            {hasHomeworkProgress && (
               <div className="h-2 overflow-hidden rounded-full bg-purple-100/80">
                 <div
                   className={`h-full rounded-full ${
-                    goalsSummary.remainingCount === 0
+                    homeworkProgressPercent === 100
                       ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
                       : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'
                   }`}
-                  style={{ width: `${goalsSummary.progressPercent}%` }}
+                  style={{ width: `${homeworkProgressPercent}%` }}
                 />
               </div>
             )}

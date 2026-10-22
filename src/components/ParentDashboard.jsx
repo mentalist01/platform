@@ -586,8 +586,9 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
   const homeworkAveragePercent = Number(homeworkSummary.averagePercent) || 0;
   const fullyCompletedHomeworkCount = Number(homeworkSummary.fullyCompletedCount) || 0;
   const homeworkOverallCount = Math.max(0, Number(homeworkSummary.homeworkCount) || 0);
+  const homeworkPracticeOnly = homeworkSummary.practiceOnly === true;
   const hasEnoughHomeworkHistory = homeworkOverallCount >= 3;
-  const homeworkHabit = !hasEnoughHomeworkHistory
+  const homeworkHabit = homeworkPracticeOnly ? 'Выполнение — 100%' : !hasEnoughHomeworkHistory
     ? 'Пока мало данных'
     : homeworkAveragePercent >= 100
       ? `${studentFirstName} всё выполняет`
@@ -600,7 +601,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
           : `${studentFirstName} часто не доделывает`;
   const homeworkHabitIsGood = hasEnoughHomeworkHistory && homeworkAveragePercent >= 75;
   const completedTasksOutOfTen = Math.max(1, Math.min(9, Math.round(homeworkAveragePercent / 10)));
-  const homeworkAverageExplanation = homeworkAveragePercent >= 100
+  const homeworkAverageExplanation = homeworkPracticeOnly ? 'ЕГЭ не задано. Python — практика без оценки.' : homeworkAveragePercent >= 100
     ? 'В среднем выполняет все задания.'
     : homeworkAveragePercent <= 0
       ? 'Задания пока обычно остаются невыполненными.'
@@ -740,15 +741,15 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
       icon: History,
       label: 'Домашняя работа в целом',
       value: homeworkHabit,
-      detail: hasEnoughHomeworkHistory
+      detail: homeworkPracticeOnly || hasEnoughHomeworkHistory
         ? homeworkAverageExplanation
         : `Вывод появится после трёх выданных работ. Сейчас выдано: ${homeworkEntries.length}.`,
-      mobileDetail: hasEnoughHomeworkHistory
+      mobileDetail: homeworkPracticeOnly ? homeworkAverageExplanation : hasEnoughHomeworkHistory
         ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`.trim()
         : `${homeworkEntries.length} из 3 выданных работ для вывода`,
       meta: homeworkCompletionExplanation,
-      progress: hasEnoughHomeworkHistory ? homeworkAveragePercent : null,
-      progressLabel: hasEnoughHomeworkHistory ? `${homeworkAveragePercent}%` : '',
+      progress: homeworkPracticeOnly || hasEnoughHomeworkHistory ? homeworkAveragePercent : null,
+      progressLabel: homeworkPracticeOnly || hasEnoughHomeworkHistory ? `${homeworkAveragePercent}%` : '',
       progressClass: homeworkAveragePercent >= 90
         ? 'bg-emerald-500'
         : homeworkAveragePercent >= 75
@@ -1652,7 +1653,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
                 }`}>Как делает домашнюю работу</span>
                 <strong className="mt-1.5 block text-base">{homeworkHabit}</strong>
                 <p className={`mt-1.5 text-sm leading-relaxed ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
-                  {hasEnoughHomeworkHistory
+                  {homeworkPracticeOnly ? homeworkAverageExplanation : hasEnoughHomeworkHistory
                     ? `${homeworkAverageExplanation} ${homeworkCompletionExplanation}`.trim()
                     : `Вывод появится после трёх выданных работ. Сейчас выдано: ${homeworkEntries.length}.`}
                 </p>
@@ -1762,7 +1763,7 @@ const ParentDashboard = ({ theme = '', onLogout }) => {
             {[
               {
                 label: 'Выполнение по ЕГЭ',
-                value: homeworkOverallCount > 0 ? `${homeworkAveragePercent}%` : '—',
+                value: homeworkPracticeOnly || homeworkOverallCount > 0 ? `${homeworkAveragePercent}%` : '—',
                 className: dark
                   ? 'border-violet-800 bg-violet-950/40'
                   : 'border-violet-200 bg-violet-50',

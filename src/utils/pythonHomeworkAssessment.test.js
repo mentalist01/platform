@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildHomeworkStatistics, homeworkAssessmentEntries, summarizeHomeworkStatistics, isHomeworkReadyForOverallStatistics } from './homeworkStats.js';
 import { buildStudentMonthlyReport } from './studentMonthlyReport.js';
-import { isPythonPracticeHomework } from './homeworkAssessment.js';
-import { buildCalendarHomeworkProgressEntries } from './calendarHomeworkProgress.js';
+import { getHomeworkCompletionProgress, isPythonPracticeHomework } from './homeworkAssessment.js';
+import { buildCalendarHomeworkProgressEntries, resolveCalendarEventHomeworkProgress } from './calendarHomeworkProgress.js';
+import { buildTeacherLessonBriefing } from './teacherLessonBriefing.js';
 
 const nowMs = Date.parse('2026-10-17T12:00Z');
 const goal = (taskNumber, levelId, id) => ({ type: 'task', taskNumber, levelId, targetQuestions: [1], targetQuestionIds: [id] });
@@ -74,16 +75,54 @@ test('parent and student reports do not criticize Python practice and retain rea
   assert.equal(report.metrics.lessons.count, 1);
   assert.equal(report.metrics.lessons.minutes, 60);
   const onlyPython = buildStudentMonthlyReport({ student: { name: 'Лев' }, month: '2026-10', homeworkEntries: stats([work('py', [python])]), nowMs });
-  assert.equal(onlyPython.metrics.homework.averagePercent, null);
+  assert.equal(onlyPython.metrics.homework.averagePercent, 100);
+  assert.equal(onlyPython.metrics.homework.practiceOnly, true);
   assert.equal(onlyPython.metrics.homework.evaluatedCount, 0);
   for (const text of [onlyPython.parentText, onlyPython.studentText]) {
+    assert.match(text, /100%/u);
     assert.match(text, /разбер[её]м|разбираем/u);
-    assert.doesNotMatch(text, /очень плохо|слабый результат|0%|заданий в этом месяце не было/u);
+    assert.doesNotMatch(text, /очень плохо|слабый результат|(?<!\d)0%|заданий в этом месяце не было/u);
   }
 });
 
-test('calendar grades omit Python-only practice and project mixed homework to EGE', () => {
+test('calendar shows a neutral Python-only 100% without adding assessed tasks', () => {
   const entries = stats([work('py', [python], { dueAt: '2026-10-18T12:00Z' }), work('mixed', [python, ege], { dueAt: '2026-10-18T12:00Z' })]);
   const rows = buildCalendarHomeworkProgressEntries({ statistics: entries, nowMs, getDateParts: () => ({ dayKey: '2026-10-18', time: '15:00' }) });
-  assert.deepEqual(rows.map(row => [row.homeworkId, row.percent, row.totalCount]), [['mixed', 100, 1]]);
+  assert.deepEqual(rows.map(row => [row.homeworkId, row.percent, row.totalCount]).sort(), [['mixed', 100, 1], ['py', 100, 0]]);
+  const pendingEge = { ...rows.find(row => row.homeworkId === 'mixed'), percent: 0, completedCount: 0 };
+  const event = { studentHomeworkProgress: [{ studentId: 'a', entries: [rows.find(row => row.homeworkId === 'py')] }, { studentId: 'b', entries: [pendingEge] }] };
+  assert.equal(resolveCalendarEventHomeworkProgress(event, '2026-10-18', 900).percent, 0);
+});
+
+test('Python-only completion is 100%, with real unsolved practice and no graded history', () => {
+  const entry = work('py', [python]);
+  const views = [{ ...python, totalCount: 5, solvedCount: 0 }];
+  const before = structuredClone(views);
+  assert.deepEqual(getHomeworkCompletionProgress(entry, views), { practiceOnly: true, percent: 100, totalCount: 0, completedCount: 0 });
+  assert.deepEqual(views, before);
+  const summary = summarizeHomeworkStatistics(stats([entry]));
+  assert.equal(summary.averagePercent, 100);
+  assert.equal(summary.practiceOnly, true);
+  assert.equal(summary.homeworkCount, 0);
+  assert.equal(summary.fullyCompletedCount, 0);
+  assert.equal(summary.incompleteCount, 0);
+  const briefing = buildTeacherLessonBriefing({ homeworkEntry: entry, homeworkGoalSummary: { totalCount: 5, solvedCount: 0, requiredGoals: views }, homeworkDueAt: entry.dueAt, now: nowMs });
+  assert.equal(briefing.homework.percent, 100);
+  assert.equal(briefing.homework.overdue, false);
+  assert.match(briefing.homework.statusLabel, /ЕГЭ не задано/u);
+});
+
+test('mixed completion uses only EGE and Python cannot raise an incomplete EGE grade', () => {
+  const entry = work('mixed', [python, ege]);
+  const views = [{ ...python, totalCount: 5, solvedCount: 0 }, { ...ege, totalCount: 4, solvedCount: 2 }];
+  assert.equal(getHomeworkCompletionProgress(entry, views).percent, 50);
+  views[0].solvedCount = 5;
+  assert.equal(getHomeworkCompletionProgress(entry, views).percent, 50);
+  const entries = buildHomeworkStatistics({ homeworks: [work('py', [python]), work('ege', [ege])], testsDb, nowMs });
+  assert.equal(summarizeHomeworkStatistics(entries).averagePercent, 0);
+  const report = buildStudentMonthlyReport({ month: '2026-10', homeworkEntries: entries, nowMs });
+  assert.equal(report.metrics.homework.averagePercent, 0);
+  assert.equal(report.metrics.homework.practiceOnly, false);
+  assert.equal(summarizeHomeworkStatistics([]).averagePercent, 0);
+  assert.equal(getHomeworkCompletionProgress(null).percent, null);
 });

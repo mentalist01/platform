@@ -1,3 +1,5 @@
+import { getHomeworkCompletionProgress } from './homeworkAssessment.js';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const toValidDate = (value) => {
@@ -65,26 +67,32 @@ export const buildTeacherLessonBriefing = ({
   const goalTotal = Math.max(0, Number(homeworkGoalSummary?.totalCount) || 0);
   const goalSolved = Math.max(0, Number(homeworkGoalSummary?.solvedCount) || 0);
   const checklistProgress = getChecklistProgress(homeworkChecklistItems);
-  const totalCount = goalTotal > 0 ? goalTotal : checklistProgress.totalCount;
+  const completion = getHomeworkCompletionProgress(homeworkEntry, homeworkGoalSummary?.requiredGoals || [], homeworkChecklistItems);
+  const useAssessment = completion.practiceOnly || Array.isArray(homeworkGoalSummary?.requiredGoals);
+  const totalCount = useAssessment ? completion.totalCount : goalTotal > 0 ? goalTotal : checklistProgress.totalCount;
   const solvedCount = Math.min(
     totalCount,
-    goalTotal > 0 ? goalSolved : checklistProgress.solvedCount
+    useAssessment ? completion.completedCount : goalTotal > 0 ? goalSolved : checklistProgress.solvedCount
   );
   const remainingCount = Math.max(0, totalCount - solvedCount);
-  const percent = totalCount > 0 ? Math.round((solvedCount / totalCount) * 100) : null;
-  const complete = hasHomework && totalCount > 0 && remainingCount === 0;
+  const percent = useAssessment ? completion.percent : totalCount > 0 ? Math.round((solvedCount / totalCount) * 100) : null;
+  const complete = hasHomework && percent === 100;
   const overdue = Boolean(hasHomework && !complete && dueAt && dueAt.getTime() < nowDate.getTime());
   const normalizedFocusLabels = normalizeFocusLabels(focusLabels);
 
   let homeworkStatusLabel = 'Домашка не назначена';
-  if (hasHomework && totalCount > 0) {
+  if (completion.practiceOnly) {
+    homeworkStatusLabel = '100% · ЕГЭ не задано, Python без оценки';
+  } else if (hasHomework && totalCount > 0) {
     homeworkStatusLabel = `Выполнено ${solvedCount} из ${totalCount}`;
   } else if (hasHomework) {
     homeworkStatusLabel = 'Домашка назначена';
   }
 
   const planSteps = [];
-  if (hasHomework && remainingCount > 0) {
+  if (completion.practiceOnly) {
+    planSteps.push('Разобрать практику Python вместе на уроке');
+  } else if (hasHomework && remainingCount > 0) {
     planSteps.push(normalizedFocusLabels[0]
       ? `Начать с незавершённого: ${normalizedFocusLabels[0]}`
       : `Разобрать незавершённое ДЗ: ${remainingCount}`);
