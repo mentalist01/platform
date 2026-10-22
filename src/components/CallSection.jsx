@@ -1908,7 +1908,7 @@ const CallSection = ({
   }, []);
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
-    if (previousStatus !== status) {
+    if (previousStatus !== status && !listenOnly) {
       if (previousStatus !== 'connected' && status === 'connected') {
         void playAlertSound('connected');
       } else if (previousStatus === 'connected' && status === 'idle') {
@@ -1916,7 +1916,7 @@ const CallSection = ({
       }
     }
     previousStatusRef.current = status;
-  }, [playAlertSound, status]);
+  }, [playAlertSound, status, listenOnly]);
 
   const clearWsReconnectTimer = useCallback(() => {
     if (!wsReconnectTimerRef.current) return;
@@ -2003,7 +2003,8 @@ const CallSection = ({
       failed: 0,
       closed: 0,
     };
-    peersRef.current.forEach((peerState) => {
+    peersRef.current.forEach((peerState, peerId) => {
+      if (peerMetaRef.current.get(peerId)?.listenOnly) return;
       const state = getRtcPeerConnectionState(peerState?.pc);
       next.total += 1;
       if (state === 'connected') {
@@ -2110,6 +2111,7 @@ const CallSection = ({
     ]);
     peerIds.forEach((peerId) => {
       const meta = peerMetaRef.current.get(peerId) || {};
+      if (meta.listenOnly) return;
       const stream = remoteStreamsRef.current.get(peerId) || null;
       const role = typeof meta.role === 'string' ? meta.role.trim() : '';
       const roleLabel = meta.listenOnly ? 'Слушатель' : role ? formatRtcRoleLabel(role) : 'Участник';
@@ -3797,6 +3799,12 @@ const CallSection = ({
       },
       reconnect: () => {
         if (peersRef.current.get(normalizedPeerId) !== peerState || manualCloseRef.current) return;
+        // A listener's broken network must not reconnect the whole lesson.
+        // Their own receive-side recovery will rejoin and request a fresh route.
+        if (peerMetaRef.current.get(normalizedPeerId)?.listenOnly) {
+          detachPeer(normalizedPeerId, { closeConnection: true });
+          return;
+        }
         const ws = wsRef.current;
         if (ws) retireWebSocket(ws, 'Media recovery timeout');
       },
@@ -4143,10 +4151,10 @@ const CallSection = ({
       return;
     }
 
-    if (type === 'peer-joined') {
+    if (type === 'peer-joined' || type === 'listener-joined') {
       const peerId = typeof payload?.peer?.id === 'string' ? payload.peer.id.trim() : '';
       if (!peerId || peerId === selfClientIdRef.current) return;
-      void playAlertSound('peerJoined');
+      if (type === 'peer-joined' && !payload.peer?.listenOnly) void playAlertSound('peerJoined');
       createPeerState(peerId, payload.peer);
       sendLocalMediaStateToPeer(peerId);
       const localHasActiveVideo = Boolean(
@@ -4163,8 +4171,8 @@ const CallSection = ({
       return;
     }
 
-    if (type === 'peer-left') {
-      void playAlertSound('peerLeft');
+    if (type === 'peer-left' || type === 'listener-left') {
+      if (type === 'peer-left' && !peerMetaRef.current.get(payload?.peerId)?.listenOnly) void playAlertSound('peerLeft');
       removePeer(payload?.peerId);
       return;
     }
@@ -5461,7 +5469,7 @@ const CallSection = ({
   const hasMediaConnectionIssue = peerConnectionSummary.disconnected > 0 || peerConnectionSummary.failed > 0;
   const hasPendingPeerConnection = peerConnectionSummary.total > 0 && !hasActiveMediaConnection && !hasMediaConnectionIssue;
   const visiblePeers = isConnected ? remotePeers : presencePeers;
-  const participantCount = isConnected ? peerConnectionSummary.total + 1 : presencePeers.length;
+  const participantCount = isConnected ? peerConnectionSummary.total + (listenOnly ? 0 : 1) : presencePeers.length;
   const overlayVoiceParticipants = [
     {
       id: 'self',
@@ -5470,7 +5478,7 @@ const CallSection = ({
       initial: 'В',
       isSelf: true,
       onToggleMic: toggleMic,
-      micDisabled: micBusy || !isConnected,
+      micDisabled: listenOnly || micBusy || !isConnected,
       isSpeaking: selfSpeaking,
       isMuted: !micEnabled,
       isCameraEnabled: cameraEnabled,

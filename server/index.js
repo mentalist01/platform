@@ -25995,7 +25995,7 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handle
     gatherRequestedAt: lesson.voiceGatheredAt || '',
     channels: channels.map((channel) => ({
       ...channel,
-      participants: Array.from(rtcRooms.get(channel.roomId)?.values() || []).map((client) => ({
+      participants: Array.from(rtcRooms.get(channel.roomId)?.values() || []).filter((client) => !client.listenOnly).map((client) => ({
         userId: client.auth.id,
         name: client.auth.name,
         role: client.auth.role,
@@ -43981,7 +43981,11 @@ const applyLearningRtcAttendance = (client, roomId, type, at = new Date().toISOS
   }, type, at);
 };
 
-const serializeRtcPeer = (client) => ({
+// Mesh media needs an ephemeral routing ID, but never a listener's identity.
+const serializeRtcPeer = (client) => client.listenOnly ? {
+  id: client.clientId,
+  listenOnly: true,
+} : ({
   id: client.clientId,
   userId: client.auth.id,
   name: client.auth.name,
@@ -44021,6 +44025,10 @@ const removeRtcPresenceFileByClientId = (clientId) => {
 const upsertRtcPresenceFileFromClient = (client) => {
   if (!RTC_PRESENCE_FS_ENABLED) return;
   if (!client || !client.roomId) return;
+  if (client.listenOnly) {
+    removeRtcPresenceFileByClientId(client.clientId);
+    return;
+  }
   if (parseMeetingRoomId(client.roomId)) return;
   const clientId = normalizeRtcPresenceClientId(client.clientId);
   if (!clientId) return;
@@ -44051,6 +44059,7 @@ const upsertRtcPresenceFileFromClient = (client) => {
 
 const recordToRtcPeer = (record) => {
   if (!record || typeof record !== 'object') return null;
+  if (record.listenOnly) return null;
   const clientId = normalizeRtcPresenceClientId(record.clientId);
   const userId = typeof record.userId === 'string' ? record.userId.trim() : '';
   const name = typeof record.name === 'string' ? record.name.trim() : '';
@@ -44136,6 +44145,10 @@ const getRtcPresenceParticipantsForRoom = (roomId, excludeClientId = '') => {
   const room = rtcRooms.get(roomMeta.roomId);
   if (room && room.size > 0) {
     room.forEach((client) => {
+      if (client.listenOnly) {
+        peersByClientId.delete(client.clientId);
+        return;
+      }
       activeClientIds.add(client.clientId);
       peersByClientId.set(client.clientId, serializeRtcPeer(client));
     });
@@ -44222,7 +44235,7 @@ const broadcastRtcPresenceUpdate = (roomId) => {
   if (target?.targetType === 'lesson') {
     const payload = {
       type: 'voice-channel-presence', lessonId: target.sessionId, roomId,
-      participants: Array.from(rtcRooms.get(roomId)?.values() || []).map((entry) => ({
+      participants: Array.from(rtcRooms.get(roomId)?.values() || []).filter((entry) => !entry.listenOnly).map((entry) => ({
         userId: entry.auth.id, name: entry.auth.name, role: entry.auth.role,
         isScreenSharing: Boolean(entry.isScreenSharing),
       })),
@@ -44298,6 +44311,7 @@ const leaveRtcRoom = (client) => {
   if (!client || !client.roomId) return;
   const roomId = client.roomId;
   const clientId = client.clientId;
+  const wasListenOnly = Boolean(client.listenOnly);
   const room = rtcRooms.get(roomId);
   applyLearningRtcAttendance(client, roomId, 'leave');
   client.roomId = '';
@@ -44328,7 +44342,7 @@ const leaveRtcRoom = (client) => {
     return;
   }
   broadcastRtcToRoom(roomId, {
-    type: 'peer-left',
+    type: wasListenOnly ? 'listener-left' : 'peer-left',
     roomId,
     peerId: client.clientId,
   }, client.clientId);
@@ -44425,7 +44439,7 @@ const joinRtcRoom = (client, roomMeta) => {
     room.set(client.clientId, client);
     upsertRtcPresenceFileFromClient(client);
     const peers = Array.from(room.values())
-      .filter((entry) => entry.clientId !== client.clientId)
+      .filter((entry) => entry.clientId !== client.clientId && !(client.listenOnly && entry.listenOnly))
       .map((entry) => serializeRtcPeer(entry));
     sendRtcPayload(client.ws, {
       type: 'joined',
@@ -44439,7 +44453,7 @@ const joinRtcRoom = (client, roomMeta) => {
   }
 
   const peers = Array.from(room.values())
-    .filter((entry) => entry.clientId !== client.clientId)
+    .filter((entry) => entry.clientId !== client.clientId && !(client.listenOnly && entry.listenOnly))
     .map((entry) => serializeRtcPeer(entry));
 
   room.set(client.clientId, client);
@@ -44462,7 +44476,7 @@ const joinRtcRoom = (client, roomMeta) => {
   });
 
   broadcastRtcToRoom(roomId, {
-    type: 'peer-joined',
+    type: client.listenOnly ? 'listener-joined' : 'peer-joined',
     roomId,
     peer: serializeRtcPeer(client),
   }, client.clientId);
@@ -44679,6 +44693,10 @@ const handleRtcMessage = (client, rawData, isBinary) => {
     const targetClient = room.get(targetId);
     if (!targetClient) {
       sendRtcPayload(client.ws, { type: 'error', error: 'Собеседник недоступен' });
+      return;
+    }
+    if (client.listenOnly && targetClient.listenOnly) {
+      sendRtcPayload(client.ws, { type: 'error', error: 'Слушатели не соединяются друг с другом' });
       return;
     }
     if (client.listenOnly && !listenerSignalAllowed(signal)) {

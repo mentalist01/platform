@@ -118,7 +118,7 @@ test('cross-group listeners receive media only and do not join billing or attend
   seed('progress.json', {});
   const port = await getFreePort(), baseUrl = 'http://127.0.0.1:' + port;
   let logs = '';
-  const child = spawn(process.execPath, ['server/index.js'], { cwd: workspaceDir, env: { ...process.env, NODE_ENV: 'test', PORT: String(port), PLATFORM_DATA_DIR: dataDir, PLATFORM_UPLOADS_DIR: path.join(tempRoot, 'uploads'), PLATFORM_JSON_BACKUPS_DIR: path.join(tempRoot, 'backups'), COLLAB_PERSISTENCE: '0', DISABLE_STARTUP_XP_REBALANCE: '1', LEARNING_GROUPS_ENABLED: '1', LEARNING_GROUP_RTC_ENABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['server/index.js'], { cwd: workspaceDir, env: { ...process.env, NODE_ENV: 'test', PORT: String(port), PLATFORM_DATA_DIR: dataDir, PLATFORM_UPLOADS_DIR: path.join(tempRoot, 'uploads'), PLATFORM_JSON_BACKUPS_DIR: path.join(tempRoot, 'backups'), COLLAB_PERSISTENCE: '0', DISABLE_STARTUP_XP_REBALANCE: '1', LEARNING_GROUPS_ENABLED: '1', LEARNING_GROUP_RTC_ENABLED: '1', RTC_PRESENCE_FS_ENABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', chunk => { logs += chunk; }); child.stderr.on('data', chunk => { logs += chunk; });
   const sockets = [];
   const open = async token => {
@@ -140,6 +140,8 @@ test('cross-group listeners receive media only and do not join billing or attend
     a.send({ type: 'join', roomId: room }); await a.take('error'); // not live yet
     t.send({ type: 'join', roomId: room }); const jt = await t.take('joined');
     r.send({ type: 'join', roomId: room }); const jr = await r.take('joined'); assert.equal(jr.listenOnly, false);
+    assert.equal((await t.take('peer-joined')).peer.userId, 's4', 'normal participants still announce their arrival');
+    t.send({ type: 'watch-presence', roomId: room }); await t.take('presence-update');
     const library = await request('/api/student-group-library', { token: observer.token });
     assert.equal(library.allowed, true); assert.equal(library.lessons.some(entry => entry.id === lesson.id && entry.canListen), true);
     assert.equal(JSON.stringify(library).includes('participantIds'), false);
@@ -148,11 +150,51 @@ test('cross-group listeners receive media only and do not join billing or attend
     a.send({ type: 'join', roomId: channels.channels[1].roomId }); await a.take('error');
     stranger.send({ type: 'join', roomId: room }); await stranger.take('error');
     a.send({ type: 'join', roomId: room, listenOnly: false }); const ja = await a.take('joined'); assert.equal(ja.listenOnly, true);
+    assert.deepEqual((await t.take('listener-joined')).peer, { id: ja.selfId, listenOnly: true });
+    assert.deepEqual((await r.take('listener-joined')).peer, { id: ja.selfId, listenOnly: true });
+    const assertHidden = async () => {
+      const presence = await request('/api/rtc/presence?roomId=' + encodeURIComponent(room));
+      assert.equal(presence.count, 2);
+      assert.deepEqual(presence.participants.map(peer => peer.userId).sort(), ['s4', 't']);
+      const voice = await request(root + '/lessons/' + lesson.id + '/voice-channels');
+      assert.deepEqual(voice.channels.find(channel => channel.roomId === room).participants.map(peer => peer.userId).sort(), ['s4', 't']);
+      for (const client of [t, r]) {
+        assert.equal(client.inbox.some(message => message.type === 'peer-joined' && message.peer?.id === ja.selfId), false);
+        for (const message of client.inbox.filter(message => ['presence-update', 'voice-channel-presence'].includes(message.type))) {
+          assert.equal(message.participants.some(peer => ['s1', 's2'].includes(peer.userId)), false);
+        }
+      }
+      const files = fs.readdirSync(path.join(dataDir, 'rtc-presence'));
+      assert.equal(files.includes(ja.selfId + '.json'), false, 'a listener creates no disk presence');
+    };
+    await assertHidden();
+    // A stale record from an older process cannot reveal this active listener.
+    fs.writeFileSync(path.join(dataDir, 'rtc-presence', ja.selfId + '.json'), JSON.stringify({ clientId: ja.selfId, roomId: room, userId: 's1', name: 'Student 1', role: 'student', heartbeatAt: Date.now() }));
+    assert.equal((await request('/api/rtc/presence?roomId=' + encodeURIComponent(room))).participants.some(peer => peer.userId === 's1'), false);
+    a.send({ type: 'ping' }); await a.take('pong'); await assertHidden();
+    const secondObserver = await login(baseUrl, '110102');
+    const b = await open(secondObserver.token);
+    b.send({ type: 'join', roomId: room }); const jb = await b.take('joined');
+    assert.deepEqual(jb.peers.map(peer => peer.userId).sort(), ['s4', 't'], 'listeners do not discover one another');
+    await assertHidden();
+    b.send({ type: 'signal', roomId: room, targetId: ja.selfId, signal: { candidate: { candidate: 'test' } } }); await b.take('error');
+    b.send({ type: 'leave' }); await b.take('left');
+    assert.equal((await t.take('listener-left')).peerId, jb.selfId);
+    assert.equal((await r.take('listener-left')).peerId, jb.selfId);
+    assert.equal(t.inbox.some(message => message.type === 'peer-left' && message.peerId === jb.selfId), false);
+    // Joining normally after a listener reveals only an anonymous media route.
+    r.send({ type: 'leave' }); await r.take('left');
+    assert.equal((await t.take('peer-left')).peerId, jr.selfId);
+    r.send({ type: 'join', roomId: room }); const rejoined = await r.take('joined');
+    assert.deepEqual(rejoined.peers.find(peer => peer.id === ja.selfId), { id: ja.selfId, listenOnly: true });
+    assert.equal((await t.take('peer-joined')).peer.userId, 's4');
+    assert.equal(lesson.boardDocName, 'board-lesson-' + lesson.id);
+    await assert.rejects(openWebSocket('ws://127.0.0.1:' + port + '/collab/' + encodeURIComponent(lesson.boardDocName) + '?_auth=' + encodeURIComponent(observer.token)), /403|404/, 'a listener cannot create a board cursor or edit the board');
     const bad = { description: { type: 'offer', sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendrecv\r\n' } };
     a.send({ type: 'signal', roomId: room, targetId: jt.selfId, signal: bad }); await a.take('error');
     await new Promise(resolve => setTimeout(resolve, 100)); assert.equal(t.inbox.some(message => message.type === 'signal' && message.fromId === ja.selfId), false);
     const good = { description: { type: 'offer', sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=recvonly\r\n' } };
-    a.send({ type: 'signal', roomId: room, targetId: jt.selfId, signal: good }); assert.equal((await t.take('signal')).peer.listenOnly, true);
+    a.send({ type: 'signal', roomId: room, targetId: jt.selfId, signal: good }); assert.deepEqual((await t.take('signal')).peer, { id: ja.selfId, listenOnly: true });
     r.send({ type: 'signal', roomId: room, targetId: ja.selfId, signal: bad }); assert.equal((await a.take('signal')).peer.listenOnly, false);
     a.send({ type: 'presence-state', isScreenSharing: true }); await a.take('error');
     a.send({ type: 'watch-code-sync', roomId: room }); await a.take('error');
