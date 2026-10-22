@@ -67,7 +67,9 @@ import {
   normalizeLearningGroupMaterial,
 } from '../utils/learningGroups';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
-import { weeklyHomeworkDeadline, weeklyHomeworkLessonChoices, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
+import { weeklyHomeworkDeadline, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
+import { groupHomeworkDefaultDueAt, groupHomeworkLessonChoices } from '../utils/groupStudyPlan';
+import GroupStudyPlanSettings from './GroupStudyPlanSettings';
 import { normalizeHomeworkAssignmentTier } from '../utils/homeworkAssignmentTier';
 import {
   HOMEWORK_DUE_AT_MODE_MANUAL,
@@ -824,6 +826,7 @@ const LearningGroupsSection = ({
   }, [busyKey, loadGroupDetails, refreshGroups, selectedGroupId]);
 
   const getNextLessonHomeworkDueAt = useCallback(() => {
+    if (selectedGroup?.studyPlan) return toDateTimeLocal(groupHomeworkDefaultDueAt(selectedGroup, assignmentComposerForm?.studyTrack || 'ege', Date.now(), lessons));
     const now = Date.now();
     const upcomingLesson = lessons.find((lesson) => {
       const startMs = Date.parse(getLessonStart(lesson));
@@ -832,7 +835,7 @@ const LearningGroupsSection = ({
     return toDateTimeLocal(
       upcomingLesson ? getLessonStart(upcomingLesson) : now + (7 * 24 * 60 * 60 * 1000)
     );
-  }, [lessons]);
+  }, [lessons, selectedGroup, assignmentComposerForm?.studyTrack]);
 
   const getDefaultGroupHomeworkDueAt = () => toDateTimeLocal(weeklyHomeworkDeadline());
 
@@ -887,6 +890,9 @@ const LearningGroupsSection = ({
       goal.type === GOAL_TYPE_MOCK ? Boolean(goal.mockExamId) : Boolean(goal.taskNumber)
     ));
     const dueAt = template.dueAt || assignment?.dueAt || '';
+    const useStudyPlan = !assignment && Boolean(selectedGroup?.studyPlan);
+    const plannedDueAt = useStudyPlan
+      ? groupHomeworkDefaultDueAt(selectedGroup, template.studyTrack || 'ege', Date.now(), lessons) : '';
     return {
       homeWork: template.homeWork ?? assignment?.content ?? assignment?.instructions ?? '',
       studyTrack: template.studyTrack || 'ege',
@@ -894,8 +900,8 @@ const LearningGroupsSection = ({
       title: assignment?.title || 'Домашняя работа · ЕГЭ',
       lessonLink: template.lessonLink || '',
       boardLink: template.boardLink || '',
-      dueAt: dueAt ? toDateTimeLocal(dueAt) : getDefaultGroupHomeworkDueAt(),
-      dueAtMode: template.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+      dueAt: dueAt ? toDateTimeLocal(dueAt) : useStudyPlan ? toDateTimeLocal(plannedDueAt) : getDefaultGroupHomeworkDueAt(),
+      dueAtMode: useStudyPlan || template.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
         ? HOMEWORK_DUE_AT_MODE_NEXT_LESSON
         : HOMEWORK_DUE_AT_MODE_MANUAL,
       daysToComplete: Number(template.daysToComplete) || 7,
@@ -918,6 +924,8 @@ const LearningGroupsSection = ({
     normalizeGoalType,
     normalizeMockExamId,
     normalizeTaskNumber,
+    selectedGroup,
+    lessons,
   ]);
 
   const loadAssignmentHistory = async (groupId) => {
@@ -1103,6 +1111,7 @@ const LearningGroupsSection = ({
     }
     const matchingLesson = lessons.find((lesson) => Date.parse(getLessonStart(lesson)) === Date.parse(dueAt));
     const payload = {
+      useStudyPlanDeadline: !assignmentComposerEditing && Boolean(selectedGroup.studyPlan) && assignmentComposerForm.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON,
       title: cleanString(assignmentComposerForm.title) || `Домашняя работа · ${homeworkStudyTrackLabel(assignmentComposerForm.studyTrack)}`,
       content: homeWork,
       dueAt,
@@ -1875,6 +1884,9 @@ const LearningGroupsSection = ({
                     </div>
                   )}
                 </section>
+
+                {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && <GroupStudyPlanSettings key={`${selectedGroup.id}:${selectedGroup.updatedAt}`} group={selectedGroup} busy={Boolean(busyKey)}
+                  onSave={studyPlan => runAction('study-plan', () => api.updateLearningGroup(selectedGroup.id, { studyPlan }), 'Режим обучения сохранён. Новая домашка получит срок по выбранным направлениям.')} />}
 
                 <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
                   <div className="flex min-w-max gap-1">
@@ -3197,6 +3209,8 @@ const LearningGroupsSection = ({
                   aria-pressed={assignmentComposerForm.studyTrack === track}
                   className={`rounded-xl border px-4 py-2 text-sm font-bold ${assignmentComposerForm.studyTrack === track ? 'border-violet-500 bg-violet-600 text-white' : 'border-violet-200 text-violet-700'}`}
                   onClick={() => setAssignmentComposerForm(current => ({ ...current, studyTrack: track,
+                    ...(selectedGroup.studyPlan && !assignmentComposerEditing && current.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON
+                      ? { dueAt: toDateTimeLocal(groupHomeworkDefaultDueAt(selectedGroup, track, Date.now(), lessons)) } : {}),
                     title: `Домашняя работа · ${homeworkStudyTrackLabel(track)}` }))}>
                   {homeworkStudyTrackLabel(track)}
                 </button>)}
@@ -3205,7 +3219,7 @@ const LearningGroupsSection = ({
                 <input aria-label="Название домашки" className={inputClassName} maxLength={160} value={assignmentComposerForm.title || ''}
                   onChange={event => setAssignmentComposerForm(current => ({ ...current, title: event.target.value }))} />
               </Field>
-              <p className="text-xs text-[rgb(var(--ink-soft))]">ЕГЭ и Python выдаются отдельно. Новая домашка сохраняет предыдущую и её срок.</p>
+              <p className="text-xs text-[rgb(var(--ink-soft))]">{selectedGroup?.studyPlan?.mode === 'ege-only' ? 'Режим «Только ЕГЭ»: новая домашка к ближайшему занятию группы.' : selectedGroup?.studyPlan?.mode === 'split' ? 'Режим «ЕГЭ + Python»: новая домашка к следующему занятию выбранного направления.' : 'ЕГЭ и Python выдаются отдельно.'} Предыдущая домашка и её срок сохраняются.</p>
               {(selectedGroup?.members || []).some(member=>member.status==='active'&&!isGroupHomeworkTrackAllowed(assignmentComposerForm,member))&&<p role="status" className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">Эту домашку не получат: {(selectedGroup?.members || []).filter(member=>member.status==='active'&&!isGroupHomeworkTrackAllowed(assignmentComposerForm,member)).map(member=>`${member.name} (${groupHomeworkTrackLabel(member.homeworkStudyTrack).toLowerCase()})`).join(', ')}. Она не повлияет на их жизни.</p>}
 
               {assignmentComposerEditing?.status !== 'draft' && getAssignmentId(assignmentComposerEditing)
@@ -3226,7 +3240,7 @@ const LearningGroupsSection = ({
                 <button type="button" className="rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700"
                   onClick={() => setAssignmentComposerForm(current => ({ ...current,
                     dueAt: getDefaultGroupHomeworkDueAt(), dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL }))}>Дать неделю</button>
-                {weeklyHomeworkLessonChoices(selectedGroup?.schedule).map(choice => <button type="button" key={choice.dueAt}
+                {groupHomeworkLessonChoices(selectedGroup, assignmentComposerForm.studyTrack, Date.now(), lessons).slice(0, 4).map(choice => <button type="button" key={choice.dueAt}
                   className="rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700"
                   onClick={() => setAssignmentComposerForm(current => ({ ...current,
                     dueAt: toDateTimeLocal(choice.dueAt), dueAtMode: HOMEWORK_DUE_AT_MODE_MANUAL }))}>

@@ -26157,6 +26157,7 @@ app.post('/api/learning-groups/:groupId/assignments', handleLearningRoute((req, 
   const assignment = createLearningAssignment(group, req.body || {}, {
     id: crypto.randomUUID(),
     actorId: req.auth.id,
+    lessons: req.body?.useStudyPlanDeadline === true ? readLearningLessonSessionsDb().filter(lesson => lesson.groupId === group.id) : [],
   });
   writeLearningAssignmentsDb([assignment, ...readLearningAssignmentsDb()]);
   synchronizeLearningGroupAssignmentHomeworks(assignment, {

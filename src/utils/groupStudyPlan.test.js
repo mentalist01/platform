@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { groupHomeworkDefaultDueAt, groupHomeworkLessonChoices, groupLessonStudyTrack } from './groupStudyPlan.js';
+const schedule = [{ id: 'wed', weekdayKey: 'wednesday', time: '20:00', subject: 'Занятие' }, { id: 'fri', weekdayKey: 'friday', time: '20:00', subject: 'Занятие' }];
+const group = { id: 'g', schedule, studyPlan: { mode: 'split', pythonWeekday: 'friday' } };
+const now = Date.parse('2026-10-07T18:10Z');
+test('split deadlines follow the selected direction; EGE-only uses the immediately next lesson', () => {
+  assert.equal(groupHomeworkDefaultDueAt(group, 'ege', now), '2026-10-14T17:00:00.000Z');
+  assert.equal(groupHomeworkDefaultDueAt(group, 'python', now), '2026-10-09T17:00:00.000Z');
+  assert.equal(groupHomeworkDefaultDueAt({ ...group, studyPlan: { mode: 'ege-only' } }, 'ege', now), '2026-10-09T17:00:00.000Z');
+  const swapped = { ...group, studyPlan: { mode: 'split', pythonWeekday: 'wednesday' } };
+  assert.equal(groupHomeworkDefaultDueAt(swapped, 'ege', now), '2026-10-09T17:00:00.000Z');
+  assert.equal(groupHomeworkDefaultDueAt(swapped, 'python', now), '2026-10-14T17:00:00.000Z');
+});
+test('Moscow boundary and exact lesson start select a future occurrence', () => {
+  assert.equal(groupHomeworkDefaultDueAt(group, 'python', Date.parse('2026-10-09T16:59:59Z')), '2026-10-09T17:00:00.000Z');
+  assert.equal(groupHomeworkDefaultDueAt(group, 'python', Date.parse('2026-10-09T17:00Z')), '2026-10-16T17:00:00.000Z');
+  assert.equal(groupHomeworkDefaultDueAt({ ...group, schedule: [{ id: 'sun', weekdayKey: 'sunday', time: '01:00' }], studyPlan: { mode: 'ege-only' } }, 'ege', Date.parse('2026-10-10T21:30Z')), '2026-10-10T22:00:00.000Z');
+});
+test('known cancellation and moved lesson override the slot without generating sessions', () => {
+  const lessons = [{ id: 'cancel', groupId: 'g', scheduleEntryId: 'fri', startAt: '2026-10-09T17:00Z', status: 'cancelled' }];
+  assert.equal(groupHomeworkDefaultDueAt(group, 'python', now, lessons), '2026-10-16T17:00:00.000Z');
+  lessons[0] = { ...lessons[0], id: 'moved', startAt: '2026-10-10T17:20Z', participationSlot: 'friday|20:00', status: 'scheduled' };
+  assert.deepEqual(groupHomeworkLessonChoices(group, 'python', now, lessons)[0], { dueAt: '2026-10-10T17:20:00.000Z', subject: 'Занятие', studyTrack: 'python', lessonId: 'moved' });
+  assert.equal(groupLessonStudyTrack(group, lessons[0]), 'python');
+});
+test('unconfigured groups retain weekly deadlines; missing directions cannot silently use the other track', () => {
+  assert.equal(groupHomeworkDefaultDueAt({ schedule }, 'ege', now), '2026-10-14T18:10:00.000Z');
+  assert.equal(groupHomeworkDefaultDueAt({ ...group, schedule: [schedule[0]] }, 'python', now), '');
+});

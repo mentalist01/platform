@@ -1,5 +1,6 @@
 import {normalizeGroupHomeworkTrack, groupHomeworkRecipients} from '../src/utils/groupHomeworkTracks.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
+import { groupHomeworkLessonChoices, normalizeGroupStudyPlan } from '../src/utils/groupStudyPlan.js';
 import { normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './learningVoiceChannels.js';
 import { normalizeParticipationPlans, participationOccurrence } from '../src/utils/groupParticipation.js';
 import { getPythonHomeworkTheorySelection } from '../src/utils/pythonTheoryHomework.js';
@@ -294,6 +295,7 @@ export const normalizeLearningGroup = (value) => {
     admissionsOpen: !startedAt && !completedAt && value.admissionsOpen !== false,
     members,
     schedule: normalizeLearningGroupSchedule(value.schedule),
+    studyPlan: normalizeGroupStudyPlan(value.studyPlan),
     createdAt: normalizeIsoTimestamp(value.createdAt),
     updatedAt: normalizeIsoTimestamp(value.updatedAt),
     startedAt,
@@ -356,6 +358,15 @@ export const updateLearningGroup = (groupValue, patch = {}, options = {}) => {
     }
   }
   const next = { ...group };
+  if (Object.prototype.hasOwnProperty.call(patch, 'studyPlan')) {
+    const plan = normalizeGroupStudyPlan(patch.studyPlan);
+    const weekdays = [...new Set(group.schedule.filter(entry => !entry.date).map(entry => entry.weekdayKey))];
+    if (!plan || (plan.mode === 'split' && (weekdays.length !== 2 || !weekdays.includes(plan.pythonWeekday)))) {
+      fail('Для режима ЕГЭ + Python утвердите два дня занятий и выберите день Python', 'invalid_group_study_plan');
+    }
+    if (!weekdays.length) fail('Сначала утвердите еженедельное расписание группы', 'group_schedule_required');
+    next.studyPlan = plan;
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'name')) {
     const name = cleanText(patch.name, 160);
     if (!name) fail('Введите название группы', 'group_name_required');
@@ -655,6 +666,14 @@ export const createLearningAssignment = (groupValue, payload = {}, options = {})
   if (!group || group.deletedAt) fail('Группа не найдена', 'group_not_found', 404);
   if (group.status === LEARNING_GROUP_STATUS_COMPLETED) {
     fail('В завершённую группу нельзя добавлять задания', 'group_completed', 409);
+  }
+  if (payload.useStudyPlanDeadline === true) {
+    if (!group.studyPlan) fail('Сначала настройте режим обучения группы', 'group_study_plan_required');
+    const track = payload.homework?.studyTrack || payload.homeworkTemplate?.studyTrack || 'ege';
+    const choice = groupHomeworkLessonChoices(group, track, Date.parse(getNowIso(options.now)), options.lessons || [])[0];
+    if (!choice) fail('Не найдено следующее занятие этого направления. Проверьте расписание группы', 'group_homework_lesson_required');
+    payload = { ...payload, dueAt: choice.dueAt, lessonId: choice.lessonId || '',
+      homework: { ...(payload.homework || payload.homeworkTemplate), dueAt: choice.dueAt, dueAtMode: 'manual' } };
   }
   const id = cleanText(options.id || payload.id, 180);
   const title = cleanText(payload.title, 240);

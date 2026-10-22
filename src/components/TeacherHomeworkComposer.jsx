@@ -1522,7 +1522,7 @@ const TeacherHomeworkComposer = ({
                     />
                     {form?.dueAtMode === HOMEWORK_DUE_AT_MODE_NEXT_LESSON ? (
                       <span className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-emerald-700">
-                        <CalendarDays size={11} /> Автоматически обновляется по ближайшему занятию
+                        <CalendarDays size={11} /> {targetType === 'group' ? 'Срок определяется при выдаче по расписанию группы' : 'Автоматически обновляется по ближайшему занятию'}
                       </span>
                     ) : (
                       <div className="mt-1.5 text-[10px] leading-relaxed">
