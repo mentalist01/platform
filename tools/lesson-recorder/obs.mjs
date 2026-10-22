@@ -28,6 +28,32 @@ async function runningObsProcesses() {
   return Array.isArray(result) ? result : [result];
 }
 
+export function archiveObsStartupMarkers(configDir) {
+  const source = path.join(configDir, '.sentinel');
+  if (!fs.existsSync(source)) return '';
+  const info = fs.lstatSync(source);
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Проверьте папку запуска OBS вручную.');
+  const entries = fs.readdirSync(source);
+  if (!entries.length) return '';
+  // OBS 32 removed --disable-shutdown-check. Retain abandoned run markers as
+  // evidence rather than hiding its startup dialog or deleting crash reports.
+  for (const name of entries) {
+    const marker = fs.lstatSync(path.join(source, name));
+    if (!/^run_[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(name)
+      || !marker.isFile() || marker.isSymbolicLink() || marker.size !== 0) {
+      throw new Error('В папке запуска OBS есть неизвестные файлы. Откройте OBS вручную.');
+    }
+  }
+  const archive = path.join(configDir, 'startup-recovery');
+  if (fs.existsSync(archive) && (!fs.lstatSync(archive).isDirectory() || fs.lstatSync(archive).isSymbolicLink())) {
+    throw new Error('Не удалось сохранить сведения о прошлом запуске OBS. Откройте OBS вручную.');
+  }
+  fs.mkdirSync(archive, { recursive: true });
+  const destination = path.join(archive, `sentinel-${Date.now()}-${crypto.randomUUID()}`);
+  fs.renameSync(source, destination);
+  return destination;
+}
+
 export class ObsClient {
   constructor({ configDir = path.join(process.env.APPDATA || '', 'obs-studio'), executable = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', webSocketClass = globalThis.WebSocket,
     processProbe = runningObsProcesses, spawnProcess = spawn, wait = delay } = {}) {
@@ -121,6 +147,13 @@ export class ObsClient {
     try { running = await this.processProbe(); }
     catch { throw new Error('Не удалось проверить запущенный OBS. Откройте OBS вручную; повторный экземпляр не запущен.'); }
     let child, failure;
+    if (!running.length && fs.existsSync(path.join(this.configDir, '.sentinel'))) {
+      // Check again immediately before touching run markers. An existing OBS,
+      // even one not connected to WebSocket, owns its startup state.
+      try { running = await this.processProbe(); }
+      catch { throw new Error('Не удалось проверить запущенный OBS. Сведения о запуске сохранены без изменений.'); }
+      if (!running.length) archiveObsStartupMarkers(this.configDir);
+    }
     if (!running.length) {
       child = this.spawnProcess(this.executable, ['--minimize-to-tray', '--disable-shutdown-check', '--profile', COLLECTION, '--collection', COLLECTION], { cwd: path.dirname(this.executable), detached: true, stdio: 'ignore', windowsHide: true });
       child.on('error', error => { failure = error; }); child.unref();

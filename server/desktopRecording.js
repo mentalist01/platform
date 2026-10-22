@@ -216,7 +216,24 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       const latest = jobs(device.teacherId).filter((job) => job.occurrence.key === previous.occurrence.key).at(-1);
       if (latest.id !== previous.id) return publicJob(latest); // retry is idempotent
       if (previous.desired === 'record' && ['waiting', 'recording'].includes(previous.status)) return publicJob(previous);
-      if (jobs(device.teacherId).some((job) => job.desired === 'record' && job.id !== id && job.cutoffAt > now())) fail('Уже начался другой урок', 409);
+      const competing = jobs(device.teacherId).filter(job => job.desired === 'record' && job.id !== id && job.cutoffAt > now());
+      if (competing.some(job => job.occurrence.key !== previous.occurrence.key)) fail('Уже начался другой урок', 409);
+      // An earlier failed part of this exact lesson is not a different lesson.
+      // Reuse a genuinely active part, but retire failed start intents before
+      // creating a continuation. Keep their IDs, errors and recordings intact.
+      const activePart = competing.filter(job => ['waiting', 'recording'].includes(job.status)).at(-1);
+      if (activePart) {
+        if (activePart.deviceId && activePart.deviceId !== device.id) fail('Запись принадлежит другому компьютеру', 409);
+        return publicJob(activePart);
+      }
+      for (const failed of [previous, ...competing]) {
+        if (failed.desired !== 'record') continue;
+        if (failed.status !== 'error') fail('Сначала завершите предыдущую запись', 409);
+      }
+      for (const failed of [previous, ...competing]) {
+        if (failed.desired !== 'record') continue;
+        failed.desired = 'stop'; failed.stopReason = 'failed-start-superseded'; failed.updatedAt = now();
+      }
       const nextId = crypto.randomUUID();
       db.jobs[nextId] = { id: nextId, teacherId: previous.teacherId, occurrence: previous.occurrence,
         title: previous.title, previousJobId: id, deviceId: device.id, audioMode: previous.audioMode,

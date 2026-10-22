@@ -321,6 +321,50 @@ test('manual resume creates an idempotent bound continuation and old uploads can
   assert.match(f.store.replay('lesson').video.url, /Combined/);
 });
 
+test('a failed start cannot block a later continuation of the same lesson after a crash', t => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  const first = f.store.start('teacher', { key: 'lesson' }, 'Lesson', f.now() + 3600000);
+  f.store.report(device, first.id, { status: 'error', error: 'OBS did not confirm start' });
+  const second = f.store.resume(device, first.id, () => true);
+  assert.notEqual(second.id, first.id);
+  assert.equal(f.store.settings('teacher').jobs.find(j => j.id === first.id).desired, 'stop');
+  f.store.report(device, second.id, { status: 'saved' });
+  // Reproduce state written by older versions: the failed first start still
+  // requests recording while a newer part is saved after an OBS crash.
+  const db = JSON.parse(fs.readFileSync(f.file)); db.jobs[first.id].desired = 'record';
+  fs.writeFileSync(f.file, JSON.stringify(db));
+  const restored = createDesktopRecordingStore(f.file, { now: f.now });
+  const third = restored.resume(device, second.id, () => true);
+  assert.notEqual(third.id, second.id); assert.equal(third.previousJobId, second.id);
+  assert.equal(restored.resume(device, second.id, () => true).id, third.id);
+  const archived = restored.settings('teacher').jobs.find(j => j.id === first.id);
+  assert.equal(archived.desired, 'stop'); assert.equal(archived.status, 'error');
+  assert.equal(archived.error, 'OBS did not confirm start');
+  assert.equal(third.occurrence.key, 'lesson');
+});
+
+test('continuation reuses an older active part without taking another device or lesson', t => {
+  const f = fixture(t); const { device } = f.connect('teacher');
+  const first = f.store.start('teacher', { key: 'lesson' }, 'Lesson', f.now() + 3600000);
+  f.store.report(device, first.id, { status: 'saved' });
+  const second = f.store.resume(device, first.id, () => true);
+  f.store.report(device, second.id, { status: 'saved' });
+  const db = JSON.parse(fs.readFileSync(f.file));
+  db.jobs[first.id].desired = 'record'; db.jobs[first.id].status = 'recording';
+  fs.writeFileSync(f.file, JSON.stringify(db));
+  const restored = createDesktopRecordingStore(f.file, { now: f.now });
+  assert.equal(restored.resume(device, second.id, () => true).id, first.id);
+  const foreign = f.store.exchange(f.store.pair('teacher').code, 'other computer');
+  const otherDevice = f.store.authenticate(foreign.token);
+  assert.throws(() => restored.resume(otherDevice, second.id, () => true), /другому компьютеру/);
+  // A genuinely different active lesson still blocks recovery, without edits.
+  db.jobs[first.id].occurrence.key = 'another-lesson';
+  fs.writeFileSync(f.file, JSON.stringify(db));
+  const different = createDesktopRecordingStore(f.file, { now: f.now });
+  assert.throws(() => different.resume(device, second.id, () => true), /другой урок/);
+  assert.equal(different.settings('teacher').jobs.find(j => j.id === first.id).desired, 'record');
+});
+
 test('continuation cannot bind a different teacher, ended lesson or past cutoff', (t) => {
   const f = fixture(t); const { device } = f.connect('teacher'); const other = f.connect('other');
   const job = f.store.start('teacher', { key: 'lesson' }, 'Урок', f.now() + 1000);
