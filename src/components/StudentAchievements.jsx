@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Award, Bell, Check, Code2, Flame, LockKeyhole, Search, Sparkles, Target, Trophy, Volume2, VolumeX } from 'lucide-react';
+import { Award, Check, Code2, Flame, LockKeyhole, Search, Sparkles, Target, Trophy } from 'lucide-react';
 import { api, ACHIEVEMENT_PROGRESS_EVENT } from '../services/api.js';
 import { ACHIEVEMENT_CATEGORIES, ACHIEVEMENT_RARITIES } from '../data/achievementCatalog.js';
 import { createAchievementSound } from '../utils/achievementSound.js';
@@ -8,7 +8,7 @@ import AchievementToast from './AchievementToast.jsx';
 import './StudentAchievements.css';
 
 const ICONS = { ege: Target, python: Code2, mocks: Trophy, practice: Flame, growth: Sparkles };
-const CATEGORY_COLORS = { ege: '#7c3aed', python: '#2679d9', mocks: '#bd831e', practice: '#da692b', growth: '#16876b' };
+const CATEGORY_COLORS = { ege: '#7b20ff', python: '#006aff', mocks: '#ffb800', practice: '#ff5217', growth: '#00a66a' };
 const EMPTY = { items: [] };
 const dateLabel = item => item.historical ? 'За прошлые результаты' : new Date(item.earnedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 const soundKey = id => `ivan100:achievement-sound:v1:${id}`;
@@ -25,10 +25,9 @@ function Progress({ item }) {
 export default function StudentAchievements({ user, open = false, quiet = false, onOpen }) {
   const [data, setData] = useState(EMPTY), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('all'), [filter, setFilter] = useState('all'), [query, setQuery] = useState('');
-  const [soundEnabled, setSoundEnabled] = useState(() => readSound(user.id));
-  const [queue, setQueue] = useState([]), [preview, setPreview] = useState(null), [retry, setRetry] = useState(0);
+  const [soundEnabled] = useState(() => readSound(user.id));
+  const [queue, setQueue] = useState([]), [retry, setRetry] = useState(0);
   const sound = useRef(null), soundEnabledRef = useRef(soundEnabled), displayed = useRef(new Set());
-  soundEnabledRef.current = soundEnabled;
   useEffect(() => {
     sound.current = createAchievementSound();
     const prime = () => { if (soundEnabledRef.current) sound.current?.prime(); };
@@ -59,7 +58,7 @@ export default function StudentAchievements({ user, open = false, quiet = false,
     window.addEventListener(ACHIEVEMENT_PROGRESS_EVENT, schedule); window.addEventListener('focus', focus); document.addEventListener('visibilitychange', focus);
     return () => { cancelled = true; clearTimeout(timer); clearInterval(interval); window.removeEventListener(ACHIEVEMENT_PROGRESS_EVENT, schedule); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus); };
   }, [user.id, quiet, retry]);
-  const current = !quiet ? (preview || queue[0]) : null;
+  const current = !quiet ? queue[0] : null;
   const currentId = current?.id;
   useEffect(() => {
     if (!currentId) return;
@@ -76,18 +75,12 @@ export default function StudentAchievements({ user, open = false, quiet = false,
   const visible = useMemo(() => data.items.filter(item => (category === 'all' || item.category === category)
     && (filter === 'all' || (filter === 'earned' ? item.unlocked : !item.unlocked))
     && (!query.trim() || `${item.title} ${item.description}`.toLocaleLowerCase('ru').includes(query.trim().toLocaleLowerCase('ru')))), [data.items, category, filter, query]);
-  const toggleSound = () => {
-    const next = !soundEnabled; setSoundEnabled(next);
-    try { localStorage.setItem(soundKey(user.id), next ? 'on' : 'off'); } catch { /* Browser storage can be blocked. */ }
-    if (next) { sound.current?.prime(); sound.current?.play(); }
-  };
-  const dismiss = () => { if (preview) setPreview(null); else setQueue(previous => previous.slice(previous.length > 3 ? previous.length : 1)); };
+  const dismiss = () => setQueue(previous => previous.slice(previous.length > 3 ? previous.length : 1));
   const completion = data.items.length ? Math.round(earned.length / data.items.length * 100) : 0;
   return <>
     {open && <section className="achievements-page" aria-label="Достижения ученика">
       <header className="achievements-hero">
-        <div className="achievements-heading"><span className="achievements-heading-icon" aria-hidden="true"><Award size={24} strokeWidth={1.7} /></span><div><h1>Достижения</h1><p>Задачи, пробники и практика — в одной коллекции.</p></div></div>
-        <div className="achievements-hero-actions"><button type="button" onClick={toggleSound} aria-pressed={soundEnabled}>{soundEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />} {soundEnabled ? 'Звук включён' : 'Без звука'}</button><button type="button" onClick={() => { const item = data.items.find(entry => entry.id === 'ege-solves-1'); if (item) { sound.current?.prime(); setPreview({ ...item, id: `preview-${Date.now()}` }); } }} disabled={!data.items.length}><Bell size={16} /> Пример уведомления</button></div>
+        <div className="achievements-heading"><span className="achievements-heading-icon" aria-hidden="true"><Award size={24} strokeWidth={1.7} /></span><h1>Достижения</h1></div>
         <div className="achievements-summary">
           <div className="achievements-total"><strong>{earned.length}<span> / {data.items.length || '…'}</span></strong><span>получено</span></div>
           <div className="achievements-summary-progress"><div><span>Коллекция</span><span>{completion}%</span></div><div className="achievement-progress"><i style={{ width: `${completion}%` }} /></div></div>
@@ -106,6 +99,6 @@ export default function StudentAchievements({ user, open = false, quiet = false,
         <footer className="achievements-footer"><LockKeyhole size={14} /><p>Полученные достижения сохраняются. Перерыв в занятиях их не обнуляет.</p></footer>
       </>}
     </section>}
-    {current && createPortal(<AchievementToast key={current.id} item={current} badge={<Medal item={current} />} preview={Boolean(preview)} additionalCount={!preview && queue.length > 3 ? queue.length - 1 : 0} onDismiss={dismiss} onOpen={onOpen} />, document.body)}
+    {current && createPortal(<AchievementToast key={current.id} item={current} badge={<Medal item={current} />} additionalCount={queue.length > 3 ? queue.length - 1 : 0} onDismiss={dismiss} onOpen={onOpen} />, document.body)}
   </>;
 }

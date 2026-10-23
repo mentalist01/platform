@@ -4,7 +4,7 @@ import { ACHIEVEMENT_RARITIES } from '../data/achievementCatalog.js';
 import { ACHIEVEMENT_TOAST_DURATION, createAchievementToastLifetime } from '../utils/achievementToastLifetime.js';
 import './AchievementToast.css';
 
-export default function AchievementToast({ item, badge, preview = false, additionalCount = 0, onDismiss, onOpen }) {
+export default function AchievementToast({ item, badge, additionalCount = 0, onDismiss, onOpen }) {
   const [leaving, setLeaving] = useState(false), [paused, setPaused] = useState(false);
   const lifetime = useRef(null), callbacks = useRef({ onDismiss, onOpen });
   useLayoutEffect(() => { callbacks.current = { onDismiss, onOpen }; }, [onDismiss, onOpen]);
@@ -48,7 +48,7 @@ export default function AchievementToast({ item, badge, preview = false, additio
         <span className="achievement-toast-glints"><i /><i /><i /></span>
       </span>
       <span className="achievement-toast-copy">
-        <span className="achievement-toast-kicker"><Check size={12} strokeWidth={2.4} />{preview ? 'Пример уведомления' : 'Достижение получено'}</span>
+        <span className="achievement-toast-kicker"><Check size={12} strokeWidth={2.4} />Достижение получено</span>
         <strong>{item.title}</strong>
         <span className="achievement-toast-description">{item.description}</span>
         <span className="achievement-toast-footer"><span className="achievement-toast-tier">{ACHIEVEMENT_RARITIES[item.rarity].title}{additionalCount > 0 && <span className="achievement-toast-count">+{additionalCount}</span>}</span><span className="achievement-toast-link">Коллекция <ArrowUpRight size={13} /></span></span>

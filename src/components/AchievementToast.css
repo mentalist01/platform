@@ -95,10 +95,10 @@ html[data-theme] .achievement-toast .achievement-medal {
   position: relative;
   overflow: hidden;
   width: 60px; height: 60px;
-  color: var(--toast-accent-ink);
-  background: color-mix(in srgb, var(--achievement-accent) 10%, var(--toast-paper));
-  border: 1px solid color-mix(in srgb, var(--achievement-accent) 34%, var(--toast-paper));
-  box-shadow: inset 0 0 0 5px var(--toast-paper), inset 0 0 0 6px color-mix(in srgb, var(--achievement-accent) 17%, var(--toast-paper)), 0 4px 12px color-mix(in srgb, var(--achievement-accent) 10%, transparent);
+  color: var(--medal);
+  background: linear-gradient(145deg,var(--medal-start),var(--medal-end));
+  border: 1px solid var(--medal-end);
+  box-shadow: inset 0 0 0 4px #ffffff26,0 5px 14px color-mix(in srgb,var(--medal-end) 27%,transparent);
   animation: achievement-medal-reveal 720ms cubic-bezier(.2, .8, .3, 1) 100ms both;
 }
 .achievement-toast .achievement-medal > svg { width: 27px; height: 27px; stroke: currentColor; }

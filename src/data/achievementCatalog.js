@@ -8,10 +8,10 @@ export const ACHIEVEMENT_CATEGORIES = [
   { id: 'growth', title: 'Прогресс', icon: 'sparkles' },
 ];
 export const ACHIEVEMENT_RARITIES = {
-  bronze: { title: 'Бронза', color: '#b77c51' },
-  silver: { title: 'Серебро', color: '#7186a5' },
-  gold: { title: 'Золото', color: '#d39728' },
-  diamond: { title: 'Алмаз', color: '#7c59e8' },
+  bronze: { title: 'Бронза', color: '#f17b14' },
+  silver: { title: 'Серебро', color: '#006aff' },
+  gold: { title: 'Золото', color: '#ffb800' },
+  diamond: { title: 'Алмаз', color: '#9028ff' },
 };
 export const ACHIEVEMENT_PYTHON_TOPICS = [
   [101, 'Ввод и вывод', 'Ввод и вывод · 5 задач'], [102, 'Переменные', 'Переменные · 5 задач'],
