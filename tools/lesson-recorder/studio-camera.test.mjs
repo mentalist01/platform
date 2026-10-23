@@ -78,6 +78,31 @@ test('camera discovery stays disabled and refuses to modify OBS during a recordi
   assert.equal(f.calls.some(call => call.type === 'SetCurrentProgramScene' || call.type === 'StartRecord'), false);
 });
 
+test('hours of background source polling enumerate cameras once while windows stay live; explicit refresh discovers new devices', async () => {
+  const f = obsFixture();
+  for (let poll = 0; poll < 1080; poll++) assert.deepEqual((await f.obs.choices()).camera, cameraItems);
+  const cameraCalls = () => f.calls.filter(c => c.type === 'GetInputPropertiesListPropertyItems' && c.data.inputName === STUDIO_CAMERA_INPUT);
+  assert.equal(cameraCalls().length, 1, 'Three hours of ten-second polls must not repeatedly load virtual-camera drivers');
+  assert.equal(f.calls.filter(c => c.type === 'GetInputPropertiesListPropertyItems' && c.data.propertyName === 'window').length, 2160);
+  await f.obs.setupStudioCamera();
+  assert.equal(cameraCalls().length, 2, 'The existing Refresh cameras action still enumerates devices');
+  await f.obs.choices(); assert.equal(cameraCalls().length, 2);
+});
+
+test('concurrent camera requests share discovery, failed discovery can retry, and empty lists are cached', async () => {
+  const obs = new ObsClient(); let reads = 0, release;
+  obs.call = async () => { reads++; await new Promise(r => { release = r; }); return { propertyItems: [] }; };
+  const first = obs.cameraChoices(), second = obs.cameraChoices();
+  assert.equal(reads, 1); release();
+  assert.deepEqual(await Promise.all([first, second]), [[], []]);
+  assert.deepEqual(await obs.cameraChoices(), []); assert.equal(reads, 1);
+  obs.call = async () => { reads++; throw Error('Disconnected'); };
+  await assert.rejects(obs.cameraChoices({ refresh: true }), /Disconnected/);
+  obs.call = async () => { reads++; return { propertyItems: cameraItems }; };
+  assert.deepEqual(await obs.cameraChoices({ refresh: true }), cameraItems);
+  assert.deepEqual(await obs.cameraChoices(), cameraItems); assert.equal(reads, 3);
+});
+
 test('the inset is composited over every studio source, muted, and never attached to ordinary lesson scenes', async () => {
   const f = obsFixture(); await f.obs.setupStudioCamera(); f.calls.length = 0;
   await f.obs.configureStudioCamera(camera);

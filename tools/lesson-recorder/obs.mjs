@@ -80,6 +80,8 @@ export class ObsClient {
     if (!config.server_enabled) throw new Error('Откройте настройку OBS в пульте');
     const socket = new this.webSocketClass(`ws://127.0.0.1:${config.server_port || 4455}`);
     this.socket = socket;
+    this.cameraChoicesCache = undefined;
+    this.cameraChoicesPending = undefined;
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => { socket.close(); reject(transportError('OBS не отвечает')); }, 5000);
       const failed = () => { clearTimeout(timer); reject(transportError('Нет подключения к OBS')); };
@@ -88,6 +90,8 @@ export class ObsClient {
         // A delayed close from a replaced socket must not disconnect its successor.
         if (this.socket !== socket) { failed(); return; }
         this.connected = false;
+        this.cameraChoicesCache = undefined;
+        this.cameraChoicesPending = undefined;
         this.recordingStartPending = false;
         this.audioSignals = {};
         for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(transportError('OBS отключился')); }
@@ -184,7 +188,7 @@ export class ObsClient {
     if (collections.currentSceneCollectionName !== COLLECTION) await this.call('SetCurrentSceneCollection', { sceneCollectionName: COLLECTION });
     await delay(400);
     await this.setRecordDirectory(recordDirectory);
-    const choices = await this.choices();
+    const choices = await this.choices({ refreshCamera: captureProfile === 'python' && studioCameraConfig(config.camera).enabled });
     if (captureProfile === 'python') {
       const selected = pythonCaptureConfig(config);
       const reason = pythonCaptureReason(selected, choices);
@@ -277,14 +281,29 @@ export class ObsClient {
     }
     await this.select('platform');
   }
-  async choices() {
+  async cameraChoices({ refresh = false } = {}) {
+    if (this.cameraChoicesPending) return this.cameraChoicesPending;
+    if (!refresh && this.cameraChoicesCache) return this.cameraChoicesCache;
+    // Enumerating DirectShow devices loads third-party virtual-camera drivers.
+    // Insta360 Link leaks two FILE streams per enumeration on affected builds;
+    // the ten-second source poll used to exhaust OBS's stdio table mid-lesson.
+    // Discover once per connection, or on an explicit refresh / studio start.
+    const pending = this.call('GetInputPropertiesListPropertyItems', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'video_device_id' })
+      .then(({ propertyItems }) => {
+        if (this.cameraChoicesPending === pending) this.cameraChoicesCache = propertyItems;
+        return propertyItems;
+      }).finally(() => { if (this.cameraChoicesPending === pending) this.cameraChoicesPending = undefined; });
+    this.cameraChoicesPending = pending;
+    return pending;
+  }
+  async choices({ refreshCamera = false } = {}) {
     await this.assertCollection();
     const result = {};
     for (const [key, propertyName] of [['platform', 'window'], ['telemost', 'window'], ['mic', 'device_id'], ['screen', 'monitor_id']]) {
       try { result[key] = (await this.call('GetInputPropertiesListPropertyItems', { inputName: INPUTS[key], propertyName })).propertyItems; }
       catch { result[key] = []; }
     }
-    try { result.camera = (await this.call('GetInputPropertiesListPropertyItems', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'video_device_id' })).propertyItems; }
+    try { result.camera = await this.cameraChoices({ refresh: refreshCamera }); }
     catch { result.camera = []; }
     return result;
   }
@@ -293,7 +312,7 @@ export class ObsClient {
     if ((await this.call('GetRecordStatus')).outputActive || (await this.call('GetStreamStatus')).outputActive) throw Error('Добавить камеру можно после окончания текущей записи или трансляции');
     await this.ensurePythonSources();
     await this.ensureStudioCamera();
-    return (await this.call('GetInputPropertiesListPropertyItems', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'video_device_id' })).propertyItems;
+    return this.cameraChoices({ refresh: true });
   }
   async ensureStudioCamera() {
     await this.assertCollection();
@@ -316,7 +335,7 @@ export class ObsClient {
     await this.assertCollection();
     if (camera.enabled) {
       await this.ensureStudioCamera();
-      const choices = (await this.call('GetInputPropertiesListPropertyItems', { inputName: STUDIO_CAMERA_INPUT, propertyName: 'video_device_id' })).propertyItems;
+      const choices = await this.cameraChoices();
       const reason = studioCameraReason(camera, choices);
       if (reason) throw Error(reason);
       const wanted = {

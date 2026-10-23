@@ -20,7 +20,7 @@ const fixture = t => {
       if (op === 1) queueMicrotask(() => this.receive({ op: 2, d: {} }));
       if (op === 6) this.request = d;
     }
-    respond() { this.receive({ op: 7, d: { requestId: this.request.requestId, requestStatus: { result: true }, responseData: { outputActive: true } } }); }
+    respond(responseData = { outputActive: true }) { this.receive({ op: 7, d: { requestId: this.request.requestId, requestStatus: { result: true }, responseData } }); }
     close() { this.readyState = 3; this.dispatchEvent(new Event('close')); }
   }
   const obs = new ObsClient({ configDir: root, webSocketClass: Socket });
@@ -58,4 +58,17 @@ test('OBS output events retain the pending-start guard until an actual output tr
   assert.throws(() => obs.assertNoPendingStart(), /повторная команда/);
   event('OBS_WEBSOCKET_OUTPUT_STARTED'); obs.assertNoPendingStart();
   event('OBS_WEBSOCKET_OUTPUT_STARTING'); event('OBS_WEBSOCKET_OUTPUT_STOPPED'); obs.assertNoPendingStart();
+});
+
+test('camera discovery refreshes after a real OBS reconnection and ignores stale socket closure', async t => {
+  const { obs, sockets } = fixture(t); await obs.connect();
+  const old = sockets[0], first = obs.cameraChoices(); await Promise.resolve();
+  old.respond({ propertyItems: [{ itemValue: 'old-camera' }] });
+  assert.equal((await first)[0].itemValue, 'old-camera');
+  old.close(); await obs.connect();
+  const second = obs.cameraChoices(); await Promise.resolve();
+  sockets[1].respond({ propertyItems: [{ itemValue: 'new-camera' }] });
+  assert.equal((await second)[0].itemValue, 'new-camera');
+  old.close();
+  assert.equal((await obs.cameraChoices())[0].itemValue, 'new-camera');
 });
