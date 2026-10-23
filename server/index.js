@@ -18373,14 +18373,18 @@ const storePaymentNotificationResult = (entry) => {
 
 const paymentNotificationIdentity = (payload, context) => {
   const parsed = parseTbankPaymentNotificationPayload(payload);
+  // An SMS review must never suppress a later bank push with the same ID/text.
+  if (context.reviewOnly) {
+    parsed.rawHash = crypto.createHash('sha1').update(`sms-review\n${parsed.rawHash}`).digest('hex');
+  }
   const originalHash = parsed.rawHash;
-  const legacyId = buildPaymentNotificationId(payload, parsed);
+  const legacyId = `${context.reviewOnly ? 'sms-review-' : ''}${buildPaymentNotificationId(payload, parsed)}`;
   if (context.authMode === 'personal-key') {
     parsed.rawHash = crypto.createHash('sha1').update(`${context.teacherId}\n${originalHash}`).digest('hex');
   }
   const id = context.authMode === 'personal-key'
     ? `tbank-${crypto.createHash('sha1').update(`${context.teacherId}\n${legacyId}`).digest('hex')}`
-    : buildPaymentNotificationId(payload, parsed);
+    : legacyId;
   return { parsed, id, originalHash, legacyId };
 };
 
@@ -18468,6 +18472,22 @@ const handleTbankPaymentNotification = async (payload = {}, context = {}) => {
       ...baseEntry,
       status: 'ignored',
       reason: parsed.ignoredReason || 'Не похоже на входящий платеж.',
+    });
+    return { ok: true, statusCode: 202, entry: result.entry };
+  }
+
+  if (context.reviewOnly) {
+    const receiver = resolvePaymentNotificationTeacher(payload).teacher;
+    const match = receiver && findPaymentNotificationStudentMatch(receiver, parsed);
+    const result = storePaymentNotificationResult({
+      ...baseEntry,
+      status: 'pending',
+      reason: 'SMS от банка: требуется ручная проверка. Деньги не зачислены; перед учётом проверьте, нет ли уже оплаты по уведомлению банка.',
+      studentId: match?.student?.id || '',
+      studentName: String(match?.student?.nickname || match?.student?.name || '').trim(),
+      matchMode: match?.matchMode || '',
+      senderName: match?.senderName || parsed.senderName,
+      markKeys: [],
     });
     return { ok: true, statusCode: 202, entry: result.entry };
   }
@@ -22681,7 +22701,10 @@ const enqueuePaymentNotification = (teacherId, action) => {
 
 const receivePaymentNotification = async (req, res) => {
   const payload = parseLoosePaymentNotificationBody(req.body);
-  const context = validatePaymentNotificationSecret(req, payload);
+  const context = {
+    ...validatePaymentNotificationSecret(req, payload),
+    reviewOnly: req.path === '/api/payment-notifications/tbank/sms',
+  };
   if (!context.ok) {
     return res.status(context.status || 401).json({ ok: false, error: context.error || 'Unauthorized' });
   }
@@ -22719,6 +22742,7 @@ const receivePaymentNotification = async (req, res) => {
   }
 };
 app.post('/api/payment-notifications/tbank', receivePaymentNotification);
+app.post('/api/payment-notifications/tbank/sms', receivePaymentNotification);
 app.post('/api/payment-notifications/macrodroid', receivePaymentNotification);
 
 const hasGroupRecordingTeacher = (teacherId, lessonId) => {
