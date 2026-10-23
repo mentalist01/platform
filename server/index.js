@@ -281,6 +281,7 @@ import {
   parseWorkbookHelperAuthorization,
   resolveWorkbookRevisionWrite,
 } from './workbookHelper.js';
+import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
 import {
   buildBoardAssetStorageName,
   detectBoardAssetMimeType,
@@ -20861,7 +20862,9 @@ const normalizeWorkbookSolutionFolderName = (value) => String(value || '')
   .toLocaleLowerCase('ru-RU')
   .replace(/ё/g, 'е');
 
-const ensureWorkbookSolutionFolder = ({ studentId, taskNumber, category }) => {
+const workbookPartSettings = new WorkbookPartSettings(path.join(dataDir, 'workbook-parts.json'), writeJsonFileAtomic);
+
+const ensureWorkbookSolutionFolder = ({ studentId, taskNumber, category, partNumber = 0 }) => {
   const normalizedStudentId = String(studentId || '').trim();
   const normalizedCategory = String(category || '').trim();
   const normalizedTaskNumber = Number(taskNumber);
@@ -20879,8 +20882,7 @@ const ensureWorkbookSolutionFolder = ({ studentId, taskNumber, category }) => {
     && !normalizeParentFolderId(folder?.parentFolderId)
     && normalizeWorkbookSolutionFolderName(folder?.name) === targetName
   ));
-  if (existing) return existing;
-  const created = {
+  const root = existing || {
     id: crypto.randomUUID(),
     studentId: normalizedStudentId,
     taskNumber: normalizedTaskNumber,
@@ -20889,8 +20891,19 @@ const ensureWorkbookSolutionFolder = ({ studentId, taskNumber, category }) => {
     name: WORKBOOK_HELPER_SOLUTION_FOLDER,
     date: new Date().toLocaleDateString('ru-RU'),
   };
-  folders.unshift(created);
-  writeFoldersDb(folders);
+  if (!existing) folders.unshift(root);
+  if (!partNumber) {
+    if (!existing) writeFoldersDb(folders);
+    return root;
+  }
+  const partName = `Часть ${partNumber}`;
+  const child = folders.find(folder => folder.studentId === normalizedStudentId
+    && Number(folder.taskNumber) === normalizedTaskNumber && folder.category === normalizedCategory
+    && folder.parentFolderId === root.id
+    && (folder.workbookPartNumber === partNumber || normalizeWorkbookSolutionFolderName(folder.name) === normalizeWorkbookSolutionFolderName(partName)));
+  if (child) return child;
+  const created = { ...root, id:crypto.randomUUID(), parentFolderId:root.id, name:partName, workbookPartNumber:partNumber };
+  folders.unshift(created); writeFoldersDb(folders);
   return created;
 };
 
@@ -21429,7 +21442,9 @@ const upsertWorkbookSolutionContent = ({
       } else {
         entryName = buildWorkbookSolutionName(solutionSourceName);
       }
-      if (!existing && files.some((entry) => (
+      const partCount = workbookPartSettings.count(student.teacherId, sourceFile.taskNumber);
+      const partState = workbookPartState(existing, partCount);
+      if (!existing && partCount === 1 && files.some((entry) => (
         String(entry?.studentId || '').trim() === String(student.id || '').trim()
         && String(entry?.workbookSourceFileId || '').trim() === String(sourceFile.id || '').trim()
         && String(entry?.name || '').trim().toLocaleLowerCase('ru-RU') === entryName.toLocaleLowerCase('ru-RU')
@@ -21437,10 +21452,14 @@ const upsertWorkbookSolutionContent = ({
         throw createWorkbookHttpError(409, 'Решение с таким именем уже существует');
       }
 
-      const folder = ensureWorkbookSolutionFolder({
+      const existingFolder = existing?.folderId && readFoldersDb().find(folder => folder.id === existing.folderId
+        && folder.studentId === student.id && Number(folder.taskNumber) === Number(sourceFile.taskNumber)
+        && folder.category === sourceFile.category);
+      const folder = existingFolder || ensureWorkbookSolutionFolder({
         studentId: student.id,
         taskNumber: sourceFile.taskNumber,
         category: sourceFile.category,
+        partNumber: existing?.workbookPartNumber > 1 || (existing?.workbookPartNumber === 1 && partCount > 1) ? existing.workbookPartNumber : 0,
       });
       assertWorkbookSolutionCapacity({
         files,
@@ -21497,6 +21516,7 @@ const upsertWorkbookSolutionContent = ({
           ? revisionDecision.revision
           : Math.max(1, revisionDecision.revision),
         workbookContentHash: incomingContentHash,
+        ...partState,
         ...(sourceFile?.workbookQuestionContext ? {
           workbookQuestionContext: { ...sourceFile.workbookQuestionContext },
           workbookQuestionSolution: true,
@@ -23250,6 +23270,12 @@ app.delete('/api/auth/sessions/:sessionId', (req, res) => {
   }
   deleteAuthSession(target.token);
   return res.json({ ok: true, id: sessionId });
+});
+
+registerWorkbookPartRoutes(app, {
+  settings:workbookPartSettings, readFiles:readFilesDb, writeFiles:writeFilesDb,
+  findStudent:findStudentById, ensureStudentAccess, ensureFolder:ensureWorkbookSolutionFolder,
+  canWrite:canWriteTeacherQuestionWorkbook, lock:withWorkbookSolutionWriteLock,
 });
 
 app.post('/api/workbook-helper/launch', (req, res) => {

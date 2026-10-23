@@ -2895,6 +2895,23 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponseAndInvalidateStudentNextLessonCache(res);
   },
+  getWorkbookParts: async (taskNumber, studentId = '') => {
+    const params = new URLSearchParams(); if (studentId) params.set('studentId',studentId);
+    const res = await apiFetch(`/api/workbook-parts/${taskNumber}?${params}`);
+    if (!res.ok) throw new Error(await parseApiError(res)); return res.json();
+  },
+  setWorkbookParts: async (taskNumber, count) => {
+    const res = await apiFetch(`/api/workbook-parts/${taskNumber}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({count})});
+    if (!res.ok) throw new Error(await parseApiError(res)); return res.json();
+  },
+  getPendingWorkbookParts: async () => {
+    const res = await apiFetch('/api/workbook-parts/pending');
+    if (!res.ok) throw new Error(await parseApiError(res)); return res.json();
+  },
+  chooseWorkbookPart: async (id, partNumber) => {
+    const res = await apiFetch(`/api/workbook-parts/files/${encodeURIComponent(id)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({partNumber,pendingOnly:true})});
+    if (!res.ok) throw new Error(await parseApiError(res)); return res.json();
+  },
   getFiles: async (studentId) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', studentId);

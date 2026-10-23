@@ -41,6 +41,7 @@ import {
   pythonTaskCatalogsEqual,
 } from '../utils/pythonTaskCatalog';
 import './NotesSection.css';
+import { WorkbookPartSettings } from './WorkbookParts';
 import {
   getWorkbookHelperInstall,
   getWorkbookHelperUnsupportedMessage,
@@ -2712,6 +2713,12 @@ const NotesSection = ({
   ]);
 
   useEffect(() => {
+    const onAssigned = event => { if (event.detail?.studentId === effectiveStudentId) void handleRefreshData(); };
+    window.addEventListener('workbook-parts-assigned',onAssigned);
+    return () => window.removeEventListener('workbook-parts-assigned',onAssigned);
+  },[effectiveStudentId,handleRefreshData]);
+
+  useEffect(() => {
     if (!effectiveStudentId) return;
     const poll = () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
@@ -3489,6 +3496,7 @@ const NotesSection = ({
               </div>
             </div>
             <div className="notes-task-hero__side">
+              {role === 'teacher' && WORKBOOK_HELPER_TASK_NUMBERS.has(normalizedCurrentTask) && <WorkbookPartSettings taskNumber={normalizedCurrentTask}/>}
               {renderStudentPicker()}
               {role !== 'student' && (
                 <span className={`notes-explorer-stat notes-explorer-stat-remaining ${
