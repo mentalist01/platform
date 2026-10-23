@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Award, ArrowRight, Bell, Check, Code2, Flame, LockKeyhole, Search, Sparkles, Target, Trophy, Volume2, VolumeX, X } from 'lucide-react';
+import { Award, Bell, Check, Code2, Flame, LockKeyhole, Search, Sparkles, Target, Trophy, Volume2, VolumeX } from 'lucide-react';
 import { api, ACHIEVEMENT_PROGRESS_EVENT } from '../services/api.js';
 import { ACHIEVEMENT_CATEGORIES, ACHIEVEMENT_RARITIES } from '../data/achievementCatalog.js';
 import { createAchievementSound } from '../utils/achievementSound.js';
+import AchievementToast from './AchievementToast.jsx';
 import './StudentAchievements.css';
 
 const ICONS = { ege: Target, python: Code2, mocks: Trophy, practice: Flame, growth: Sparkles };
+const CATEGORY_COLORS = { ege: '#7c3aed', python: '#2679d9', mocks: '#bd831e', practice: '#da692b', growth: '#16876b' };
 const EMPTY = { items: [] };
 const dateLabel = item => item.historical ? 'За прошлые результаты' : new Date(item.earnedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 const soundKey = id => `ivan100:achievement-sound:v1:${id}`;
@@ -59,15 +61,12 @@ export default function StudentAchievements({ user, open = false, quiet = false,
   }, [user.id, quiet, retry]);
   const current = !quiet ? (preview || queue[0]) : null;
   const currentId = current?.id;
-  const isPreview = Boolean(preview);
   useEffect(() => {
     if (!currentId) return;
     const firstAppearance = !displayed.current.has(currentId);
     displayed.current.add(currentId);
     if (firstAppearance && soundEnabledRef.current) sound.current?.play();
-    const timer = setTimeout(() => { if (isPreview) setPreview(null); else setQueue(previous => previous.slice(previous.length > 3 ? previous.length : 1)); }, 6500);
-    return () => clearTimeout(timer);
-  }, [currentId, isPreview]);
+  }, [currentId]);
   const earned = data.items.filter(item => item.unlocked);
   const nearest = useMemo(() => {
     const metrics = new Set();
@@ -92,21 +91,21 @@ export default function StudentAchievements({ user, open = false, quiet = false,
         <div className="achievements-summary">
           <div className="achievements-total"><strong>{earned.length}<span> / {data.items.length || '…'}</span></strong><span>получено</span></div>
           <div className="achievements-summary-progress"><div><span>Коллекция</span><span>{completion}%</span></div><div className="achievement-progress"><i style={{ width: `${completion}%` }} /></div></div>
-          <div className="achievements-summary-categories">{ACHIEVEMENT_CATEGORIES.map(entry => { const Icon = ICONS[entry.id]; return <div key={entry.id}><span><Icon size={15} />{entry.title}</span><strong>{earned.filter(item => item.category === entry.id).length}<small> / {data.items.filter(item => item.category === entry.id).length}</small></strong></div>; })}</div>
+          <div className="achievements-summary-categories">{ACHIEVEMENT_CATEGORIES.map(entry => { const Icon = ICONS[entry.id]; return <div key={entry.id} style={{ '--achievement-category': CATEGORY_COLORS[entry.id] }}><span><Icon size={15} />{entry.title}</span><strong>{earned.filter(item => item.category === entry.id).length}<small> / {data.items.filter(item => item.category === entry.id).length}</small></strong></div>; })}</div>
         </div>
       </header>
       {loading && <p className="achievements-message" role="status">Загрузка достижений…</p>}
       {error && <div className="achievements-message" role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>Попробовать ещё раз</button></div>}
       {!loading && !error && <>
-        {nearest.length > 0 && <section className="achievements-nearest"><div className="achievements-section-title"><h2>Ближайшие достижения</h2></div><div className="achievements-nearest-grid">{nearest.map(item => <article key={item.id}><div className="achievement-next-top"><Medal item={item} /><span>{ratio(item)}%</span></div><h3>{item.title}</h3><p>{item.description}</p><div className="achievement-next-progress"><Progress item={item} /><small>{item.value} / {item.target}</small></div></article>)}</div></section>}
+        {nearest.length > 0 && <section className="achievements-nearest"><div className="achievements-section-title"><h2>Ближайшие достижения</h2></div><div className="achievements-nearest-grid">{nearest.map(item => <article key={item.id} style={{ '--achievement-category': CATEGORY_COLORS[item.category] }}><div className="achievement-next-top"><Medal item={item} /><span>{ratio(item)}%</span></div><h3>{item.title}</h3><p>{item.description}</p><div className="achievement-next-progress"><Progress item={item} /><small>{item.value} / {item.target}</small></div></article>)}</div></section>}
         <div className="achievements-section-title achievements-collection-title"><h2>Все достижения <span>{data.items.length}</span></h2><label className="achievements-search"><Search size={17} /><input aria-label="Найти достижение" placeholder="Поиск" value={query} onChange={event => setQuery(event.target.value)} /></label></div>
-        <nav className="achievements-categories" aria-label="Категории достижений"><button type="button" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>Все <small>{data.items.length}</small></button>{ACHIEVEMENT_CATEGORIES.map(entry => { const Icon = ICONS[entry.id]; return <button type="button" key={entry.id} aria-pressed={category === entry.id} onClick={() => setCategory(entry.id)}><Icon size={16} />{entry.title}</button>; })}</nav>
+        <nav className="achievements-categories" aria-label="Категории достижений"><button type="button" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>Все <small>{data.items.length}</small></button>{ACHIEVEMENT_CATEGORIES.map(entry => { const Icon = ICONS[entry.id]; return <button type="button" key={entry.id} style={{ '--achievement-category': CATEGORY_COLORS[entry.id] }} aria-pressed={category === entry.id} onClick={() => setCategory(entry.id)}><Icon size={16} />{entry.title}</button>; })}</nav>
         <div className="achievements-filter"><div>{[['all', 'Все'], ['earned', 'Получены'], ['locked', 'Не получены']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div><span>Показано: {visible.length}</span></div>
         <div className="achievements-grid">{visible.map(item => <article className={`achievement-card${item.unlocked ? ' achievement-card--unlocked' : ''}`} key={item.id} style={{ '--achievement-accent': ACHIEVEMENT_RARITIES[item.rarity].color }}><div className="achievement-card-top"><Medal item={item} /><span className={item.unlocked ? 'achievement-status achievement-status--earned' : 'achievement-status'}>{item.unlocked ? <Check size={13} /> : <LockKeyhole size={12} />}{item.unlocked ? 'Получено' : ACHIEVEMENT_RARITIES[item.rarity].title}</span></div><h3>{item.title}</h3><p>{item.description}</p>{item.unlocked ? <div className="achievement-earned"><span className="achievement-rarity"><i />{ACHIEVEMENT_RARITIES[item.rarity].title}</span><span>{dateLabel(item)}</span></div> : <div className="achievement-locked"><Progress item={item} /><span>{item.value} / {item.target}</span></div>}</article>)}</div>
         {!visible.length && <p className="achievements-message">Ничего не найдено. Измени фильтр или поисковый запрос.</p>}
         <footer className="achievements-footer"><LockKeyhole size={14} /><p>Полученные достижения сохраняются. Перерыв в занятиях их не обнуляет.</p></footer>
       </>}
     </section>}
-    {current && createPortal(<aside className="achievement-toast" role="status" aria-live="polite" style={{ '--achievement-accent': ACHIEVEMENT_RARITIES[current.rarity].color }}><button className="achievement-toast-main" type="button" onClick={() => { dismiss(); onOpen?.(); }}><Medal item={current} /><span><small>{preview ? 'Пример уведомления' : 'Новое достижение'}</small><strong>{current.title}</strong><span>{!preview && queue.length > 3 ? `Ещё наград: ${queue.length - 1}. Посмотреть все` : current.description}</span></span><ArrowRight size={17} /></button><button type="button" className="achievement-toast-close" aria-label="Скрыть уведомление о достижении" onClick={dismiss}><X size={15} /></button><i className="achievement-toast-timer" /></aside>, document.body)}
+    {current && createPortal(<AchievementToast key={current.id} item={current} badge={<Medal item={current} />} preview={Boolean(preview)} additionalCount={!preview && queue.length > 3 ? queue.length - 1 : 0} onDismiss={dismiss} onOpen={onOpen} />, document.body)}
   </>;
 }

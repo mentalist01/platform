@@ -1,0 +1,180 @@
+.achievement-toast {
+  --toast-paper: #fff;
+  --toast-ink: #252332;
+  --toast-muted: #706c7e;
+  --toast-line: #e9e5ee;
+  --toast-accent-ink: #86572f;
+  position: fixed;
+  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 1400;
+  width: min(420px, calc(100vw - 32px));
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--toast-ink);
+  background: var(--toast-paper);
+  border: 1px solid color-mix(in srgb, var(--achievement-accent) 25%, var(--toast-line));
+  border-radius: 20px;
+  box-shadow: 0 18px 48px #3428491c, 0 4px 12px #3428490a, inset 0 1px 0 #ffffff80;
+  animation: achievement-arrive 580ms cubic-bezier(.16, 1, .3, 1) both;
+}
+.achievement-toast--silver { --toast-accent-ink: #526f91; }
+.achievement-toast--gold { --toast-accent-ink: #8c661c; }
+.achievement-toast--diamond { --toast-accent-ink: #7650b4; }
+html[data-theme=dark] .achievement-toast {
+  --toast-paper: #252331;
+  --toast-ink: #f3effa;
+  --toast-muted: #b7aec8;
+  --toast-line: #484051;
+  --toast-accent-ink: #dec3a7;
+  box-shadow: 0 18px 48px #08061360, 0 4px 12px #08061330, inset 0 1px 0 #ffffff08;
+}
+html[data-theme=dark] .achievement-toast--silver { --toast-accent-ink: #b6cbe4; }
+html[data-theme=dark] .achievement-toast--gold { --toast-accent-ink: #edcd86; }
+html[data-theme=dark] .achievement-toast--diamond { --toast-accent-ink: #c5a8f4; }
+.achievement-toast::before, .achievement-toast::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  z-index: -1;
+}
+.achievement-toast::before {
+  inset: 0;
+  background: radial-gradient(ellipse at 0 0, color-mix(in srgb, var(--achievement-accent) 12%, transparent), transparent 65%);
+}
+.achievement-toast::after {
+  left: 16px; right: 16px; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--achievement-accent) 50%, transparent), transparent);
+}
+.achievement-toast[data-phase=leaving] {
+  animation: achievement-leave 260ms cubic-bezier(.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+.achievement-toast .achievement-toast-main {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 23px 40px 22px 20px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: inherit;
+  cursor: pointer;
+}
+.achievement-toast .achievement-toast-main:disabled { opacity: 1; }
+.achievement-toast-emblem {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 70px; height: 70px;
+  align-self: start;
+  margin-top: 7px;
+}
+.achievement-toast-halo {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--achievement-accent) 25%, transparent), transparent 68%);
+  animation: achievement-halo 1050ms ease-out both;
+}
+.achievement-toast-orbit { position: absolute; inset: -4px; width: 78px; height: 78px; fill: none; color: var(--achievement-accent); }
+.achievement-toast-orbit circle {
+  stroke: currentColor;
+  stroke-width: .85px;
+  stroke-linecap: round;
+  stroke-dasharray: .72 1;
+  transform: rotate(-95deg);
+  transform-origin: center;
+  animation: achievement-orbit 850ms cubic-bezier(.2, .8, .3, 1) 100ms both;
+}
+html[data-theme] .achievement-toast .achievement-medal {
+  --ach-paper: var(--toast-paper);
+  position: relative;
+  overflow: hidden;
+  width: 60px; height: 60px;
+  color: var(--toast-accent-ink);
+  background: color-mix(in srgb, var(--achievement-accent) 10%, var(--toast-paper));
+  border: 1px solid color-mix(in srgb, var(--achievement-accent) 34%, var(--toast-paper));
+  box-shadow: inset 0 0 0 5px var(--toast-paper), inset 0 0 0 6px color-mix(in srgb, var(--achievement-accent) 17%, var(--toast-paper)), 0 4px 12px color-mix(in srgb, var(--achievement-accent) 10%, transparent);
+  animation: achievement-medal-reveal 720ms cubic-bezier(.2, .8, .3, 1) 100ms both;
+}
+.achievement-toast .achievement-medal > svg { width: 27px; height: 27px; stroke: currentColor; }
+.achievement-toast .achievement-medal::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background: linear-gradient(90deg, transparent 30%, #ffffff85 48%, transparent 65%);
+  animation: achievement-shine 850ms ease-out 220ms both;
+}
+.achievement-toast-glints { position: absolute; inset: 0; pointer-events: none; }
+.achievement-toast-glints i {
+  position: absolute;
+  width: 4px; height: 4px;
+  background: var(--toast-accent-ink);
+  border-radius: 1px;
+  animation: achievement-glint 820ms ease-out 220ms both;
+}
+.achievement-toast-glints i:nth-child(1) { left: 5px; top: 10px; --glint-x: -4px; --glint-y: -5px; }
+.achievement-toast-glints i:nth-child(2) { right: 2px; top: 6px; --glint-x: 5px; --glint-y: -6px; animation-delay: 290ms; width: 3px; height: 3px; }
+.achievement-toast-glints i:nth-child(3) { right: -1px; bottom: 9px; --glint-x: 6px; --glint-y: 4px; animation-delay: 350ms; width: 3px; height: 3px; }
+.achievement-toast-copy { display: block; min-width: 0; animation: achievement-copy-in 480ms ease-out 120ms both; }
+.achievement-toast-kicker { display: flex; align-items: center; gap: 5px; font-size: 10px; line-height: 1.5; font-weight: 500; letter-spacing: .01em; color: var(--toast-accent-ink); }
+.achievement-toast-copy strong { display: block; font-size: 16px; line-height: 1.4; font-weight: 650; letter-spacing: -.25px; margin: 6px 0; color: var(--toast-ink); }
+.achievement-toast-description { display: block; font-size: 12px; line-height: 1.65; color: var(--toast-muted); }
+.achievement-toast-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--toast-line); font-size: 10px; line-height: 1.4; }
+.achievement-toast-tier { display: flex; align-items: center; gap: 5px; color: var(--toast-accent-ink); }
+.achievement-toast-tier::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.achievement-toast-count { padding: 1px 5px; margin-left: 2px; border-radius: 4px; background: color-mix(in srgb, var(--achievement-accent) 12%, transparent); }
+.achievement-toast-link { display: flex; align-items: center; gap: 3px; color: var(--toast-muted); transition: color 160ms; }
+.achievement-toast-main:hover .achievement-toast-link { color: var(--toast-accent-ink); }
+.achievement-toast .achievement-toast-close {
+  position: absolute; top: 8px; right: 8px;
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  color: var(--toast-muted);
+  background: transparent;
+  border: 0; border-radius: 9px;
+  cursor: pointer;
+  transition: background 160ms, color 160ms;
+}
+.achievement-toast .achievement-toast-close:hover { background: color-mix(in srgb, var(--achievement-accent) 9%, transparent); color: var(--toast-ink); }
+.achievement-toast-timer { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; overflow: hidden; background: color-mix(in srgb, var(--achievement-accent) 8%, transparent); }
+.achievement-toast-timer i { display: block; width: 100%; height: 100%; transform-origin: left; background: linear-gradient(90deg, color-mix(in srgb, var(--achievement-accent) 45%, var(--toast-paper)), var(--achievement-accent)); animation: achievement-countdown var(--toast-duration) linear both; }
+.achievement-toast[data-paused=true] .achievement-toast-timer i { animation-play-state: paused; }
+.achievement-toast button:focus-visible { outline: 2px solid var(--toast-accent-ink); outline-offset: -4px; }
+
+@keyframes achievement-arrive {
+  0% { opacity: 0; transform: translate3d(22px, 18px, 0) scale(.96); }
+  72% { opacity: 1; transform: translate3d(-1px, -1px, 0) scale(1.003); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes achievement-leave { to { opacity: 0; transform: translate3d(14px, 7px, 0) scale(.98); } }
+@keyframes achievement-halo { 0% { opacity: 0; transform: scale(.6); } 40% { opacity: .9; } 100% { opacity: 0; transform: scale(1.2); } }
+@keyframes achievement-orbit { from { opacity: 0; stroke-dashoffset: 1; } to { opacity: .45; stroke-dashoffset: 0; } }
+@keyframes achievement-medal-reveal { 0% { opacity: 0; transform: scale(.72) rotate(-14deg); } 62% { opacity: 1; transform: scale(1.08) rotate(3deg); } 100% { opacity: 1; transform: scale(1) rotate(0); } }
+@keyframes achievement-shine { from { transform: translateX(-100%) rotate(-25deg); } to { transform: translateX(100%) rotate(-25deg); } }
+@keyframes achievement-glint { 0% { opacity: 0; transform: scale(.2) rotate(45deg); } 35% { opacity: .8; } 100% { opacity: 0; transform: translate(var(--glint-x), var(--glint-y)) scale(.4) rotate(45deg); } }
+@keyframes achievement-copy-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes achievement-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+@media (max-width: 650px) {
+  .achievement-toast { right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); border-radius: 18px; }
+  .achievement-toast .achievement-toast-main { grid-template-columns: 56px minmax(0, 1fr); gap: 12px; padding: 20px 34px 19px 16px; }
+  .achievement-toast-emblem { width: 56px; height: 60px; margin-top: 10px; }
+  html[data-theme] .achievement-toast .achievement-medal { width: 52px; height: 52px; }
+  .achievement-toast .achievement-medal > svg { width: 24px; height: 24px; }
+  .achievement-toast-orbit { inset: -6px; width: 68px; height: 68px; }
+  .achievement-toast-copy strong { font-size: 15px; }
+  .achievement-toast-description { font-size: 11px; }
+  .achievement-toast-kicker { font-size: 9px; }
+  .achievement-toast-footer { margin-top: 12px; font-size: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .achievement-toast, .achievement-toast *, .achievement-toast *::after { animation: none !important; transition: none !important; }
+  .achievement-toast-halo, .achievement-toast-glints, .achievement-toast .achievement-medal::after { display: none; }
+  .achievement-toast-orbit circle { opacity: .3; }
+  .achievement-toast-timer { display: none; }
+}
