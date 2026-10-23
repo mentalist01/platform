@@ -60,20 +60,20 @@ test('historical XP credits once across tabs and survives unrelated saves and re
   try{
     const rawBefore=JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'))['student-a'];
     const results=await Promise.all([f.request('/api/student-achievements',token),f.request('/api/student-achievements',token)]);
-    // First solve chain = 50; five solutions of type 4 = 75.
-    assert.ok(results.every(result=>result.xpTotal===446&&result.achievementXpTotal===125));
+    // First solve chain = 150; five solutions of type 4 = 225.
+    assert.ok(results.every(result=>result.xpTotal===696&&result.achievementXpTotal===375));
     const claims=await Promise.all([f.request('/api/student-achievements/claim',token,{}),f.request('/api/student-achievements/claim',token,{})]);
-    assert.equal(claims.reduce((sum,result)=>sum+result.historicalXpGained,0),125);
+    assert.equal(claims.reduce((sum,result)=>sum+result.historicalXpGained,0),375);
     assert.deepEqual(claims.flatMap(result=>result.items),[]);
     const rawAfter=JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'))['student-a'];
     const unchanged=structuredClone(rawAfter);delete unchanged.achievementRewards;unchanged.xpTotal=rawBefore.xpTotal;
     assert.deepEqual(unchanged,rawBefore,'XP credit must preserve every unrelated raw progress field');
     await f.request('/api/student-notes',f.tokens['teacher-a'],{studentId:'student-a',notes:'Новая заметка'},'PATCH');
     const data=await f.request('/api/student-data?studentId=student-a',token);
-    assert.equal(data.xpTotal,446);assert.equal(data.coinsTotal,17);assert.equal(data.notes,'Новая заметка');
+    assert.equal(data.xpTotal,696);assert.equal(data.coinsTotal,17);assert.equal(data.notes,'Новая заметка');
     assert.deepEqual(data.solvedByTask[4].basic.solved,['old-1','old-2','old-3','old-4','old-5']);
     assert.equal((await f.request('/api/student-achievements/claim',token,{})).historicalXpGained,0);
-    assert.equal((await f.request('/api/student-achievements',token)).xpTotal,446);
+    assert.equal((await f.request('/api/student-achievements',token)).xpTotal,696);
   }finally{await f.stop();}
 });
 
@@ -81,12 +81,43 @@ test('first real answer includes achievement XP in the saved total and repeated 
   const f=await createGroupHomeworkFixture(),token=f.tokens['student-a'];
   try{
     const solved=await f.request('/api/progress/solve',token,{taskNumber:4,levelId:'basic',questionId:'ege-question',code:'17'});
-    assert.equal(solved.xpTotal,solved.xpGained+75); // first solution 50 + first practice day 25
+    assert.equal(solved.xpTotal,solved.xpGained+225); // first solution 150 + first practice day 75
     const claims=await f.request('/api/student-achievements/claim',token,{});
     assert.equal(claims.historicalXpGained,0);
-    assert.equal(claims.items.reduce((sum,item)=>sum+item.xpGained,0),75);
+    assert.equal(claims.items.reduce((sum,item)=>sum+item.xpGained,0),225);
     const repeated=await f.request('/api/progress/solve',token,{taskNumber:4,levelId:'basic',questionId:'ege-question',code:'17'});
     assert.equal(repeated.xpGained,0);assert.equal(repeated.xpTotal,solved.xpTotal);
     assert.deepEqual((await f.request('/api/student-achievements/claim',token,{})).items,[]);
+  }finally{await f.stop();}
+});
+
+test('existing paid version-one rewards receive the increase once without changing other progress', {timeout:60000}, async()=>{
+  const prior={xpTotal:1125,coinsTotal:19,notes:'Сохранить',solvedByTask:{4:{basic:{solved:['old-1','old-2','old-3','old-4','old-5']}}},achievementRewards:{version:1,chains:{egeSolved:50,'egeTask:4':75},notifications:{},total:125,historicalXp:125,historicalClaimedXp:125}};
+  const f=await createGroupHomeworkFixture(undefined,write=>write('progress',{'student-a':prior})),token=f.tokens['student-a'];
+  try{
+    const collections=await Promise.all([f.request('/api/student-achievements',token),f.request('/api/student-achievements',token)]);
+    assert.ok(collections.every(row=>row.xpTotal===1375&&row.achievementXpTotal===375));
+    const claims=await Promise.all([f.request('/api/student-achievements/claim',token,{}),f.request('/api/student-achievements/claim',token,{})]);
+    assert.equal(claims.reduce((sum,row)=>sum+row.historicalXpGained,0),250);
+    assert.deepEqual(claims.flatMap(row=>row.items),[]);
+    const after=JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'))['student-a'];
+    assert.equal(after.achievementRewards.version,2);assert.equal(after.achievementRewards.historicalClaimedXp,375);
+    assert.deepEqual({...after,xpTotal:prior.xpTotal,achievementRewards:prior.achievementRewards},prior);
+    await f.request('/api/student-notes',f.tokens['teacher-a'],{studentId:'student-a',notes:'После обновления'},'PATCH');
+    assert.equal((await f.request('/api/student-achievements',token)).xpTotal,1375);
+    assert.equal((await f.request('/api/student-achievements/claim',token,{})).historicalXpGained,0);
+  }finally{await f.stop();}
+});
+
+test('first answer after a reward increase separates the old-award top-up from the new practice-day reward', {timeout:60000}, async()=>{
+  const f=await createGroupHomeworkFixture(undefined,write=>write('progress',{'student-a':{xpTotal:1125,solvedByTask:{4:{basic:{solved:['old-1','old-2','old-3','old-4','old-5']}}},achievementRewards:{version:1,chains:{egeSolved:50,'egeTask:4':75},notifications:{},total:125,historicalXp:125,historicalClaimedXp:125}}})),token=f.tokens['student-a'];
+  try{
+    const result=await f.request('/api/progress/solve',token,{taskNumber:4,levelId:'basic',questionId:'ege-question',code:'17'});
+    assert.equal(result.xpTotal,1125+result.xpGained+250+75);
+    const claim=await f.request('/api/student-achievements/claim',token,{});
+    assert.equal(claim.historicalXpGained,250);
+    assert.deepEqual(claim.items.map(item=>[item.id,item.xpGained]),[['active-days-1',75]]);
+    assert.equal((await f.request('/api/student-achievements',token)).xpTotal,result.xpTotal);
+    assert.equal((await f.request('/api/student-achievements/claim',token,{})).historicalXpGained,0);
   }finally{await f.stop();}
 });

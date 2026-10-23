@@ -24,10 +24,10 @@ export default function AchievementMedal({ item, decorative = true }) {
         <path d="M24 25L34 15M68 81L78 71" stroke="var(--metal-light)" strokeWidth="2" />
       </>}
       {rarity === 'gold' && <>
-        <path d="M50 5L84 19L80 58Q74 81 50 97Q26 81 20 58L16 19Z" fill={`url(#${metal})`} stroke="var(--metal-edge)" />
-        <path d="M50 14L76 25L72 57Q67 75 50 87Q33 75 28 57L24 25Z" fill={`url(#${core})`} stroke="var(--metal-light)" strokeWidth="1.5" />
-        <path d="M32 66Q35 76 44 81M68 66Q65 76 56 81" fill="none" stroke="var(--metal-light)" strokeWidth="2" />
-        <path d="M50 72L53 77L50 82L47 77Z" fill="var(--metal-light)" />
+        <path d="M50 9L91 23L85 59Q78 79 50 91Q22 79 15 59L9 23Z" fill={`url(#${metal})`} stroke="var(--metal-edge)" strokeWidth="1.5" />
+        <path d="M50 18L81 29L76 57Q70 72 50 82Q30 72 24 57L19 29Z" fill={`url(#${core})`} stroke="var(--metal-light)" strokeWidth="2" />
+        <path d="M24 31L50 22L76 31M30 63Q36 72 44 75M70 63Q64 72 56 75" fill="none" stroke="var(--metal-light)" strokeWidth="1.5" />
+        <path d="M50 68L53 73L50 78L47 73Z" fill="var(--metal-light)" />
       </>}
       {rarity === 'diamond' && <>
         <path d="M50 2L80 16L94 43L81 74L50 100L19 74L6 43L20 16Z" fill={`url(#${metal})`} stroke="var(--metal-edge)" />

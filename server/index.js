@@ -47,7 +47,7 @@ import { IndividualLessonPaceStore } from './individualLessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
 import { StudentAchievementStore, achievementFacts } from './studentAchievements.js';
-import { normalizeAchievementRewards, mergeAchievementRewards, planAchievementRewards } from './achievementRewards.js';
+import { ACHIEVEMENT_REWARD_VERSION, normalizeAchievementRewards, mergeAchievementRewards, planAchievementRewards } from './achievementRewards.js';
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
@@ -33466,7 +33466,7 @@ const awardStudentAchievements = (student, before, after, tests, exams) => {
   try {
     const baselineFacts = studentAchievementFacts(student, before, tests, exams);
     const collection = studentAchievementStore.evaluate(student.id, studentAchievementFacts(student, after, tests, exams), { baselineFacts });
-    const baselineIds = collection.items.filter(item => item.unlocked && (baselineFacts[item.metric] || 0) >= item.target).map(item => item.id);
+    const baselineIds = collection.items.filter(item => item.unlocked && (item.seenAt || item.historical || (baselineFacts[item.metric] || 0) >= item.target)).map(item => item.id);
     const credited = creditAchievementRewards(student, after, collection, baselineIds);
     Object.assign(after, credited.data);
     return credited.collection;
@@ -33486,7 +33486,7 @@ const saveStudentAchievementRewards = (studentId, data, incoming) => {
   return { ...data, xpTotal, achievementRewards: rewards };
 };
 const creditAchievementRewards = (student, data, collection, baselineIds = collection.items.filter(item => item.unlocked).map(item => item.id)) => {
-  const planned = planAchievementRewards(data.achievementRewards, collection.items, { baselineIds, initialize: !data.achievementRewards });
+  const planned = planAchievementRewards(data.achievementRewards, collection.items, { baselineIds, initialize: !data.achievementRewards || normalizeAchievementRewards(data.achievementRewards).version < ACHIEVEMENT_REWARD_VERSION });
   const updated = planned.xpGained > 0
     ? saveStudentAchievementRewards(student.id, data, planned.rewards) : data;
   const rewards = normalizeAchievementRewards(updated.achievementRewards);

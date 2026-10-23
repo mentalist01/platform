@@ -10,7 +10,7 @@ export const ACHIEVEMENT_CATEGORIES = [
 export const ACHIEVEMENT_RARITIES = {
   bronze: { title: 'Бронза', color: '#a67b58' },
   silver: { title: 'Серебро', color: '#8495ad' },
-  gold: { title: 'Золото', color: '#c18b2e' },
+  gold: { title: 'Золото', color: '#d2a52b' },
   diamond: { title: 'Алмаз', color: '#7971ce' },
 };
 export const ACHIEVEMENT_RARITY_ORDER = ['diamond', 'gold', 'silver', 'bronze'];
@@ -74,5 +74,5 @@ export const ACHIEVEMENT_CATALOG = definitions.map(item => {
   const amounts = item.metric.startsWith('egeTask:') ? [75, 250]
     : item.metric.startsWith('pythonTopic:') ? [75]
       : item.metric.startsWith('pythonComplete:') ? [350] : XP_STEPS[item.metric];
-  return { ...item, rewardChain: item.metric, xpReward: amounts[chain.findIndex(entry => entry.id === item.id)] };
+  return { ...item, rewardChain: item.metric, xpReward: 3 * amounts[chain.findIndex(entry => entry.id === item.id)] };
 });

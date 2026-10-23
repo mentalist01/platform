@@ -39,7 +39,7 @@ html[data-theme=dark] .achievements-categories button[aria-pressed=true]{color:c
 .achievement-tier-choice .achievement-medal-symbol{width:18px;height:18px}
 .achievement-tier-choice>span:last-child{font-size:14px;font-weight:650}
 .achievement-tier-choice small{display:block;font-size:11px;font-weight:400;color:var(--ach-muted);margin-top:4px}
-.achievement-tier-choice--diamond{--tier-accent:#7971ce}.achievement-tier-choice--gold{--tier-accent:#c18b2e}.achievement-tier-choice--silver{--tier-accent:#8495ad}.achievement-tier-choice--bronze{--tier-accent:#a67b58}
+.achievement-tier-choice--diamond{--tier-accent:#7971ce}.achievement-tier-choice--gold{--tier-accent:#d2a52b}.achievement-tier-choice--silver{--tier-accent:#8495ad}.achievement-tier-choice--bronze{--tier-accent:#a67b58}
 .achievement-tier-choice:hover,.achievement-tier-choice[aria-pressed=true]{border-color:var(--tier-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--tier-accent) 13%,transparent)}
 .achievement-tier{margin:0 0 34px;--tier-line:color-mix(in srgb,var(--achievement-accent) 30%,var(--ach-line))}
 .achievement-tier-heading{display:flex;align-items:center;gap:12px;margin:0 0 14px;border-bottom:1px solid var(--tier-line);padding:0 0 12px}
@@ -49,23 +49,23 @@ html[data-theme=dark] .achievements-categories button[aria-pressed=true]{color:c
 .achievement-tier-heading>span:last-child{margin-left:auto;color:var(--ach-muted);font-size:12px}
 .achievement-card{position:relative;padding:21px;min-height:250px;overflow:hidden;border-color:var(--ach-line);background:var(--ach-paper)}
 .achievement-card--unlocked{border-top:1px solid var(--ach-line);border-color:var(--ach-line);background:var(--ach-paper)}
+.achievement-tier .achievement-card--unlocked{border-color:color-mix(in srgb,var(--achievement-accent) 75%,var(--ach-line));background:radial-gradient(ellipse at 0 0,color-mix(in srgb,var(--achievement-accent) 26%,var(--ach-paper)),transparent 85%),linear-gradient(135deg,color-mix(in srgb,var(--achievement-accent) 13%,var(--ach-paper)),color-mix(in srgb,var(--achievement-accent) 19%,var(--ach-paper)));box-shadow:inset 0 0 0 3px color-mix(in srgb,var(--ach-paper) 60%,transparent),0 4px 12px color-mix(in srgb,var(--achievement-accent) 9%,transparent)}
+.achievement-card--unlocked::after{content:'';position:absolute;inset:10px auto 10px 0;width:4px;background:var(--achievement-accent);border-radius:0 4px 4px 0;pointer-events:none}
 .achievement-card h4{font-size:15px;font-weight:700;line-height:1.5;margin:13px 0 7px;letter-spacing:-.2px;color:var(--ach-ink)}
 .achievement-card p{font-size:13px;margin-bottom:18px}
 .achievement-card .achievement-medal{width:58px;height:62px}
-.achievement-status--earned{background:transparent;color:var(--ach-green);padding:0;font-weight:600}
+.achievement-status--earned{background:color-mix(in srgb,var(--ach-paper) 70%,transparent);color:color-mix(in srgb,var(--achievement-accent) 50%,var(--ach-ink));padding:5px 7px;border:1px solid color-mix(in srgb,var(--achievement-accent) 30%,var(--ach-line));border-radius:7px;font-weight:650}
 .achievement-card-reward{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:7px;margin-top:auto;padding-top:12px;border-top:1px solid var(--ach-line);font-variant-numeric:tabular-nums}
 .achievement-card-reward>span{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:650;color:color-mix(in srgb,var(--achievement-accent) 60%,var(--ach-ink))}
 .achievement-card-reward>span>svg{stroke:currentColor;color:inherit}
 .achievement-card-reward time{font-size:10px;color:var(--ach-muted)}
 .achievement-locked{border-top:0;padding-top:12px}
-.achievement-tier--bronze .achievement-card--unlocked{border-color:color-mix(in srgb,#a67b58 25%,var(--ach-line))}
-.achievement-tier--silver .achievement-card--unlocked{border-color:color-mix(in srgb,#8495ad 55%,var(--ach-line));background:linear-gradient(150deg,color-mix(in srgb,#8495ad 4%,var(--ach-paper)),var(--ach-paper) 60%)}
-.achievement-tier--gold .achievement-card{border-color:color-mix(in srgb,#c18b2e 42%,var(--ach-line));background:linear-gradient(135deg,color-mix(in srgb,#c18b2e 6%,var(--ach-paper)),var(--ach-paper) 65%)}
-.achievement-tier--gold .achievement-card--unlocked{border-color:#c18b2e;box-shadow:inset 0 0 0 3px var(--ach-paper),inset 0 0 0 4px color-mix(in srgb,#c18b2e 30%,var(--ach-paper))}
+.achievement-tier--gold .achievement-card{border-color:color-mix(in srgb,#d2a52b 42%,var(--ach-line))}
+.achievement-tier--gold .achievement-card--unlocked{border-color:#d2a52b;box-shadow:inset 0 0 0 3px color-mix(in srgb,var(--ach-paper) 65%,transparent),inset 0 0 0 4px color-mix(in srgb,#d2a52b 40%,var(--ach-paper)),0 4px 16px #d2a52b18}
 .achievement-tier--gold .achievement-card .achievement-medal{width:70px;height:75px}
-.achievement-tier--diamond .achievement-card{min-height:282px;border-color:color-mix(in srgb,#7971ce 48%,var(--ach-line));background:linear-gradient(130deg,color-mix(in srgb,#7971ce 8%,var(--ach-paper)),var(--ach-paper) 58%)}
+.achievement-tier--diamond .achievement-card{min-height:282px;border-color:color-mix(in srgb,#7971ce 48%,var(--ach-line))}
 .achievement-tier--diamond .achievement-card::before{content:'';position:absolute;top:0;right:0;width:80px;height:80px;pointer-events:none;background:linear-gradient(135deg,transparent 46%,color-mix(in srgb,#a5badc 16%,transparent) 47%,color-mix(in srgb,#7971ce 8%,transparent) 70%,transparent 71%);clip-path:polygon(0 0,100% 0,100% 100%)}
-.achievement-tier--diamond .achievement-card--unlocked{border-color:#8c86ce;box-shadow:inset 0 0 0 3px var(--ach-paper),inset 0 0 0 4px color-mix(in srgb,#7971ce 33%,var(--ach-paper)),0 5px 18px #7971ce12}
+.achievement-tier--diamond .achievement-card--unlocked{border-color:#8c86ce;box-shadow:inset 0 0 0 3px color-mix(in srgb,var(--ach-paper) 65%,transparent),inset 0 0 0 4px color-mix(in srgb,#7971ce 45%,var(--ach-paper)),0 5px 18px #7971ce20}
 .achievement-tier--diamond .achievement-card .achievement-medal{width:79px;height:85px}
 .achievement-tier--diamond .achievement-card h4{font-size:17px}
 .achievement-tier--diamond .achievement-card-reward>span{color:var(--ach-purple)}

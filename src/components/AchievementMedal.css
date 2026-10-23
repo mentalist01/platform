@@ -5,7 +5,7 @@
   width:62px;height:66px;isolation:isolate;
 }
 .achievement-medal--silver{--metal-light:#eef2f7;--metal-mid:#bcc8d6;--metal-edge:#8191a5;--core-light:#dfe6ef;--core-deep:#aab9cc;--medal-ink:#465a72}
-.achievement-medal--gold{--metal-light:#fff1bd;--metal-mid:#e4be65;--metal-edge:#ac7627;--core-light:#d7aa4e;--core-deep:#98601c;--medal-ink:#fff4cf}
+.achievement-medal--gold{--metal-light:#fff5bd;--metal-mid:#f2cf59;--metal-edge:#c99d2a;--core-light:#f9dc6c;--core-deep:#d4a51e;--medal-ink:#745609;filter:drop-shadow(0 3px 6px #c99d2a24)}
 .achievement-medal--diamond{--metal-light:#e1f7ff;--metal-mid:#aba9e9;--metal-edge:#7770b1;--core-light:#7d7bd1;--core-deep:#343d88;--medal-ink:#f5f9ff;filter:drop-shadow(0 3px 8px #6d68ae30)}
 .achievement-medal .achievement-medal-frame{position:absolute;inset:0;width:100%;height:100%;margin:0;stroke:none;fill:none}
 .achievement-medal .achievement-medal-symbol{position:relative;width:25px;height:25px;margin:0 0 4px;color:var(--medal-ink);stroke:currentColor;fill:none}
