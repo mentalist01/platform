@@ -46,6 +46,7 @@ import { createLessonPaceStore, registerLessonPace } from './lessonPace.js';
 import { IndividualLessonPaceStore } from './individualLessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
+import { StudentAchievementStore, achievementFacts } from './studentAchievements.js';
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
@@ -33257,6 +33258,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     homeworkIds: homeworkAssignment ? [homeworkAssignment.id] : [],
   });
   const updated = setStudentData(student.id, homeworkChestAward.data);
+  if (isAttemptFinishRequest) awardStudentAchievements(student, data, updated, readTestsDbForStudent(student), list);
   if (homeworkAssignment) {
     notifyScheduleSyncUpdate({
       scope: 'homework-progress',
@@ -33442,6 +33444,45 @@ app.patch('/api/teacher-code', (req, res) => {
   };
   writeTeachersDb(teachers);
   res.json({ ok: true });
+});
+
+const studentAchievementStore = new StudentAchievementStore(path.join(dataDir, 'student-achievements'), { write: writeFileAtomic });
+const studentAchievementFacts = (student, data, tests = readTestsDbForStudent(student), exams = readMockExamsDb()) => {
+  const eligibleExams = exams.filter(exam => !isPersonalRandomMockExam(exam));
+  const legacyCompletions = collectMonthlyMockCompletions(data, eligibleExams).map(completion => ({
+    ...completion, secondaryScore: getMonthlyMockCompletionDetails(data, completion).score,
+  }));
+  return achievementFacts({ ...data, mockCompletionEvents: [...(data.mockCompletionEvents || []), ...legacyCompletions] }, {
+    tests, mockExams: eligibleExams,
+    pythonTaskIds: [...getLeaderboardProfilePythonTaskMap(tests).keys()],
+  });
+};
+const awardStudentAchievements = (student, before, after, tests, exams) => {
+  try {
+    return studentAchievementStore.evaluate(student.id, studentAchievementFacts(student, after, tests, exams), {
+      baselineFacts: studentAchievementFacts(student, before, tests, exams),
+    });
+  } catch (error) {
+    // An optional reward must never turn an already saved solution into an error.
+    console.warn('[achievements] award deferred:', error?.message || error);
+    return null;
+  }
+};
+app.get('/api/student-achievements', (req, res) => {
+  if (isStudentRole(req.auth) && req.query.studentId && req.query.studentId !== req.auth.id) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.query.studentId || req.auth?.id);
+  if (!student) return;
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(studentAchievementStore.evaluate(student.id, studentAchievementFacts(student, getStudentData(student.id))));
+  } catch (error) { console.warn('[achievements] collection unavailable:', error?.message || error); return res.status(503).json({ error: 'Не удалось загрузить достижения. Попробуйте ещё раз.' }); }
+});
+app.post('/api/student-achievements/claim', (req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  if (req.body?.studentId && req.body.studentId !== req.auth.id) return forbid(res);
+  const student = ensureStudentAccess(req, res, req.auth.id); if (!student) return;
+  try { return res.json({ items: studentAchievementStore.claim(student.id) }); }
+  catch (error) { console.warn('[achievements] notification unavailable:', error?.message || error); return res.status(503).json({ error: 'Уведомления пока недоступны.' }); }
 });
 
 app.get('/api/progress', (req, res) => {
@@ -33857,6 +33898,7 @@ app.post('/api/progress/solve', async (req, res) => {
   });
   const updated = setStudentData(student.id, homeworkChestAward.data);
   if (solvedAdded) {
+    awardStudentAchievements(student, data, updated, testsDb, readMockExamsDb());
     notifyScheduleSyncUpdate({
       scope: 'homework-progress',
       action: 'homework-progress-updated',

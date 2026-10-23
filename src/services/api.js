@@ -57,6 +57,7 @@ export const parseApiError = async (res) => {
 };
 
 export const HOMEWORK_CHEST_GRANTED_EVENT = 'platform:homework-chest-granted';
+export const ACHIEVEMENT_PROGRESS_EVENT = 'platform:achievement-progress-changed';
 
 const notifyHomeworkChestGranted = (payload) => {
   const chest = payload?.homeworkChestGranted;
@@ -200,6 +201,11 @@ export const apiFetch = async (input, init = {}) => {
     } catch {
       // Ignore errors inside the user-provided unauthorized handler.
     }
+  }
+  if (res.ok && method !== 'GET' && getStoredAuthToken() === authTokenAtRequest
+    && /^\/api\/(progress\/solve|mock-exams\/attempt)(?:\?|$)/.test(String(input))
+    && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(ACHIEVEMENT_PROGRESS_EVENT));
   }
   return res;
 };
@@ -508,6 +514,8 @@ export const requestLearningGroupJson = async (path, options = {}) => {
 };
 
 export const api = {
+  getAchievements: studentId => requestLearningGroupJson(`/api/student-achievements${studentId ? `?studentId=${encodeURIComponent(studentId)}` : ''}`),
+  claimAchievementNotifications: () => requestLearningGroupJson('/api/student-achievements/claim', { method: 'POST', body: {} }),
   getTeacherCalendarEdits: teacherId => requestLearningGroupJson(`/api/teacher-calendar/edits?teacherId=${encodeURIComponent(teacherId || '')}`),
   saveTeacherCalendarEdit: (body, teacherId) => requestLearningGroupJson('/api/teacher-calendar/edits', { method: 'POST', body: { ...body, teacherId } }),
   resolveTeacherCalendarEdit: (id, action, teacherId) => requestLearningGroupJson(`/api/teacher-calendar/edits/${encodeURIComponent(id)}/${action}`, { method: 'POST', body: { teacherId } }),
