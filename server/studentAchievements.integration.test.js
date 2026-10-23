@@ -53,3 +53,40 @@ test('timed finish awards without waiting for a collection GET and keeps the tim
     assert.ok(result.finishedAt || result.timerFinishedAt || result.status==='finished');
   }finally{await f.stop();}
 });
+
+test('historical XP credits once across tabs and survives unrelated saves and reopening',{timeout:60000},async()=>{
+  const f=await createGroupHomeworkFixture(undefined,write=>write('progress',{'student-a':{xpTotal:321,coinsTotal:17,notes:'Сохранить заметку',solvedByTask:{4:{basic:{solved:['old-1','old-2','old-3','old-4','old-5']}}}}}));
+  const token=f.tokens['student-a'];
+  try{
+    const rawBefore=JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'))['student-a'];
+    const results=await Promise.all([f.request('/api/student-achievements',token),f.request('/api/student-achievements',token)]);
+    // First solve chain = 50; five solutions of type 4 = 75.
+    assert.ok(results.every(result=>result.xpTotal===446&&result.achievementXpTotal===125));
+    const claims=await Promise.all([f.request('/api/student-achievements/claim',token,{}),f.request('/api/student-achievements/claim',token,{})]);
+    assert.equal(claims.reduce((sum,result)=>sum+result.historicalXpGained,0),125);
+    assert.deepEqual(claims.flatMap(result=>result.items),[]);
+    const rawAfter=JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'))['student-a'];
+    const unchanged=structuredClone(rawAfter);delete unchanged.achievementRewards;unchanged.xpTotal=rawBefore.xpTotal;
+    assert.deepEqual(unchanged,rawBefore,'XP credit must preserve every unrelated raw progress field');
+    await f.request('/api/student-notes',f.tokens['teacher-a'],{studentId:'student-a',notes:'Новая заметка'},'PATCH');
+    const data=await f.request('/api/student-data?studentId=student-a',token);
+    assert.equal(data.xpTotal,446);assert.equal(data.coinsTotal,17);assert.equal(data.notes,'Новая заметка');
+    assert.deepEqual(data.solvedByTask[4].basic.solved,['old-1','old-2','old-3','old-4','old-5']);
+    assert.equal((await f.request('/api/student-achievements/claim',token,{})).historicalXpGained,0);
+    assert.equal((await f.request('/api/student-achievements',token)).xpTotal,446);
+  }finally{await f.stop();}
+});
+
+test('first real answer includes achievement XP in the saved total and repeated solves grant zero',{timeout:60000},async()=>{
+  const f=await createGroupHomeworkFixture(),token=f.tokens['student-a'];
+  try{
+    const solved=await f.request('/api/progress/solve',token,{taskNumber:4,levelId:'basic',questionId:'ege-question',code:'17'});
+    assert.equal(solved.xpTotal,solved.xpGained+75); // first solution 50 + first practice day 25
+    const claims=await f.request('/api/student-achievements/claim',token,{});
+    assert.equal(claims.historicalXpGained,0);
+    assert.equal(claims.items.reduce((sum,item)=>sum+item.xpGained,0),75);
+    const repeated=await f.request('/api/progress/solve',token,{taskNumber:4,levelId:'basic',questionId:'ege-question',code:'17'});
+    assert.equal(repeated.xpGained,0);assert.equal(repeated.xpTotal,solved.xpTotal);
+    assert.deepEqual((await f.request('/api/student-achievements/claim',token,{})).items,[]);
+  }finally{await f.stop();}
+});

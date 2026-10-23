@@ -8,11 +8,12 @@ export const ACHIEVEMENT_CATEGORIES = [
   { id: 'growth', title: 'Прогресс', icon: 'sparkles' },
 ];
 export const ACHIEVEMENT_RARITIES = {
-  bronze: { title: 'Бронза', color: '#f17b14' },
-  silver: { title: 'Серебро', color: '#006aff' },
-  gold: { title: 'Золото', color: '#ffb800' },
-  diamond: { title: 'Алмаз', color: '#9028ff' },
+  bronze: { title: 'Бронза', color: '#a67b58' },
+  silver: { title: 'Серебро', color: '#8495ad' },
+  gold: { title: 'Золото', color: '#c18b2e' },
+  diamond: { title: 'Алмаз', color: '#7971ce' },
 };
+export const ACHIEVEMENT_RARITY_ORDER = ['diamond', 'gold', 'silver', 'bronze'];
 export const ACHIEVEMENT_PYTHON_TOPICS = [
   [101, 'Ввод и вывод', 'Ввод и вывод · 5 задач'], [102, 'Переменные', 'Переменные · 5 задач'],
   [103, 'Условия', 'Условия · 5 задач'], [104, 'Вычисления', 'Вычисления · 5 задач'],
@@ -26,7 +27,7 @@ const series = (prefix, category, metric, thresholds, titles, describe) => thres
   id: `${prefix}-${target}`, category, metric, target, title: titles[index],
   description: describe(target), rarity: rarityAt(index, thresholds.length),
 }));
-export const ACHIEVEMENT_CATALOG = [
+const definitions = [
   ...series('ege-solves', 'ege', 'egeSolved', [1, 10, 25, 50, 100, 250, 500, 1000],
     ['Первая задача ЕГЭ', '10 задач ЕГЭ', '25 задач ЕГЭ', '50 задач ЕГЭ', '100 задач ЕГЭ', '250 задач ЕГЭ', '500 задач ЕГЭ', '1000 задач ЕГЭ'], n => `Верно решить ${n === 1 ? 'первую задачу' : `${n} разных задач`} ЕГЭ вне пробников.`),
   ...CLASSIC_TASK_SLOT_NUMBERS.flatMap(number => [5, 25].map((target, index) => ({
@@ -52,3 +53,26 @@ export const ACHIEVEMENT_CATALOG = [
   ...series('python-breadth', 'python', 'pythonBreadth', [3, 7, 11], ['3 темы Python', '7 тем Python', '11 тем Python'], n => `Решить хотя бы по одной задаче в ${n} основных темах Python.`),
   ...series('mixed-days', 'practice', 'mixedDays', [1, 5, 10], ['ЕГЭ и Python за день', 'ЕГЭ и Python · 5 дней', 'ЕГЭ и Python · 10 дней'], n => `${n === 1 ? 'В один день' : `В ${n} разных дней`} решить новую задачу ЕГЭ и новую задачу Python.`),
 ];
+
+// Each number is the total entitlement for a chain, not an extra payout.
+const XP_STEPS = {
+  egeSolved: [50, 100, 200, 250, 400, 700, 1000, 1500],
+  pythonSolved: [50, 100, 150, 250, 400, 650, 1000],
+  mockCount: [200, 350, 600, 1000],
+  mockBest: [100, 200, 300, 500, 700, 850, 1000, 1500],
+  mockGrowth: [150, 300, 500, 800],
+  activeDays: [25, 50, 150, 250, 500, 750, 1000],
+  streakBest: [75, 150, 300, 600],
+  corrected: [25, 50, 100, 200, 350],
+  homeworkCompleted: [100, 200, 400, 700],
+  egeBreadth: [100, 200, 400],
+  pythonBreadth: [100, 250, 500],
+  mixedDays: [50, 100, 200],
+};
+export const ACHIEVEMENT_CATALOG = definitions.map(item => {
+  const chain = definitions.filter(entry => entry.metric === item.metric).sort((a, b) => a.target - b.target);
+  const amounts = item.metric.startsWith('egeTask:') ? [75, 250]
+    : item.metric.startsWith('pythonTopic:') ? [75]
+      : item.metric.startsWith('pythonComplete:') ? [350] : XP_STEPS[item.metric];
+  return { ...item, rewardChain: item.metric, xpReward: amounts[chain.findIndex(entry => entry.id === item.id)] };
+});

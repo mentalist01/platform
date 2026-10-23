@@ -47,6 +47,7 @@ import { IndividualLessonPaceStore } from './individualLessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
 import { StudentAchievementStore, achievementFacts } from './studentAchievements.js';
+import { normalizeAchievementRewards, mergeAchievementRewards, planAchievementRewards } from './achievementRewards.js';
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
 import { HomeworkReminderStore, registerHomeworkReminderRoutes } from './homeworkReminders.js';
@@ -14906,7 +14907,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
     );
     const derivedCoins = Math.max(derivedSolvedCoins, derivedEventsCoins) + derivedMockCoins;
     const coinsSpentTotal = normalizeCoinsSpentTotal(raw.coinsSpentTotal);
-    const minXpTotal = normalizeXpTotal(derivedXp + instantArtifactRewards.xp);
+    const minXpTotal = normalizeXpTotal(derivedXp + instantArtifactRewards.xp + normalizeAchievementRewards(raw.achievementRewards).total);
     const minCoinsTotal = Math.max(0, normalizeCoinsTotal(derivedCoins + instantArtifactRewards.coins) - coinsSpentTotal);
     const storedXpTotal = normalizeXpTotal(raw.xpTotal);
     const xpTotal = hasStoredXp ? storedXpTotal : minXpTotal;
@@ -14941,6 +14942,7 @@ const getStudentData = (studentId, progressDbOverride = null) => {
       mockTestingQueue: normalizeMockExamFollowupQueue(raw.mockTestingQueue),
       randomMockSolvedByTask: normalizeRandomMockSolvedByTask(raw.randomMockSolvedByTask),
       xpTotal,
+      achievementRewards: raw.achievementRewards ? normalizeAchievementRewards(raw.achievementRewards) : null,
       coinsTotal,
       mockTimerChestsTotal: normalizeCoinsTotal(raw.mockTimerChestsTotal),
       mockTimerChests: normalizeMockTimerChestQueue(raw.mockTimerChests),
@@ -15013,6 +15015,8 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
   const db = progressDbOverride && typeof progressDbOverride === 'object' && !Array.isArray(progressDbOverride)
     ? progressDbOverride
     : readProgressDb();
+  const suppliedAchievementRewards = normalizeAchievementRewards(data.achievementRewards);
+  const achievementRewards = mergeAchievementRewards(db[studentId]?.achievementRewards, data.achievementRewards);
   const payload = {
     progress: data.progress || {},
     notes: data.notes || '',
@@ -15035,7 +15039,8 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     monthlyMockExemptions: normalizeMonthlyMockExemptions(data.monthlyMockExemptions),
     mockTestingQueue: normalizeMockExamFollowupQueue(data.mockTestingQueue),
     randomMockSolvedByTask: normalizeRandomMockSolvedByTask(data.randomMockSolvedByTask),
-    xpTotal: normalizeXpTotal(data.xpTotal),
+    xpTotal: normalizeXpTotal(data.xpTotal) + achievementRewards.total - suppliedAchievementRewards.total,
+    ...(data.achievementRewards || db[studentId]?.achievementRewards ? { achievementRewards } : {}),
     coinsTotal: normalizeCoinsTotal(data.coinsTotal),
     mockTimerChestsTotal: normalizeCoinsTotal(data.mockTimerChestsTotal),
     mockTimerChests: normalizeMockTimerChestQueue(data.mockTimerChests),
@@ -33459,14 +33464,34 @@ const studentAchievementFacts = (student, data, tests = readTestsDbForStudent(st
 };
 const awardStudentAchievements = (student, before, after, tests, exams) => {
   try {
-    return studentAchievementStore.evaluate(student.id, studentAchievementFacts(student, after, tests, exams), {
-      baselineFacts: studentAchievementFacts(student, before, tests, exams),
-    });
+    const baselineFacts = studentAchievementFacts(student, before, tests, exams);
+    const collection = studentAchievementStore.evaluate(student.id, studentAchievementFacts(student, after, tests, exams), { baselineFacts });
+    const baselineIds = collection.items.filter(item => item.unlocked && (baselineFacts[item.metric] || 0) >= item.target).map(item => item.id);
+    const credited = creditAchievementRewards(student, after, collection, baselineIds);
+    Object.assign(after, credited.data);
+    return credited.collection;
   } catch (error) {
     // An optional reward must never turn an already saved solution into an error.
     console.warn('[achievements] award deferred:', error?.message || error);
     return null;
   }
+};
+const saveStudentAchievementRewards = (studentId, data, incoming) => {
+  const db = readProgressDb(), raw = db[studentId] || {};
+  const previous = normalizeAchievementRewards(raw.achievementRewards), rewards = mergeAchievementRewards(raw.achievementRewards, incoming);
+  const baseXp = Object.prototype.hasOwnProperty.call(raw, 'xpTotal') ? normalizeXpTotal(raw.xpTotal) : normalizeXpTotal(data.xpTotal);
+  const xpTotal = baseXp + rewards.total - previous.total;
+  db[studentId] = { ...raw, xpTotal, achievementRewards: rewards };
+  writeProgressDb(db);
+  return { ...data, xpTotal, achievementRewards: rewards };
+};
+const creditAchievementRewards = (student, data, collection, baselineIds = collection.items.filter(item => item.unlocked).map(item => item.id)) => {
+  const planned = planAchievementRewards(data.achievementRewards, collection.items, { baselineIds, initialize: !data.achievementRewards });
+  const updated = planned.xpGained > 0
+    ? saveStudentAchievementRewards(student.id, data, planned.rewards) : data;
+  const rewards = normalizeAchievementRewards(updated.achievementRewards);
+  return { data: updated, collection: { ...collection, xpGained: planned.xpGained, xpTotal: updated.xpTotal, achievementXpTotal: rewards.total, historicalXpPending: rewards.historicalXp - rewards.historicalClaimedXp,
+    items: collection.items.map(item => ({ ...item, xpGained: rewards.notifications[item.id] || 0 })) } };
 };
 app.get('/api/student-achievements', (req, res) => {
   if (isStudentRole(req.auth) && req.query.studentId && req.query.studentId !== req.auth.id) return forbid(res);
@@ -33474,14 +33499,22 @@ app.get('/api/student-achievements', (req, res) => {
   if (!student) return;
   try {
     res.setHeader('Cache-Control', 'no-store');
-    return res.json(studentAchievementStore.evaluate(student.id, studentAchievementFacts(student, getStudentData(student.id))));
+    const data = getStudentData(student.id), collection = studentAchievementStore.evaluate(student.id, studentAchievementFacts(student, data));
+    return res.json(isStudentRole(req.auth) ? creditAchievementRewards(student, data, collection).collection : { ...collection, xpTotal: data.xpTotal, achievementXpTotal: normalizeAchievementRewards(data.achievementRewards).total });
   } catch (error) { console.warn('[achievements] collection unavailable:', error?.message || error); return res.status(503).json({ error: 'Не удалось загрузить достижения. Попробуйте ещё раз.' }); }
 });
 app.post('/api/student-achievements/claim', (req, res) => {
   if (!isStudentRole(req.auth)) return forbid(res);
   if (req.body?.studentId && req.body.studentId !== req.auth.id) return forbid(res);
   const student = ensureStudentAccess(req, res, req.auth.id); if (!student) return;
-  try { return res.json({ items: studentAchievementStore.claim(student.id) }); }
+  try {
+    const data = getStudentData(student.id), collection = studentAchievementStore.evaluate(student.id, studentAchievementFacts(student, data));
+    const credited = creditAchievementRewards(student, data, collection), rewards = normalizeAchievementRewards(credited.data.achievementRewards);
+    const historicalXpGained = rewards.historicalXp - rewards.historicalClaimedXp;
+    if (historicalXpGained > 0) saveStudentAchievementRewards(student.id, credited.data, { ...rewards, historicalClaimedXp: rewards.historicalXp });
+    const items = studentAchievementStore.claim(student.id).map(item => ({ ...item, xpGained: rewards.notifications[item.id] || 0 }));
+    return res.json({ items, historicalXpGained, xpTotal: credited.data.xpTotal, achievementXpTotal: rewards.total });
+  }
   catch (error) { console.warn('[achievements] notification unavailable:', error?.message || error); return res.status(503).json({ error: 'Уведомления пока недоступны.' }); }
 });
 

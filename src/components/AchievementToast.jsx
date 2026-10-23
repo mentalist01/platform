@@ -48,9 +48,10 @@ export default function AchievementToast({ item, badge, additionalCount = 0, onD
         <span className="achievement-toast-glints"><i /><i /><i /></span>
       </span>
       <span className="achievement-toast-copy">
-        <span className="achievement-toast-kicker"><Check size={12} strokeWidth={2.4} />Достижение получено</span>
+        <span className="achievement-toast-kicker"><Check size={12} strokeWidth={2.4} />{item.summary ? 'Опыт начислен' : 'Достижение получено'}</span>
         <strong>{item.title}</strong>
         <span className="achievement-toast-description">{item.description}</span>
+        {item.xpGained > 0 && <span className="achievement-toast-xp">+{item.xpGained.toLocaleString('ru-RU')} XP</span>}
         <span className="achievement-toast-footer"><span className="achievement-toast-tier">{ACHIEVEMENT_RARITIES[item.rarity].title}{additionalCount > 0 && <span className="achievement-toast-count">+{additionalCount}</span>}</span><span className="achievement-toast-link">Коллекция <ArrowUpRight size={13} /></span></span>
       </span>
     </button>

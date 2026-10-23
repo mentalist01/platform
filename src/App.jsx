@@ -26458,7 +26458,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               getMockAnswerCountForTask={getMockAnswerCountForTask}
             />
           )}
-          {user.role === 'student' && <StudentAchievements key={user.id} user={user} open={view === 'achievements'} quiet={['call', 'board', 'collab', 'lesson'].includes(view)} onOpen={() => navigateToView('achievements')} />}
+          {user.role === 'student' && <StudentAchievements key={user.id} user={user} onXpGain={handleXpGain} open={view === 'achievements'} quiet={['call', 'board', 'collab', 'lesson'].includes(view)} onOpen={() => navigateToView('achievements')} />}
           {view === 'rating' && (
             <StudentLeaderboardSection
               role={user.role}

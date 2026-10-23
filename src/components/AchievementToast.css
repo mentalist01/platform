@@ -91,17 +91,11 @@ html[data-theme=dark] .achievement-toast--diamond { --toast-accent-ink: #c5a8f4;
   animation: achievement-orbit 850ms cubic-bezier(.2, .8, .3, 1) 100ms both;
 }
 html[data-theme] .achievement-toast .achievement-medal {
-  --ach-paper: var(--toast-paper);
   position: relative;
-  overflow: hidden;
   width: 60px; height: 60px;
-  color: var(--medal);
-  background: linear-gradient(145deg,var(--medal-start),var(--medal-end));
-  border: 1px solid var(--medal-end);
-  box-shadow: inset 0 0 0 4px #ffffff26,0 5px 14px color-mix(in srgb,var(--medal-end) 27%,transparent);
   animation: achievement-medal-reveal 720ms cubic-bezier(.2, .8, .3, 1) 100ms both;
 }
-.achievement-toast .achievement-medal > svg { width: 27px; height: 27px; stroke: currentColor; }
+.achievement-toast .achievement-medal .achievement-medal-symbol { width: 27px; height: 27px; stroke: currentColor; }
 .achievement-toast .achievement-medal::after {
   content: '';
   position: absolute;
@@ -165,7 +159,7 @@ html[data-theme] .achievement-toast .achievement-medal {
   .achievement-toast .achievement-toast-main { grid-template-columns: 56px minmax(0, 1fr); gap: 12px; padding: 20px 34px 19px 16px; }
   .achievement-toast-emblem { width: 56px; height: 60px; margin-top: 10px; }
   html[data-theme] .achievement-toast .achievement-medal { width: 52px; height: 52px; }
-  .achievement-toast .achievement-medal > svg { width: 24px; height: 24px; }
+  .achievement-toast .achievement-medal .achievement-medal-symbol { width: 24px; height: 24px; }
   .achievement-toast-orbit { inset: -6px; width: 68px; height: 68px; }
   .achievement-toast-copy strong { font-size: 15px; }
   .achievement-toast-description { font-size: 11px; }
@@ -178,3 +172,5 @@ html[data-theme] .achievement-toast .achievement-medal {
   .achievement-toast-orbit circle { opacity: .3; }
   .achievement-toast-timer { display: none; }
 }
+.achievement-toast--bronze .achievement-toast-halo,.achievement-toast--bronze .achievement-toast-orbit,.achievement-toast--bronze .achievement-toast-glints,.achievement-toast--silver .achievement-toast-glints{display:none}
+.achievement-toast--bronze .achievement-medal::after{display:none}
