@@ -52,6 +52,7 @@ import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './componen
 import TeacherDesktopNotice from './components/TeacherDesktopNotice';
 const TeacherUpdates = React.lazy(() => import('./components/TeacherUpdates'));
 const StudentAchievements = React.lazy(() => import('./components/StudentAchievements.jsx'));
+const PendingWorkbookParts = React.lazy(() => import('./components/WorkbookParts.jsx'));
 import AccountProfileMenu from './components/AccountProfileMenu';
 import TeacherNavigation from './components/TeacherNavigation';
 import useRecordingPrivacy from './hooks/useRecordingPrivacy';
@@ -26459,6 +26460,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             />
           )}
           {user.role === 'student' && <StudentAchievements key={user.id} user={user} onXpGain={handleXpGain} open={view === 'achievements'} quiet={['call', 'board', 'collab', 'lesson'].includes(view)} onOpen={() => navigateToView('achievements')} />}
+          {['teacher','student'].includes(user.role) && <PendingWorkbookParts key={`workbook-parts-${user.id}`} user={user}/>}
           {view === 'rating' && (
             <StudentLeaderboardSection
               role={user.role}
