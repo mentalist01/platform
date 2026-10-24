@@ -42,6 +42,7 @@ import {
 } from '../utils/pythonTaskCatalog';
 import './NotesSection.css';
 import { WorkbookPartSettings } from './WorkbookParts';
+import PreparedTaskLibrary from './PreparedTaskLibrary.jsx';
 import {
   getWorkbookHelperInstall,
   getWorkbookHelperUnsupportedMessage,
@@ -3496,6 +3497,7 @@ const NotesSection = ({
               </div>
             </div>
             <div className="notes-task-hero__side">
+              {role==='teacher'&&normalizedCurrentTask>=1&&normalizedCurrentTask<=27&&<PreparedTaskLibrary taskNumber={normalizedCurrentTask}/>}
               {role === 'teacher' && WORKBOOK_HELPER_TASK_NUMBERS.has(normalizedCurrentTask) && <WorkbookPartSettings taskNumber={normalizedCurrentTask}/>}
               {renderStudentPicker()}
               {role !== 'student' && (

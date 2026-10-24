@@ -282,6 +282,7 @@ import {
   resolveWorkbookRevisionWrite,
 } from './workbookHelper.js';
 import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
+import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
 import {
   buildBoardAssetStorageName,
   detectBoardAssetMimeType,
@@ -21816,6 +21817,39 @@ const sendWorkbookOperationError = (res, error) => {
   return res.status(statusCode).json(payload);
 };
 
+const preparedLessonTasks = new PreparedLessonTasks({
+  directory:path.join(dataDir,'prepared-lesson-tasks'),
+  authorize:async(auth,room,{write}={})=>{
+    const access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(room)}`,auth,
+      sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningGroupsDb():[],
+      attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
+    const scope=access.allowed?lessonPageRooms(access.target):null;
+    if(!scope||access.target.kind!=='board'||access.target.boardPagesBook||getLearningSubscriptionRoomError(auth,access))return {allowed:false};
+    await ensureGroupNotebook(access);await lessonPageCatalog.ensure(scope);
+    if(write&&!isKnownBoardPage(access))return {allowed:false};
+    return {...access,auth,studentId:access.target.targetType==='student'?access.target.studentId:'',groupId:access.target.groupId||access.target.group?.id||'',
+      participantIds:access.target.participantIds||access.target.session?.participantIdsSnapshot||access.target.session?.participantIds||[]};
+  },
+  board:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
+  sourceFiles:async auth=>readFilesDb().filter(file=>!isWorkbookQuestionVirtualSource(file)&&(
+    (file.teacherId&&normalizeTeacherId(file.teacherId)===auth.id)||findStudentById(file.studentId)?.teacherId===auth.id
+    ||(isLessonSharedFile(file)&&normalizeTeacherId(file.teacherId)===auth.id)
+  )).map(file=>({id:file.id,name:file.name,taskNumber:file.taskNumber,category:file.category,folderName:file.folderName||'',path:getWorkbookStoredFilePath(file)})).filter(file=>file.path),
+  saveNotes:async(run,solution)=>{
+    solution.folders={};
+    for(const studentId of run.studentId?[run.studentId]:run.participantIds){
+      if(!findStudentById(studentId))continue;
+      solution.folders[studentId]=ensureWorkbookSolutionFolder({studentId,taskNumber:run.taskNumber,category:'class',
+        partNumber:workbookPartSettings.count(run.teacherId,run.taskNumber)>1?run.partNumber:0});
+    }
+    preparedLessonTasks.save(run);
+  },
+});
+registerPreparedHelperRoutes(app,preparedLessonTasks,{
+  allowExchange:consumeWorkbookHelperExchangeRate,
+  allowContent:req=>consumeWorkbookHelperRate(workbookHelperContentAttempts,req,120),
+});
+
 app.post('/workbook-helper/v1/exchange', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!req.is('application/json')) {
@@ -23285,6 +23319,13 @@ app.post('/api/workbook-helper/launch', (req, res) => {
     return res.status(415).json({ error: 'Ожидался JSON-запрос' });
   }
   const requestedFileId = String(req.body?.fileId || '').trim();
+  if(requestedFileId.startsWith('prepared-')){
+    for(const run of Object.values(preparedLessonTasks.data.runs))for(const card of run.cards)for(const [assetId,solution] of Object.entries(card.solutions||{})){
+      if(solution.id!==requestedFileId)continue;
+      void preparedLessonTasks.startHelper(req.auth,run.id,card.id,assetId).then(result=>res.status(201).json(result)).catch(error=>res.status(error.status||500).json({error:error.message}));return;
+    }
+    return res.status(404).json({error:'Решение не найдено'});
+  }
   if (!requestedFileId) return res.status(400).json({ error: 'fileId required' });
   const requestedStudentId = isStudentRole(req.auth)
     ? req.auth.id
@@ -23954,6 +23995,7 @@ const handleLessonPages=async(req,res)=>{
 };
 app.get('/api/lesson-pages',handleLessonPages);
 app.post('/api/lesson-pages',handleLessonPages);
+registerPreparedTaskRoutes(app,preparedLessonTasks);
 
 app.post('/api/board/reset', async (req, res) => {
   const requestedLessonId = typeof req.body?.lessonId === 'string'
@@ -42540,6 +42582,7 @@ app.get('/api/files', (req, res) => {
   if (category) {
     files = files.filter((f) => f.category === category);
   }
+  if(effectiveStudentId)files.push(...preparedLessonTasks.notesForStudent(effectiveStudentId).filter(file=>(!taskNumber||file.taskNumber===Number(taskNumber))&&(!category||file.category===category)));
   const folders = readFoldersDb();
   res.json(enrichFilesWithFolderPath(files, folders));
 });

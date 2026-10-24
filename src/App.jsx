@@ -2,6 +2,11 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffe
 import LessonFallback from './components/LessonFallback.jsx';
 import BoardMinimap from './components/BoardMinimap.jsx';
 import { BoardFileUpload, BoardFileDownloads } from './components/BoardFiles.jsx';
+import PreparedLessonBoard from './components/PreparedLessonBoard.jsx';
+import PreparedCodePanel from './components/PreparedCodePanel.jsx';
+import {usePreparedLesson} from './hooks/usePreparedLesson.js';
+import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
+import {lessonBookForCodeRoom} from './utils/lessonPageSelection.js';
 import { normalizeBoardFileFields, drawBoardFileCard } from './utils/boardFile.js';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
@@ -3707,6 +3712,11 @@ export const CollabSection = ({
     ? groupNotebookCode(learningGroupId,effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?'':effectiveGroupParticipantId)
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
+  const preparedBook = isSandbox || (isGroupLesson && effectiveGroupParticipantId !== GROUP_SHARED_CODE_ID) ? '' : lessonBookForCodeRoom(roomId);
+  const [preparedPage] = useLessonPageSelection(preparedBook,role,userId);
+  const preparedRoom = preparedBook ? preparedBook.slice(0,-6)+(preparedPage==='main'?'':`~page~${preparedPage}`) : null;
+  const preparedContext = usePreparedLesson(preparedRoom);
+  const preparedActive = preparedContext.run?.mode === 'prepared';
   const collabDocumentReady = Boolean(
     roomId && (isSandbox || documentSynced)
   );
@@ -10219,7 +10229,7 @@ export const CollabSection = ({
                     onMemorySnapshotRenderer={setCollabBoardMemorySnapshotRenderer}
                     onLessonReplayEvent={isSandbox ? null : onLessonReplayEvent}
                     lessonReplayActive={!isSandbox && lessonReplayActive}
-                    readOnly={collabReadOnly}
+                    readOnly={preparedActive ? readOnly : collabReadOnly}
                     sandbox={isSandbox ? {
                       id: `${sandboxId}-board`,
                       items: Array.isArray(sandbox?.board?.items)
@@ -10769,7 +10779,8 @@ export const CollabSection = ({
           </div>
         )}
 
-        <div className="collab-code-glass-layer">
+        <div className={`collab-code-glass-layer${preparedActive?' has-prepared-code':''}`}>
+        {preparedActive&&<PreparedCodePanel key={`${preparedContext.run.id}:${preparedContext.selectedId}`} context={preparedContext} userId={userId} role={role} dark={isCollabDarkUi} readOnly={readOnly}/>}
         <div className={`collab-code-command-row collab-code-command-row--modern ${isTeacher && !useBoardGlassCodePanel ? 'collab-code-command-row--teacher' : 'collab-code-command-row--student'} ${isCollabDarkUi ? 'collab-code-command-row--dark' : 'collab-code-command-row--light'} ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
           <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center rounded-xl border ${
             isCollabFullscreen
@@ -17533,6 +17544,10 @@ export const BoardCanvasSection = ({
           onContextMenu={(e) => e.preventDefault()}
         />
         <BoardFileDownloads items={boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
+        {!isSandbox&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
+          readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem}
+          zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
+          focus={anchor=>{const top=Math.max(150,83+(containerRef.current?.querySelector('.prepared-board-navigation')?.offsetHeight||100));const nextZoom=Math.max(.35,Math.min(1,(boardSize.width-110)/anchor.width,(boardSize.height-top-65)/Math.min(anchor.height,1100)));setZoom(nextZoom);setOffset({x:anchor.x-(boardSize.width-anchor.width*nextZoom)/2/nextZoom,y:anchor.y-top/nextZoom});}}/>}
         <div
           className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
           aria-label={boardReadOnly ? 'Завершённые задания на доске' : 'Интерактивные задания на доске'}

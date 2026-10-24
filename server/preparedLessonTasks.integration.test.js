@@ -1,0 +1,48 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import sharp from 'sharp';
+import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
+
+test('authenticated library and group run; installed helper protocol saves one shared solution with Notes links', {timeout:90000}, async()=>{
+  const fixture=await createGroupHomeworkFixture();
+  const {request,tokens,base,groupId}=fixture;
+  const upload=async(route,name,bytes,fields={})=>{const form=new FormData();form.append('file',new Blob([bytes]),name);for(const [key,value]of Object.entries(fields))form.append(key,String(value));const response=await fetch(base+route,{method:'POST',headers:{Authorization:`Bearer ${tokens['teacher-a']}`},body:form});const data=await response.json();assert.equal(response.status,route==='/api/files'?200:201,JSON.stringify(data));return data;};
+  try {
+    const ordinary=await request('/api/lesson-task-run?room='+encodeURIComponent(`board-group-${groupId}`),tokens['teacher-a']);assert.equal(ordinary.run,null,'Existing pages remain ordinary by default');
+    const image=await upload('/api/lesson-task-images','condition.png',await sharp({create:{width:600,height:200,channels:4,background:'white'}}).png().toBuffer());
+    const source=await upload('/api/files','source.xlsx',Buffer.from('unchanged original workbook'),{studentId:'student-a',taskNumber:3,category:'class'});
+    const otherSources=await request('/api/lesson-task-sources',tokens['teacher-b']);assert.equal(otherSources.files.some(f=>f.id===source.id),false,'A different teacher cannot prepare a set from private Notes files');
+    const set=await request('/api/lesson-task-sets',tokens['teacher-a'],{name:'Общий разбор',taskNumber:3,partNumber:1,tasks:[{title:'Первая',images:[image.id],format:'exact',answers:['secret-42'],attachments:[{sourceFileId:source.id}]},{title:'Будущее условие',images:[image.id],answers:['another-secret'],format:'exact'}]},'POST',201);
+    await request('/api/lesson-task-sets',tokens['student-a'],undefined,'GET',403);
+    const room=`board-group-${groupId}`;
+    let {run}=await request('/api/lesson-task-runs',tokens['teacher-a'],{room,setId:set.id,x:100,y:100},'POST',201);
+    let pupil=await request('/api/lesson-task-run?room='+encodeURIComponent(room),tokens['student-b']);assert.equal(pupil.run.canManage,false);assert.equal(pupil.run.cards.length,1);assert.equal(JSON.stringify(pupil).includes('secret-42'),false);assert.equal(JSON.stringify(pupil).includes('another-secret'),false);
+    await request('/api/lesson-task-run?room='+encodeURIComponent(room),tokens['student-c'],undefined,'GET',403);
+    const card=run.cards[0],asset=card.attachments[0];
+    const launch=await request(`/api/lesson-task-runs/${run.id}/helper`,tokens['student-a'],{cardId:card.id,assetId:asset.assetId},'POST',201);
+    await request(`/api/lesson-task-runs/${run.id}/helper`,tokens['student-b'],{cardId:card.id,assetId:asset.assetId},'POST',409);
+    const exchange=await request('/workbook-helper/v1/exchange',null,{ticket:launch.ticket});assert.match(exchange.token,/^pt_/);assert.equal(exchange.revision,0);
+    const content=await fetch(base+'/workbook-helper/v1/content',{headers:{Authorization:`Workbook ${exchange.token}`}});assert.equal(content.status,200);assert.equal(Buffer.from(await content.arrayBuffer()).toString(),'unchanged original workbook');
+    const bytes=Buffer.from('student solution'),form=new FormData();form.append('file',new Blob([bytes]),'solution.xlsx');form.append('revision','0');form.append('contentHash',crypto.createHash('sha256').update(bytes).digest('hex'));form.append('solutionName','solution.xlsx');
+    const saved=await fetch(base+'/workbook-helper/v1/content',{method:'PUT',headers:{Authorization:`Workbook ${exchange.token}`},body:form});const receipt=await saved.json();assert.equal(saved.status,200,JSON.stringify(receipt));assert.equal(receipt.revision,1);
+    pupil=await request('/api/lesson-task-run?room='+encodeURIComponent(room),tokens['student-b']);const solution=pupil.run.cards[0].attachments[0].solution;assert.equal(solution.name,'solution.xlsx');
+    const notesA=await request('/api/files?studentId=student-a&taskNumber=3&category=class',tokens['teacher-a']),notesB=await request('/api/files?taskNumber=3&category=class',tokens['student-b']);assert.ok(notesA.some(f=>f.id===solution.id));assert.ok(notesB.some(f=>f.id===solution.id));
+    const response=await fetch(base+solution.url,{headers:{Authorization:`Bearer ${tokens['student-b']}`}});assert.equal(response.status,200);assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
+    await request(`/api/lesson-task-runs/${run.id}/action`,tokens['teacher-a'],{action:'release-file',cardId:card.id,assetId:asset.assetId});
+    const outdated=await fetch(base+'/workbook-helper/v1/content',{method:'PUT',headers:{Authorization:`Workbook ${exchange.token}`},body:form});assert.equal(outdated.status,409,'The previous writer cannot overwrite after handing the file over');
+    const secondLaunch=await request(`/api/lesson-task-runs/${run.id}/helper`,tokens['student-b'],{cardId:card.id,assetId:asset.assetId},'POST',201);
+    const secondSession=await request('/workbook-helper/v1/exchange',null,{ticket:secondLaunch.ticket});assert.equal(secondSession.revision,1);
+    const form2=new FormData();form2.append('file',new Blob([Buffer.from('second revision')]),'solution.xlsx');form2.append('revision','1');
+    const save2=await fetch(base+'/workbook-helper/v1/content',{method:'PUT',headers:{Authorization:`Workbook ${secondSession.token}`},body:form2});assert.equal(save2.status,200);assert.equal((await save2.json()).revision,2);
+    const conflict=new FormData();conflict.append('file',new Blob([Buffer.from('stale revision')]),'solution.xlsx');conflict.append('revision','1');
+    const stale=await fetch(base+'/workbook-helper/v1/content',{method:'PUT',headers:{Authorization:`Workbook ${secondSession.token}`},body:conflict});assert.equal(stale.status,409);
+    const notesAfter=await request('/api/files?taskNumber=3&category=class',tokens['student-b']);assert.equal(notesAfter.filter(f=>f.id===solution.id).length,1,'Further saves update the same Notes entry');
+    const latestDownload=await fetch(base+solution.url,{headers:{Authorization:`Bearer ${tokens['student-b']}`}});assert.equal(await latestDownload.text(),'second revision','A conflicting save never replaces the canonical solution');
+    const original=JSON.parse(fs.readFileSync(path.join(fixture.data,'files.json'),'utf8')).find(file=>file.id===source.id);assert.equal(fs.readFileSync(path.join(fixture.root,'uploads',original.storageName),'utf8'),'unchanged original workbook');
+    run=(await request(`/api/lesson-task-runs/${run.id}/action`,tokens['teacher-a'],{action:'mode',mode:'plain'})).run;assert.equal(run.cards.length,1);assert.equal(run.mode,'plain');
+    run=(await request(`/api/lesson-task-runs/${run.id}/action`,tokens['teacher-a'],{action:'mode',mode:'prepared'})).run;assert.equal(run.cards[0].attachments[0].solution.id,solution.id);
+  } finally {await fixture.stop();}
+});

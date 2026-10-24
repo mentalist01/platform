@@ -1,0 +1,71 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import * as Y from 'yjs';
+import {PreparedLessonTasks,preparedAnswerMatches,preparedNextPoint} from './preparedLessonTasks.js';
+
+test('answer formats preserve strings and leading zeroes; numeric and unordered rules are explicit',()=>{
+  assert.equal(preparedAnswerMatches(['0012'],['12']),false);
+  assert.equal(preparedAnswerMatches(['0012'],[' 0012 ']),true);
+  assert.equal(preparedAnswerMatches(['1.5'],['1,5'],'number'),true);
+  assert.equal(preparedAnswerMatches(['12'],['1e1'],'number'),false);
+  assert.equal(preparedAnswerMatches(['A B'],['B A'],'sequence'),false);
+  assert.equal(preparedAnswerMatches(['A B'],['B A'],'unordered'),true);
+  assert.equal(preparedAnswerMatches(['12','34'],['12','34'],'fields'),true);
+  assert.equal(preparedAnswerMatches(['12','34'],['1234'],'fields'),false);
+  assert.equal(preparedAnswerMatches(['42'],['42'],'manual'),false);
+});
+test('placement follows handwriting in the work column while ignoring a distant exercise',()=>{
+  const point=preparedNextPoint([{type:'stroke',points:[{x:30,y:500},{x:250,y:1500}]},{type:'shape',x:5000,y:0,width:50,height:9000}],{x:0,y:0,width:640,height:400});
+  assert.deepEqual(point,{x:0,y:1600});
+});
+test('shared run: immutable template, explicit modes, answer lease, idempotent advance, independent code and persistence',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-tasks-test-')),docs=new Map();
+  const auth={id:'teacher-a',role:'teacher',name:'Учитель'},pupil={id:'student-a',role:'student',name:'Ученик'},outsider={id:'student-c',role:'student'};
+  const deps={directory,authorize:async actor=>({allowed:actor.id!=='student-c',readOnly:false,auth:actor,groupId:'group-a',participantIds:['student-a','student-b']}),board:async room=>{if(!docs.has(room))docs.set(room,new Y.Doc());return docs.get(room);},sourceFiles:async()=>[]};
+  const store=new PreparedLessonTasks(deps);t.after(()=>{for(const doc of docs.values())doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const image=store.putAsset(auth,Buffer.from('test image'),'test.png','image/png',{width:600,height:100});
+  const set=await store.saveSet(auth,{name:'Набор №3',taskNumber:3,partNumber:1,tasks:[{title:'Первая',format:'exact',answers:['007'],images:[image.id]},{title:'Вторая',format:'number',answers:['8'],images:[image.id]}]});
+  let run=await store.start(auth,{room:'board-group-a',setId:set.id,x:10,y:20});const id=run.id,first=run.cards[0],key='editor-one';
+  assert.equal(run.mode,'prepared');assert.equal(run.canManage,true);assert.equal(run.total,2);assert.equal(run.cards.length,1);
+  assert.equal(JSON.stringify(run).includes('007'),false,'The reference answer is not in a pupil projection');
+  assert.equal(JSON.stringify(run).includes('Вторая'),false,'Future conditions are not published');
+  await assert.rejects(store.getRun(outsider,id),{status:403});
+  await assert.rejects(store.action(pupil,id,{action:'skip'}),{status:403});
+  await store.saveSet(auth,{...set,tasks:[{...set.tasks[0],answers:['new answer']},set.tasks[1]]},set.id);
+  await store.action(pupil,id,{action:'claim',cardId:first.id,leaseKey:key});
+  await assert.rejects(store.action(pupil,id,{action:'answer',cardId:first.id,leaseKey:key,revision:0,answers:[]}),{status:400});
+  await assert.rejects(store.action({id:'student-b',role:'student'},id,{action:'claim',cardId:first.id,leaseKey:'other'}),{status:409});
+  await store.action(pupil,id,{action:'answer',cardId:first.id,leaseKey:key,revision:0,answers:['7']});
+  run=await store.action(pupil,id,{action:'check',cardId:first.id,leaseKey:key,revision:1});assert.equal(run.cards[0].status,'active');assert.equal(run.result,'wrong');
+  await store.action(auth,id,{action:'auto',value:true});
+  await store.action(pupil,id,{action:'claim',cardId:first.id,leaseKey:key});
+  await store.action(pupil,id,{action:'answer',cardId:first.id,leaseKey:key,revision:1,answers:['007']});
+  run=await store.action(pupil,id,{action:'check',cardId:first.id,leaseKey:key,revision:2});assert.equal(run.cards.length,2);assert.equal(run.cards[0].status,'solved');
+  run=await store.action(pupil,id,{action:'check',cardId:first.id,leaseKey:key,revision:2});assert.equal(run.cards.length,2,'Repeated completion does not duplicate the next task');
+  run=await store.action(auth,id,{action:'next',expectedCount:1});assert.equal(run.cards.length,2,'A stale teacher click does not advance twice');
+  await store.action(pupil,id,{action:'claim-code',cardId:first.id,leaseKey:key});
+  await store.action(pupil,id,{action:'code',cardId:first.id,leaseKey:key,revision:0,code:'print(7)',input:'x',output:'7'});
+  await store.action(auth,id,{action:'mode',mode:'plain'});const restarted=new PreparedLessonTasks(deps),stored=restarted.data.runs[id];
+  assert.equal(stored.mode,'plain');assert.equal(stored.cards[0].code.text,'print(7)');assert.equal(stored.cards[1].code.text,'');assert.equal(stored.cards.length,2);
+  assert.equal(JSON.stringify(JSON.parse(fs.readFileSync(path.join(directory,'state.json'),'utf8'))).includes('print(7)'),false,'Typing does not rewrite the catalog or unrelated runs');
+  run=await restarted.action(auth,id,{action:'mode',mode:'prepared'});assert.equal(run.cards[0].status,'solved');
+});
+
+test('interrupted projection is repaired once, deliberate scene removal stays removed until teacher restores it',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-recovery-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'};
+  const deps={directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]};
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const store=new PreparedLessonTasks(deps),image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100});
+  const set=await store.saveSet(auth,{name:'Набор',taskNumber:3,tasks:[{images:[image.id],answers:['42']}]});
+  const items=doc.getArray('items'),push=items.push.bind(items);let failOnce=true;
+  items.push=(...args)=>{if(failOnce){failOnce=false;throw Error('simulated interruption');}return push(...args);};
+  await assert.rejects(store.start(auth,{room:'board-student-a',setId:set.id,x:0,y:0}),/simulated interruption/);
+  const restarted=new PreparedLessonTasks(deps),run=Object.values(restarted.data.runs)[0];
+  assert.equal(run.cards.length,1);assert.equal(run.cards[0].projectionPending,true);
+  await restarted.recover(run);await restarted.recover(run);assert.equal(items.length,1);assert.equal(run.cards[0].projectionPending,false);
+  items.delete(0,1);await restarted.recover(run);assert.equal(items.length,0);
+  await restarted.action(auth,run.id,{action:'restore'});assert.equal(items.length,1);
+});
