@@ -9,5 +9,6 @@ test('saved ink and live selection paint above conditions only, with transparent
   assert.ok(operations.some(op=>op.name==='saved'&&op.method==='rect'&&JSON.stringify(op.args)==='[20,100,200,150]'));
   assert.deepEqual(operations.filter(op=>op.name==='foreground'&&op.method==='drawImage').map(op=>op.args[0].name),['saved','live']);
   assert.ok(operations.some(op=>op.name==='foreground'&&op.method==='rect'&&JSON.stringify(op.args)==='[40,60,400,440]'));
+  paintPreparedInk(cache,{...input,reference:{width:800,height:700},height:350});assert.equal(foreground.height,700,'A height change never stretches a stale overlay snapshot');
   operations.length=0;cache.regions=[];compositePreparedInk(cache,foreground,overlay);assert.equal(operations.some(op=>op.method==='drawImage'),false,'No ghost ink after leaving the prepared page');
 });

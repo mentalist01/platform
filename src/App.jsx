@@ -14782,9 +14782,9 @@ export const BoardCanvasSection = ({
   preparedInkActionsRef.current={preview:getSelectionDragPreviewItem,draw:drawBoardItemToScene};
   const renderPreparedInk=useCallback(()=>{
     const surface=containerRef.current;if(!surface)return;
-    const origin=surface.getBoundingClientRect(),box=element=>{const b=element.getBoundingClientRect();return {x:b.left-origin.left,y:b.top-origin.top,width:b.width,height:b.height};};
+    const origin=canvasRef.current.getBoundingClientRect(),box=element=>{const b=element.getBoundingClientRect();return {x:b.left-origin.left,y:b.top-origin.top,width:b.width,height:b.height};};
     const regions=Array.from(surface.querySelectorAll('.prepared-card')).map(card=>({anchorId:card.dataset.anchorId,card:box(card),body:box(card.querySelector('.prepared-card-body'))}));
-    paintPreparedInk(preparedInkCache.current,{canvas:preparedInkRef.current,overlay:overlayRef.current,width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:zoomRef.current,offset:offsetRef.current,regions,items:boardItemsRef.current,preview:preparedInkActionsRef.current.preview,draw:preparedInkActionsRef.current.draw,createCanvas:()=>document.createElement('canvas')});
+    paintPreparedInk(preparedInkCache.current,{canvas:preparedInkRef.current,overlay:overlayRef.current,reference:canvasRef.current,width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:zoomRef.current,offset:offsetRef.current,regions,items:boardItemsRef.current,preview:preparedInkActionsRef.current.preview,draw:preparedInkActionsRef.current.draw,createCanvas:()=>document.createElement('canvas')});
   },[]);
   const renderBoard = useCallback(() => {
     const canvas = canvasRef.current;
