@@ -1,9 +1,10 @@
+import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
 import BoardMinimap from './components/BoardMinimap.jsx';
 import { BoardFileUpload, BoardFileDownloads } from './components/BoardFiles.jsx';
 import PreparedLessonBoard from './components/PreparedLessonBoard.jsx';
-import PreparedCodePanel from './components/PreparedCodePanel.jsx';
+import {preparedRuntimeFiles} from './utils/preparedRuntimeFiles.js';
 import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
 import {lessonBookForCodeRoom} from './utils/lessonPageSelection.js';
@@ -221,6 +222,7 @@ import useWorkbookHelper from './hooks/useWorkbookHelper';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
 import {
   api,
+  apiFetch,
   authenticatedUploadsFetch,
   getStoredAuthToken,
   HOMEWORK_CHEST_GRANTED_EVENT,
@@ -2035,21 +2037,7 @@ const buildGoogleDocFullUrl = (value) => {
   return raw;
 };
 
-const getAnswerCountForTask = (taskNumber) => {
-  const num = Number(taskNumber);
-  if (num === GAME_THEORY_TASK) return 4;
-  if (num === 25) return 20;
-  if (num === 27) return 4;
-  if (num === 17 || num === 18 || num === 26) return 2;
-  return 1;
-};
 
-const getMockAnswerCountForTask = (taskNumber, question) => {
-  const num = getMockTaskRuleNumber(taskNumber, question);
-  if (num === 20) return 2;
-  if (num === GAME_THEORY_TASK) return 1;
-  return getAnswerCountForTask(num);
-};
 
 const allowsPartialAnswers = (taskNumber, question) => getMockTaskRuleNumber(taskNumber, question) === 25;
 
@@ -3717,6 +3705,8 @@ export const CollabSection = ({
   const preparedRoom = preparedBook ? preparedBook.slice(0,-6)+(preparedPage==='main'?'':`~page~${preparedPage}`) : null;
   const preparedContext = usePreparedLesson(preparedRoom);
   const preparedActive = preparedContext.run?.mode === 'prepared';
+  const preparedCodeCard = preparedContext.run?.cards.find(card=>card.codeId===activeSolutionId);
+  const preparedCodeSelectionRef = useRef('');
   const collabDocumentReady = Boolean(
     roomId && (isSandbox || documentSynced)
   );
@@ -6069,6 +6059,12 @@ export const CollabSection = ({
       name: COLLAB_TEST_FILE_RUNTIME_NAME,
       bytes: new TextEncoder().encode(normalizeCollabTextFileContent(testFileText)),
     }];
+    for(const asset of preparedRuntimeFiles(preparedCodeCard?.attachments||[])) {
+      if(asset.sizeBytes>16*1024*1024)throw Error('Входной файл задачи должен быть не больше 16 МБ.');
+      if(payload.some(file=>file.name.toLowerCase()===asset.runtimeName.toLowerCase()))throw Error(`Имя ${asset.runtimeName} уже используется во вводе и файлах.`);
+      const response=await apiFetch(asset.url);if(!response.ok)throw Error(`Не удалось получить файл ${asset.runtimeName}`);
+      payload.push({name:asset.runtimeName,bytes:new Uint8Array(await response.arrayBuffer())});
+    }
     if (!selectedTaskFiles.length) return payload;
     const selectedEntries = selectedTaskFiles.map((file) => {
       const primaryPath = getRuntimePathForTaskFile(file);
@@ -6111,7 +6107,7 @@ export const CollabSection = ({
       const buffer = await response.arrayBuffer();
       return { ...entry, bytes: new Uint8Array(buffer) };
     }));
-    const mountedPaths = new Set([reservedRuntimePath]);
+    const mountedPaths = new Set(payload.map(file=>file.name.toLowerCase()));
     downloadedEntries.forEach((entry) => {
       const { primaryPath, variants, bytes } = entry;
       const runtimePath = primaryPath;
@@ -6139,7 +6135,7 @@ export const CollabSection = ({
       });
     });
     return payload;
-  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText]);
+  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText, preparedCodeCard]);
 
   const handleUploadTaskFiles = async (fileList) => {
     if (isSandbox || collabReadOnly) return;
@@ -9204,11 +9200,20 @@ export const CollabSection = ({
       if (selectSolutionRef.current?.(pageMainSolutionId)) setSolutionNotice('Вариант или страница удалены. Открыт основной код.');
     }
   }, [activeSolutionDeleted, codeSolutions, collabDocumentReady, compareSolutionId, isSandbox, solutionActionsBusy, pageMainSolutionId]);
+  useEffect(() => {
+    const card=preparedContext.run?.cards.find(entry=>entry.id===preparedContext.selectedId);
+    const key=preparedActive&&card?`${preparedContext.run.id}:${card.id}`:'';
+    if(!key){preparedCodeSelectionRef.current='';return;}
+    if(preparedCodeSelectionRef.current===key||!collabDocumentReady||runLoading||localRunBusyRef.current||!codeSolutions.some(solution=>solution.id===card.codeId))return;
+    if(selectSolutionRef.current?.(card.codeId))preparedCodeSelectionRef.current=key;
+  },[preparedActive,preparedContext.run,preparedContext.selectedId,collabDocumentReady,runLoading,codeSolutions]);
+  useEffect(()=>{if(!preparedActive)return;preparedContext.setBusy(preparedContext.selectedId,runLoading);return()=>preparedContext.setBusy(preparedContext.selectedId,false);},[preparedActive,preparedContext.selectedId,preparedContext.setBusy,runLoading]);
   const selectCodeSolution = (id) => {
     if (!collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) return;
     presentation.leave(false);
     setCompareSolutionId(null);
     if (!selectSolutionRef.current?.(id)) setSolutionError('Не удалось открыть вариант. Дождитесь подключения и повторите.');
+    else {const linked=preparedContext.run?.cards.find(card=>card.codeId===id);if(linked)preparedContext.select(linked.id);}
   };
   const createCodeSection = (name) => {
     if (collabReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) {
@@ -10566,6 +10571,7 @@ export const CollabSection = ({
           <X size={15} />
         </button>
       </div>
+      {preparedCodeCard?.attachments.some(file=>file.runtime!==false)&&<div className="prepared-native-files"><strong>Файлы этой задачи · подключены автоматически</strong>{preparedCodeCard.attachments.filter(file=>file.runtime!==false).map(file=><code key={file.assetId}>{`open(${JSON.stringify(file.runtimeName||file.name)})`}</code>)}</div>}
       {inputPane}
     </div>
   ) : null;
@@ -10779,8 +10785,7 @@ export const CollabSection = ({
           </div>
         )}
 
-        <div className={`collab-code-glass-layer${preparedActive?' has-prepared-code':''}`}>
-        {preparedActive&&<PreparedCodePanel key={`${preparedContext.run.id}:${preparedContext.selectedId}`} context={preparedContext} userId={userId} role={role} dark={isCollabDarkUi} readOnly={readOnly}/>}
+        <div className="collab-code-glass-layer">
         <div className={`collab-code-command-row collab-code-command-row--modern ${isTeacher && !useBoardGlassCodePanel ? 'collab-code-command-row--teacher' : 'collab-code-command-row--student'} ${isCollabDarkUi ? 'collab-code-command-row--dark' : 'collab-code-command-row--light'} ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
           <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center rounded-xl border ${
             isCollabFullscreen

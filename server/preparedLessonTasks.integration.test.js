@@ -44,5 +44,19 @@ test('authenticated library and group run; installed helper protocol saves one s
     const original=JSON.parse(fs.readFileSync(path.join(fixture.data,'files.json'),'utf8')).find(file=>file.id===source.id);assert.equal(fs.readFileSync(path.join(fixture.root,'uploads',original.storageName),'utf8'),'unchanged original workbook');
     run=(await request(`/api/lesson-task-runs/${run.id}/action`,tokens['teacher-a'],{action:'mode',mode:'plain'})).run;assert.equal(run.cards.length,1);assert.equal(run.mode,'plain');
     run=(await request(`/api/lesson-task-runs/${run.id}/action`,tokens['teacher-a'],{action:'mode',mode:'prepared'})).run;assert.equal(run.cards[0].attachments[0].solution.id,solution.id);
+    const input=await upload('/api/files','numbers.txt',Buffer.from('420\n580\n'),{studentId:'student-a',taskNumber:17,category:'class'});
+    const pythonSet=await request('/api/lesson-task-sets',tokens['teacher-a'],{name:'Семнадцатое',taskNumber:17,tasks:[{title:'0',images:[image.id],format:'exact',answers:['2 1000'],attachments:[{sourceFileId:input.id,runtime:true,runtimeName:'17.txt'},{sourceFileId:source.id,runtime:false}]},{title:'1',images:[image.id],answers:['3 1500']}]},'POST',201);
+    assert.deepEqual(pythonSet.tasks[0].answers,['2','1000'],'Old editor submissions also split into two fields');
+    const page=await request('/api/lesson-pages',tokens['teacher-a'],{room,action:'create',name:'№17'});
+    const pythonRoom=room+'~page~'+page.id;
+    let pythonRun=(await request('/api/lesson-task-runs',tokens['teacher-a'],{room:pythonRoom,setId:pythonSet.id,x:0,y:0},'POST',201)).run;
+    const pcard=pythonRun.cards[0];assert.equal(pcard.answerCount,2);assert.equal(pcard.title,'0');assert.equal(pcard.attachments[0].runtimeName,'17.txt');assert.equal(pcard.attachments[1].runtime,false);
+    const inputContent=await fetch(base+pcard.attachments[0].url,{headers:{Authorization:`Bearer ${tokens['student-a']}`}});assert.equal(await inputContent.text(),'420\n580\n');
+    const action=body=>request(`/api/lesson-task-runs/${pythonRun.id}/action`,tokens['student-a'],{cardId:pcard.id,leaseKey:'python-input',...body});
+    await action({action:'claim'});await action({action:'answer',revision:0,answers:['2 1000']}).then(()=>assert.fail('Single-cell input accepted'),e=>assert.match(e.message,/400/));
+    await action({action:'answer',revision:0,answers:['1000','2']});assert.equal((await action({action:'check',revision:1})).run.cards[0].status,'active');
+    await action({action:'claim'});await action({action:'answer',revision:1,answers:['2','1000']});assert.equal((await action({action:'check',revision:2})).run.cards[0].status,'solved');
+    pythonRun=(await request(`/api/lesson-task-runs/${pythonRun.id}/action`,tokens['teacher-a'],{action:'next',expectedCount:1})).run;
+    assert.equal(pythonRun.cards[1].title,'1');assert.notEqual(pythonRun.cards[0].codeId,pythonRun.cards[1].codeId,'Every task gets its own code document automatically');
   } finally {await fixture.stop();}
 });

@@ -17,6 +17,30 @@ test('answer formats preserve strings and leading zeroes; numeric and unordered 
   assert.equal(preparedAnswerMatches(['12','34'],['1234'],'fields'),false);
   assert.equal(preparedAnswerMatches(['42'],['42'],'manual'),false);
 });
+
+test('legacy task17 answers migrate once with backups and preserve run identity, status, files and code',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-answer-migration-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'};
+  const deps={directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]};
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const store=new PreparedLessonTasks(deps),image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100});
+  const set=await store.saveSet(auth,{name:'Мой набор',taskNumber:17,tasks:[{title:'0',images:[image.id],answers:['294','1356810']}]});
+  const publicRun=await store.start(auth,{room:'board-student-a',setId:set.id,x:0,y:0}),run=store.data.runs[publicRun.id];
+  store.data.sets[set.id].tasks[0].answers=['294 1356810'];store.data.sets[set.id].tasks[0].format='exact';
+  run.tasks[0].answers=['294 1356810'];run.tasks[0].format='exact';run.cards[0].answers=['294 1356810'];run.cards[0].status='solved';
+  run.cards[0].solutions={file:{id:'saved-file-id',name:'solution.xlsx'}};store.save(run);store.save();
+  await store.action(auth,run.id,{action:'claim-code',cardId:run.cards[0].id,leaseKey:'migration-code'});
+  await store.action(auth,run.id,{action:'code',cardId:run.cards[0].id,leaseKey:'migration-code',revision:0,code:'print(17)',input:'data',output:'17'});
+  const snapshot=JSON.stringify(doc.getArray('items').toArray()),cardId=run.cards[0].id;
+  const restarted=new PreparedLessonTasks(deps),migrated=restarted.data.runs[run.id];
+  assert.equal(migrated.cards[0].code.text,'print(17)');assert.equal(migrated.cards[0].code.output,'17');
+  assert.deepEqual(migrated.tasks[0].answers,['294','1356810']);assert.deepEqual(migrated.cards[0].answers,['294','1356810']);
+  assert.equal(migrated.cards[0].id,cardId);assert.equal(migrated.cards[0].status,'solved');assert.equal(migrated.tasks[0].title,'0');
+  assert.equal(migrated.cards[0].solutions.file.id,'saved-file-id');assert.equal(JSON.stringify(doc.getArray('items').toArray()),snapshot);
+  const backups=()=>fs.readdirSync(directory).filter(name=>name.startsWith('answers-backup-'));
+  assert.equal(backups().length,1);const backup=JSON.parse(fs.readFileSync(path.join(directory,backups()[0],'state.json'),'utf8'));
+  assert.deepEqual(backup.sets[set.id].tasks[0].answers,['294 1356810']);
+  new PreparedLessonTasks(deps);assert.equal(backups().length,1,'Migration is idempotent');
+});
 test('placement follows handwriting in the work column while ignoring a distant exercise',()=>{
   const point=preparedNextPoint([{type:'stroke',points:[{x:30,y:500},{x:250,y:1500}]},{type:'shape',x:5000,y:0,width:50,height:9000}],{x:0,y:0,width:640,height:400});
   assert.deepEqual(point,{x:0,y:1600});

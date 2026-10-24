@@ -4,6 +4,9 @@ import crypto from 'node:crypto';
 import multer from 'multer';
 import sharp from 'sharp';
 import {isWorkbookFileName, parseWorkbookHelperAuthorization} from './workbookHelper.js';
+import {projectPreparedCode} from './preparedCodeProjection.js';
+import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
+import {preparedAnswerTask, splitLegacyPreparedAnswer} from '../src/utils/egeAnswerFields.js';
 
 const digest=value=>crypto.createHash('sha256').update(value).digest('hex');
 const text=(value,max=160)=>String(value??'').replace(/\0/g,'').trim().slice(0,max);
@@ -39,8 +42,8 @@ export function preparedNextPoint(items,anchor,width=680) {
 // Secrets and future conditions live here, never in the collaborative scene.
 // Every mutation is serialized per store; persisted state precedes notification.
 export class PreparedLessonTasks {
-  constructor({directory,authorize,board,sourceFiles,saveNotes,now=()=>Date.now()}) {
-    this.directory=directory;this.authorize=authorize;this.board=board;this.sourceFiles=sourceFiles;this.saveNotes=saveNotes;this.now=now;
+  constructor({directory,authorize,board,code,sourceFiles,saveNotes,now=()=>Date.now()}) {
+    this.directory=directory;this.authorize=authorize;this.board=board;this.code=code;this.sourceFiles=sourceFiles;this.saveNotes=saveNotes;this.now=now;
     fs.mkdirSync(directory,{recursive:true});this.assetsDir=path.join(directory,'assets');fs.mkdirSync(this.assetsDir,{recursive:true});
     this.file=path.join(directory,'state.json');
     this.data=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):{version:1,sets:{},assets:{},runs:{},active:{},sessions:{}};
@@ -48,6 +51,18 @@ export class PreparedLessonTasks {
     this.runsDir=path.join(directory,'runs');fs.mkdirSync(this.runsDir,{recursive:true});
     for(const filename of fs.readdirSync(this.runsDir).filter(name=>/^[a-f0-9-]{36}\.json$/.test(name))){const run=JSON.parse(fs.readFileSync(path.join(this.runsDir,filename),'utf8'));for(const card of run.cards){const codeFile=path.join(this.runsDir,`${run.id}-${card.id}.code.json`);card.code=fs.existsSync(codeFile)?JSON.parse(fs.readFileSync(codeFile,'utf8')):{text:'',input:'',output:'',revision:0};}this.data.runs[run.id]=run;}
     this.tail=Promise.resolve();this.tickets=new Map();
+    this.migrateLegacyAnswers();
+  }
+  migrateLegacyAnswers(){
+    const sets=Object.values(this.data.sets).filter(set=>set.tasks.some(task=>splitLegacyPreparedAnswer(task,set.taskNumber)));
+    const runs=Object.values(this.data.runs).filter(run=>run.tasks.some(task=>splitLegacyPreparedAnswer(task,run.taskNumber)));
+    if(!sets.length&&!runs.length)return;
+    const backup=path.join(this.directory,'answers-backup-'+crypto.randomUUID());fs.mkdirSync(backup,{mode:0o700});
+    if(fs.existsSync(this.file))fs.copyFileSync(this.file,path.join(backup,'state.json'));
+    for(const run of runs){const file=path.join(this.runsDir,run.id+'.json');if(fs.existsSync(file))fs.copyFileSync(file,path.join(backup,run.id+'.json'));}
+    for(const set of sets){set.tasks=set.tasks.map(task=>splitLegacyPreparedAnswer(task,set.taskNumber)||task);set.version++;}
+    for(const run of runs){run.tasks=run.tasks.map((task,index)=>{const migrated=splitLegacyPreparedAnswer(task,run.taskNumber);if(!migrated)return task;const card=run.cards.find(c=>c.index===index);if(card){card.answers=preparedAnswerTask({answers:card.answers},run.taskNumber).answers;card.answerRevision++;card.lease=null;}return migrated;});run.version++;this.save(run);}
+    this.save();
   }
   atomic(filename,data){const tmp=filename+'.tmp';fs.writeFileSync(tmp,JSON.stringify(data),{mode:0o600});fs.renameSync(tmp,filename);}
   save(run){if(run){this.atomic(path.join(this.runsDir,run.id+'.json'),{...run,cards:run.cards.map(card=>({...card,code:{revision:card.code.revision}}))});return;}const {version,sets,assets,active,sessions}=this.data;this.atomic(this.file,{version,sets,assets,runs:{},active,sessions});}
@@ -75,8 +90,10 @@ export class PreparedLessonTasks {
     if(!Array.isArray(input.tasks)||!input.tasks.length||input.tasks.length>100)fail(400,'Добавьте от 1 до 100 заданий');
     const sources=await this.sourceFiles(auth),tasks=[];
     for(const [index,raw] of input.tasks.entries()) {
-      const title=text(raw.title,120)||`Задача ${index+1}`,format=['exact','number','sequence','unordered','fields','manual'].includes(raw.format)?raw.format:'exact';
-      const answers=(Array.isArray(raw.answers)?raw.answers:[raw.answer]).slice(0,4).map(v=>text(v,500));
+      const normalized=preparedAnswerTask(raw,taskNumber);
+      if(raw.answerCountOverride!==undefined&&(!Number.isInteger(Number(raw.answerCountOverride))||Number(raw.answerCountOverride)<1||Number(raw.answerCountOverride)>50))fail(400,'Допустимо от 1 до 50 ячеек ответа');
+      const title=text(raw.title,120),format=['exact','number','sequence','unordered','fields','manual'].includes(normalized.format)?normalized.format:'exact';
+      const answers=normalized.answers.slice(0,50).map(v=>text(v,500));
       if(format==='manual'&&!answers.length)answers.push('');
       const imageIds=[...new Set(Array.isArray(raw.images)?raw.images:[])].slice(0,8);
       if(!imageIds.length)fail(400,`Добавьте условие задачи ${index+1}`);
@@ -85,13 +102,15 @@ export class PreparedLessonTasks {
       if(format==='number'&&!preparedAnswerMatches(answers,answers,'number'))fail(400,`Ответ задачи ${index+1} должен быть числом`);
       const attachments=[];
       for(const ref of (raw.attachments||[]).slice(0,8)) {
+        const runtime={runtime:ref.runtime!==false,runtimeName:text(ref.runtimeName,180)};
         const known=this.data.assets[ref.assetId];
-        if(known&&known.teacherId===auth.id){attachments.push({assetId:known.id,sourceFileId:text(ref.sourceFileId),name:known.name});continue;}
+        if(known&&known.teacherId===auth.id){attachments.push({assetId:known.id,sourceFileId:text(ref.sourceFileId),name:known.name,...runtime});continue;}
         const source=sources.find(f=>f.id===ref.sourceFileId);if(!source?.path||!fs.existsSync(source.path))fail(404,'Выбранный файл из конспектов недоступен');
         const stat=fs.statSync(source.path);if(stat.size>64*1024*1024)fail(413,'Вложение больше 64 МБ');
-        const asset=this.putAsset(auth,fs.readFileSync(source.path),source.name,'application/octet-stream');attachments.push({assetId:asset.id,sourceFileId:source.id,name:source.name});
+        const asset=this.putAsset(auth,fs.readFileSync(source.path),source.name,'application/octet-stream');attachments.push({assetId:asset.id,sourceFileId:source.id,name:source.name,...runtime});
       }
-      tasks.push({id:raw.id&&previous?.tasks.some(t=>t.id===raw.id)?raw.id:crypto.randomUUID(),title,format,answers,images:imageIds,attachments});
+      try{preparedRuntimeFiles(attachments);}catch(error){fail(400,`Задача ${index+1}: ${error.message}`);}
+      tasks.push({id:raw.id&&previous?.tasks.some(t=>t.id===raw.id)?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
     }
     const set={id:previous?.id||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
     this.data.sets[set.id]=set;this.save();return set;
@@ -101,10 +120,11 @@ export class PreparedLessonTasks {
   publicRun(run,access) {
     if(!run)return null;
     return {id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,canManage:teacher(access.auth)&&!access.readOnly,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index];return {id:c.id,index:c.index,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,format:task.format,answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,helper:isWorkbookFileName(a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
+      const task=run.tasks[c.index];return {id:c.id,index:c.index,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,format:task.format,answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:isWorkbookFileName(a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
-  async notify(run,kind='run',cardId=''){const change={runId:run.id,version:run.version,mode:run.mode,kind,cardId,at:this.now()};const doc=await this.board(run.room);doc.getMap('preparedTaskState').set('change',change);const book=await this.board(run.room.split('~page~')[0].split('~student~')[0]+'~pages');book.getMap('preparedTaskSignals').set(run.room,change);}
+  async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
+  async notify(run,kind='run',cardId=''){await this.projectCode(run);const change={runId:run.id,version:run.version,mode:run.mode,kind,cardId,at:this.now()};const doc=await this.board(run.room);doc.getMap('preparedTaskState').set('change',change);const book=await this.board(run.room.split('~page~')[0].split('~student~')[0]+'~pages');book.getMap('preparedTaskSignals').set(run.room,change);}
   async start(auth,input){return this.lock(async()=>{
     const access=await this.access(auth,input.room,true);if(!teacher(auth))fail(403,'Начать набор может преподаватель');
     const set=this.data.sets[input.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
@@ -121,7 +141,7 @@ export class PreparedLessonTasks {
     // last committed scene. A check arriving during a stroke must leave room.
     const previews=Array.from(doc.awareness?.getStates?.().values()||[]).map(s=>s?.drawing).filter(Boolean);
     const point=anchor?preparedNextPoint([...all,...previews],anchor):run.start,index=run.cards.length,task=run.tasks[index];
-    const height=320+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
+    const height=320+Math.max(0,Math.ceil(task.answers.length/2)-1)*50+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
     const card={id:crypto.randomUUID(),index,anchorId:'prepared-'+crypto.randomUUID(),codeId:'prepared-'+crypto.randomUUID(),x:point.x,y:point.y,width:640,height,status:'active',answers:task.answers.map(()=>''),answerRevision:0,code:{text:'',input:'',output:'',revision:0},solutions:{}};
     run.cards.push(card);run.teacherCardId=card.id;
     // Canonical card identity is persisted before projection. Reconnecting repairs
@@ -129,7 +149,7 @@ export class PreparedLessonTasks {
     card.projectionPending=true;this.save(run);doc.transact(()=>items.push([{id:card.anchorId,type:'shape',shape:'rectangle',x:point.x,y:point.y,width:card.width,height:card.height,color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId}]),'prepared-lesson:place');card.projectionPending=false;this.save(run);
     card.x=point.x;card.y=point.y;
   }
-  async recover(run){if(!run.cards.length){await this.addCard(run);return;}if(run.cards.some(c=>c.projectionPending)){await this.repair(run,true);this.save(run);}}
+  async recover(run){if(!run.cards.length){await this.addCard(run);return;}if(run.cards.some(c=>c.projectionPending)){await this.repair(run,true);this.save(run);}await this.projectCode(run);}
   async repair(run,pendingOnly=false){const doc=await this.board(run.room),items=doc.getArray('items');for(const c of run.cards){if(pendingOnly&&!c.projectionPending)continue;if(!items.toArray().some(i=>i.id===c.anchorId)&&!c.deleted&&Number.isFinite(c.x))doc.transact(()=>items.push([{id:c.anchorId,type:'shape',shape:'rectangle',x:c.x,y:c.y,width:c.width,height:c.height,color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId}]),'prepared-lesson:repair');c.projectionPending=false;}}
   async action(auth,id,input){return this.lock(async()=>{
     const {run,access}=await this.getRun(auth,id,true),manage=teacher(auth),card=run.cards.find(c=>c.id===input.cardId),now=this.now();

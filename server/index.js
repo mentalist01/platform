@@ -1,3 +1,4 @@
+import {getAnswerCountForTask,getMockAnswerCountForTask} from '../src/utils/egeAnswerFields.js';
 import { buildTaskPresentationMap } from '../src/utils/taskPresentation.js';
 import { calculateLessonPrice, isDurationPricing, lessonRateAt, normalizePricingHistory, recordPricingChange, matchLessonPaymentTotal } from '../src/utils/lessonPricing.js';
 import { registerWeeklySchedules, applyWeeklySchedule, weeklyReservations } from './weeklySchedule.js';
@@ -13543,14 +13544,6 @@ const getHighestArtifactRankFromCollection = (collection = []) => {
   return '';
 };
 
-const getAnswerCountForTask = (taskNumber) => {
-  const num = Number(taskNumber);
-  if (num === GAME_THEORY_TASK) return 4;
-  if (num === 25) return 20;
-  if (num === 27) return 4;
-  if (num === 17 || num === 18 || num === 26) return 2;
-  return 1;
-};
 
 const {
   getAnswerCountForQuestion,
@@ -13561,12 +13554,6 @@ const {
   parseSubmittedAnswers,
 } = createQuestionAnswerRules({ getAnswerCountForTask });
 
-const getMockAnswerCountForTask = (taskNumber, question) => {
-  const num = getMockTaskRuleNumber(taskNumber, question);
-  if (num === 20) return 2;
-  if (num === GAME_THEORY_TASK) return 1;
-  return getAnswerCountForTask(num);
-};
 
 const allowsPartialMockAnswers = (taskNumber, question) => getMockTaskRuleNumber(taskNumber, question) === 25;
 
@@ -21831,6 +21818,7 @@ const preparedLessonTasks = new PreparedLessonTasks({
       participantIds:access.target.participantIds||access.target.session?.participantIdsSnapshot||access.target.session?.participantIds||[]};
   },
   board:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
+  code:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
   sourceFiles:async auth=>readFilesDb().filter(file=>!isWorkbookQuestionVirtualSource(file)&&(
     (file.teacherId&&normalizeTeacherId(file.teacherId)===auth.id)||findStudentById(file.studentId)?.teacherId===auth.id
     ||(isLessonSharedFile(file)&&normalizeTeacherId(file.teacherId)===auth.id)
