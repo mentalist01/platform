@@ -21,16 +21,17 @@ export function preparedAnswerTask(task, taskNumber) {
   const override = Number(task.answerCountOverride);
   const count = Number.isInteger(override) && override >= 1 && override <= 50
     ? override : Math.max(getAnswerCountForTask(taskNumber), Math.min(50, raw.length));
-  const split = raw.length === 1 && count > 1 ? raw[0].trim().split(/\s+/u) : raw;
+  const independent = task.answerMode === 'independent';
+  const split = !independent && raw.length === 1 && count > 1 ? raw[0].trim().split(/\s+/u) : raw;
   const values = split.length === count ? split : raw;
-  const format = count > 1 && !['manual', 'number'].includes(task.format) ? 'fields' : task.format || 'exact';
+  const format = independent && task.format === 'fields' ? 'exact' : !independent && count > 1 && !['manual', 'number'].includes(task.format) ? 'fields' : task.format || 'exact';
   return {...task, format, answers: Array.from({length: count}, (_, index) => values[index] ?? '')};
 }
 
 // Only unambiguous legacy pairs/vectors are migrated. An incomplete or unusual
 // answer is left untouched for the teacher rather than guessed or discarded.
 export function splitLegacyPreparedAnswer(task, taskNumber) {
-  if (task.format === 'manual' || Number(task.answerCountOverride) === 1 || task.answers?.length !== 1) return null;
+  if (task.answerMode === 'independent' || task.format === 'manual' || Number(task.answerCountOverride) === 1 || task.answers?.length !== 1) return null;
   const override = Number(task.answerCountOverride);
   const count = Number.isInteger(override) && override >= 1 && override <= 50 ? override : getAnswerCountForTask(taskNumber), values = String(task.answers[0]).trim().split(/\s+/u);
   return count > 1 && values.length === count ? {...task, format: 'fields', answers: values} : null;

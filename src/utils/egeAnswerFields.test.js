@@ -22,3 +22,12 @@ test('legacy answers split only when all fields are unambiguous, preserving orde
   assert.equal(splitLegacyPreparedAnswer({answers: ['1 2 3']}, 17), null);
   assert.deepEqual(preparedAnswerTask({answers: ['a', 'b', 'c']}, 3).answers, ['a', 'b', 'c']);
 });
+
+test('independent questions preserve per-question lists, explicit counts and comparison format', () => {
+  const task={answerMode:'independent',answerCountOverride:4,format:'unordered',answers:['1 2','3 4','5','6']};
+  assert.deepEqual(preparedAnswerTask(task,22),task);
+  assert.deepEqual(preparedAnswerTask({...task,answers:['1 2 3 4']},22).answers,['1 2 3 4','','','']);
+  assert.equal(splitLegacyPreparedAnswer({...task,answers:['1 2 3 4']},22),null);
+  assert.equal(preparedAnswerTask({...task,format:'number'},17).format,'number');
+  assert.equal(preparedAnswerTask({answers:['1','2'],format:'exact'},17).format,'fields');
+});

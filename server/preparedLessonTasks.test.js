@@ -54,7 +54,7 @@ test('shared run: immutable template, explicit modes, answer lease, idempotent a
   const set=await store.saveSet(auth,{name:'Набор №3',taskNumber:3,partNumber:1,tasks:[{title:'Первая',format:'exact',answers:['007'],images:[image.id]},{title:'Вторая',format:'number',answers:['8'],images:[image.id]}]});
   let run=await store.start(auth,{room:'board-group-a',setId:set.id,x:10,y:20});const id=run.id,first=run.cards[0],key='editor-one';
   assert.equal(run.mode,'prepared');assert.equal(run.canManage,true);assert.equal(run.total,2);assert.equal(run.cards.length,1);
-  assert.equal(JSON.stringify(run).includes('007'),false,'The reference answer is not in a pupil projection');
+  assert.equal(JSON.stringify(store.publicRun(store.data.runs[id],{auth:pupil})).includes('007'),false,'The reference answer is not in a pupil projection');
   assert.equal(JSON.stringify(run).includes('Вторая'),false,'Future conditions are not published');
   await assert.rejects(store.getRun(outsider,id),{status:403});
   await assert.rejects(store.action(pupil,id,{action:'skip'}),{status:403});
@@ -180,4 +180,106 @@ test('removing the accidental third card lets next restore it once, preserving i
   run=await store.action(auth,run.id,{action:'next',expectedCount:3,fromCardId:second.id});assert.equal(run.cards.length,3,'A double click never goes to a fourth task');
   items.delete(items.toArray().findIndex(item=>item.id===third.anchorId),1);run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[5].id});assert.equal(run.cards.at(-1).index,5,'A removed earlier card does not block a later choice');
   run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[2].id});assert.equal(run.teacherCardId,third.id);assert.equal(run.cards.length,4);const restarted=new PreparedLessonTasks(deps),old=restarted.data.runs[run.id].cards.find(card=>card.id===third.id);assert.equal(old.codeId,third.codeId);assert.equal(old.code.text,'print(26)');assert.equal(old.solutions.source.id,'kept-solution');assert.equal(old.status,'active');
+});
+
+
+test('four independent questions keep partial results, lock correct fields and advance only after all are checked',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-independent-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const deps={directory,authorize:async actor=>({allowed:true,auth:actor,groupId:'g',participantIds:['s']}),board:async()=>doc,sourceFiles:async()=>[]};
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  let store=new PreparedLessonTasks(deps);const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100});
+  const template={title:'Два условия',images:[image.id],answerMode:'independent',answerCountOverride:4,format:'number',answers:['1.5','22','33','44']};
+  const set=await store.saveSet(auth,{name:'Тренировка',taskNumber:22,tasks:[template,{images:[image.id],answers:['next-secret']}]});
+  await assert.rejects(store.saveSet(auth,{...set,tasks:[{...template,answerMode:'unknown'}]}),{status:400});
+  let run=await store.start(auth,{room:'board-group-g',setId:set.id,x:0,y:0});const card=run.cards[0],id=run.id;
+  assert.equal(card.answerMode,'independent');assert.equal(card.answerCount,4);assert.deepEqual(card.fieldResults,[null,null,null,null]);
+  await store.action(auth,id,{action:'auto',value:true});
+  const act=(body,actor=pupil)=>store.action(actor,id,{cardId:card.id,leaseKey:'questions',...body});
+  await act({action:'claim'});await act({action:'answer',revision:0,answers:['1,5','0','','']});
+  await assert.rejects(act({action:'check',revision:1}),{status:400});
+  for(const fieldIndex of [-1,4,0.5,null,'0'])await assert.rejects(act({action:'check',revision:1,fieldIndex}),{status:400});
+  run=await act({action:'check',revision:1,fieldIndex:0});assert.deepEqual(run.cards[0].fieldResults,['correct',null,null,null]);assert.equal(run.cards[0].status,'active');assert.equal(run.cards.length,1);
+  assert.equal(JSON.stringify(run).includes('next-secret'),false);assert.equal(JSON.stringify(run).includes('"33"'),false);
+  await act({action:'claim'});await assert.rejects(act({action:'answer',revision:1,answers:['wrong','0','','']}),{status:409});
+  run=await act({action:'check',revision:1,fieldIndex:1,accept:true});assert.equal(run.cards[0].fieldResults[1],'wrong','A pupil cannot award credit');
+  store=new PreparedLessonTasks(deps);assert.deepEqual(store.publicRun(store.data.runs[id],{auth:pupil}).cards[0].fieldResults,['correct','wrong',null,null]);
+  await act({action:'claim'});await act({action:'answer',revision:1,answers:['1,5','0','33','']});
+  run=await act({action:'check',revision:2,fieldIndex:2});assert.deepEqual(run.cards[0].fieldResults,['correct','wrong','correct',null]);assert.equal(run.cards.length,1);
+  await act({action:'claim'});await assert.rejects(act({action:'check',revision:1,fieldIndex:1}),{status:409});
+  run=await act({action:'answer',revision:2,answers:['1,5','22','33','44']});assert.deepEqual(run.cards[0].fieldResults,['correct',null,'correct',null]);
+  run=await act({action:'check',revision:3,fieldIndex:1});assert.equal(run.cards[0].status,'active');assert.equal(run.cards.length,1);
+  await act({action:'claim'});run=await act({action:'check',revision:3,fieldIndex:3});assert.equal(run.cards[0].status,'solved');assert.deepEqual(run.cards[0].fieldResults,['correct','correct','correct','correct']);assert.equal(run.cards.length,2);
+  run=await act({action:'check',revision:3,fieldIndex:3});assert.equal(run.cards.length,2,'Repeated last-question checks never add another card');
+  const restarted=new PreparedLessonTasks(deps),restored=restarted.publicRun(restarted.data.runs[id],{auth:pupil});assert.equal(restored.cards[0].id,card.id);assert.equal(restored.cards[0].codeId,card.codeId);
+});
+
+test('independent manual questions require teacher credit per question; ordinary EGE still checks all fields together',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-question-modes-')),doc=new Y.Doc(),teacher={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]});
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const image=store.putAsset(teacher,Buffer.from('image'),'test.png','image/png',{width:600,height:100});
+  const set=await store.saveSet(teacher,{name:'Разные проверки',taskNumber:17,tasks:[{answerMode:'independent',answerCountOverride:2,format:'manual',images:[image.id],answers:['','']},{format:'fields',images:[image.id],answers:['12','34']}]});
+  let run=await store.start(teacher,{room:'board-t-s',setId:set.id,x:0,y:0});const first=run.cards[0];
+  const act=(actor,body)=>store.action(actor,run.id,{cardId:first.id,leaseKey:'manual',...body});
+  await act(pupil,{action:'claim'});await act(pupil,{action:'answer',revision:0,answers:['Объяснение','']});await assert.rejects(act(pupil,{action:'check',revision:1,fieldIndex:0,accept:true}),{status:409});
+  await act(teacher,{action:'claim',force:true});run=await act(teacher,{action:'check',revision:1,fieldIndex:0,accept:true});assert.equal(run.cards[0].status,'active');assert.deepEqual(run.cards[0].fieldResults,['correct',null]);
+  await act(teacher,{action:'claim'});run=await act(teacher,{action:'check',revision:1,fieldIndex:1,accept:true});assert.equal(run.cards[0].status,'solved');
+  run=await store.action(teacher,run.id,{action:'next',expectedCount:1,fromCardId:first.id});const second=run.cards[1];assert.equal(second.answerMode,'combined');
+  const combined=body=>store.action(pupil,run.id,{cardId:second.id,leaseKey:'combined',...body});await combined({action:'claim'});await combined({action:'answer',revision:0,answers:['12','wrong']});
+  await assert.rejects(combined({action:'check',revision:1,fieldIndex:0}),{status:400});run=await combined({action:'check',revision:1});assert.equal(run.cards[1].status,'active');assert.deepEqual(run.cards[1].fieldResults,[]);
+  await combined({action:'claim'});await combined({action:'answer',revision:1,answers:['12','34']});run=await combined({action:'check',revision:2});assert.equal(run.cards[1].status,'solved');
+});
+
+
+test('autosave persists incomplete sets with stable identities, rejects stale saves and keeps unfinished tasks off live boards',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-autosave-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const deps={directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]},store=new PreparedLessonTasks(deps);
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const crypto=await import('node:crypto'),setId=crypto.randomUUID(),taskId=crypto.randomUUID();
+  let saved=await store.saveSet(auth,{id:setId,version:0,autosave:true,name:'',taskNumber:22,tasks:[{id:taskId,title:'',answers:[''],images:[]}]});
+  assert.equal(saved.id,setId);assert.equal(saved.tasks[0].id,taskId);assert.equal(saved.draft,true);
+  assert.equal(new PreparedLessonTasks(deps).data.sets[setId].tasks[0].id,taskId);
+  await assert.rejects(store.start(auth,{room:'board-t-s',setId,x:0,y:0}),{status:409});
+  await assert.rejects(store.saveSet(auth,{...saved,autosave:false},setId),{status:400});
+  await assert.rejects(store.saveSet(auth,{...saved,version:0,autosave:true},setId),{status:409});
+  await assert.rejects(store.saveSet(pupil,{...saved,autosave:true},setId),{status:403});
+  const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100});
+  saved=await store.saveSet(auth,{...saved,autosave:true,name:'Процессы',tasks:[{...saved.tasks[0],title:'5',images:[image.id],answers:['12']}]},setId);assert.equal(saved.draft,undefined);
+  const run=await store.start(auth,{room:'board-t-s',setId,x:0,y:0});assert.deepEqual(run.cards[0].referenceAnswers,['12']);
+  const secondId=crypto.randomUUID();saved=await store.saveSet(auth,{...saved,autosave:true,tasks:[...saved.tasks,{id:secondId,images:[],answers:['']}]},setId);
+  assert.equal(saved.draft,true);assert.equal(store.publicRun(store.data.runs[run.id],{auth}).newTasksAvailable,0);
+  assert.equal((await store.start(auth,{room:'board-t-s',setId,x:0,y:0})).id,run.id,'An unfinished template never blocks resuming an existing snapshot');
+  await assert.rejects(store.action(auth,run.id,{action:'sync-queue',setVersion:saved.version}),{status:409});
+  saved=await store.saveSet(auth,{...saved,autosave:true,tasks:saved.tasks.map(task=>({...task,images:[image.id],answers:['34']}))},setId);assert.equal(saved.draft,undefined);
+  const updated=await store.action(auth,run.id,{action:'sync-queue',setVersion:saved.version});assert.equal(updated.total,2);assert.deepEqual(store.data.runs[run.id].tasks[0].answers,['12']);assert.equal(store.data.runs[run.id].tasks[1].id,secondId);
+});
+
+test('only managing teachers receive reference answers; no references enter shared Yjs or pupil action responses',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-private-reference-')),doc=new Y.Doc(),teacher={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]});
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const image=store.putAsset(teacher,Buffer.from('image'),'test.png','image/png',{width:600,height:100}),secret='teacher-only-expected';
+  const set=await store.saveSet(teacher,{name:'Проверка',taskNumber:3,tasks:[{images:[image.id],answers:[secret]}]});
+  let run=await store.start(teacher,{room:'board-t-s',setId:set.id,x:0,y:0});assert.deepEqual(run.cards[0].referenceAnswers,[secret]);
+  assert.equal('referenceAnswers' in store.publicRun(store.data.runs[run.id],{auth:pupil}).cards[0],false);
+  assert.equal('referenceAnswers' in store.publicRun(store.data.runs[run.id],{auth:teacher,readOnly:true}).cards[0],false);
+  const card=run.cards[0],act=body=>store.action(pupil,run.id,{cardId:card.id,leaseKey:'input',...body});
+  await act({action:'claim'});await act({action:'answer',revision:0,answers:['wrong']});run=await act({action:'check',revision:1});
+  assert.equal(JSON.stringify(run).includes(secret),false);assert.equal('referenceAnswers' in run.cards[0],false);
+  assert.equal(JSON.stringify(doc.toJSON()).includes(secret),false);
+});
+
+
+test('explicit checking-mode update preserves the live task identity, entered answers, code and immutable reference',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-sync-checking-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]});t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100});let set=await store.saveSet(auth,{name:'Два вопроса',taskNumber:22,tasks:[{images:[image.id],answerCountOverride:2,answers:['12','34']}]});
+  let run=await store.start(auth,{room:'board-t-s',setId:set.id,x:0,y:0});const card=run.cards[0];
+  await store.action(pupil,run.id,{action:'claim',cardId:card.id,leaseKey:'input'});await store.action(pupil,run.id,{action:'answer',cardId:card.id,leaseKey:'input',revision:0,answers:['12','wrong']});
+  const scene=JSON.stringify(doc.getArray('items').toArray());set=await store.saveSet(auth,{...set,tasks:set.tasks.map(task=>({...task,answerMode:'independent',format:'exact'}))},set.id);
+  assert.equal(store.publicRun(store.data.runs[run.id],{auth}).checkingUpdateAvailable,true);
+  await assert.rejects(store.action(pupil,run.id,{action:'sync-checking',setVersion:set.version}),{status:403});
+  run=await store.action(auth,run.id,{action:'sync-checking',setVersion:set.version});assert.equal(run.cards[0].answerMode,'independent');assert.deepEqual(run.cards[0].answers,['12','wrong']);assert.equal(run.cards[0].id,card.id);assert.equal(run.cards[0].codeId,card.codeId);assert.equal(JSON.stringify(doc.getArray('items').toArray()),scene);assert.deepEqual(run.cards[0].fieldResults,[null,null]);
+  set=await store.saveSet(auth,{...set,tasks:set.tasks.map(task=>({...task,answerMode:'combined',answers:['new','reference']}))},set.id);
+  await assert.rejects(store.action(auth,run.id,{action:'sync-checking',setVersion:set.version}),{status:409});assert.deepEqual(store.data.runs[run.id].tasks[0].answers,['12','34']);assert.equal(store.data.runs[run.id].tasks[0].answerMode,'independent');
 });

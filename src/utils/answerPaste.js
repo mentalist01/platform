@@ -16,3 +16,10 @@ export const getAnswerPasteOrder = (answerCount, startIndex = 0) => {
 
   return Array.from({ length: count - start }, (_, idx) => start + idx);
 };
+
+export const getPreparedAnswerPasteOrder = (answerCount, startIndex = 0, mode = 'combined') => {
+  if (mode !== 'independent') return getAnswerPasteOrder(answerCount, startIndex);
+  const count = Number(answerCount), start = Number(startIndex);
+  if (!Number.isInteger(count) || !Number.isInteger(start) || start < 0 || start >= count) return [];
+  return Array.from({length: count - start}, (_, index) => start + index);
+};

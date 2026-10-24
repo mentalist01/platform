@@ -96,23 +96,26 @@ export class PreparedLessonTasks {
   }
   async saveSet(auth,input,id) {
     if(!teacher(auth))fail(403,'Подготовка доступна преподавателю');
-    const previous=id?this.data.sets[id]:null;if(id&&(!previous||previous.teacherId!==auth.id))fail(404,'Набор не найден');
+    const autosave=input.autosave===true,requestedId=id||(/^[a-f0-9-]{36}$/.test(input.id||'')?input.id:'');
+    const previous=requestedId?this.data.sets[requestedId]:null;if((id&&!previous)||previous&&previous.teacherId!==auth.id)fail(404,'Набор не найден');
     if(previous&&input.version!==undefined&&Number(input.version)!==previous.version)fail(409,'Набор уже изменён в другом окне. Черновик сохранён на устройстве; откройте актуальный набор перед заменой.');
     const name=text(input.name,80),taskNumber=Number(input.taskNumber),part=Number(input.partNumber)||1;
-    if(!name||!Number.isInteger(taskNumber)||taskNumber<1||taskNumber>27||!Number.isInteger(part)||part<1||part>20)fail(400,'Укажите название, номер ЕГЭ и часть');
+    let incomplete=!name;
+    if((!name&&!autosave)||!Number.isInteger(taskNumber)||taskNumber<1||taskNumber>27||!Number.isInteger(part)||part<1||part>20)fail(400,'Укажите название, номер ЕГЭ и часть');
     if(!Array.isArray(input.tasks)||!input.tasks.length||input.tasks.length>100)fail(400,'Добавьте от 1 до 100 заданий');
     const sources=await this.sourceFiles(auth),tasks=[];
     for(const [index,raw] of input.tasks.entries()) {
       const normalized=preparedAnswerTask(raw,taskNumber);
+      if(raw.answerMode!==undefined&&!['combined','independent'].includes(raw.answerMode))fail(400,'Выберите совместную проверку или отдельные вопросы');
       if(raw.answerCountOverride!==undefined&&(!Number.isInteger(Number(raw.answerCountOverride))||Number(raw.answerCountOverride)<1||Number(raw.answerCountOverride)>50))fail(400,'Допустимо от 1 до 50 ячеек ответа');
       const title=text(raw.title,120),format=['exact','number','sequence','unordered','fields','manual'].includes(normalized.format)?normalized.format:'exact';
       const answers=normalized.answers.slice(0,50).map(v=>text(v,500));
       if(format==='manual'&&!answers.length)answers.push('');
       const imageIds=[...new Set(Array.isArray(raw.images)?raw.images:[])].slice(0,8);
-      if(!imageIds.length)fail(400,`Добавьте условие задачи ${index+1}`);
+      if(!imageIds.length){if(!autosave)fail(400,`Добавьте условие задачи ${index+1}`);incomplete=true;}
       for(const imageId of imageIds){const asset=this.data.assets[imageId];if(!asset||asset.teacherId!==auth.id||!asset.mime.startsWith('image/'))fail(403,'Нет доступа к изображению');}
-      if(format!=='manual'&&(!answers.length||answers.some(v=>!v)))fail(400,`Укажите ответ к задаче ${index+1}`);
-      if(format==='number'&&!preparedAnswerMatches(answers,answers,'number'))fail(400,`Ответ задачи ${index+1} должен быть числом`);
+      if(format!=='manual'&&(!answers.length||answers.some(v=>!v))){if(!autosave)fail(400,`Укажите ответ к задаче ${index+1}`);incomplete=true;}
+      if(format==='number'&&!preparedAnswerMatches(answers,answers,'number')){if(!autosave)fail(400,`Ответ задачи ${index+1} должен быть числом`);incomplete=true;}
       const attachments=[];
       for(const ref of (raw.attachments||[]).slice(0,8)) {
         const runtime={runtime:ref.runtime!==false,runtimeName:text(ref.runtimeName,180)};
@@ -123,17 +126,18 @@ export class PreparedLessonTasks {
         const asset=this.putAsset(auth,fs.readFileSync(source.path),source.name,'application/octet-stream');attachments.push({assetId:asset.id,sourceFileId:source.id,name:source.name,...runtime});
       }
       try{preparedRuntimeFiles(attachments);}catch(error){fail(400,`Задача ${index+1}: ${error.message}`);}
-      tasks.push({id:raw.id&&previous?.tasks.some(t=>t.id===raw.id)?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
+      tasks.push({id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
     }
-    const set={id:previous?.id||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
+    if(new Set(tasks.map(task=>task.id)).size!==tasks.length)fail(400,'Идентификаторы задач должны быть разными');
+    const set={id:previous?.id||requestedId||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,...(incomplete?{draft:true}:{}),version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
     this.data.sets[set.id]=set;this.save();for(const run of Object.values(this.data.runs).filter(run=>run.setId===set.id&&Object.values(this.data.active).includes(run.id)))await this.notify(run,'run');return set;
   }
   assetView(assetId,runId=''){const a=this.data.assets[assetId];return a?{id:a.id,name:a.name,sizeBytes:a.size,mime:a.mime,width:a.width,height:a.height,url:`/api/lesson-task-assets/${a.id}${runId?'?run='+encodeURIComponent(runId):''}`} : null;}
   setView(set){return {...set,tasks:set.tasks.map(t=>({...t,imageFiles:t.images.map(id=>this.assetView(id)),attachments:t.attachments.map(a=>({...a,...this.assetView(a.assetId)}))}))};}
   publicRun(run,access) {
     if(!run)return null;
-    return {id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,canManage:teacher(access.auth)&&!access.readOnly,canEditFiles:!access.readOnly&&(!run.groupId||teacher(access.auth)),newTasksAvailable:teacher(access.auth)?preparedQueueSync(run.tasks,this.data.sets[run.setId]?.tasks||[]).added:0,filesUpdateAvailable:teacher(access.auth)&&Boolean(this.data.sets[run.setId]&&preparedFileSync(run.tasks,this.data.sets[run.setId].tasks).changed),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index];return {id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,format:task.format,answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name),helperText:textWorkbook(run,a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
+    return {id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,canManage:teacher(access.auth)&&!access.readOnly,canEditFiles:!access.readOnly&&(!run.groupId||teacher(access.auth)),newTasksAvailable:teacher(access.auth)&&!this.data.sets[run.setId]?.draft?preparedQueueSync(run.tasks,this.data.sets[run.setId]?.tasks||[]).added:0,checkingUpdateAvailable:teacher(access.auth)&&run.tasks.some(task=>{const latest=this.data.sets[run.setId]?.tasks.find(row=>row.id===task.id);return latest&&((task.answerMode||'combined')!==(latest.answerMode||'combined')||task.format!==latest.format);}),filesUpdateAvailable:teacher(access.auth)&&Boolean(this.data.sets[run.setId]&&preparedFileSync(run.tasks,this.data.sets[run.setId].tasks).changed),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
+      const task=run.tasks[c.index];return {id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),format:task.format,answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name),helperText:textWorkbook(run,a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
@@ -142,6 +146,7 @@ export class PreparedLessonTasks {
     const access=await this.access(auth,input.room,true);if(!teacher(auth))fail(403,'Начать набор может преподаватель');
     const set=this.data.sets[input.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
     const old=this.data.runs[this.data.active[input.room]];if(old){if(old.setId!==set.id)fail(409,'На этой странице уже есть другой набор. Создайте новую страницу.');await this.recover(old);old.mode='prepared';old.version++;this.save(old);await this.notify(old);return this.publicRun(old,access);}
+    if(set.draft)fail(409,'Сначала заполните название, условия и ответы в наборе');
     const x=Number(input.x),y=Number(input.y);if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>900_000||Math.abs(y)>900_000)fail(400,'Укажите место на доске');
     const run={id:crypto.randomUUID(),room:input.room,teacherId:set.teacherId,name:set.name,taskNumber:set.taskNumber,partNumber:set.partNumber,setId:set.id,setVersion:set.version,tasks:structuredClone(set.tasks),cards:[],version:1,mode:'prepared',auto:false,participantIds:access.participantIds||[],studentId:access.studentId||'',groupId:access.groupId||'',start:{x,y},createdAt:new Date(this.now()).toISOString()};
     this.data.runs[run.id]=run;this.data.active[run.room]=run.id;this.save(run);this.save();await this.addCard(run);await this.notify(run);return this.publicRun(run,access);
@@ -172,7 +177,7 @@ export class PreparedLessonTasks {
     const {run,access}=await this.getRun(auth,id,true),manage=teacher(auth),card=run.cards.find(c=>c.id===input.cardId),now=this.now();
     const requireCard=()=>{if(!card)fail(404,'Задача не найдена');};
     const lease=(kind='lease')=>{requireCard();const previous=card[kind];if(!previous||previous.until<now||previous.actor!==actorKey(auth)||previous.key!==input.leaseKey)fail(409,`${previous?.name||'Другой участник'} редактирует поле либо время ввода истекло. Возьмите ввод заново.`);};
-    if(['mode','auto','next','skip','focus','restore','layout','sync-files','sync-queue','choose'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
+    if(['mode','auto','next','skip','focus','restore','layout','sync-files','sync-queue','sync-checking','choose'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
     if(input.action==='mode')run.mode=input.mode==='prepared'?'prepared':'plain';
     else if(input.action==='auto')run.auto=input.value===true;
     else if(input.action==='focus'){requireCard();run.teacherCardId=card.id;}
@@ -184,9 +189,21 @@ export class PreparedLessonTasks {
       for(const task of update.tasks){if(task.attachments.length>16)fail(409,'Слишком много вложений. Используйте новую страницу.');try{preparedRuntimeFiles(task.attachments);}catch(error){fail(409,error.message);}}
       run.tasks=update.tasks;run.filesVersion=set.version;
     }
+    else if(input.action==='sync-checking') {
+      const set=this.data.sets[run.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
+      if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Откройте актуальные настройки проверки.');
+      const changes=run.tasks.map((task,index)=>({task,index,latest:set.tasks.find(row=>row.id===task.id)})).filter(({task,latest})=>latest&&((task.answerMode||'combined')!==(latest.answerMode||'combined')||task.format!==latest.format));
+      for(const {task,latest} of changes)if(JSON.stringify(task.answers)!==JSON.stringify(latest.answers))fail(409,'Режим проверки можно обновить, если эталоны не менялись. Для новых эталонов откройте набор на новой странице.');
+      for(const {task,index,latest} of changes){
+        run.tasks[index]={...task,answerMode:latest.answerMode||'combined',format:latest.format};
+        const entry=run.cards.find(row=>row.index===index);if(entry){entry.fieldResults=latest.answers.map(()=>entry.status==='solved'?'correct':null);entry.answerRevision++;entry.lease=null;if(entry.status!=='solved')entry.lastResult=null;}
+      }
+      if(!changes.length)return this.publicRun(run,access);
+    }
     else if(input.action==='sync-queue') {
       const set=this.data.sets[run.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
       if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Обновите список и повторите подключение задач.');
+      if(set.draft)fail(409,'Дополните условия и ответы перед подключением новых задач');
       const update=preparedQueueSync(run.tasks,set.tasks);if(update.tasks.length>100)fail(409,'На странице может быть не больше 100 задач. Создайте новую страницу.');
       run.tasks=update.tasks;
     }
@@ -213,15 +230,28 @@ export class PreparedLessonTasks {
       card[kind]={actor:actorKey(auth),name:text(auth.name)||'Участник',key:text(input.leaseKey,80),until:now+LEASE_MS};if(!card[kind].key)fail(400,'Не удалось начать редактирование');
     } else if(input.action==='answer') {
       lease();if(Number(input.revision)!==card.answerRevision)fail(409,'Ответ уже изменён. Ваш ввод сохранён на экране; обновите данные перед повтором.');
-      if(card.status==='solved')fail(409,'Задача уже решена');if(!Array.isArray(input.answers)||input.answers.length!==(run.tasks[card.index].answers.length||1)||input.answers.some(v=>typeof v!=='string'||v.length>500))fail(400,'Неверный формат полей ответа');card.answers=input.answers.map(v=>v.replace(/\0/g,''));card.answerRevision++;if(card.lease)card.lease.until=now+LEASE_MS;
+      if(card.status==='solved')fail(409,'Задача уже решена');const task=run.tasks[card.index];
+      if(!Array.isArray(input.answers)||input.answers.length!==(task.answers.length||1)||input.answers.some(v=>typeof v!=='string'||v.length>500))fail(400,'Неверный формат полей ответа');
+      const values=input.answers.map(v=>v.replace(/\0/g,''));
+      if(task.answerMode==='independent'){
+        const results=task.answers.map((_,i)=>card.fieldResults?.[i]||null);
+        if(results.some((result,i)=>result==='correct'&&values[i]!==card.answers[i]))fail(409,'Верный ответ на вопрос уже сохранён');
+        card.fieldResults=results.map((result,i)=>values[i]===card.answers[i]?result:null);
+      }
+      card.answers=values;card.answerRevision++;if(card.lease)card.lease.until=now+LEASE_MS;
     } else if(input.action==='check') {
       requireCard();if(card.status==='solved')return this.publicRun(run,access);lease();
       if(Number(input.revision)!==card.answerRevision)fail(409,'Ответ успел измениться. Проверьте актуальный ответ.');
-      if(!card.answers.some(v=>v.trim())&&!(manage&&input.accept))fail(400,'Сначала введите ответ');
-      const task=run.tasks[card.index];if(task.format==='manual'&&!manage)fail(409,'Это задание проверяет преподаватель');
+      const task=run.tasks[card.index],independent=task.answerMode==='independent',field=input.fieldIndex;
+      if(independent&&(!Number.isInteger(field)||field<0||field>=task.answers.length))fail(400,'Выберите вопрос для проверки');
+      if(!independent&&field!==undefined)fail(400,'Ответы этой задачи проверяются вместе');
+      if(!(independent?card.answers[field].trim():card.answers.some(v=>v.trim()))&&!(manage&&input.accept))fail(400,'Сначала введите ответ');
+      if(task.format==='manual'&&!manage)fail(409,'Это задание проверяет преподаватель');
       card.lastCheckAt=now;card.attempts=(card.attempts||0)+1;
-      const correct=(manage&&input.accept===true)||preparedAnswerMatches(task.answers,card.answers,task.format);
-      card.lastResult=correct?'correct':'wrong';card.lease=null;if(correct){card.status='solved';card.solvedBy=actorKey(auth);if(run.auto&&card===preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray()))await this.addCard(run,card.index+1);}
+      const correct=(manage&&input.accept===true)||preparedAnswerMatches(independent?[task.answers[field]]:task.answers,independent?[card.answers[field]]:card.answers,task.format);
+      if(independent){card.fieldResults=task.answers.map((_,i)=>i===field?(correct?'correct':'wrong'):card.fieldResults?.[i]||null);}
+      const complete=independent?card.fieldResults.every(result=>result==='correct'):correct;
+      card.lastResult=correct?'correct':'wrong';card.lease=null;if(complete){card.status='solved';card.solvedBy=actorKey(auth);if(run.auto&&card===preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray()))await this.addCard(run,card.index+1);}
     } else if(input.action==='release') {requireCard();for(const kind of ['lease','codeLease'])if(card[kind]?.key===input.leaseKey)card[kind]=null;}
     else if(input.action==='code') {
       lease('codeLease');if(Number(input.revision)!==card.code.revision)fail(409,'Код обновлён другим участником. Ваш текст сохранён локально.');
@@ -258,7 +288,7 @@ export class PreparedLessonTasks {
   notesForStudent(studentId,auth){const files=[];for(const run of Object.values(this.data.runs)){if(run.studentId!==studentId&&!run.participantIds.includes(studentId))continue;for(const card of run.cards)for(const solution of Object.values(card.solutions||{})){const folder=solution.folders?.[studentId];files.push({id:solution.id,studentId,teacherId:run.teacherId,name:solution.name,taskNumber:run.taskNumber,category:'class',folderId:folder?.id||null,folderName:folder?.name||'Решённые задания',workbookPartNumber:run.partNumber,sizeBytes:solution.size,date:new Date(solution.updatedAt).toLocaleDateString('ru-RU'),createdAt:solution.updatedAt,updatedAt:solution.updatedAt,url:`/api/lesson-task-solutions/${solution.id}`,preparedRunId:run.id,preparedCardId:card.id,workbookReadOnly:Boolean(run.groupId&&!teacher(auth)),savedBy:solution.savedBy});}}return files;}
 }
 
-const handler=fn=>async(req,res,next)=>{try{await fn(req,res,next);}catch(error){if(res.headersSent)return next(error);res.status(error.status||500).json({error:error.status?error.message:'Не удалось выполнить действие с заданием. Данные не удалены.'});}};
+const handler=fn=>async(req,res,next)=>{try{res.setHeader('Cache-Control','private, no-store');res.vary('Authorization');await fn(req,res,next);}catch(error){if(res.headersSent)return next(error);res.status(error.status||500).json({error:error.status?error.message:'Не удалось выполнить действие с заданием. Данные не удалены.'});}};
 const workbookUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:64*1024*1024}});
 export function registerPreparedHelperRoutes(app,store,{allowExchange=()=>true,allowContent=()=>true}={}){
   app.post('/workbook-helper/v1/exchange',handler(async(req,res,next)=>{if(!String(req.body?.ticket||'').startsWith('pt_'))return next();if(!allowExchange(req))fail(429,'Слишком много запусков помощника. Повторите через минуту.');res.setHeader('Cache-Control','no-store');res.json(await store.lock(()=>store.exchange(req.body.ticket,String(req.headers['user-agent']||''))));}));

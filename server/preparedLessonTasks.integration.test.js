@@ -124,3 +124,27 @@ test('prepared 26/27 text opens a blank workbook plus immutable source through t
     }
   }finally{await f.stop();}
 });
+
+
+test('group participants check independent questions separately through HTTP and retain accepted shared answers', {timeout:60000},async()=>{
+  const f=await createGroupHomeworkFixture(),{tokens,request,base,groupId}=f;
+  try{
+    const form=new FormData();form.append('file',new Blob([await sharp({create:{width:600,height:160,channels:4,background:'white'}}).png().toBuffer()]),'questions.png');
+    const upload=await fetch(base+'/api/lesson-task-images',{method:'POST',headers:{Authorization:`Bearer ${tokens['teacher-a']}`},body:form});assert.equal(upload.status,201);const image=await upload.json();
+    const set=await request('/api/lesson-task-sets',tokens['teacher-a'],{name:'Несколько вопросов',taskNumber:22,tasks:[{title:'5',answerMode:'independent',answerCountOverride:3,format:'exact',images:[image.id],answers:['first-secret','second-secret','third-secret']}]},'POST',201);
+    const room=`board-group-${groupId}`,{run}=await request('/api/lesson-task-runs',tokens['teacher-a'],{room,setId:set.id,x:0,y:0},'POST',201),card=run.cards[0];
+    assert.deepEqual(card.referenceAnswers,['first-secret','second-secret','third-secret']);
+    const teacherResponse=await fetch(base+'/api/lesson-task-run?room='+encodeURIComponent(room),{headers:{Authorization:`Bearer ${tokens['teacher-a']}`}});assert.match(teacherResponse.headers.get('cache-control'),/private.*no-store/);assert.match(teacherResponse.headers.get('vary'),/Authorization/i);
+    const act=(who,body,status=200)=>request(`/api/lesson-task-runs/${run.id}/action`,tokens[who],{cardId:card.id,leaseKey:who,...body},'POST',status);
+    await act('student-a',{action:'claim'});await act('student-a',{action:'answer',revision:0,answers:['first-secret','','']});
+    const first=(await act('student-a',{action:'check',revision:1,fieldIndex:0})).run;assert.equal(first.cards[0].status,'active');assert.deepEqual(first.cards[0].fieldResults,['correct',null,null]);assert.equal(JSON.stringify(first).includes('second-secret'),false);
+    const shared=(await request('/api/lesson-task-run?room='+encodeURIComponent(room),tokens['student-b'])).run;assert.deepEqual(shared.cards[0].fieldResults,['correct',null,null]);assert.equal('referenceAnswers' in shared.cards[0],false);
+    await act('student-b',{action:'claim'});await act('student-b',{action:'answer',revision:1,answers:['overwrite','','']},409);
+    await act('student-b',{action:'answer',revision:1,answers:['first-secret','wrong','']});const wrong=(await act('student-b',{action:'check',revision:2,fieldIndex:1})).run;assert.deepEqual(wrong.cards[0].fieldResults,['correct','wrong',null]);assert.equal(JSON.stringify(wrong).includes('second-secret'),false);
+    await act('student-a',{action:'claim'});await act('student-a',{action:'answer',revision:2,answers:['first-secret','second-secret','third-secret']});
+    await act('student-a',{action:'check',revision:3},400);await act('student-a',{action:'check',revision:3,fieldIndex:1});
+    await act('student-a',{action:'claim'});const solved=(await act('student-a',{action:'check',revision:3,fieldIndex:2})).run;assert.equal(solved.cards[0].status,'solved');assert.deepEqual(solved.cards[0].fieldResults,['correct','correct','correct']);
+    await request('/api/lesson-task-run?room='+encodeURIComponent(room),tokens['student-c'],undefined,'GET',403);
+    const persisted=JSON.parse(fs.readFileSync(path.join(f.data,'prepared-lesson-tasks','runs',run.id+'.json'),'utf8'));assert.equal(persisted.tasks[0].answerMode,'independent');assert.deepEqual(persisted.cards[0].fieldResults,['correct','correct','correct']);
+  }finally{await f.stop();}
+});
