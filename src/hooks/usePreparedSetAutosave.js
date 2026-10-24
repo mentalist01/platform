@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {preparedRequest} from '../services/preparedLessonTasks.js';
 import {mergePreparedSetSave} from '../utils/preparedSetSave.js';
+import {upsertPreparedSet} from '../utils/preparedSetLibrary.js';
 
 // Each editor session has its own queue and optimistic server version. A late
 // response may acknowledge a snapshot, but never replace edits made after it.
@@ -20,7 +21,7 @@ export function usePreparedSetAutosave({edit,savedSnapshot,setEdit,setSavedSnaps
       try{
         const value=await preparedRequest(current.version?`/api/lesson-task-sets/${current.id}`:'/api/lesson-task-sets',{...submitted,id:current.id,version:current.version,autosave},current.version?'PUT':'POST');
         current.id=value.id;current.version=value.version;current.acknowledged=JSON.stringify(value);
-        setSets(old=>[value,...old.filter(set=>set.id!==value.id)]);
+        setSets(old=>upsertPreparedSet(old,value));
         if(session.current===current){
           setSavedSnapshot(JSON.stringify(value));
           setEdit(old=>{

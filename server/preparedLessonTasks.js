@@ -77,7 +77,23 @@ export class PreparedLessonTasks {
     this.save();
   }
   atomic(filename,data){const tmp=filename+'.tmp';fs.writeFileSync(tmp,JSON.stringify(data),{mode:0o600});fs.renameSync(tmp,filename);}
-  save(run){if(run){this.atomic(path.join(this.runsDir,run.id+'.json'),{...run,cards:run.cards.map(card=>({...card,code:{revision:card.code.revision}}))});return;}const {version,sets,assets,active,sessions}=this.data;this.atomic(this.file,{version,sets,assets,runs:{},active,sessions});}
+  save(run){if(run){this.atomic(path.join(this.runsDir,run.id+'.json'),{...run,cards:run.cards.map(card=>({...card,code:{revision:card.code.revision}}))});return;}const {version,sets,assets,active,sessions,setOrders}=this.data;this.atomic(this.file,{version,sets,assets,runs:{},active,sessions,...(setOrders?{setOrders}:{})});}
+  listSets(auth){
+    if(!teacher(auth))fail(403,'Подготовка доступна преподавателю');
+    const owned=Object.values(this.data.sets).filter(set=>set.teacherId===auth.id),order=this.data.setOrders?.[auth.id];
+    const positions=new Map((order?.ids||[]).map((id,index)=>[id,index]));
+    return {sets:owned.sort((a,b)=>(positions.get(a.id)??Infinity)-(positions.get(b.id)??Infinity)),orderVersion:order?.version||0};
+  }
+  reorderSets(auth,input){
+    const current=this.listSets(auth);
+    if(Number(input.version)!==current.orderVersion)fail(409,'Порядок наборов изменён в другом окне. Список обновлён — повторите перемещение.');
+    const ids=input.ids;
+    if(!Array.isArray(ids)||!ids.length||ids.length>10000||new Set(ids).size!==ids.length)fail(400,'Передайте список разных наборов');
+    const own=new Set(current.sets.map(set=>set.id));
+    if(ids.some(id=>typeof id!=='string'||!own.has(id)))fail(404,'Набор не найден');
+    this.data.setOrders||={};this.data.setOrders[auth.id]={version:current.orderVersion+1,ids:[...ids,...current.sets.filter(set=>!ids.includes(set.id)).map(set=>set.id)]};
+    this.save();return this.listSets(auth);
+  }
   lock(fn){const job=this.tail.catch(()=>{}).then(fn);this.tail=job;return job;}
   async access(auth,room,write=false){const access=await this.authorize(auth,room,{write});if(!access?.allowed||write&&access.readOnly)fail(403,'Нет доступа к этой доске');return access;}
   async getRun(auth,id,write=false){const run=this.data.runs[id];if(!run)fail(404,'Прохождение не найдено');const access=await this.access(auth,run.room,write);return {run,access};}
@@ -298,7 +314,8 @@ export function registerPreparedHelperRoutes(app,store,{allowExchange=()=>true,a
   app.put('/workbook-helper/v1/content',intercept,(req,res,next)=>req.preparedHelper?workbookUpload.single('file')(req,res,next):next(),handler(async(req,res,next)=>{if(!req.preparedHelper)return next();if(!req.file)fail(400,'Файл не найден');const {session,run,card}=req.preparedHelper;const solution=await store.lock(()=>store.saveSolution({auth:session.auth,run,card,assetId:session.assetId,generation:session.generation,buffer:req.file.buffer,name:req.body.solutionName||req.file.originalname,revision:req.body.revision??req.headers['x-workbook-revision'],hash:req.body.contentHash||req.headers['x-workbook-content-hash']}));res.json({ok:true,revision:solution.revision,contentHash:solution.hash,fileName:solution.name,solutionName:solution.name,workbookKey:card.bindings[session.assetId].id,requiresName:false,nameRequired:false});}));
 }
 export function registerPreparedTaskRoutes(app,store){
-  app.get('/api/lesson-task-sets',handler(async(req,res)=>{if(!teacher(req.auth))fail(403,'Подготовка доступна преподавателю');res.json({sets:Object.values(store.data.sets).filter(s=>s.teacherId===req.auth.id&&(!req.query.taskNumber||s.taskNumber===Number(req.query.taskNumber))).map(s=>store.setView(s))});}));
+  app.get('/api/lesson-task-sets',handler(async(req,res)=>{const result=store.listSets(req.auth);res.json({...result,sets:result.sets.filter(s=>!req.query.taskNumber||s.taskNumber===Number(req.query.taskNumber)).map(s=>store.setView(s))});}));
+  app.put('/api/lesson-task-set-order',handler(async(req,res)=>{const result=await store.lock(()=>store.reorderSets(req.auth,req.body));res.json({...result,sets:result.sets.map(set=>store.setView(set))});}));
   app.post('/api/lesson-task-sets',handler(async(req,res)=>res.status(201).json(await store.lock(()=>store.saveSet(req.auth,req.body)))));
   app.put('/api/lesson-task-sets/:id',handler(async(req,res)=>res.json(await store.lock(()=>store.saveSet(req.auth,req.body,req.params.id)))));
   app.get('/api/lesson-task-sources',handler(async(req,res)=>{if(!teacher(req.auth))fail(403,'Нет доступа');const sources=await store.sourceFiles(req.auth);res.json({files:sources.filter(f=>!req.query.taskNumber||f.taskNumber===Number(req.query.taskNumber)).map(file=>({id:file.id,name:file.name,taskNumber:file.taskNumber,category:file.category,folderName:file.folderName}))});}));

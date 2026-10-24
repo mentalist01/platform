@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {PreparedLessonTasks} from './preparedLessonTasks.js';
+
+test('set order is teacher-scoped, persists across restart, survives autosave and preserves a concurrently created set',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-set-order-'));
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const deps={directory,sourceFiles:async()=>[]},teacher={id:'teacher-a',role:'teacher'},other={id:'teacher-b',role:'teacher'};
+  const store=new PreparedLessonTasks(deps);
+  const create=(auth,name)=>store.saveSet(auth,{name,taskNumber:3,autosave:true,tasks:[{title:'1',answers:[''],images:[]}]});
+  const a=await create(teacher,'A'),b=await create(teacher,'B'),foreign=await create(other,'Чужой');
+  const before=JSON.stringify(store.data.sets),current=store.listSets(teacher);
+  const ordered=store.reorderSets(teacher,{ids:[b.id,a.id],version:current.orderVersion});
+  assert.equal(JSON.stringify(store.data.sets),before,'Reordering never changes task data or save versions');
+  assert.deepEqual(ordered.sets.map(s=>s.id),[b.id,a.id]);
+  assert.deepEqual(store.listSets(other).sets.map(s=>s.id),[foreign.id]);
+  const updated=await store.saveSet(teacher,{...a,name:'A changed',autosave:true},a.id);
+  assert.equal(updated.version,a.version+1);assert.deepEqual(store.listSets(teacher).sets.map(s=>s.id),[b.id,a.id]);
+  const c=await create(teacher,'C');
+  store.reorderSets(teacher,{ids:[a.id,b.id],version:ordered.orderVersion});
+  const restarted=new PreparedLessonTasks(deps);
+  assert.deepEqual(restarted.listSets(teacher).sets.map(s=>s.id),[a.id,b.id,c.id]);
+  assert.equal(restarted.data.sets[a.id].name,'A changed');
+  assert.equal(restarted.listSets(teacher).orderVersion,2);
+  const stable=fs.readFileSync(restarted.file,'utf8');
+  assert.throws(()=>restarted.reorderSets(teacher,{ids:[b.id,a.id],version:1}),{status:409});
+  assert.throws(()=>restarted.reorderSets(teacher,{ids:[foreign.id],version:2}),{status:404});
+  assert.throws(()=>restarted.reorderSets(teacher,{ids:[a.id,a.id],version:2}),{status:400});
+  assert.throws(()=>restarted.reorderSets({id:'student',role:'student'},{ids:[a.id],version:0}),{status:403});
+  assert.equal(fs.readFileSync(restarted.file,'utf8'),stable,'Rejected changes leave persistence untouched');
+});

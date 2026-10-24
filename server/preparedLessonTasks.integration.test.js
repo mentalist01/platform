@@ -18,6 +18,12 @@ test('authenticated library and group run; teacher saves the group workbook; pup
     const otherSources=await request('/api/lesson-task-sources',tokens['teacher-b']);assert.equal(otherSources.files.some(f=>f.id===source.id),false,'A different teacher cannot prepare a set from private Notes files');
     const set=await request('/api/lesson-task-sets',tokens['teacher-a'],{name:'Общий разбор',taskNumber:3,partNumber:1,tasks:[{title:'Первая',images:[image.id],format:'exact',answers:['secret-42'],attachments:[{sourceFileId:source.id}]},{title:'Будущее условие',images:[image.id],answers:['another-secret'],format:'exact'}]},'POST',201);
     await request('/api/lesson-task-sets',tokens['student-a'],undefined,'GET',403);
+    const library=await request('/api/lesson-task-sets',tokens['teacher-a']);
+    const ordered=await request('/api/lesson-task-set-order',tokens['teacher-a'],{version:library.orderVersion,ids:[set.id]},'PUT');
+    assert.equal(ordered.orderVersion,1);assert.equal(ordered.sets[0].id,set.id);
+    await request('/api/lesson-task-set-order',tokens['student-a'],{version:0,ids:[set.id]},'PUT',403);
+    await request('/api/lesson-task-set-order',tokens['teacher-b'],{version:0,ids:[set.id]},'PUT',404);
+    await request('/api/lesson-task-set-order',tokens['teacher-a'],{version:0,ids:[set.id]},'PUT',409);
     const room=`board-group-${groupId}`;
     let {run}=await request('/api/lesson-task-runs',tokens['teacher-a'],{room,setId:set.id,x:100,y:100},'POST',201);
     let pupil=await request('/api/lesson-task-run?room='+encodeURIComponent(room),tokens['student-b']);assert.equal(pupil.run.canManage,false);assert.equal(pupil.run.cards.length,1);assert.equal(JSON.stringify(pupil).includes('secret-42'),false);assert.equal(JSON.stringify(pupil).includes('another-secret'),false);
