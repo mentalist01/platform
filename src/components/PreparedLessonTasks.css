@@ -54,3 +54,11 @@
 .prepared-toolbar:has(.prepared-sync-queue)>.prepared-next,.prepared-toolbar:has(.prepared-sync-queue)>.prepared-skip{display:none}
 
 .prepared-ink-layer{z-index:25;pointer-events:none}.board-canvas-surface:has(.prepared-card) .board-remote-cursor-marker{z-index:29}
+
+.prepared-dialog.prepared-task-picker{width:min(100%,1050px);overflow:hidden;display:flex;flex-direction:column}
+.prepared-picker-workspace{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:280px;height:min(62vh,620px);border:1px solid var(--pt-line);border-radius:12px;overflow:hidden}
+.prepared-picker-sidebar{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--pt-line);background:var(--pt-bg)}
+.prepared-picker-search{display:flex;align-items:center;gap:7px;padding:10px;border-bottom:1px solid var(--pt-line)}.prepared-picker-search input{background:var(--pt-panel);font-size:13px}
+.prepared-picker-list{overflow:auto;padding:7px;display:flex;flex-direction:column;gap:5px}.prepared-picker-list button{width:100%;text-align:left;justify-content:space-between;padding:9px 11px;flex:none}.prepared-picker-list button span{min-width:0;display:grid;gap:2px}.prepared-picker-list strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.prepared-picker-list small{font-size:11px;color:var(--pt-muted)}.prepared-picker-list button[aria-selected=true]{background:var(--pt-soft);border-color:var(--pt-accent);color:var(--pt-accent)}
+.prepared-picker-preview{overflow:auto;padding:18px;background:var(--pt-bg)}.prepared-picker-preview h3{margin:0 0 12px;font-size:17px;font-weight:700}.prepared-picker-preview img{width:100%;height:auto;display:block;background:white;border-radius:6px;margin-bottom:12px}.prepared-task-picker footer{position:static;margin-top:15px;flex:none;box-shadow:none}.prepared-task-picker footer>span{max-width:50%;color:var(--pt-muted)}
+@media(max-width:640px){.prepared-picker-workspace{grid-template-columns:130px minmax(0,1fr)}.prepared-picker-preview{padding:10px}.prepared-picker-list button{padding:7px}.prepared-picker-search{padding:6px;gap:3px}.prepared-picker-search>svg{display:none}.prepared-task-picker footer>span{max-width:100%;flex-basis:100%}}

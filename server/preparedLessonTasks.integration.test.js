@@ -23,6 +23,7 @@ test('authenticated library and group run; teacher saves the group workbook; pup
     let pupil=await request('/api/lesson-task-run?room='+encodeURIComponent(room),tokens['student-b']);assert.equal(pupil.run.canManage,false);assert.equal(pupil.run.cards.length,1);assert.equal(JSON.stringify(pupil).includes('secret-42'),false);assert.equal(JSON.stringify(pupil).includes('another-secret'),false);
     await request('/api/lesson-task-run?room='+encodeURIComponent(room),tokens['student-c'],undefined,'GET',403);
     const card=run.cards[0],asset=card.attachments[0];
+    const catalog=await request(`/api/lesson-task-runs/${run.id}/tasks`,tokens['teacher-a']);assert.equal(catalog.tasks.length,2);assert.equal(JSON.stringify(catalog).includes('secret-42'),false);await request(`/api/lesson-task-runs/${run.id}/tasks`,tokens['student-a'],undefined,'GET',403);await request(`/api/lesson-task-runs/${run.id}/action`,tokens['student-a'],{action:'choose',taskId:catalog.tasks[1].id},'POST',403);
     assert.equal(run.canEditFiles,true);assert.equal(pupil.run.canEditFiles,false);
     await request(`/api/lesson-task-runs/${run.id}/helper`,tokens['student-a'],{cardId:card.id,assetId:asset.assetId},'POST',403);
     await request(`/api/lesson-task-runs/${run.id}/action`,tokens['student-a'],{action:'release-file',cardId:card.id,assetId:asset.assetId},'POST',403);

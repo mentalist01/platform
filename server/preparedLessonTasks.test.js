@@ -145,3 +145,39 @@ test('individual pupil still opens and saves their own workbook',async t=>{
   const saved=await store.saveSolution({auth:pupil,run,card,assetId:asset.id,buffer:Buffer.from('my own work'),name:'data.xlsx',revision:0,generation:card.bindings[asset.id].generation});
   assert.equal(saved.savedBy.role,'student');assert.equal(store.notesForStudent('s',pupil)[0].workbookReadOnly,false);
 });
+
+
+test('teacher chooses any task once; next and auto follow its original position without adding intermediate conditions',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-task-picker-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]});
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100}),set=await store.saveSet(auth,{name:'Набор',taskNumber:17,tasks:Array.from({length:10},(_,i)=>({title:String(i+1),images:[image.id],answers:['42','99']}))});
+  let run=await store.start(auth,{room:'board-t-s',setId:set.id,x:0,y:0});const first=structuredClone(run.cards[0]);
+  doc.getArray('items').push([{id:'working',type:'stroke',points:[{x:50,y:9000},{x:80,y:9100}]}]);
+  const catalog=await store.taskCatalog(auth,run.id);assert.equal(catalog.tasks.length,10);assert.equal('answers' in catalog.tasks[0],false);
+  await assert.rejects(store.taskCatalog(pupil,run.id),{status:403});await assert.rejects(store.action(pupil,run.id,{action:'choose',taskId:set.tasks[6].id}),{status:403});
+  run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[6].id});assert.deepEqual(run.cards.map(card=>card.index),[0,6]);assert.equal(run.cards[1].title,'7');assert.ok(doc.getArray('items').toArray().find(item=>item.id===run.cards[1].anchorId).y>9100);
+  const seventh=structuredClone(run.cards[1]);run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[6].id});assert.equal(run.cards.length,2);assert.equal(run.cards[1].id,seventh.id);assert.equal(run.cards[0].id,first.id);assert.equal(run.cards[0].status,'active');
+  await store.action(auth,run.id,{action:'auto',value:true});await store.action(auth,run.id,{action:'claim',cardId:seventh.id,leaseKey:'check'});
+  run=await store.action(auth,run.id,{action:'check',cardId:seventh.id,leaseKey:'check',revision:0,accept:true});assert.deepEqual(run.cards.map(card=>card.index),[0,6,7]);assert.equal(run.cards.at(-1).title,'8');
+  run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[9].id});const last=run.cards.at(-1);run=await store.action(auth,run.id,{action:'skip',expectedCount:run.cards.length,fromCardId:last.id});assert.equal(run.cards.length,4,'The end never wraps into earlier unshown tasks');
+  run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[3].id});const fourth=run.cards.at(-1);await store.action(auth,run.id,{action:'claim',cardId:fourth.id,leaseKey:'check-fourth'});run=await store.action(auth,run.id,{action:'check',cardId:fourth.id,leaseKey:'check-fourth',revision:0,accept:true});assert.equal(run.cards.at(-1).index,4);
+  const count=run.cards.length;run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[6].id});run=await store.action(auth,run.id,{action:'next',expectedCount:count,fromCardId:seventh.id});assert.equal(run.cards.length,count,'An existing next task is selected, not duplicated');assert.equal(run.teacherCardId,run.cards.find(card=>card.index===7).id);
+  await assert.rejects(store.action(auth,run.id,{action:'choose',taskId:'unknown-task'}),{status:404});
+});
+
+test('removing the accidental third card lets next restore it once, preserving its code, solutions and surrounding drawing',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-deleted-next-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'};
+  const deps={directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]},store=new PreparedLessonTasks(deps);
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100}),set=await store.saveSet(auth,{name:'Набор',taskNumber:17,tasks:Array.from({length:6},(_,i)=>({title:String(i+1),images:[image.id],answers:['42','99']}))});
+  let run=await store.start(auth,{room:'board-t-s',setId:set.id,x:0,y:0});const solve=async card=>{await store.action(auth,run.id,{action:'claim',cardId:card.id,leaseKey:card.id});return store.action(auth,run.id,{action:'check',cardId:card.id,leaseKey:card.id,revision:card.answerRevision,accept:true});};
+  run=await solve(run.cards[0]);run=await store.action(auth,run.id,{action:'next',expectedCount:1,fromCardId:run.cards[0].id});run=await solve(run.cards[1]);const second=run.cards[1];
+  run=await store.action(auth,run.id,{action:'next',expectedCount:2,fromCardId:second.id});const third=run.cards[2],saved=store.data.runs[run.id].cards[2];
+  await store.action(auth,run.id,{action:'claim-code',cardId:third.id,leaseKey:'saved-code'});await store.action(auth,run.id,{action:'code',cardId:third.id,leaseKey:'saved-code',revision:0,code:'print(26)',input:'data',output:'26'});saved.solutions={source:{id:'kept-solution',name:'saved.ods'}};store.save(store.data.runs[run.id]);
+  const items=doc.getArray('items');items.delete(items.toArray().findIndex(item=>item.id===third.anchorId),1);const drawing={id:'drawing-below',type:'stroke',points:[{x:10,y:12000},{x:20,y:12100}]};items.push([drawing]);
+  run=await store.action(auth,run.id,{action:'next',expectedCount:3,fromCardId:second.id});assert.equal(run.cards.length,3);assert.equal(run.teacherCardId,third.id);assert.equal(items.toArray().filter(item=>item.id===third.anchorId).length,1);assert.ok(items.toArray().find(item=>item.id===third.anchorId).y>12100);assert.deepEqual(items.toArray().find(item=>item.id===drawing.id),drawing);
+  run=await store.action(auth,run.id,{action:'next',expectedCount:3,fromCardId:second.id});assert.equal(run.cards.length,3,'A double click never goes to a fourth task');
+  items.delete(items.toArray().findIndex(item=>item.id===third.anchorId),1);run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[5].id});assert.equal(run.cards.at(-1).index,5,'A removed earlier card does not block a later choice');
+  run=await store.action(auth,run.id,{action:'choose',taskId:set.tasks[2].id});assert.equal(run.teacherCardId,third.id);assert.equal(run.cards.length,4);const restarted=new PreparedLessonTasks(deps),old=restarted.data.runs[run.id].cards.find(card=>card.id===third.id);assert.equal(old.codeId,third.codeId);assert.equal(old.code.text,'print(26)');assert.equal(old.solutions.source.id,'kept-solution');assert.equal(old.status,'active');
+});
