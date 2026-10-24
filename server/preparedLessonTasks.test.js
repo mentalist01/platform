@@ -110,3 +110,38 @@ test('compact layout only resizes its own anchor, retaining scaled position, dra
  assert.deepEqual(items.toArray().find(item=>item.id==='drawing'),drawing);assert.equal(result.cards[0].id,card.id);assert.equal(result.cards[0].codeId,card.codeId);assert.deepEqual(result.cards[0].answers,['','']);
  const repeat=await store.action(auth,run.id,{action:'layout',cards:[{id:card.id,height:260}]});assert.equal(repeat.version,result.version);
 });
+
+
+test('old group pupil helper sessions and tickets cannot change a saved workbook; teacher can reclaim old pupil binding',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-group-readonly-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor,groupId:'g',participantIds:['s']}),board:async()=>doc,sourceFiles:async()=>[]});
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100}),asset=store.putAsset(auth,Buffer.from('source'),'data.xlsx','application/octet-stream');
+  const set=await store.saveSet(auth,{name:'Набор',taskNumber:3,tasks:[{images:[image.id],answers:['42'],attachments:[{assetId:asset.id}]}]});
+  const view=await store.start(auth,{room:'board-group-g',setId:set.id,x:0,y:0}),run=store.data.runs[view.id],card=run.cards[0];
+  const crypto=await import('node:crypto'),hash=v=>crypto.createHash('sha256').update(v).digest('hex');
+  const legacy={auth:pupil,runId:run.id,cardId:card.id,assetId:asset.id,generation:1,expires:Date.now()+60000};
+  card.bindings={[asset.id]:{id:'old-group-binding',actor:'student:s',name:'Ученик',generation:1,until:Date.now()+3600000}};store.data.sessions[hash('pt_legacy')]=legacy;store.tickets.set(hash('pt_old-ticket'),legacy);
+  const snapshot=JSON.stringify(run);
+  await assert.rejects(store.startHelper(pupil,run.id,card.id,asset.id),{status:403});
+  await assert.rejects(store.exchange('pt_old-ticket'),{status:403});
+  await assert.rejects(store.helperSession('pt_legacy'),{status:403});
+  await assert.rejects(store.saveSolution({auth:pupil,run,card,assetId:asset.id,buffer:Buffer.from('overwrite'),name:'data.xlsx',revision:0,generation:1}),{status:403});
+  assert.equal(JSON.stringify(run),snapshot,'Rejected legacy writes do not change the canonical run');
+  const launch=await store.startHelper(auth,run.id,card.id,asset.id),session=await store.exchange(launch.ticket);assert.equal(session.workbookKey,'old-group-binding');
+  const solution=await store.saveSolution({auth,run,card,assetId:asset.id,buffer:Buffer.from('teacher saved'),name:'data.xlsx',revision:0,generation:card.bindings[asset.id].generation});
+  assert.equal(solution.savedBy.role,'teacher');assert.equal(store.notesForStudent('s',pupil)[0].workbookReadOnly,true);
+});
+
+test('individual pupil still opens and saves their own workbook',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-individual-writer-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor,studentId:'s'}),board:async()=>doc,sourceFiles:async()=>[]});
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100}),asset=store.putAsset(auth,Buffer.from('source'),'data.xlsx','application/octet-stream');
+  const set=await store.saveSet(auth,{name:'Набор',taskNumber:3,tasks:[{images:[image.id],answers:['42'],attachments:[{assetId:asset.id}]}]});
+  const view=await store.start(auth,{room:'board-t-s',setId:set.id,x:0,y:0}),run=store.data.runs[view.id],card=run.cards[0];
+  assert.equal(store.publicRun(run,{auth:pupil}).canEditFiles,true);
+  const launch=await store.startHelper(pupil,run.id,card.id,asset.id),session=await store.exchange(launch.ticket);assert.equal((await store.helperSession(session.token)).run.id,run.id);
+  const saved=await store.saveSolution({auth:pupil,run,card,assetId:asset.id,buffer:Buffer.from('my own work'),name:'data.xlsx',revision:0,generation:card.bindings[asset.id].generation});
+  assert.equal(saved.savedBy.role,'student');assert.equal(store.notesForStudent('s',pupil)[0].workbookReadOnly,false);
+});

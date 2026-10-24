@@ -42570,7 +42570,7 @@ app.get('/api/files', (req, res) => {
   if (category) {
     files = files.filter((f) => f.category === category);
   }
-  if(effectiveStudentId)files.push(...preparedLessonTasks.notesForStudent(effectiveStudentId).filter(file=>(!taskNumber||file.taskNumber===Number(taskNumber))&&(!category||file.category===category)));
+  if(effectiveStudentId)files.push(...preparedLessonTasks.notesForStudent(effectiveStudentId,req.auth).filter(file=>(!taskNumber||file.taskNumber===Number(taskNumber))&&(!category||file.category===category)));
   const folders = readFoldersDb();
   res.json(enrichFilesWithFolderPath(files, folders));
 });

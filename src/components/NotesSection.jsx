@@ -886,7 +886,7 @@ const NotesSection = ({
   const isCurrentFolderLessonShared = isFolderInLessonSharedTree(currentFolderId);
   const currentFolderParentId = normalizeParentFolderId(currentFolder?.parentFolderId);
   const canUploadToCurrentFolder = !(role === 'student' && isCurrentFolderLessonShared);
-  const canManageFile = (file) => !(
+  const canManageFile = (file) => file?.workbookReadOnly !== true && !(
     role === 'student'
     && (isLessonSharedFile(file) || isLearningGroupSharedFile(file))
   );
@@ -1862,6 +1862,7 @@ const NotesSection = ({
     const fileId = String(file?.id || '').trim();
     if (
       role !== 'student'
+      || file?.workbookReadOnly === true
       || !fileId
       || typeof onStartWorkbookAutoSync !== 'function'
       || workbookAutoSyncStartingId
@@ -1884,6 +1885,7 @@ const NotesSection = ({
     const fileId = String(file?.id || '').trim();
     if (
       !['student', 'teacher'].includes(role)
+      || file?.workbookReadOnly === true
       || !fileId
       || typeof onLaunchWorkbookHelper !== 'function'
       || workbookHelperState?.status === 'launching'
@@ -4450,7 +4452,7 @@ const NotesSection = ({
                                   <span>{downloadingFileIds[f.id] ? 'Скачиваем…' : 'Скачать'}</span>
                                 </button>
                               )}
-                              {['student', 'teacher'].includes(role) && (isExcelFile(f.name) || isTextToWorkbookSource) && (
+                              {!f.workbookReadOnly && ['student', 'teacher'].includes(role) && (isExcelFile(f.name) || isTextToWorkbookSource) && (
                                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                                   {role === 'student' && isExcelFile(f.name) && <button
                                     onClick={(e) => {
