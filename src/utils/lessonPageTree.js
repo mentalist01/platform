@@ -4,3 +4,6 @@ export function lessonPageTree(pages) {
   return roots.flatMap(page=>[{...page,depth:0},...pages.filter(child=>child.parentId===page.id&&child.id!==page.id).map(child=>({...child,depth:1}))]);
 }
 export const lessonPageParentChoices=(pages,id)=>pages.filter(page=>page.id!==id&&!page.parentId);
+export function collapsedLessonPageTree(pages,expanded=new Set()){
+  return lessonPageTree(pages).filter(page=>!page.depth||expanded.has(page.parentId)).map(page=>({...page,childCount:page.depth?0:pages.filter(child=>child.parentId===page.id).length,expanded:expanded.has(page.id)}));
+}

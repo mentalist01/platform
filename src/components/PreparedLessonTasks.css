@@ -50,3 +50,7 @@
 .prepared-runtime-strip{display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:11px;min-width:0;flex-wrap:wrap}.prepared-runtime-strip button{color:inherit;border:1px solid #aa84dc50;background:#aa84dc0c;border-radius:7px;padding:3px 7px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @container(max-width:950px){.prepared-toolbar>.prepared-skip span{display:none}}
 @media(max-width:700px){.prepared-dialog-backdrop{padding:8px}.prepared-dialog{padding:15px;max-height:96vh}.prepared-task-edit-head{flex-wrap:wrap}.prepared-task-edit-head label{flex-basis:100%}.prepared-dialog footer{bottom:-15px}.prepared-toolbar nav button span{max-width:65px}}
+
+.prepared-toolbar:has(.prepared-sync-queue)>.prepared-next,.prepared-toolbar:has(.prepared-sync-queue)>.prepared-skip{display:none}
+
+.prepared-ink-layer{z-index:25;pointer-events:none}.board-canvas-surface:has(.prepared-card) .board-remote-cursor-marker{z-index:29}

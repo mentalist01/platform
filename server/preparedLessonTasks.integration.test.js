@@ -87,6 +87,13 @@ test('prepared 26/27 text opens a blank workbook plus immutable source through t
       const page=await request('/api/lesson-pages',tokens['teacher-a'],{room:`board-group-${f.groupId}`,action:'create',name:'Text '+ext});
       const {run}=await request('/api/lesson-task-runs',tokens['teacher-a'],{room:`board-group-${f.groupId}~page~${page.id}`,setId:set.id,x:0,y:0},'POST',201),card=run.cards[0],asset=card.attachments[0];
       assert.equal(asset.helper,true);assert.equal(asset.helperText,true);
+      const expanded=await request(`/api/lesson-task-sets/${set.id}`,tokens['teacher-a'],{...set,tasks:[...set.tasks,...Array.from({length:5},(_,i)=>({...set.tasks[0],id:undefined,title:String(i+2),answers:['9','99']}))]},'PUT');
+      assert.equal((await request('/api/lesson-task-run?room='+encodeURIComponent(run.room),tokens['teacher-a'])).run.newTasksAvailable,5);
+      const sync=(token,version,status=200)=>request(`/api/lesson-task-runs/${run.id}/action`,token,{action:'sync-queue',setVersion:version},'POST',status);
+      await sync(tokens['student-a'],expanded.version,403);await sync(tokens['teacher-a'],set.version,409);
+      const extended=(await sync(tokens['teacher-a'],expanded.version)).run;assert.equal(extended.total,6);assert.equal(extended.cards.length,1);assert.equal(extended.cards[0].id,card.id);assert.equal(extended.cards[0].codeId,card.codeId);assert.equal(extended.cards[0].attachments[0].assetId,asset.assetId);assert.equal(extended.newTasksAvailable,0);
+      assert.equal((await sync(tokens['teacher-a'],expanded.version)).run.total,6,'Repeated connection never duplicates tasks');
+      const advanced=(await request(`/api/lesson-task-runs/${run.id}/action`,tokens['teacher-a'],{action:'skip',expectedCount:1})).run;assert.equal(advanced.cards[1].title,'2');
       const launch=await request(`/api/lesson-task-runs/${run.id}/helper`,tokens['student-a'],{cardId:card.id,assetId:asset.assetId},'POST',201);
       await request(`/api/lesson-task-runs/${run.id}/helper`,tokens['student-b'],{cardId:card.id,assetId:asset.assetId},'POST',409);
       const old=await fetch(base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.1.0'},body:JSON.stringify({ticket:launch.ticket})});assert.equal(old.status,426);

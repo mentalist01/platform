@@ -3,6 +3,7 @@ import { ChevronDown, Layers, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { MAX_BOARD_PAGES } from '../utils/boardPages.js';
 import {lessonCodePageId,lessonBoardPageId} from '../utils/lessonPageSelection.js';
 import {useLessonPages} from '../hooks/useLessonPages.js';
+import {useCollapsedLessonPages} from '../hooks/useCollapsedLessonPages.js';
 import {lessonPageTree,lessonPageParentChoices} from '../utils/lessonPageTree.js';
 import './CollabCodePages.css';
 
@@ -18,6 +19,7 @@ export default function CollabCodePages({ pages:codePages, activeId, onSelect, r
   const common=useLessonPages(roomId,role,userId);
   const sharedSelected=common.selected,selectShared=common.select;
   const pages=lessonPageTree(common.pages.map(page=>({id:lessonCodePageId(page.id),name:page.title,...(page.parentId?{parentId:lessonCodePageId(page.parentId)}:{}),count:codePages.find(p=>p.id===lessonCodePageId(page.id))?.count||1})));
+  const {visiblePages,toggleParent}=useCollapsedLessonPages(pages,lessonCodePageId(sharedSelected),common.bookRoom);
   const previousActive=useRef(null),requested=useRef(null);
   const [deletedPage,setDeletedPage]=useState(null);
   useEffect(()=>{
@@ -72,11 +74,11 @@ export default function CollabCodePages({ pages:codePages, activeId, onSelect, r
     {open && <section className="collab-code-pages__panel" aria-label="Страницы кода">
       <div className="collab-code-pages__heading"><div><strong>Страницы занятия</strong><p>Одна страница — доска и свой набор вкладок кода.</p></div>
         <button type="button" aria-label="Закрыть страницы кода" onClick={() => { setOpen(false); setForm(null); }}><X size={16}/></button></div>
-      <nav aria-label="Выбрать страницу кода" className="collab-code-pages__list">{pages.map((page, index) => {
+      <nav aria-label="Выбрать страницу кода" className="collab-code-pages__list">{visiblePages.map((page, index) => {
         const viewers = peers.filter(peer => peer.pageId === page.id);
         return <div key={page.id} style={{marginLeft:page.depth*20}} className={`collab-code-pages__item${page.id === activeId ? ' is-active' : ''}`}>
-          <button type="button" onClick={() => choose(page.id)} disabled={disabled || busy} aria-current={page.id === activeId ? 'page' : undefined}>
-            <span className="collab-code-pages__number">{page.depth?'↳':index+1}</span><span><strong>{page.name}</strong><small>Вкладок: {page.count || 1}{viewers.length ? ` · ${viewers.map(peer => peer.name).join(', ')}` : ''}</small></span>
+          {page.childCount>0&&<button type="button" className="collab-code-pages__collapse" aria-label={`${page.expanded?'Свернуть':'Развернуть'} подстраницы ${page.name}`} aria-expanded={page.expanded} onClick={()=>toggleParent(page.id)}>{page.expanded?<ChevronDown size={14}/>:<span>›</span>}</button>}<button className="collab-code-pages__choose" type="button" onClick={() => choose(page.id)} disabled={disabled || busy} aria-current={page.id === activeId ? 'page' : undefined}>
+            <span className="collab-code-pages__number">{page.depth?'↳':index+1}</span><span><strong>{page.name}{page.childCount?` · ${page.childCount}`:''}</strong><small>Вкладок: {page.count || 1}{viewers.length ? ` · ${viewers.map(peer => peer.name).join(', ')}` : ''}</small></span>
           </button>
           {!readOnly && common.canEdit && <><button type="button" disabled={!editable} onClick={() => edit('rename', page)} aria-label={`Переименовать страницу ${page.name}`}><Pencil size={14}/></button>
             <button type="button" disabled={!editable || pages.length<=1} onClick={() => edit('delete', page)}

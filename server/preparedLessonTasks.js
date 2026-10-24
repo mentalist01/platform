@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import {isWorkbookFileName, parseWorkbookHelperAuthorization} from './workbookHelper.js';
 import {BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed} from './blankWorkbook.js';
 import {preparedFileSync} from '../src/utils/preparedFileSync.js';
+import {preparedQueueSync} from '../src/utils/preparedQueueSync.js';
 import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 import {preparedAnswerTask, splitLegacyPreparedAnswer} from '../src/utils/egeAnswerFields.js';
@@ -120,13 +121,13 @@ export class PreparedLessonTasks {
       tasks.push({id:raw.id&&previous?.tasks.some(t=>t.id===raw.id)?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
     }
     const set={id:previous?.id||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
-    this.data.sets[set.id]=set;this.save();return set;
+    this.data.sets[set.id]=set;this.save();for(const run of Object.values(this.data.runs).filter(run=>run.setId===set.id&&Object.values(this.data.active).includes(run.id)))await this.notify(run,'run');return set;
   }
   assetView(assetId,runId=''){const a=this.data.assets[assetId];return a?{id:a.id,name:a.name,sizeBytes:a.size,mime:a.mime,width:a.width,height:a.height,url:`/api/lesson-task-assets/${a.id}${runId?'?run='+encodeURIComponent(runId):''}`} : null;}
   setView(set){return {...set,tasks:set.tasks.map(t=>({...t,imageFiles:t.images.map(id=>this.assetView(id)),attachments:t.attachments.map(a=>({...a,...this.assetView(a.assetId)}))}))};}
   publicRun(run,access) {
     if(!run)return null;
-    return {id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,canManage:teacher(access.auth)&&!access.readOnly,filesUpdateAvailable:teacher(access.auth)&&Boolean(this.data.sets[run.setId]&&preparedFileSync(run.tasks,this.data.sets[run.setId].tasks).changed),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
+    return {id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,canManage:teacher(access.auth)&&!access.readOnly,newTasksAvailable:teacher(access.auth)?preparedQueueSync(run.tasks,this.data.sets[run.setId]?.tasks||[]).added:0,filesUpdateAvailable:teacher(access.auth)&&Boolean(this.data.sets[run.setId]&&preparedFileSync(run.tasks,this.data.sets[run.setId].tasks).changed),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
       const task=run.tasks[c.index];return {id:c.id,index:c.index,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,format:task.format,answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name),helperText:textWorkbook(run,a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
@@ -162,7 +163,7 @@ export class PreparedLessonTasks {
     const {run,access}=await this.getRun(auth,id,true),manage=teacher(auth),card=run.cards.find(c=>c.id===input.cardId),now=this.now();
     const requireCard=()=>{if(!card)fail(404,'Задача не найдена');};
     const lease=(kind='lease')=>{requireCard();const previous=card[kind];if(!previous||previous.until<now||previous.actor!==actorKey(auth)||previous.key!==input.leaseKey)fail(409,`${previous?.name||'Другой участник'} редактирует поле либо время ввода истекло. Возьмите ввод заново.`);};
-    if(['mode','auto','next','skip','focus','restore','layout','sync-files'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
+    if(['mode','auto','next','skip','focus','restore','layout','sync-files','sync-queue'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
     if(input.action==='mode')run.mode=input.mode==='prepared'?'prepared':'plain';
     else if(input.action==='auto')run.auto=input.value===true;
     else if(input.action==='focus'){requireCard();run.teacherCardId=card.id;}
@@ -172,6 +173,12 @@ export class PreparedLessonTasks {
       const update=preparedFileSync(run.tasks,set.tasks);
       for(const task of update.tasks){if(task.attachments.length>16)fail(409,'Слишком много вложений. Используйте новую страницу.');try{preparedRuntimeFiles(task.attachments);}catch(error){fail(409,error.message);}}
       run.tasks=update.tasks;run.filesVersion=set.version;
+    }
+    else if(input.action==='sync-queue') {
+      const set=this.data.sets[run.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
+      if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Обновите список и повторите подключение задач.');
+      const update=preparedQueueSync(run.tasks,set.tasks);if(update.tasks.length>100)fail(409,'На странице может быть не больше 100 задач. Создайте новую страницу.');
+      run.tasks=update.tasks;
     }
     else if(input.action==='layout') {
       if(!Array.isArray(input.cards)||input.cards.length>100)fail(400,'Неверные размеры карточек');

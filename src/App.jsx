@@ -1,3 +1,4 @@
+import {paintPreparedInk,compositePreparedInk} from './utils/preparedInk.js';
 import {preparedBoardView} from './utils/preparedBoardView.js';
 import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
@@ -11381,6 +11382,7 @@ export const BoardCanvasSection = ({
   const [learningBoardResponsesById, setLearningBoardResponsesById] = useState({});
   const [learningBoardResponsesLoading, setLearningBoardResponsesLoading] = useState(false);
 
+  const preparedInkRef=useRef(null),preparedInkCache=useRef({}),preparedInkActionsRef=useRef(null);
   const canvasRef = useRef(null);
   const overlayRef = useRef(null);
   const containerRef = useRef(null);
@@ -14777,6 +14779,13 @@ export const BoardCanvasSection = ({
     });
   }, [renderBoardSceneAppend, renderBoardSceneFull]);
 
+  preparedInkActionsRef.current={preview:getSelectionDragPreviewItem,draw:drawBoardItemToScene};
+  const renderPreparedInk=useCallback(()=>{
+    const surface=containerRef.current;if(!surface)return;
+    const origin=surface.getBoundingClientRect(),box=element=>{const b=element.getBoundingClientRect();return {x:b.left-origin.left,y:b.top-origin.top,width:b.width,height:b.height};};
+    const regions=Array.from(surface.querySelectorAll('.prepared-card')).map(card=>({anchorId:card.dataset.anchorId,card:box(card),body:box(card.querySelector('.prepared-card-body'))}));
+    paintPreparedInk(preparedInkCache.current,{canvas:preparedInkRef.current,overlay:overlayRef.current,width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:zoomRef.current,offset:offsetRef.current,regions,items:boardItemsRef.current,preview:preparedInkActionsRef.current.preview,draw:preparedInkActionsRef.current.draw,createCanvas:()=>document.createElement('canvas')});
+  },[]);
   const renderBoard = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -14800,6 +14809,7 @@ export const BoardCanvasSection = ({
     ctx.fillRect(0, 0, pixelWidth, pixelHeight);
     if (!items.length) {
       ctx.restore();
+      renderPreparedInk();
       return;
     }
     ctx.imageSmoothingEnabled = true;
@@ -14820,7 +14830,8 @@ export const BoardCanvasSection = ({
       );
     });
     ctx.restore();
-  }, [drawBoardItemToScene]);
+    renderPreparedInk();
+  }, [drawBoardItemToScene,renderPreparedInk]);
 
   useEffect(() => {
     renderBoard();
@@ -15088,6 +15099,7 @@ export const BoardCanvasSection = ({
       );
       ctx.restore();
     }
+    compositePreparedInk(preparedInkCache.current,preparedInkRef.current,overlayRef.current);
   };
 
   const scheduleOverlayRender = () => {
@@ -17552,8 +17564,9 @@ export const BoardCanvasSection = ({
           onWheel={handleWheel}
           onContextMenu={(e) => e.preventDefault()}
         />
+        <canvas ref={preparedInkRef} className="prepared-ink-layer absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>
         <BoardFileDownloads items={boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
-        {!isSandbox&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
+        {!isSandbox&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={scheduleBoardRender} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
           focus={(anchor,options)=>{const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSize.width,zoom,initial:options?.initial,top});setZoom(view.zoom);setOffset(view.offset);}}/>}
