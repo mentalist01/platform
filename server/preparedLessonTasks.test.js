@@ -93,3 +93,20 @@ test('interrupted projection is repaired once, deliberate scene removal stays re
   items.delete(0,1);await restarted.recover(run);assert.equal(items.length,0);
   await restarted.action(auth,run.id,{action:'restore'});assert.equal(items.length,1);
 });
+
+test('compact layout only resizes its own anchor, retaining scaled position, drawings and task data',async t=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-layout-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'};
+ const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]});
+ t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+ const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100});
+ const set=await store.saveSet(auth,{name:'Набор',taskNumber:17,tasks:[{title:'5',images:[image.id],answers:['1','2']}]});
+ const run=await store.start(auth,{room:'board-t-s',setId:set.id,x:10,y:20}),card=run.cards[0],items=doc.getArray('items');
+ const anchor={...items.get(0),x:111,y:222,width:1280,height:card.height*2};items.delete(0,1);items.push([anchor,{id:'drawing',type:'stroke',points:[{x:200,y:2000},{x:300,y:2100}]}]);
+ const drawing=structuredClone(items.get(1));
+ await assert.rejects(store.action({id:'s',role:'student'},run.id,{action:'layout',cards:[{id:card.id,height:200}]}),{status:403});
+ await assert.rejects(store.action(auth,run.id,{action:'layout',cards:[{id:card.id,height:-5}]}),{status:400});
+ const result=await store.action(auth,run.id,{action:'layout',cards:[{id:card.id,height:260}]});
+ const placed=items.toArray().find(item=>item.id===card.anchorId);assert.equal(placed.height,520);assert.equal(placed.x,111);assert.equal(placed.y,222);assert.equal(placed.width,1280);
+ assert.deepEqual(items.toArray().find(item=>item.id==='drawing'),drawing);assert.equal(result.cards[0].id,card.id);assert.equal(result.cards[0].codeId,card.codeId);assert.deepEqual(result.cards[0].answers,['','']);
+ const repeat=await store.action(auth,run.id,{action:'layout',cards:[{id:card.id,height:260}]});assert.equal(repeat.version,result.version);
+});

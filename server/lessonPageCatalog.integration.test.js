@@ -12,7 +12,7 @@ import * as Y from 'yjs';
 import WebSocket from 'ws';
 import {WebsocketProvider} from 'y-websocket';
 import {createLearningGroup,addLearningGroupMember,startLearningGroup,createLearningLessonSession} from './learningGroups.js';
-import {createCollabCodePage,getCollabSolutionChannels,listCollabCodePages} from '../src/utils/collabSolutions.js';
+import {COLLAB_CODE_PAGES_KEY,createCollabCodePage,getCollabSolutionChannels,listCollabCodePages} from '../src/utils/collabSolutions.js';
 
 
 test('one lesson catalog links all board/code rooms, isolates private code and survives restart',{timeout:process.env.LESSON_PAGES_QA_SERVE==='1'?3600_000:60_000},async()=>{
@@ -50,6 +50,20 @@ test('one lesson catalog links all board/code rooms, isolates private code and s
     await request(teacher,'board-t-c~pages',{action:'rename',id:created.id,name:'Переименована'});await wait(()=>listCollabCodePages(personal).some(p=>p.name==='Переименована'));
     await request(teacher,'collab-t-c',{action:'delete',id:created.id});await wait(()=>listCollabCodePages(personal).length===2);
     await request(teacher,'board-t-c~pages',{action:'restore',id:created.id});await wait(()=>listCollabCodePages(personal).length===3);
+    const parts=[];
+    for(let i=1;i<=8;i++)parts.push(await request(teacher,'board-t-c~pages',{action:'create',name:`26 · Часть ${i}`,parentId:created.id}));
+    await request(teacher,'board-t-c~pages',{action:'update',id:'board-page-2',name:'Прежняя часть',parentId:created.id});
+    await wait(()=>listCollabCodePages(personal).length===11);
+    assert.equal((await request(teacher,'collab-t-c')).pages.filter(page=>page.parentId===created.id).length,9);
+    assert.equal(personal.getMap(COLLAB_CODE_PAGES_KEY).get('board-page-2').parentId,created.id,'Code and board share the same parent');
+    assert.equal(getCollabSolutionChannels(personal,'page-old-individual').codeText.toString(),'print(8)');
+    assert.equal(drawing.getArray('items').get(0).text,'Старая схема');
+    await request(teacher,'board-t-c~pages',{action:'update',id:created.id,name:'Cycle',parentId:parts[0].id},400);
+    await request(teacher,'board-t-c~pages',{action:'create',name:'Too deep',parentId:parts[0].id},400);
+    await request(individualPupil,'board-t-c~pages',{action:'update',id:parts[0].id,name:'Denied',parentId:''},403);
+    await request(teacher,'board-t-c~pages',{action:'delete',id:created.id});
+    const withoutParent=await request(teacher,'board-t-c~pages');assert.equal(withoutParent.pages.length,10);assert.ok(withoutParent.pages.some(page=>page.id===parts[0].id&&!page.parentId),'Removing a parent preserves its child pages');
+    await request(teacher,'board-t-c~pages',{action:'restore',id:created.id});
     const shared=await request(teacher,'collab-lesson-lesson-x');assert.deepEqual(shared.pages.map(p=>p.id),['main','board-page-2']);
     const a=await connect('collab-lesson-lesson-x~student~a',pupil),b=await connect('collab-lesson-lesson-x~student~b',teacher);
     assert.equal(getCollabSolutionChannels(a,listCollabCodePages(a)[1].mainSolutionId).codeText.toString(),'print("a")');
@@ -58,7 +72,8 @@ test('one lesson catalog links all board/code rooms, isolates private code and s
     await request(pupil,'collab-lesson-lesson-x~student~b',undefined,403);await request(pupil,'collab-lesson-lesson-x~student~a',{action:'delete',id:'board-page-2'},403);
     const groupNew=await request(teacher,'board-lesson-lesson-x~pages',{action:'create',name:'Всем ученикам'});await wait(()=>[a,b].every(doc=>listCollabCodePages(doc).some(p=>p.id===groupNew.id)));
     close();await new Promise(r=>setTimeout(r,100));await stop();await start();
-    const restored=await connect('collab-t-c',await login('qa-page-teacher'));assert.equal(listCollabCodePages(restored).length,3);assert.equal(getCollabSolutionChannels(restored,'page-old-individual').testFileText.toString(),'saved input');assert.equal(getCollabSolutionChannels(restored,'page-old-individual').runMap.get('output'),'saved output');
+    const restored=await connect('collab-t-c',await login('qa-page-teacher'));assert.equal(listCollabCodePages(restored).length,11);assert.equal(getCollabSolutionChannels(restored,'page-old-individual').testFileText.toString(),'saved input');assert.equal(getCollabSolutionChannels(restored,'page-old-individual').runMap.get('output'),'saved output');
+    assert.equal((await request(await login('qa-page-teacher'),'collab-t-c')).pages.find(page=>page.id===parts[7].id).parentId,created.id,'Eight parts survive restart');
     assert.equal((await request(await login('qa-page-teacher'),'collab-lesson-lesson-x')).pages.length,3);
     if(process.env.LESSON_PAGES_QA_SERVE==='1'){close();console.log('LESSON_PAGES_QA '+JSON.stringify({base,root}));await new Promise(resolve=>process.once('SIGINT',resolve));}
   }finally{close();await stop();if(process.env.LESSON_PAGES_QA_SERVE!=='1')fs.rmSync(root,{recursive:true,force:true});}

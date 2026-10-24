@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import sharp from 'sharp';
+import {BLANK_WORKBOOK_ODS} from './blankWorkbook.js';
 import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
 
 test('authenticated library and group run; installed helper protocol saves one shared solution with Notes links', {timeout:90000}, async()=>{
@@ -58,5 +59,48 @@ test('authenticated library and group run; installed helper protocol saves one s
     await action({action:'claim'});await action({action:'answer',revision:1,answers:['2','1000']});assert.equal((await action({action:'check',revision:2})).run.cards[0].status,'solved');
     pythonRun=(await request(`/api/lesson-task-runs/${pythonRun.id}/action`,tokens['teacher-a'],{action:'next',expectedCount:1})).run;
     assert.equal(pythonRun.cards[1].title,'1');assert.notEqual(pythonRun.cards[0].codeId,pythonRun.cards[1].codeId,'Every task gets its own code document automatically');
+    const extra=await upload('/api/files','extra.txt',Buffer.from('new input'),{studentId:'student-a',taskNumber:17,category:'class'});
+    const changed=await request(`/api/lesson-task-sets/${pythonSet.id}`,tokens['teacher-a'],{...pythonSet,tasks:pythonSet.tasks.map((task,index)=>index?task:{...task,answers:['9','9999'],attachments:[...task.attachments,{sourceFileId:extra.id,runtime:true,runtimeName:'extra.txt'}]})},'PUT');
+    const runAction=(token,body,status=200)=>request(`/api/lesson-task-runs/${pythonRun.id}/action`,token,body,'POST',status);
+    const beforeSync=(await request('/api/lesson-task-run?room='+encodeURIComponent(pythonRoom),tokens['teacher-a'])).run;
+    assert.equal(beforeSync.filesUpdateAvailable,true);assert.equal(beforeSync.cards[0].attachments.length,2);
+    await runAction(tokens['student-a'],{action:'sync-files',setVersion:changed.version},403);
+    await runAction(tokens['teacher-a'],{action:'sync-files',setVersion:changed.version-1},409);
+    const synced=(await runAction(tokens['teacher-a'],{action:'sync-files',setVersion:changed.version})).run;
+    assert.equal(synced.cards[0].attachments.length,3);assert.equal(synced.cards[0].status,'solved');assert.equal(synced.cards[0].id,pcard.id);assert.deepEqual(synced.cards[0].answers,['2','1000']);assert.equal(synced.filesUpdateAvailable,false);
+    assert.equal(synced.cards[0].attachments[0].runtimeName,'17.txt');
+    const storedRun=JSON.parse(fs.readFileSync(path.join(fixture.data,'prepared-lesson-tasks','runs',pythonRun.id+'.json'),'utf8'));assert.deepEqual(storedRun.tasks[0].answers,['2','1000'],'Sync never rewrites the lesson reference answer');
+    const addedDownload=await fetch(base+synced.cards[0].attachments[2].url,{headers:{Authorization:`Bearer ${tokens['student-b']}`}});assert.equal(await addedDownload.text(),'new input');
+    const repeated=(await runAction(tokens['teacher-a'],{action:'sync-files',setVersion:changed.version})).run;assert.equal(repeated.cards[0].attachments.length,3);
+    await request(`/api/lesson-task-sets/${pythonSet.id}`,tokens['teacher-a'],pythonSet,'PUT',409);
   } finally {await fixture.stop();}
+});
+
+test('prepared 26/27 text opens a blank workbook plus immutable source through the installed helper', {timeout:60000}, async()=>{
+  const f=await createGroupHomeworkFixture(),{base,tokens,request}=f;
+  const upload=async(route,name,bytes,fields={})=>{const form=new FormData();form.append('file',new Blob([bytes]),name);for(const[k,v]of Object.entries(fields))form.append(k,String(v));const r=await fetch(base+route,{method:'POST',headers:{Authorization:`Bearer ${tokens['teacher-a']}`},body:form});assert.ok(r.ok,await r.clone().text());return r.json();};
+  try{
+    const image=await upload('/api/lesson-task-images','condition.png',await sharp({create:{width:600,height:150,channels:4,background:'white'}}).png().toBuffer());
+    for(const [taskNumber,ext] of [[26,'txt'],[27,'csv'],[26,'tsv']]){
+      const bytes=Buffer.from('100 4\n80\n30\n50\n40\n'),source=await upload('/api/files',`26_1.${ext}`,bytes,{studentId:'student-a',taskNumber,category:'class'});
+      const set=await request('/api/lesson-task-sets',tokens['teacher-a'],{name:'Text workbook',taskNumber,tasks:[{images:[image.id],answers:['2','50'],answerCountOverride:2,format:'fields',attachments:[{sourceFileId:source.id}]}]},'POST',201);
+      const page=await request('/api/lesson-pages',tokens['teacher-a'],{room:`board-group-${f.groupId}`,action:'create',name:'Text '+ext});
+      const {run}=await request('/api/lesson-task-runs',tokens['teacher-a'],{room:`board-group-${f.groupId}~page~${page.id}`,setId:set.id,x:0,y:0},'POST',201),card=run.cards[0],asset=card.attachments[0];
+      assert.equal(asset.helper,true);assert.equal(asset.helperText,true);
+      const launch=await request(`/api/lesson-task-runs/${run.id}/helper`,tokens['student-a'],{cardId:card.id,assetId:asset.assetId},'POST',201);
+      await request(`/api/lesson-task-runs/${run.id}/helper`,tokens['student-b'],{cardId:card.id,assetId:asset.assetId},'POST',409);
+      const old=await fetch(base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.1.0'},body:JSON.stringify({ticket:launch.ticket})});assert.equal(old.status,426);
+      const grant=await request('/workbook-helper/v1/exchange',null,{ticket:launch.ticket});assert.match(grant.fileName,/\.ods$/);assert.equal(grant.sourceText.fileName,`26_1.${ext}`);assert.equal(grant.contentHash,crypto.createHash('sha256').update(BLANK_WORKBOOK_ODS).digest('hex'));
+      const headers={Authorization:`Workbook ${grant.token}`};
+      const original=await fetch(base+'/workbook-helper/v1/source-text',{headers});assert.equal(original.status,200);assert.equal(original.headers.get('X-Source-Text-Content-Hash'),grant.sourceText.contentHash);assert.deepEqual(Buffer.from(await original.arrayBuffer()),bytes);
+      const empty=await fetch(base+'/workbook-helper/v1/content',{headers});assert.deepEqual(Buffer.from(await empty.arrayBuffer()),BLANK_WORKBOOK_ODS);
+      const uploadSolution=async(name,revision)=>{const form=new FormData();form.append('file',new Blob([Buffer.from('saved calculation')]),name);form.append('revision',String(revision));return fetch(base+'/workbook-helper/v1/content',{method:'PUT',headers,body:form});};
+      assert.equal((await uploadSolution('source.txt',0)).status,415,'Text cannot replace the workbook solution');
+      const saved=await uploadSolution('calculation.ods',0);assert.equal(saved.status,200);assert.equal((await saved.json()).revision,1);
+      const next=(await request('/api/lesson-task-run?room='+encodeURIComponent(run.room),tokens['student-b'])).run.cards[0].attachments[0];assert.equal(next.solution.name,'calculation.ods');
+      const notes=await request(`/api/files?taskNumber=${taskNumber}&category=class`,tokens['student-b']);assert.ok(notes.some(file=>file.id===next.solution.id));
+      const raw=await fetch(base+'/workbook-helper/v1/source-text',{headers});assert.deepEqual(Buffer.from(await raw.arrayBuffer()),bytes,'Source text remains intact after Ctrl+S');
+      assert.equal((await fetch(base+'/workbook-helper/v1/source-text',{headers:{Authorization:'Workbook pt_invalid'}})).status,401);
+    }
+  }finally{await f.stop();}
 });

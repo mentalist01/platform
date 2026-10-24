@@ -23,7 +23,7 @@ export async function createGroupHomeworkFixture(fixedPort, seedData, {existingG
   const base = `http://127.0.0.1:${port}`;
   let logs = '';
   const child = spawn(process.execPath, ['server/index.js'], { cwd: path.resolve(import.meta.dirname, '..'), windowsHide: true,
-    env: { ...process.env, CORS_ALLOWED_ORIGINS: fixedPort ? 'http://127.0.0.1:5599' : '', PORT: String(port), NODE_ENV: 'test', PLATFORM_DATA_DIR: data, PLATFORM_UPLOADS_DIR: uploads,
+    env: { ...process.env, CORS_ALLOWED_ORIGINS: fixedPort ? 'http://127.0.0.1:5599,http://localhost:5599' : '', PORT: String(port), NODE_ENV: 'test', PLATFORM_DATA_DIR: data, PLATFORM_UPLOADS_DIR: uploads,
       PLATFORM_JSON_BACKUPS_DIR: path.join(root, 'json-backups'), COLLAB_PERSISTENCE: '0', DISABLE_STARTUP_XP_REBALANCE: '1', LEARNING_GROUPS_ENABLED: '1', LEARNING_GROUP_RTC_ENABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', chunk => { logs += chunk; }); child.stderr.on('data', chunk => { logs += chunk; });
   const stop = async () => { if (child.exitCode !== null) return; const ended = new Promise(resolve => child.once('exit', resolve)); child.kill(); await ended; };

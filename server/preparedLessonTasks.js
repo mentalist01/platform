@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import multer from 'multer';
 import sharp from 'sharp';
 import {isWorkbookFileName, parseWorkbookHelperAuthorization} from './workbookHelper.js';
+import {BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed} from './blankWorkbook.js';
+import {preparedFileSync} from '../src/utils/preparedFileSync.js';
 import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 import {preparedAnswerTask, splitLegacyPreparedAnswer} from '../src/utils/egeAnswerFields.js';
@@ -15,6 +17,10 @@ const teacher=auth=>['teacher','admin'].includes(auth?.role);
 const actorKey=auth=>`${auth?.role}:${auth?.id}`;
 const LEASE_MS=90_000;
 const WRITER_MS=60*60*1000;
+const textWorkbook=(run,name)=>[26,27].includes(Number(run.taskNumber))&&/\.(txt|csv|tsv)$/i.test(name);
+const helperSupported=(run,name)=>isWorkbookFileName(name)||textWorkbook(run,name);
+const helperName=(run,asset)=>textWorkbook(run,asset.name)?asset.name.replace(/\.[^.]+$/, '')+' — решение.ods':asset.name;
+const helperHash=(run,asset)=>textWorkbook(run,asset.name)?digest(BLANK_WORKBOOK_ODS):asset.hash;
 export function preparedAnswerMatches(expected,actual,format='exact') {
   const values=value=>(Array.isArray(value)?value:[value]).map(v=>String(v??'').trim());
   const e=values(expected),a=values(actual);
@@ -85,6 +91,7 @@ export class PreparedLessonTasks {
   async saveSet(auth,input,id) {
     if(!teacher(auth))fail(403,'Подготовка доступна преподавателю');
     const previous=id?this.data.sets[id]:null;if(id&&(!previous||previous.teacherId!==auth.id))fail(404,'Набор не найден');
+    if(previous&&input.version!==undefined&&Number(input.version)!==previous.version)fail(409,'Набор уже изменён в другом окне. Черновик сохранён на устройстве; откройте актуальный набор перед заменой.');
     const name=text(input.name,80),taskNumber=Number(input.taskNumber),part=Number(input.partNumber)||1;
     if(!name||!Number.isInteger(taskNumber)||taskNumber<1||taskNumber>27||!Number.isInteger(part)||part<1||part>20)fail(400,'Укажите название, номер ЕГЭ и часть');
     if(!Array.isArray(input.tasks)||!input.tasks.length||input.tasks.length>100)fail(400,'Добавьте от 1 до 100 заданий');
@@ -119,8 +126,8 @@ export class PreparedLessonTasks {
   setView(set){return {...set,tasks:set.tasks.map(t=>({...t,imageFiles:t.images.map(id=>this.assetView(id)),attachments:t.attachments.map(a=>({...a,...this.assetView(a.assetId)}))}))};}
   publicRun(run,access) {
     if(!run)return null;
-    return {id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,canManage:teacher(access.auth)&&!access.readOnly,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index];return {id:c.id,index:c.index,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,format:task.format,answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:isWorkbookFileName(a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
+    return {id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,canManage:teacher(access.auth)&&!access.readOnly,filesUpdateAvailable:teacher(access.auth)&&Boolean(this.data.sets[run.setId]&&preparedFileSync(run.tasks,this.data.sets[run.setId].tasks).changed),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
+      const task=run.tasks[c.index];return {id:c.id,index:c.index,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,format:task.format,answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name),helperText:textWorkbook(run,a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
@@ -141,7 +148,7 @@ export class PreparedLessonTasks {
     // last committed scene. A check arriving during a stroke must leave room.
     const previews=Array.from(doc.awareness?.getStates?.().values()||[]).map(s=>s?.drawing).filter(Boolean);
     const point=anchor?preparedNextPoint([...all,...previews],anchor):run.start,index=run.cards.length,task=run.tasks[index];
-    const height=320+Math.max(0,Math.ceil(task.answers.length/2)-1)*50+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
+    const height=124+Math.max(0,Math.ceil(task.answers.length/2)-1)*44+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
     const card={id:crypto.randomUUID(),index,anchorId:'prepared-'+crypto.randomUUID(),codeId:'prepared-'+crypto.randomUUID(),x:point.x,y:point.y,width:640,height,status:'active',answers:task.answers.map(()=>''),answerRevision:0,code:{text:'',input:'',output:'',revision:0},solutions:{}};
     run.cards.push(card);run.teacherCardId=card.id;
     // Canonical card identity is persisted before projection. Reconnecting repairs
@@ -155,10 +162,29 @@ export class PreparedLessonTasks {
     const {run,access}=await this.getRun(auth,id,true),manage=teacher(auth),card=run.cards.find(c=>c.id===input.cardId),now=this.now();
     const requireCard=()=>{if(!card)fail(404,'Задача не найдена');};
     const lease=(kind='lease')=>{requireCard();const previous=card[kind];if(!previous||previous.until<now||previous.actor!==actorKey(auth)||previous.key!==input.leaseKey)fail(409,`${previous?.name||'Другой участник'} редактирует поле либо время ввода истекло. Возьмите ввод заново.`);};
-    if(['mode','auto','next','skip','focus','restore'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
+    if(['mode','auto','next','skip','focus','restore','layout','sync-files'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
     if(input.action==='mode')run.mode=input.mode==='prepared'?'prepared':'plain';
     else if(input.action==='auto')run.auto=input.value===true;
     else if(input.action==='focus'){requireCard();run.teacherCardId=card.id;}
+    else if(input.action==='sync-files') {
+      const set=this.data.sets[run.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
+      if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Обновите список и повторите подключение файлов.');
+      const update=preparedFileSync(run.tasks,set.tasks);
+      for(const task of update.tasks){if(task.attachments.length>16)fail(409,'Слишком много вложений. Используйте новую страницу.');try{preparedRuntimeFiles(task.attachments);}catch(error){fail(409,error.message);}}
+      run.tasks=update.tasks;run.filesVersion=set.version;
+    }
+    else if(input.action==='layout') {
+      if(!Array.isArray(input.cards)||input.cards.length>100)fail(400,'Неверные размеры карточек');
+      const doc=await this.board(run.room),items=doc.getArray('items');let changed=false;
+      const updates=input.cards.map(value=>{const entry=run.cards.find(c=>c.id===value.id),height=Math.ceil(Number(value.height));if(!entry||!Number.isFinite(height)||height<80||height>15000)fail(400,'Неверная высота карточки');return {entry,height};});
+      doc.transact(()=>{for(const {entry,height} of updates){
+        if(Math.abs(entry.height-height)<2)continue;
+        const index=items.toArray().findIndex(item=>item.id===entry.anchorId),anchor=index>=0?items.get(index):null;
+        if(anchor){const next={...anchor,height:height*(anchor.height/entry.height)};items.delete(index,1);items.insert(index,[next]);}
+        entry.height=height;entry.layoutVersion=2;changed=true;
+      }},'prepared-lesson:layout');
+      if(!changed)return this.publicRun(run,access);
+    }
     else if(input.action==='restore')await this.repair(run);
     else if(input.action==='next'||input.action==='skip'){
       if(input.expectedCount!==run.cards.length)return this.publicRun(run,access);
@@ -191,20 +217,20 @@ export class PreparedLessonTasks {
   });}
   async startHelper(auth,id,cardId,assetId){return this.lock(async()=>{
     const {run}=await this.getRun(auth,id,true),card=run.cards.find(c=>c.id===cardId),attachment=card&&run.tasks[card.index].attachments.find(a=>a.assetId===assetId);
-    if(!attachment||!isWorkbookFileName(attachment.name))fail(400,'Для этого файла помощник таблиц недоступен');
+    if(!attachment||!helperSupported(run,attachment.name))fail(400,'Для этого файла помощник таблиц недоступен');
     card.bindings||={};let binding=card.bindings[assetId];const now=this.now();
     if(binding&&binding.until>now&&binding.actor!==actorKey(auth))fail(409,`${binding.name} редактирует общий файл. Дождитесь сохранения и передачи работы.`);
     binding={id:binding?.id||digest(run.id+card.id+assetId),actor:actorKey(auth),name:text(auth.name)||'Участник',until:now+WRITER_MS,generation:(binding?.generation||0)+1};card.bindings[assetId]=binding;
     const ticket='pt_'+crypto.randomBytes(32).toString('base64url');for(const [key,t]of this.tickets)if(t.expires<now)this.tickets.delete(key);if(this.tickets.size>1000)fail(429,'Слишком много запусков помощника');
     this.tickets.set(digest(ticket),{runId:id,cardId,assetId,auth:{id:auth.id,role:auth.role,name:auth.name},generation:binding.generation,expires:now+180000});this.save(run);
-    return {ticket,expiresAt:new Date(now+180000).toISOString(),fileName:card.solutions[assetId]?.name||attachment.name,requiresName:false};
+    return {ticket,expiresAt:new Date(now+180000).toISOString(),fileName:card.solutions[assetId]?.name||helperName(run,this.data.assets[assetId]),requiresName:false};
   });}
-  async exchange(ticket) {const key=digest(ticket),entry=this.tickets.get(key);if(!entry||entry.expires<this.now())fail(410,'Ссылка запуска истекла');const {run}=await this.getRun(entry.auth,entry.runId,true),card=run.cards.find(c=>c.id===entry.cardId);if(card.bindings?.[entry.assetId]?.generation!==entry.generation)fail(409,'Право редактирования файла уже передано');for(const [id,s]of Object.entries(this.data.sessions))if(s.expires<this.now())delete this.data.sessions[id];if(Object.keys(this.data.sessions).length>=5000)fail(429,'Слишком много открытых таблиц');const token='pt_'+crypto.randomBytes(32).toString('base64url'),session={...entry,expires:this.now()+30*86400000};this.data.sessions[digest(token)]=session;this.tickets.delete(key);this.save();const asset=this.data.assets[entry.assetId],solution=card.solutions[entry.assetId];return {token,workbookKey:card.bindings[entry.assetId].id,fileName:solution?.name||asset.name,solutionName:solution?.name||asset.name,requiresName:false,nameRequired:false,revision:solution?.revision||0,contentHash:solution?.hash||asset.hash,expiresAt:new Date(session.expires).toISOString(),sourceText:null};}
+  async exchange(ticket,userAgent='') {const key=digest(ticket),entry=this.tickets.get(key);if(!entry||entry.expires<this.now())fail(410,'Ссылка запуска истекла');const {run}=await this.getRun(entry.auth,entry.runId,true),card=run.cards.find(c=>c.id===entry.cardId);if(card.bindings?.[entry.assetId]?.generation!==entry.generation)fail(409,'Право редактирования файла уже передано');for(const [id,s]of Object.entries(this.data.sessions))if(s.expires<this.now())delete this.data.sessions[id];if(Object.keys(this.data.sessions).length>=5000)fail(429,'Слишком много открытых таблиц');const sourceAsset=this.data.assets[entry.assetId],isText=textWorkbook(run,sourceAsset.name);if(isText&&sourceAsset.size>16*1024*1024)fail(413,'Текстовый файл больше допустимых 16 МБ');const helperVersion=userAgent.match(/IvanEgeWorkbookHelper\/(\d+)\.(\d+)/i);if(isText&&helperVersion&&(Number(helperVersion[1])<1||Number(helperVersion[1])===1&&Number(helperVersion[2])<2))fail(426,'Для заданий с текстом нужен помощник версии 1.2 или новее.');const token='pt_'+crypto.randomBytes(32).toString('base64url'),session={...entry,expires:this.now()+30*86400000};this.data.sessions[digest(token)]=session;this.tickets.delete(key);this.save();const asset=this.data.assets[entry.assetId],solution=card.solutions[entry.assetId];return {token,workbookKey:card.bindings[entry.assetId].id,fileName:solution?.name||helperName(run,asset),solutionName:solution?.name||helperName(run,asset),requiresName:false,nameRequired:false,revision:solution?.revision||0,contentHash:solution?.hash||helperHash(run,asset),expiresAt:new Date(session.expires).toISOString(),sourceText:isText?{fileName:asset.name,contentHash:asset.hash,sizeBytes:asset.size,contentPath:'/workbook-helper/v1/source-text'}:null};}
   async helperSession(token){const session=this.data.sessions[digest(token)];if(!session||session.expires<this.now())fail(401,'Привязка помощника истекла');const {run}=await this.getRun(session.auth,session.runId,true),card=run.cards.find(c=>c.id===session.cardId);if(!card)fail(410,'Задача недоступна');return {session,run,card};}
   async saveSolution({auth,run,card,assetId,buffer,name,revision,generation,hash}){
     const binding=card.bindings?.[assetId];if(!binding||binding.actor!==actorKey(auth)||binding.generation!==generation)fail(409,'Право записи передано другому участнику. Сохраните локальную копию.');
     const asset=this.data.assets[assetId],previous=card.solutions[assetId],actualHash=digest(buffer);
-    if(!isWorkbookFileName(name)||path.extname(name).toLowerCase()!==path.extname(asset.name).toLowerCase())fail(415,'Сохраните решение в формате исходной таблицы');
+    if(!isWorkbookFileName(name)||!workbookSolutionFormatAllowed(path.extname(helperName(run,asset)).toLowerCase(),path.extname(name).toLowerCase()))fail(415,'Сохраните решение в формате исходной таблицы');
     if(hash&&actualHash!==hash)fail(400,'Контрольная сумма файла не совпала');
     if(Number(revision)!==(previous?.revision||0)) {if(previous?.hash===actualHash)return previous;const storage='conflict-'+crypto.randomUUID()+path.extname(name);fs.writeFileSync(path.join(this.assetsDir,storage),buffer,{mode:0o600});card.conflicts||=[];card.conflicts.push({storage,name,actor:actorKey(auth),at:this.now()});this.save(run);fail(409,'На сервере более новая версия. Локальная и конфликтная копии сохранены; откройте актуальное решение.');}
     const storage=actualHash+path.extname(name).toLowerCase();if(!fs.existsSync(path.join(this.assetsDir,storage)))fs.writeFileSync(path.join(this.assetsDir,storage),buffer,{mode:0o600});
@@ -217,9 +243,10 @@ export class PreparedLessonTasks {
 const handler=fn=>async(req,res,next)=>{try{await fn(req,res,next);}catch(error){if(res.headersSent)return next(error);res.status(error.status||500).json({error:error.status?error.message:'Не удалось выполнить действие с заданием. Данные не удалены.'});}};
 const workbookUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:64*1024*1024}});
 export function registerPreparedHelperRoutes(app,store,{allowExchange=()=>true,allowContent=()=>true}={}){
-  app.post('/workbook-helper/v1/exchange',handler(async(req,res,next)=>{if(!String(req.body?.ticket||'').startsWith('pt_'))return next();if(!allowExchange(req))fail(429,'Слишком много запусков помощника. Повторите через минуту.');res.setHeader('Cache-Control','no-store');res.json(await store.lock(()=>store.exchange(req.body.ticket)));}));
+  app.post('/workbook-helper/v1/exchange',handler(async(req,res,next)=>{if(!String(req.body?.ticket||'').startsWith('pt_'))return next();if(!allowExchange(req))fail(429,'Слишком много запусков помощника. Повторите через минуту.');res.setHeader('Cache-Control','no-store');res.json(await store.lock(()=>store.exchange(req.body.ticket,String(req.headers['user-agent']||''))));}));
   const intercept=handler(async(req,res,next)=>{const token=parseWorkbookHelperAuthorization(req.headers.authorization);if(!token.startsWith('pt_'))return next();if(!allowContent(req))fail(429,'Слишком много запросов к таблице. Повторите через минуту.');req.preparedHelper=await store.helperSession(token);next();});
-  app.get('/workbook-helper/v1/content',intercept,handler(async(req,res,next)=>{if(!req.preparedHelper)return next();const {session,card}=req.preparedHelper,solution=card.solutions[session.assetId],asset=store.data.assets[session.assetId];res.setHeader('Cache-Control','no-store');res.setHeader('X-Workbook-Key',card.bindings[session.assetId].id);res.setHeader('X-Workbook-Revision',String(solution?.revision||0));res.setHeader('X-Workbook-Content-Hash',solution?.hash||asset.hash);res.attachment(solution?.name||asset.name);res.sendFile(store.assetFile(solution||asset));}));
+  app.get('/workbook-helper/v1/source-text',intercept,handler(async(req,res,next)=>{if(!req.preparedHelper)return next();const {session,run}=req.preparedHelper,asset=store.data.assets[session.assetId];if(!textWorkbook(run,asset.name))fail(404,'Исходный текст недоступен');if(asset.size>16*1024*1024)fail(413,'Текстовый файл больше допустимых 16 МБ');res.setHeader('Cache-Control','no-store');res.setHeader('X-Source-Text-Content-Hash',asset.hash);res.attachment(asset.name);res.sendFile(store.assetFile(asset));}));
+  app.get('/workbook-helper/v1/content',intercept,handler(async(req,res,next)=>{if(!req.preparedHelper)return next();const {session,run,card}=req.preparedHelper,solution=card.solutions[session.assetId],asset=store.data.assets[session.assetId];res.setHeader('Cache-Control','no-store');res.setHeader('X-Workbook-Key',card.bindings[session.assetId].id);res.setHeader('X-Workbook-Revision',String(solution?.revision||0));res.setHeader('X-Workbook-Content-Hash',solution?.hash||helperHash(run,asset));res.attachment(solution?.name||helperName(run,asset));if(!solution&&textWorkbook(run,asset.name))res.send(BLANK_WORKBOOK_ODS);else res.sendFile(store.assetFile(solution||asset));}));
   app.put('/workbook-helper/v1/content',intercept,(req,res,next)=>req.preparedHelper?workbookUpload.single('file')(req,res,next):next(),handler(async(req,res,next)=>{if(!req.preparedHelper)return next();if(!req.file)fail(400,'Файл не найден');const {session,run,card}=req.preparedHelper;const solution=await store.lock(()=>store.saveSolution({auth:session.auth,run,card,assetId:session.assetId,generation:session.generation,buffer:req.file.buffer,name:req.body.solutionName||req.file.originalname,revision:req.body.revision??req.headers['x-workbook-revision'],hash:req.body.contentHash||req.headers['x-workbook-content-hash']}));res.json({ok:true,revision:solution.revision,contentHash:solution.hash,fileName:solution.name,solutionName:solution.name,workbookKey:card.bindings[session.assetId].id,requiresName:false,nameRequired:false});}));
 }
 export function registerPreparedTaskRoutes(app,store){

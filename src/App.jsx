@@ -1,3 +1,4 @@
+import {preparedBoardView} from './utils/preparedBoardView.js';
 import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
@@ -6113,6 +6114,8 @@ export const CollabSection = ({
       const runtimePath = primaryPath;
       const lowerPath = runtimePath.toLowerCase();
       if (mountedPaths.has(lowerPath)) {
+        const mounted=payload.find(file=>file.name.toLowerCase()===lowerPath);
+        if(mounted&&mounted.bytes.length===bytes.length&&bytes.every((byte,index)=>byte===mounted.bytes[index]))return;
         if (lowerPath === reservedRuntimePath) return;
         throw new Error(`\u0412\u044b\u0431\u0440\u0430\u043d\u043e \u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a\u043e \u0444\u0430\u0439\u043b\u043e\u0432 \u0441 \u043f\u0443\u0442\u0435\u043c ${runtimePath}. \u041e\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u043e\u0434\u0438\u043d.`);
       }
@@ -11065,6 +11068,7 @@ export const CollabSection = ({
           )}
         </div>
 
+        {preparedCodeCard&&<div className="prepared-runtime-strip" aria-label="Подключение файлов задачи"><button type="button" onClick={()=>{setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE);setTaskFilesPanelOpen(true);}} title="Открыть входные файлы">{preparedCodeCard.attachments.some(file=>file.runtime!==false)?`Файлы задачи: ${preparedCodeCard.attachments.filter(file=>file.runtime!==false).map(file=>file.runtimeName||file.name).join(', ')}`:'Для Python файлы не выбраны · подключить'}</button></div>}
         {boardCodeAuxPopover}
 
         {!isSandbox && roomId && (
@@ -17552,7 +17556,7 @@ export const BoardCanvasSection = ({
         {!isSandbox&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
-          focus={anchor=>{const top=Math.max(150,83+(containerRef.current?.querySelector('.prepared-board-navigation')?.offsetHeight||100));const nextZoom=Math.max(.35,Math.min(1,(boardSize.width-110)/anchor.width,(boardSize.height-top-65)/Math.min(anchor.height,1100)));setZoom(nextZoom);setOffset({x:anchor.x-(boardSize.width-anchor.width*nextZoom)/2/nextZoom,y:anchor.y-top/nextZoom});}}/>}
+          focus={(anchor,options)=>{const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSize.width,zoom,initial:options?.initial,top});setZoom(view.zoom);setOffset(view.offset);}}/>}
         <div
           className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
           aria-label={boardReadOnly ? 'Завершённые задания на доске' : 'Интерактивные задания на доске'}

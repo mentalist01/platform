@@ -66,7 +66,7 @@ export function projectLessonPages(book,doc,bookRoom) {
       const original=[...archive].find(([oldId])=>aliases.get(oldId)===page.id)?.[1];
       const mainSolutionId=id===DEFAULT_COLLAB_CODE_PAGE_ID?DEFAULT_COLLAB_SOLUTION_ID:
         (catalog.get(id)?.mainSolutionId||original?.mainSolutionId||`lesson-page-${id}`);
-      put(catalog,id,{id,name:page.title,mainSolutionId,createdAt:page.createdAt});
+      put(catalog,id,{id,name:page.title,mainSolutionId,createdAt:page.createdAt,...(page.parentId?{parentId:codeId(page.parentId)}:{})});
       put(deleted,id,false);put(aliases,id,page.id);
       if(mainSolutionId!==DEFAULT_COLLAB_SOLUTION_ID&&!doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).has(mainSolutionId)) {
         createEmptyCollabSolution(doc,{id:mainSolutionId,name:DEFAULT_SOLUTION_NAME,pageId:id,createdAt:page.createdAt});
@@ -75,16 +75,23 @@ export function projectLessonPages(book,doc,bookRoom) {
   },LESSON_PAGE_ORIGIN);
 }
 
-export function mutateLessonPage(book,{action,id,name}={}) {
+export function mutateLessonPage(book,{action,id,name,parentId}={}) {
   const map=book.getMap('pages'),visible=boardPagesList(map);
+  const parent=()=>{
+    if(!parentId)return '';
+    const target=visible.find(page=>page.id===parentId);
+    if(!target||target.id===id||target.parentId||(id&&visible.some(page=>page.parentId===id)))throw Error('Выберите другую основную страницу. Подстраницы могут быть только внутри основной страницы.');
+    return parentId;
+  };
   if(action==='create') {
     if(visible.length>=MAX_BOARD_PAGES)throw Error(`Можно создать не больше ${MAX_BOARD_PAGES} страниц.`);
-    id=randomUUID();map.set(id,{title:title(name),createdAt:Date.now()});return id;
+    const linked=parent();id=randomUUID();map.set(id,{title:title(name),createdAt:Date.now(),...(linked?{parentId:linked}:{})});return id;
   }
   if(id!==FIRST_BOARD_PAGE_ID&&!validId(id))throw Error('Некорректная страница.');
   const old=map.get(id)||(id===FIRST_BOARD_PAGE_ID?{title:'Страница 1',createdAt:0}:null);
   if(!old)throw Error('Страница не найдена.');
   if(action==='rename') {if(!visible.some(p=>p.id===id))throw Error('Страница удалена.');map.set(id,{...old,title:title(name)});}
+  else if(action==='update') {if(!visible.some(p=>p.id===id))throw Error('Страница удалена.');const linked=parent(),next={...old,title:title(name)};if(linked)next.parentId=linked;else delete next.parentId;map.set(id,next);}
   else if(action==='delete') {if(visible.length<=1)throw Error('На занятии должна остаться хотя бы одна страница.');map.set(id,{...old,deleted:true});}
   else if(action==='restore') {if(!old.deleted)return id;if(visible.length>=MAX_BOARD_PAGES)throw Error('Достигнут предел страниц.');map.set(id,{...old,deleted:false});}
   else throw Error('Неизвестное действие со страницей.');

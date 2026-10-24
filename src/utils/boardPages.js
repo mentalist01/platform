@@ -30,7 +30,8 @@ export function boardPagesList(map) {
   const additional=values.filter(([id,page])=>id!==FIRST_BOARD_PAGE_ID && PAGE_ID.test(id) && page && typeof page==='object' && !page.deleted)
       .map(([id,page])=>({id,title:String(page.title || 'Страница').slice(0,80),createdAt:Number(page.createdAt)||0}))
       .sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id));
-  return (map?.get(FIRST_BOARD_PAGE_ID)?.deleted && additional.length ? additional : [first,...additional]).slice(0,MAX_BOARD_PAGES);
+  const pages=(map?.get(FIRST_BOARD_PAGE_ID)?.deleted && additional.length ? additional : [first,...additional]).slice(0,MAX_BOARD_PAGES);
+  return pages.map(page=>{const parentId=map?.get(page.id)?.parentId;return parentId&&pages.some(parent=>parent.id===parentId&&parent.id!==page.id&&!map?.get(parent.id)?.parentId)?{...page,parentId}:page;});
 }
 export function deleteBoardPage(map,pageId) {
   const pages=boardPagesList(map);
