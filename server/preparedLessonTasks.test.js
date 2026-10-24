@@ -54,7 +54,7 @@ test('shared run: immutable template, explicit modes, answer lease, idempotent a
   const set=await store.saveSet(auth,{name:'Набор №3',taskNumber:3,partNumber:1,tasks:[{title:'Первая',format:'exact',answers:['007'],images:[image.id]},{title:'Вторая',format:'number',answers:['8'],images:[image.id]}]});
   let run=await store.start(auth,{room:'board-group-a',setId:set.id,x:10,y:20});const id=run.id,first=run.cards[0],key='editor-one';
   assert.equal(run.mode,'prepared');assert.equal(run.canManage,true);assert.equal(run.total,2);assert.equal(run.cards.length,1);
-  assert.equal(JSON.stringify(store.publicRun(store.data.runs[id],{auth:pupil})).includes('007'),false,'The reference answer is not in a pupil projection');
+  const pupilView=store.publicRun(store.data.runs[id],{auth:pupil});assert.equal('referenceAnswers' in pupilView.cards[0],false);assert.equal(JSON.stringify(pupilView).includes('"007"'),false,'The reference answer is not in a pupil projection');
   assert.equal(JSON.stringify(run).includes('Вторая'),false,'Future conditions are not published');
   await assert.rejects(store.getRun(outsider,id),{status:403});
   await assert.rejects(store.action(pupil,id,{action:'skip'}),{status:403});
