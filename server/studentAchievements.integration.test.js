@@ -8,7 +8,7 @@ test('real answers unlock durable achievements without farming, changing XP twic
   const claim=()=>f.request('/api/student-achievements/claim',token,{});
   try{
     const before=fs.readFileSync(path.join(f.data,'progress.json'),'utf8');
-    assert.equal((await collection()).items.length,132);assert.deepEqual((await claim()).items,[]);
+    assert.equal((await collection()).items.length,148);assert.deepEqual((await claim()).items,[]);
     assert.equal(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'),before,'collection cannot rewrite solutions or economy');
     const answer={taskNumber:4,levelId:'basic',questionId:'ege-question',code:'wrong'};
     await f.request('/api/progress/solve',token,answer,'POST',400);assert.deepEqual((await claim()).items,[]);

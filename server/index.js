@@ -48,6 +48,7 @@ import { IndividualLessonPaceStore } from './individualLessonPace.js';
 import { recorderLessonTopic } from './recorderLessonTopics.js';
 import { normalizeMockCompletionEvents, mockCompletionNotifications } from './teacherMockNotifications.js';
 import { StudentAchievementStore, achievementFacts } from './studentAchievements.js';
+import { LessonAchievementStore, lessonAchievementContext } from './lessonAchievements.js';
 import { ACHIEVEMENT_REWARD_VERSION, normalizeAchievementRewards, mergeAchievementRewards, planAchievementRewards } from './achievementRewards.js';
 import { buildGroupAvailabilityAnswerNotification, groupAvailabilityAnswerNotifications } from './groupAvailabilityNotifications.js';
 import { createGuestMeetingStore, registerGuestMeetingRoutes, parseMeetingRoomId, meetingRoomId, isMeetingIdentity } from './guestMeetings.js';
@@ -21804,6 +21805,7 @@ const sendWorkbookOperationError = (res, error) => {
   return res.status(statusCode).json(payload);
 };
 
+const lessonAchievementStore = new LessonAchievementStore(path.join(dataDir,'lesson-achievements'),{write:writeFileAtomic});
 const preparedLessonTasks = new PreparedLessonTasks({
   directory:path.join(dataDir,'prepared-lesson-tasks'),
   authorize:async(auth,room,{write}={})=>{
@@ -21819,6 +21821,14 @@ const preparedLessonTasks = new PreparedLessonTasks({
   },
   board:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
   code:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
+  achievementContext:async(run,auth,access)=>lessonAchievementContext(run,auth,{target:access.target,students:readStudentsDb(),sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],connections:[...collabWss.clients].map(ws=>({auth:ws.learningCollabAuth,target:ws.learningCollabTarget,readOnly:ws.learningCollabReadOnly,open:ws.readyState===1}))}),
+  onAchievement:async(run,card)=>{
+    if(!card.achievementBaselines){card.achievementBaselines=Object.fromEntries(card.solveReceipt.participants.map(person=>[person.id,lessonAchievementStore.facts(person.id)]));preparedLessonTasks.save(run);}
+    for(const participant of card.solveReceipt.participants){
+      const result=lessonAchievementStore.record(participant.id,card.solveReceipt,{independent:(card.independentStudentIds||[]).includes(participant.id),tableSolution:Object.values(card.solutions||{}).some(solution=>solution.viaHelper===true&&(!run.groupId||solution.savedBy?.role==='teacher'||solution.savedBy?.role==='admin'))});
+      awardPreparedLessonAchievements(participant.id,card.achievementBaselines[participant.id]||result.before,result.after);
+    }
+  },
   sourceFiles:async auth=>readFilesDb().filter(file=>!isWorkbookQuestionVirtualSource(file)&&(
     (file.teacherId&&normalizeTeacherId(file.teacherId)===auth.id)||findStudentById(file.studentId)?.teacherId===auth.id
     ||(isLessonSharedFile(file)&&normalizeTeacherId(file.teacherId)===auth.id)
@@ -33537,10 +33547,17 @@ const studentAchievementFacts = (student, data, tests = readTestsDbForStudent(st
   const legacyCompletions = collectMonthlyMockCompletions(data, eligibleExams).map(completion => ({
     ...completion, secondaryScore: getMonthlyMockCompletionDetails(data, completion).score,
   }));
-  return achievementFacts({ ...data, mockCompletionEvents: [...(data.mockCompletionEvents || []), ...legacyCompletions] }, {
+  return {...lessonAchievementStore.facts(student.id), ...achievementFacts({ ...data, mockCompletionEvents: [...(data.mockCompletionEvents || []), ...legacyCompletions] }, {
     tests, mockExams: eligibleExams,
     pythonTaskIds: [...getLeaderboardProfilePythonTaskMap(tests).keys()],
-  });
+  })};
+};
+const awardPreparedLessonAchievements = (studentId,before,after) => {
+  const student=findStudentById(studentId);if(!student)return;
+  const data=getStudentData(studentId),common=studentAchievementFacts(student,data);
+  const baselineFacts={...common,...before},collection=studentAchievementStore.evaluate(studentId,{...common,...after},{baselineFacts});
+  const baselineIds=collection.items.filter(item=>item.unlocked&&(item.seenAt||item.historical||(baselineFacts[item.metric]||0)>=item.target)).map(item=>item.id);
+  creditAchievementRewards(student,data,collection,baselineIds);
 };
 const awardStudentAchievements = (student, before, after, tests, exams) => {
   try {
@@ -45077,6 +45094,8 @@ server.on('upgrade', (request, socket, head) => {
 
 collabWss.on('connection', (ws, request) => {
   ws.learningCollabAuth = request?.learningCollabAuth;
+  ws.learningCollabTarget = request?.learningCollabAccess?.target;
+  ws.learningCollabReadOnly = request?.learningCollabAccess?.readOnly;
   const previousMessageListeners = new Set(ws.listeners('message'));
   setupWSConnection(ws, request);
   const access = request?.learningCollabAccess;

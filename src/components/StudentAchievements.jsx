@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Award, Check, Code2, Flame, LockKeyhole, Search, Sparkles, Target, Trophy } from 'lucide-react';
+import { Award, BookOpen, Check, Code2, Flame, LockKeyhole, Search, Sparkles, Target, Trophy } from 'lucide-react';
 import { api, ACHIEVEMENT_PROGRESS_EVENT } from '../services/api.js';
 import { ACHIEVEMENT_CATEGORIES, ACHIEVEMENT_RARITIES, ACHIEVEMENT_RARITY_ORDER } from '../data/achievementCatalog.js';
 import { createAchievementSound } from '../utils/achievementSound.js';
@@ -8,8 +8,8 @@ import AchievementToast from './AchievementToast.jsx';
 import Medal from './AchievementMedal.jsx';
 import './StudentAchievements.css';
 
-const ICONS = { ege: Target, python: Code2, mocks: Trophy, practice: Flame, growth: Sparkles };
-const CATEGORY_COLORS = { ege: '#7b20ff', python: '#006aff', mocks: '#ffb800', practice: '#ff5217', growth: '#00a66a' };
+const ICONS = { ege: Target, python: Code2, mocks: Trophy, practice: Flame, growth: Sparkles, lesson: BookOpen };
+const CATEGORY_COLORS = { ege: '#7b20ff', python: '#006aff', mocks: '#ffb800', practice: '#ff5217', growth: '#00a66a', lesson: '#637b9c' };
 const EMPTY = { items: [] };
 const dateLabel = item => item.historical ? 'За прошлые результаты' : new Date(item.earnedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 const soundKey = id => `ivan100:achievement-sound:v1:${id}`;

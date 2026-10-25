@@ -6,6 +6,7 @@ export const ACHIEVEMENT_CATEGORIES = [
   { id: 'mocks', title: 'Пробники', icon: 'trophy' },
   { id: 'practice', title: 'Регулярность', icon: 'flame' },
   { id: 'growth', title: 'Прогресс', icon: 'sparkles' },
+  { id: 'lesson', title: 'На уроке', icon: 'book' },
 ];
 export const ACHIEVEMENT_RARITIES = {
   bronze: { title: 'Бронза', color: '#a67b58' },
@@ -52,6 +53,25 @@ const definitions = [
   ...series('ege-breadth', 'ege', 'egeBreadth', [5, 10, 20], [5, 10, 20].map(n => `${n} типов задач ЕГЭ`), n => `Решить хотя бы по одной задаче ${n} разных типов ЕГЭ.`),
   ...series('python-breadth', 'python', 'pythonBreadth', [3, 7, 11], ['3 темы Python', '7 тем Python', '11 тем Python'], n => `Решить хотя бы по одной задаче в ${n} основных темах Python.`),
   ...series('mixed-days', 'practice', 'mixedDays', [1, 5, 10], ['ЕГЭ и Python за день', 'ЕГЭ и Python · 5 дней', 'ЕГЭ и Python · 10 дней'], n => `${n === 1 ? 'В один день' : `В ${n} разных дней`} решить новую задачу ЕГЭ и новую задачу Python.`),
+  ...[1,10,50,100,250].map((target,index)=>({
+    id:`lesson-solves-${target}`,category:'lesson',metric:'lessonSolved',target,
+    title:['Первое решение вместе','Включился в работу','Уверенный практик','Сотня разобрана','Большой путь'][index],
+    description:`На уроках решить ${target===1?'первую задачу':`${target} разных задач`}. Учитываются индивидуальные и совместные решения.`,
+    rarity:['bronze','bronze','silver','gold','diamond'][index],xpReward:[150,600,1500,3000,6000][index],
+  })),
+  ...[
+    ['lesson-productive','lessonBest',5,'Урок удался','Решить 5 разных задач за одно занятие.','silver',600,'book'],
+    ['lesson-breadth','lessonBreadth',5,'Разносторонний','На уроках решить задачи 5 разных номеров ЕГЭ.','silver',900,'compass'],
+    ['lesson-topic','lessonTopicMastery',10,'Тема под контролем','Решить 10 разных задач одного номера ЕГЭ и части минимум на 3 занятиях.','gold',1500,'target'],
+    ['lesson-difficult','lessonDifficult',10,'Сложное поддаётся','Решить 10 разных задач, которые преподаватель заранее отметил как сложные.','gold',2100,'mountain'],
+    ['lesson-difficult-breadth','lessonDifficultBreadth',5,'На уровень выше','Решить 30 сложных задач минимум 5 разных номеров ЕГЭ. Сложность отмечает преподаватель.','diamond',6000,'mountain'],
+    ['lesson-returned','lessonReturned',1,'Разобрался','На следующем учебном дне вернуться к пропущенной на уроке задаче и решить её.','silver',600,'return'],
+    ['lesson-independent','lessonIndependentTransfer',1,'Теперь самостоятельно','После совместного разбора решить новую задачу того же номера и части самостоятельно. Подтверждает преподаватель.','gold',1500,'sparkles'],
+    ['lesson-26-parts','lesson26Parts',8,'Архитектор алгоритмов','Решить по 3 разные задачи №26 в каждой из 8 разных частей.','diamond',7500,'boxes'],
+    ['lesson-files','lessonFiles',20,'Повелитель файлов','Решить 20 разных задач с прикреплёнными входными файлами для Python минимум 3 номеров ЕГЭ.','gold',1800,'file'],
+    ['lesson-tables','lessonTables',20,'Таблицы слушаются','Решить 20 разных задач и сохранить к каждой таблицу через помощник. В группе учитывается таблица преподавателя.','gold',1800,'table'],
+    ['lesson-group','lessonGroupSessions',5,'Командный разбор','Присутствовать при решении минимум 3 разных задач на каждом из 5 групповых занятий.','silver',900,'users'],
+  ].map(([id,metric,target,title,description,rarity,xpReward,symbol])=>({id,category:'lesson',metric,target,title,description,rarity,xpReward,symbol})),
 ];
 
 // Each number is the total entitlement for a chain, not an extra payout.
@@ -70,6 +90,7 @@ const XP_STEPS = {
   mixedDays: [50, 100, 200],
 };
 export const ACHIEVEMENT_CATALOG = definitions.map(item => {
+  if(item.xpReward)return {...item,rewardChain:item.metric};
   const chain = definitions.filter(entry => entry.metric === item.metric).sort((a, b) => a.target - b.target);
   const amounts = item.metric.startsWith('egeTask:') ? [75, 250]
     : item.metric.startsWith('pythonTopic:') ? [75]

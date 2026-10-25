@@ -9,9 +9,9 @@ import { ACHIEVEMENT_CATALOG } from '../src/data/achievementCatalog.js';
 const now = Date.parse('2026-10-23T10:00:00Z'), at = '2026-10-21T22:00:00Z';
 const context = { now, tests: {101:{python:[{id:'p'}]}}, pythonTaskIds: [101], mockExams: [{id:'m1'},{id:'m2'},{id:'random',rewardsDisabled:true}] };
 const level = (solved, answerHistory = {}) => ({ solved, answerHistory });
-test('catalog has 132 unique, attainable rules, grouping game theory 19–21 correctly', () => {
-  assert.equal(ACHIEVEMENT_CATALOG.length,132);
-  assert.equal(new Set(ACHIEVEMENT_CATALOG.map(item=>item.id)).size,132);
+test('catalog has 148 unique, attainable rules, grouping game theory 19–21 correctly', () => {
+  assert.equal(ACHIEVEMENT_CATALOG.length,148);
+  assert.equal(new Set(ACHIEVEMENT_CATALOG.map(item=>item.id)).size,148);
   assert.equal(ACHIEVEMENT_CATALOG.some(item=>/^ege-task-(20|21)-/.test(item.id)),false);
   for(const item of ACHIEVEMENT_CATALOG) assert.ok(item.target>0 && item.title && item.description);
 });

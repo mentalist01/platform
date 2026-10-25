@@ -1,11 +1,12 @@
 import React, { useId } from 'react';
-import { Award, Code2, Flame, Sparkles, Target, Trophy } from 'lucide-react';
+import { Award, BookOpen, Boxes, Code2, Compass, FileText, Flame, Mountain, RotateCcw, Sparkles, Table2, Target, Trophy, Users } from 'lucide-react';
 import './AchievementMedal.css';
 
-const ICONS = { ege: Target, python: Code2, mocks: Trophy, practice: Flame, growth: Sparkles };
+const ICONS = { ege: Target, python: Code2, mocks: Trophy, practice: Flame, growth: Sparkles, lesson: BookOpen };
+const SYMBOLS = {book:BookOpen,boxes:Boxes,compass:Compass,file:FileText,mountain:Mountain,return:RotateCcw,sparkles:Sparkles,table:Table2,target:Target,users:Users};
 export default function AchievementMedal({ item, decorative = true }) {
   const uid = useId().replace(/:/g, ''), metal = `${uid}-metal`, core = `${uid}-core`;
-  const rarity = item.rarity || 'bronze', Icon = ICONS[item.category] || Award;
+  const rarity = item.rarity || 'bronze', Icon = SYMBOLS[item.symbol] || ICONS[item.category] || Award;
   return <span className={`achievement-medal achievement-medal--${rarity}`} aria-hidden={decorative || undefined}>
     <svg className="achievement-medal-frame" viewBox="0 0 100 104" aria-hidden="true">
       <defs>

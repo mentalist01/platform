@@ -10,6 +10,7 @@ import {preparedQueueSync} from '../src/utils/preparedQueueSync.js';
 import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 import {preparedAnswerTask, splitLegacyPreparedAnswer} from '../src/utils/egeAnswerFields.js';
+import {preparedSolveReceipt} from './lessonAchievements.js';
 
 const digest=value=>crypto.createHash('sha256').update(value).digest('hex');
 const text=(value,max=160)=>String(value??'').replace(/\0/g,'').trim().slice(0,max);
@@ -54,8 +55,8 @@ export function preparedNextPoint(items,anchor,width=680) {
 // Secrets and future conditions live here, never in the collaborative scene.
 // Every mutation is serialized per store; persisted state precedes notification.
 export class PreparedLessonTasks {
-  constructor({directory,authorize,board,code,sourceFiles,saveNotes,now=()=>Date.now()}) {
-    this.directory=directory;this.authorize=authorize;this.board=board;this.code=code;this.sourceFiles=sourceFiles;this.saveNotes=saveNotes;this.now=now;
+  constructor({directory,authorize,board,code,sourceFiles,saveNotes,achievementContext,onAchievement,now=()=>Date.now()}) {
+    this.directory=directory;this.authorize=authorize;this.board=board;this.code=code;this.sourceFiles=sourceFiles;this.saveNotes=saveNotes;this.achievementContext=achievementContext;this.onAchievement=onAchievement;this.now=now;
     fs.mkdirSync(directory,{recursive:true});this.assetsDir=path.join(directory,'assets');fs.mkdirSync(this.assetsDir,{recursive:true});
     this.file=path.join(directory,'state.json');
     this.data=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):{version:1,sets:{},assets:{},runs:{},active:{},sessions:{}};
@@ -142,7 +143,7 @@ export class PreparedLessonTasks {
         const asset=this.putAsset(auth,fs.readFileSync(source.path),source.name,'application/octet-stream');attachments.push({assetId:asset.id,sourceFileId:source.id,name:source.name,...runtime});
       }
       try{preparedRuntimeFiles(attachments);}catch(error){fail(400,`Задача ${index+1}: ${error.message}`);}
-      tasks.push({id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
+      tasks.push({difficult:raw.difficult===true,id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
     }
     if(new Set(tasks.map(task=>task.id)).size!==tasks.length)fail(400,'Идентификаторы задач должны быть разными');
     const set={id:previous?.id||requestedId||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,...(incomplete?{draft:true}:{}),version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
@@ -153,7 +154,7 @@ export class PreparedLessonTasks {
   publicRun(run,access) {
     if(!run)return null;
     return {id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,canManage:teacher(access.auth)&&!access.readOnly,canEditFiles:!access.readOnly&&(!run.groupId||teacher(access.auth)),newTasksAvailable:teacher(access.auth)&&!this.data.sets[run.setId]?.draft?preparedQueueSync(run.tasks,this.data.sets[run.setId]?.tasks||[]).added:0,checkingUpdateAvailable:teacher(access.auth)&&run.tasks.some(task=>{const latest=this.data.sets[run.setId]?.tasks.find(row=>row.id===task.id);return latest&&((task.answerMode||'combined')!==(latest.answerMode||'combined')||task.format!==latest.format);}),filesUpdateAvailable:teacher(access.auth)&&Boolean(this.data.sets[run.setId]&&preparedFileSync(run.tasks,this.data.sets[run.setId].tasks).changed),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index];return {id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),format:task.format,answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name),helperText:textWorkbook(run,a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
+      const task=run.tasks[c.index];return {id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name),helperText:textWorkbook(run,a.name),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
@@ -187,14 +188,22 @@ export class PreparedLessonTasks {
     const {run,access}=await this.getRun(auth,id);if(!teacher(auth)||access.readOnly)fail(403,'Выбор задач доступен преподавателю');
     return {tasks:run.tasks.map((task,index)=>{const card=run.cards.find(card=>card.index===index);return {id:task.id,index,title:task.title,cardId:card?.id||'',anchorId:card?.anchorId||'',status:card?.status||'',images:task.images.map(image=>this.assetView(image,run.id))};})};
   }
-  async recover(run){if(!run.cards.length){await this.addCard(run);return;}if(run.cards.some(c=>c.projectionPending)){await this.repair(run,true);this.save(run);}await this.projectCode(run);}
+  async flushAchievement(run,card){
+    if(!card.achievementPending||!card.solveReceipt||!this.onAchievement)return;
+    try{await this.onAchievement(run,card);card.achievementPending=false;this.save(run);}catch(error){console.warn('[lesson-achievements] award deferred:',error.message);}
+  }
+  async recover(run){for(const card of run.cards)if(card.achievementPending)await this.flushAchievement(run,card);if(!run.cards.length){await this.addCard(run);return;}if(run.cards.some(c=>c.projectionPending)){await this.repair(run,true);this.save(run);}await this.projectCode(run);}
   async repair(run,pendingOnly=false){const doc=await this.board(run.room),items=doc.getArray('items');for(const c of run.cards){if(pendingOnly&&!c.projectionPending)continue;if(!items.toArray().some(i=>i.id===c.anchorId)&&!c.deleted&&Number.isFinite(c.x))doc.transact(()=>items.push([{id:c.anchorId,type:'shape',shape:'rectangle',x:c.x,y:c.y,width:c.width,height:c.height,color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId}]),'prepared-lesson:repair');c.projectionPending=false;}}
   async action(auth,id,input){return this.lock(async()=>{
     const {run,access}=await this.getRun(auth,id,true),manage=teacher(auth),card=run.cards.find(c=>c.id===input.cardId),now=this.now();
     const requireCard=()=>{if(!card)fail(404,'Задача не найдена');};
     const lease=(kind='lease')=>{requireCard();const previous=card[kind];if(!previous||previous.until<now||previous.actor!==actorKey(auth)||previous.key!==input.leaseKey)fail(409,`${previous?.name||'Другой участник'} редактирует поле либо время ввода истекло. Возьмите ввод заново.`);};
-    if(['mode','auto','next','skip','focus','restore','layout','sync-files','sync-queue','sync-checking','choose'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
+    if(['mode','auto','next','skip','focus','restore','layout','sync-files','sync-queue','sync-checking','choose','confirm-independent'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
     if(input.action==='mode')run.mode=input.mode==='prepared'?'prepared':'plain';
+    else if(input.action==='confirm-independent'){
+      requireCard();if(card.status!=='solved'||!card.solveReceipt?.participants.some(person=>person.id===input.studentId))fail(409,'Подтвердить самостоятельность можно для участника решённой задачи');
+      card.independentStudentIds=[...new Set([...(card.independentStudentIds||[]),input.studentId])];card.achievementPending=true;
+    }
     else if(input.action==='auto')run.auto=input.value===true;
     else if(input.action==='focus'){requireCard();run.teacherCardId=card.id;}
     else if(input.action==='choose'){const index=run.tasks.findIndex(task=>task.id===input.taskId);if(index<0)fail(404,'Задача не найдена в этом наборе');await this.addCard(run,index);}
@@ -238,7 +247,7 @@ export class PreparedLessonTasks {
     else if(input.action==='restore')await this.repair(run);
     else if(input.action==='next'||input.action==='skip'){
       if(input.expectedCount!==run.cards.length)return this.publicRun(run,access);
-      const last=preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray());if(input.fromCardId&&input.fromCardId!==last?.id)return this.publicRun(run,access);if(!last)return this.publicRun(run,access);if(input.action==='skip'&&last.status!=='solved')last.status='skipped';
+      const last=preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray());if(input.fromCardId&&input.fromCardId!==last?.id)return this.publicRun(run,access);if(!last)return this.publicRun(run,access);if(input.action==='skip'&&last.status!=='solved'){last.status='skipped';last.skippedAt||=new Date(now).toISOString();}
       else if(last.status!=='solved'&&last.status!=='skipped')fail(409,'Сначала проверьте ответ или пропустите задачу');await this.addCard(run,last.index+1);
     } else if(input.action==='claim'||input.action==='claim-code') {
       requireCard();const kind=input.action==='claim'?'lease':'codeLease',previous=card[kind];
@@ -256,7 +265,7 @@ export class PreparedLessonTasks {
       }
       card.answers=values;card.answerRevision++;if(card.lease)card.lease.until=now+LEASE_MS;
     } else if(input.action==='check') {
-      requireCard();if(card.status==='solved')return this.publicRun(run,access);lease();
+      requireCard();if(card.status==='solved'){await this.flushAchievement(run,card);return this.publicRun(run,access);}lease();
       if(Number(input.revision)!==card.answerRevision)fail(409,'Ответ успел измениться. Проверьте актуальный ответ.');
       const task=run.tasks[card.index],independent=task.answerMode==='independent',field=input.fieldIndex;
       if(independent&&(!Number.isInteger(field)||field<0||field>=task.answers.length))fail(400,'Выберите вопрос для проверки');
@@ -267,14 +276,16 @@ export class PreparedLessonTasks {
       const correct=(manage&&input.accept===true)||preparedAnswerMatches(independent?[task.answers[field]]:task.answers,independent?[card.answers[field]]:card.answers,task.format);
       if(independent){card.fieldResults=task.answers.map((_,i)=>i===field?(correct?'correct':'wrong'):card.fieldResults?.[i]||null);}
       const complete=independent?card.fieldResults.every(result=>result==='correct'):correct;
-      card.lastResult=correct?'correct':'wrong';card.lease=null;if(complete){card.status='solved';card.solvedBy=actorKey(auth);if(run.auto&&card===preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray()))await this.addCard(run,card.index+1);}
+      card.lastResult=correct?'correct':'wrong';card.lease=null;if(complete){card.status='solved';card.solvedBy=actorKey(auth);
+        if(this.achievementContext){try{const context=await this.achievementContext(run,auth,access);card.solveReceipt=preparedSolveReceipt(run,card,this.data.assets,context,now);card.achievementPending=true;}catch(error){console.warn('[lesson-achievements] context unavailable:',error.message);}this.save(run);}
+        if(run.auto&&card===preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray()))await this.addCard(run,card.index+1);}
     } else if(input.action==='release') {requireCard();for(const kind of ['lease','codeLease'])if(card[kind]?.key===input.leaseKey)card[kind]=null;}
     else if(input.action==='code') {
       lease('codeLease');if(Number(input.revision)!==card.code.revision)fail(409,'Код обновлён другим участником. Ваш текст сохранён локально.');
       card.code={...card.code,text:String(input.code??card.code.text).slice(0,20000),input:String(input.input??card.code.input).slice(0,10000),output:String(input.output??card.code.output).slice(0,100000),revision:card.code.revision+1};if(card.codeLease)card.codeLease.until=now+LEASE_MS;
     } else if(input.action==='release-file') {assertWorkbookWriter(run,auth);requireCard();const b=card.bindings?.[input.assetId];if(b&&(manage||b.actor===actorKey(auth))){b.until=0;b.generation++;}}
     else fail(400,'Неизвестное действие');
-    run.version++;if(input.action==='code')this.atomic(path.join(this.runsDir,`${run.id}-${card.id}.code.json`),card.code);this.save(run);await this.notify(run,input.action==='code'||input.action==='claim-code'?'code':'run',card?.id||'');
+    run.version++;if(input.action==='code')this.atomic(path.join(this.runsDir,`${run.id}-${card.id}.code.json`),card.code);this.save(run);if(card?.achievementPending)await this.flushAchievement(run,card);await this.notify(run,input.action==='code'||input.action==='claim-code'?'code':'run',card?.id||'');
     if(input.action==='code'||input.action==='claim-code')return {id:run.id,room:run.room,version:run.version,changeOnly:'code'};
     return {...this.publicRun(run,access),result:card?.lastResult};
   });}
@@ -290,7 +301,7 @@ export class PreparedLessonTasks {
   });}
   async exchange(ticket,userAgent='') {const key=digest(ticket),entry=this.tickets.get(key);if(!entry||entry.expires<this.now())fail(410,'Ссылка запуска истекла');const {run}=await this.getRun(entry.auth,entry.runId,true);assertWorkbookWriter(run,entry.auth);const card=run.cards.find(c=>c.id===entry.cardId);if(card.bindings?.[entry.assetId]?.generation!==entry.generation)fail(409,'Право редактирования файла уже передано');for(const [id,s]of Object.entries(this.data.sessions))if(s.expires<this.now())delete this.data.sessions[id];if(Object.keys(this.data.sessions).length>=5000)fail(429,'Слишком много открытых таблиц');const sourceAsset=this.data.assets[entry.assetId],isText=textWorkbook(run,sourceAsset.name);if(isText&&sourceAsset.size>16*1024*1024)fail(413,'Текстовый файл больше допустимых 16 МБ');const helperVersion=userAgent.match(/IvanEgeWorkbookHelper\/(\d+)\.(\d+)/i);if(isText&&helperVersion&&(Number(helperVersion[1])<1||Number(helperVersion[1])===1&&Number(helperVersion[2])<2))fail(426,'Для заданий с текстом нужен помощник версии 1.2 или новее.');const token='pt_'+crypto.randomBytes(32).toString('base64url'),session={...entry,expires:this.now()+30*86400000};this.data.sessions[digest(token)]=session;this.tickets.delete(key);this.save();const asset=this.data.assets[entry.assetId],solution=card.solutions[entry.assetId];return {token,workbookKey:card.bindings[entry.assetId].id,fileName:solution?.name||helperName(run,asset),solutionName:solution?.name||helperName(run,asset),requiresName:false,nameRequired:false,revision:solution?.revision||0,contentHash:solution?.hash||helperHash(run,asset),expiresAt:new Date(session.expires).toISOString(),sourceText:isText?{fileName:asset.name,contentHash:asset.hash,sizeBytes:asset.size,contentPath:'/workbook-helper/v1/source-text'}:null};}
   async helperSession(token){const session=this.data.sessions[digest(token)];if(!session||session.expires<this.now())fail(401,'Привязка помощника истекла');const {run}=await this.getRun(session.auth,session.runId,true);assertWorkbookWriter(run,session.auth);const card=run.cards.find(c=>c.id===session.cardId);if(!card)fail(410,'Задача недоступна');return {session,run,card};}
-  async saveSolution({auth,run,card,assetId,buffer,name,revision,generation,hash}){
+  async saveSolution({auth,run,card,assetId,buffer,name,revision,generation,hash,viaHelper=false}){
     assertWorkbookWriter(run,auth);
     const binding=card.bindings?.[assetId];if(!binding||binding.actor!==actorKey(auth)||binding.generation!==generation)fail(409,'Право записи передано другому участнику. Сохраните локальную копию.');
     const asset=this.data.assets[assetId],previous=card.solutions[assetId],actualHash=digest(buffer);
@@ -298,8 +309,8 @@ export class PreparedLessonTasks {
     if(hash&&actualHash!==hash)fail(400,'Контрольная сумма файла не совпала');
     if(Number(revision)!==(previous?.revision||0)) {if(previous?.hash===actualHash)return previous;const storage='conflict-'+crypto.randomUUID()+path.extname(name);fs.writeFileSync(path.join(this.assetsDir,storage),buffer,{mode:0o600});card.conflicts||=[];card.conflicts.push({storage,name,actor:actorKey(auth),at:this.now()});this.save(run);fail(409,'На сервере более новая версия. Локальная и конфликтная копии сохранены; откройте актуальное решение.');}
     const storage=actualHash+path.extname(name).toLowerCase();if(!fs.existsSync(path.join(this.assetsDir,storage)))fs.writeFileSync(path.join(this.assetsDir,storage),buffer,{mode:0o600});
-    const now=new Date(this.now()).toISOString(),solution={id:previous?.id||'prepared-'+crypto.randomUUID(),name:text(name,240)||asset.name,storage,hash:actualHash,size:buffer.length,revision:(previous?.revision||0)+1,savedBy:{id:auth.id,role:auth.role,name:text(auth.name)},updatedAt:now};
-    card.solutions[assetId]=solution;binding.until=this.now()+WRITER_MS;run.version++;this.save(run);await this.saveNotes?.(run,solution);await this.notify(run,'file',card.id);return solution;
+    const now=new Date(this.now()).toISOString(),solution={id:previous?.id||'prepared-'+crypto.randomUUID(),name:text(name,240)||asset.name,storage,hash:actualHash,size:buffer.length,revision:(previous?.revision||0)+1,savedBy:{id:auth.id,role:auth.role,name:text(auth.name)},updatedAt:now,...(viaHelper?{viaHelper:true}:{})};
+    card.solutions[assetId]=solution;binding.until=this.now()+WRITER_MS;run.version++;this.save(run);await this.saveNotes?.(run,solution);if(card.solveReceipt){card.achievementPending=true;this.save(run);await this.flushAchievement(run,card);}await this.notify(run,'file',card.id);return solution;
   }
   notesForStudent(studentId,auth){const files=[];for(const run of Object.values(this.data.runs)){if(run.studentId!==studentId&&!run.participantIds.includes(studentId))continue;for(const card of run.cards)for(const solution of Object.values(card.solutions||{})){const folder=solution.folders?.[studentId];files.push({id:solution.id,studentId,teacherId:run.teacherId,name:solution.name,taskNumber:run.taskNumber,category:'class',folderId:folder?.id||null,folderName:folder?.name||'Решённые задания',workbookPartNumber:run.partNumber,sizeBytes:solution.size,date:new Date(solution.updatedAt).toLocaleDateString('ru-RU'),createdAt:solution.updatedAt,updatedAt:solution.updatedAt,url:`/api/lesson-task-solutions/${solution.id}`,preparedRunId:run.id,preparedCardId:card.id,workbookReadOnly:Boolean(run.groupId&&!teacher(auth)),savedBy:solution.savedBy});}}return files;}
 }
@@ -311,7 +322,7 @@ export function registerPreparedHelperRoutes(app,store,{allowExchange=()=>true,a
   const intercept=handler(async(req,res,next)=>{const token=parseWorkbookHelperAuthorization(req.headers.authorization);if(!token.startsWith('pt_'))return next();if(!allowContent(req))fail(429,'Слишком много запросов к таблице. Повторите через минуту.');req.preparedHelper=await store.helperSession(token);next();});
   app.get('/workbook-helper/v1/source-text',intercept,handler(async(req,res,next)=>{if(!req.preparedHelper)return next();const {session,run}=req.preparedHelper,asset=store.data.assets[session.assetId];if(!textWorkbook(run,asset.name))fail(404,'Исходный текст недоступен');if(asset.size>16*1024*1024)fail(413,'Текстовый файл больше допустимых 16 МБ');res.setHeader('Cache-Control','no-store');res.setHeader('X-Source-Text-Content-Hash',asset.hash);res.attachment(asset.name);res.sendFile(store.assetFile(asset));}));
   app.get('/workbook-helper/v1/content',intercept,handler(async(req,res,next)=>{if(!req.preparedHelper)return next();const {session,run,card}=req.preparedHelper,solution=card.solutions[session.assetId],asset=store.data.assets[session.assetId];res.setHeader('Cache-Control','no-store');res.setHeader('X-Workbook-Key',card.bindings[session.assetId].id);res.setHeader('X-Workbook-Revision',String(solution?.revision||0));res.setHeader('X-Workbook-Content-Hash',solution?.hash||helperHash(run,asset));res.attachment(solution?.name||helperName(run,asset));if(!solution&&textWorkbook(run,asset.name))res.send(BLANK_WORKBOOK_ODS);else res.sendFile(store.assetFile(solution||asset));}));
-  app.put('/workbook-helper/v1/content',intercept,(req,res,next)=>req.preparedHelper?workbookUpload.single('file')(req,res,next):next(),handler(async(req,res,next)=>{if(!req.preparedHelper)return next();if(!req.file)fail(400,'Файл не найден');const {session,run,card}=req.preparedHelper;const solution=await store.lock(()=>store.saveSolution({auth:session.auth,run,card,assetId:session.assetId,generation:session.generation,buffer:req.file.buffer,name:req.body.solutionName||req.file.originalname,revision:req.body.revision??req.headers['x-workbook-revision'],hash:req.body.contentHash||req.headers['x-workbook-content-hash']}));res.json({ok:true,revision:solution.revision,contentHash:solution.hash,fileName:solution.name,solutionName:solution.name,workbookKey:card.bindings[session.assetId].id,requiresName:false,nameRequired:false});}));
+  app.put('/workbook-helper/v1/content',intercept,(req,res,next)=>req.preparedHelper?workbookUpload.single('file')(req,res,next):next(),handler(async(req,res,next)=>{if(!req.preparedHelper)return next();if(!req.file)fail(400,'Файл не найден');const {session,run,card}=req.preparedHelper;const solution=await store.lock(()=>store.saveSolution({auth:session.auth,run,card,assetId:session.assetId,generation:session.generation,viaHelper:true,buffer:req.file.buffer,name:req.body.solutionName||req.file.originalname,revision:req.body.revision??req.headers['x-workbook-revision'],hash:req.body.contentHash||req.headers['x-workbook-content-hash']}));res.json({ok:true,revision:solution.revision,contentHash:solution.hash,fileName:solution.name,solutionName:solution.name,workbookKey:card.bindings[session.assetId].id,requiresName:false,nameRequired:false});}));
 }
 export function registerPreparedTaskRoutes(app,store){
   app.get('/api/lesson-task-sets',handler(async(req,res)=>{const result=store.listSets(req.auth);res.json({...result,sets:result.sets.filter(s=>!req.query.taskNumber||s.taskNumber===Number(req.query.taskNumber)).map(s=>store.setView(s))});}));

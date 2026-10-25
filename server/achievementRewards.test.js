@@ -4,7 +4,7 @@ import { ACHIEVEMENT_CATALOG } from '../src/data/achievementCatalog.js';
 import { planAchievementRewards, mergeAchievementRewards, normalizeAchievementRewards } from './achievementRewards.js';
 
 const items = ids => ACHIEVEMENT_CATALOG.filter(item => ids.includes(item.id)).map(item => ({ ...item, unlocked: true }));
-test('all 132 achievements have positive, monotonic chain entitlements', () => {
+test('all 148 achievements have positive, monotonic chain entitlements', () => {
   for (const item of ACHIEVEMENT_CATALOG) {
     assert.ok(Number.isInteger(item.xpReward) && item.xpReward > 0, item.id);
     for (const lower of ACHIEVEMENT_CATALOG.filter(entry => entry.rewardChain === item.rewardChain && entry.target < item.target)) assert.ok(lower.xpReward <= item.xpReward);
