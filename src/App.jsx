@@ -11076,7 +11076,7 @@ export const CollabSection = ({
           )}
         </div>
 
-        {preparedCodeCard&&<div className="prepared-runtime-strip" aria-label="Подключение файлов задачи"><button type="button" onClick={()=>{setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE);setTaskFilesPanelOpen(true);}} title="Открыть входные файлы">{preparedCodeCard.attachments.some(file=>file.runtime!==false)?`Файлы задачи: ${preparedCodeCard.attachments.filter(file=>file.runtime!==false).map(file=>file.runtimeName||file.name).join(', ')}`:'Для Python файлы не выбраны · подключить'}</button></div>}
+        {preparedCodeCard&&preparedCodeCard.attachments.some(file=>file.runtime!==false)&&<div className="prepared-runtime-strip" aria-label="Подключение файлов задачи"><button type="button" onClick={()=>{setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE);setTaskFilesPanelOpen(true);}} title="Открыть входные файлы">Файлы задачи: {preparedCodeCard.attachments.filter(file=>file.runtime!==false).map(file=>file.runtimeName||file.name).join(', ')}</button></div>}
         {boardCodeAuxPopover}
 
         {!isSandbox && roomId && (
