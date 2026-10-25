@@ -4,6 +4,7 @@ import {openPreparedHomework} from './services/preparedHomework.js';
 import {paintPreparedInk,compositePreparedInk,isPreparedTaskAnchor} from './utils/preparedInk.js';
 import {preparedBoardView,animatePreparedBoardView} from './utils/preparedBoardView.js';
 import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
+import {STUDY_CONTINUE_EVENT} from './services/studentStudyProgress.js';
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
 import BoardMinimap from './components/BoardMinimap.jsx';
@@ -23594,6 +23595,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setMenuOpen(false);
   }, [navigateToView, user.role]);
 
+  useEffect(() => {
+    if (user.role !== 'teacher') return undefined;
+    const resume = event => {
+      if (currentStudentsWithNicknames.some(student => student.id === event.detail?.studentId))
+        handleOpenTeacherLessonWorkspace('collab', event.detail.studentId);
+    };
+    window.addEventListener(STUDY_CONTINUE_EVENT, resume);
+    return () => window.removeEventListener(STUDY_CONTINUE_EVENT, resume);
+  }, [user.role, currentStudentsWithNicknames, handleOpenTeacherLessonWorkspace]);
+
   const handleOpenStudentPlatformLesson = useCallback(() => {
     if (user.role !== 'student') return;
     if (studentLessonWorkspace.status !== 'individual') {
@@ -26772,7 +26783,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           {view === 'study-plan' && user.role === 'teacher' && (
             <React.Suspense fallback={<div className="surface-panel rounded-2xl p-6">Открываем план подготовки…</div>}>
-              <EgeStudyPlan key={user.id} teacherId={user.id} />
+              <EgeStudyPlan key={user.id} teacherId={user.id} students={currentStudentsWithNicknames} />
             </React.Suspense>
           )}
           {view === 'notes' && (

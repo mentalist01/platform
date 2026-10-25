@@ -1,6 +1,7 @@
 import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress,preparedHomeworkLabel} from '../utils/preparedHomework.js';
 import PreparedHomeworkGoal from './PreparedHomeworkGoal.jsx';
 import {openPreparedHomework} from '../services/preparedHomework.js';
+import {StudentStudyBadge} from './StudentStudyProgress.jsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import RutubeViewingHelp from './RutubeViewingHelp';
 import RutubeChapterPlayer from './RutubeChapterPlayer';
@@ -5470,6 +5471,7 @@ const ScheduleSection = ({
               </div>
             </div>
 
+            <StudentStudyBadge teacherId={teacherId} studentId={effectiveStudentId}/>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
               <button
                 type="button"

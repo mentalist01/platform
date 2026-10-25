@@ -288,6 +288,7 @@ import {
 import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
 import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
+import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
 import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
 import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 import {PreparedHomework,registerPreparedHomeworkRoutes} from './preparedHomework.js';
@@ -24016,7 +24017,12 @@ app.get('/api/lesson-pages',handleLessonPages);
 app.post('/api/lesson-pages',handleLessonPages);
 registerPreparedTaskRoutes(app,preparedLessonTasks);
 registerPreparedSetExchangeRoutes(app,preparedLessonTasks,readTeachersDb);
-registerEgeStudyPlanRoutes(app,{dataDir});
+const egeStudyPlans=registerEgeStudyPlanRoutes(app,{dataDir});
+registerStudentStudyProgressRoutes(app,{dataDir,students:readStudentsDb,plans:egeStudyPlans,prepared:preparedLessonTasks,pages:async student=>{
+  const base=`board-${student.teacherId}-${student.id}`,code=`collab-${student.teacherId}-${student.id}`;
+  const book=await lessonPageCatalog.ensure({book:base+'~pages',codes:[code],codeRoom:''});
+  return boardPagesList(book.getMap('pages'));
+}});
 preparedHomeworkStore=new PreparedHomework({directory:path.join(dataDir,'prepared-homework'),prepared:preparedLessonTasks,student:findStudentById,homeworks:id=>getStudentData(id).homeworks,writable:({studentId,homework})=>{
   if(!homework.learningGroupId)return true;
   const assignment=getLearningAssignmentById(homework.learningGroupId,homework.learningAssignmentId);

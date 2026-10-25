@@ -1,6 +1,7 @@
 import { isScheduleEntryInDateRange } from '../utils/scheduleDateRange';
 import { isExplicitTrialLesson } from '../utils/calendarLessonType.js';
 import { LessonAlarmSettings } from './LessonAlarmControls';
+import {StudentStudyBadge} from './StudentStudyProgress.jsx';
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 import GroupCalendarParticipant from './GroupCalendarParticipant.jsx';
 import { getLearningGroupCalendarParticipants } from '../utils/groupCalendarParticipants.js';
@@ -5298,6 +5299,7 @@ const TeacherCalendarSection = ({
                       : (eventDetails.subjectLabel || eventDetails.subject || 'Занятие'))}
                 </div>
                 <div className="text-xs text-slate-500">{eventDetailsDateLabel}</div>
+                {!eventDetailsIsGroup&&eventDetails.studentId&&<StudentStudyBadge teacherId={teacherId} studentId={eventDetails.studentId}/>}
               </div>
               <button
                 type="button"

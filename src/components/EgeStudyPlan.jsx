@@ -2,6 +2,9 @@ import {useEffect,useRef,useState} from 'react';
 import {ArrowDown,ArrowUp,Check,ChevronDown,Download,GripVertical,Hand,LayoutGrid,Map,Maximize2,Minus,Plus,Search,Undo2,X} from 'lucide-react';
 import useEgeStudyPlan from '../hooks/useEgeStudyPlan.js';
 import {STUDY_PLAN_IDS,STUDY_PLAN_TOPICS,STUDY_PLAN_SOURCE,STUDY_CARD,ORIGINAL_STUDY_ORDER,addStudyBlock,arrangeStudyPlan,completeStudyPlan,countStudyTasks,moveStudyBlock,dropStudyBlock,studyPlanBounds,studyPlanConnector} from '../utils/egeStudyPlan.js';
+import useStudentStudyProgress from '../hooks/useStudentStudyProgress.js';
+import {StudentStudyBadge,StudentStudyDialog} from './StudentStudyProgress.jsx';
+import {studyBlockStatus} from '../utils/studentStudyProgress.js';
 import './EgeStudyPlan.css';
 
 const xml=value=>String(value).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
@@ -38,7 +41,9 @@ async function exportPlan(plan) {
   }finally{URL.revokeObjectURL(url);}
 }
 
-export default function EgeStudyPlan({teacherId}) {
+export default function EgeStudyPlan({teacherId,students=[]}) {
+  const [studentId,setStudentId]=useState(''),[studyDialog,setStudyDialog]=useState(false);
+  const study=useStudentStudyProgress(teacherId),studentRecord=study.records[studentId];
   const {plan,change,status,error,save,load,recovery,recover,discardRecovery,conflict,resolveConflict}=useEgeStudyPlan(teacherId);
   const [selected,setSelected]=useState(null),[zoom,setZoom]=useState(1),[query,setQuery]=useState('');
   const [history,setHistory]=useState([]),[dragging,setDragging]=useState(null),[draftPosition,setDraftPosition]=useState(null);
@@ -112,6 +117,7 @@ export default function EgeStudyPlan({teacherId}) {
     {recovery && <div className="study-plan__banner">На этом устройстве остались несохранённые изменения.<button onClick={recover}>Восстановить</button><button onClick={discardRecovery}>Оставить план из аккаунта</button></div>}
     {error && <div className="study-plan__banner is-error" role="alert">{error}{conflict?<><button onClick={()=>resolveConflict(true)}>Сохранить мою версию</button><button onClick={()=>resolveConflict(false)}>Загрузить с сервера</button></>:<button onClick={()=>void(plan?save():load())}>Повторить</button>}</div>}
     {!plan ? <div className="study-plan__loading">{status==='loading'?'Открываем холст…':'План пока не загружен'}</div>:<>
+      <div className="student-study-plan-pupil"><label>Чей прогресс показать<select aria-label="Ученик на плане" value={studentId} onChange={event=>{setStudentId(event.target.value);setSelected(null);}}><option value="">Общий план преподавателя</option>{students.map(student=><option key={student.id} value={student.id}>{student.name}{student.nickname?` · ${student.nickname}`:''}</option>)}</select></label>{studentId?<StudentStudyBadge teacherId={teacherId} studentId={studentId}/>:<p className="study-plan__muted">Один маршрут — отдельные отметки для каждого ученика.</p>}{studentId&&<div className="student-study-legend"><span>Пройдено</span><span>Сейчас проходим</span><span>Впереди</span></div>}</div>
       <div className="study-plan__workspace">
         <div className="study-plan__main">
           <div className="study-plan__toolbar"><div className="study-plan__progress"><strong>{countStudyTasks(plan.order)}<span>/27</span></strong><span>заданий в плане</span><div><i style={{width:`${countStudyTasks(plan.order)/27*100}%`}}/></div></div>
@@ -124,11 +130,11 @@ export default function EgeStudyPlan({teacherId}) {
             <div className="study-plan__extent" style={{width:bounds.width*zoom,height:bounds.height*zoom}}>
               <div className="study-plan__world" style={{width:bounds.width,height:bounds.height,transform:`scale(${zoom})`}}>
                 <svg className="study-plan__connectors" width={bounds.width} height={bounds.height} aria-hidden="true"><defs><marker id="study-route-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10" fill="none" stroke="currentColor" strokeWidth="2"/></marker></defs>{plan.order.slice(1).map((id,i)=><path key={id} d={studyPlanConnector(displayPlan.blocks[plan.order[i]],displayPlan.blocks[id])} markerEnd="url(#study-route-arrow)"/>)}</svg>
-                {plan.order.map((id,i)=>{const block=displayPlan.blocks[id];return <div key={id} className={`study-plan__block ${selected===id?'is-selected':''} ${dragging===id?'is-dragging':''} ${['1','2','6','10','12','15','23'].includes(id)?'is-extra':''}`} style={{left:block.x,top:block.y,width:STUDY_CARD.width,height:STUDY_CARD.height}}
+                {plan.order.map((id,i)=>{const block=displayPlan.blocks[id],studyStatus=studentId?studyBlockStatus(plan,studentRecord,id):'';return <div key={id} className={`study-plan__block ${studentId?`is-study-${studyStatus}`:''} ${selected===id?'is-selected':''} ${dragging===id?'is-dragging':''} ${['1','2','6','10','12','15','23'].includes(id)?'is-extra':''}`} style={{left:block.x,top:block.y,width:STUDY_CARD.width,height:STUDY_CARD.height}}
                   onPointerDown={e=>pointerDown(e,id)} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={()=>{drag.current=null;setDragging(null);setDraftPosition(null);}}>
                   <div className="study-plan__block-top"><span className="study-plan__number">{id}</span><span>ШАГ {String(i+1).padStart(2,'0')}</span><GripVertical size={15}/></div>
                   <button type="button" className="study-plan__block-title" onClick={()=>setSelected(id)} aria-label={`Настроить задание ${id}: ${block.title}`}>{block.title}</button>
-                  <div className="study-plan__block-bottom">{block.parts.length?<><span className="study-plan__dots">{block.parts.slice(0,8).map((_,j)=><i key={j}/>)}</span><span>{block.parts.length} {block.parts.length===1?'часть':block.parts.length<5?'части':'частей'}</span></>:<span>{block.note?'Есть заметка':id==='5'||id==='8'?'Части можно добавить':'ЕГЭ по информатике'}</span>}</div>
+                  <div className="study-plan__block-bottom">{studentId&&studyStatus!=='future'?<span className="study-plan__study-state">{studyStatus==='completed'?'✓ Пройдено':`Сейчас · ${plan.blocks[id].parts[studentRecord?.current?.partNumber-1]||`часть ${studentRecord?.current?.partNumber||1}`}`}</span>:block.parts.length?<><span className="study-plan__dots">{block.parts.slice(0,8).map((_,j)=><i key={j}/>)}</span><span>{block.parts.length} {block.parts.length===1?'часть':block.parts.length<5?'части':'частей'}</span></>:<span>{block.note?'Есть заметка':id==='5'||id==='8'?'Части можно добавить':'ЕГЭ по информатике'}</span>}</div>
                 </div>;})}
                 {!plan.order.length&&<div className="study-plan__empty">Добавь первое задание из списка справа</div>}
               </div>
@@ -138,6 +144,7 @@ export default function EgeStudyPlan({teacherId}) {
         </div>
         <aside className="study-plan__sidebar" aria-label="Настройки маршрута">
           {active?<><div className="study-plan__panel-heading"><span>ЗАДАНИЕ {selected}</span><button onClick={()=>setSelected(null)} aria-label="Закрыть настройки задания"><X size={17}/></button></div>
+            {studentId&&onCanvas&&<div className="student-study-plan-actions"><p className="study-plan__muted">{students.find(student=>student.id===studentId)?.name} · №{selected}</p><button type="button" className="study-plan__primary" onClick={()=>setStudyDialog(true)}><Map size={15}/>Связать страницу / отметить этап</button></div>}
             <label className="study-plan__field">Название<input maxLength={100} value={active.title} onChange={e=>updateBlock(selected,{title:e.target.value})} onBlur={()=>{if(!active.title.trim())updateBlock(selected,{title:STUDY_PLAN_TOPICS[selected]});}}/></label>
             <div className="study-plan__parts-heading"><h3>Части задания</h3><span>{active.parts.length}/16</span></div>
             <div className="study-plan__parts">{active.parts.map((part,i)=><div key={i}><span>{i+1}</span><input aria-label={`Название части ${i+1}`} value={part} maxLength={100} placeholder={`Часть ${i+1}`} onChange={e=>{const next=[...active.parts];next[i]=e.target.value;updateBlock(selected,{parts:next});}}/><button aria-label={`Убрать часть ${i+1}`} onClick={()=>updateBlock(selected,{parts:active.parts.filter((_,j)=>j!==i)})}><X size={14}/></button></div>)}</div>
@@ -153,7 +160,8 @@ export default function EgeStudyPlan({teacherId}) {
           </>}
         </aside>
       </div>
-      <div className="study-plan__bottom-note"><span>План сохраняется только в твоём аккаунте. Его можно будет связать с обучением позже.</span>{notice&&<button className="study-plan__notice" onClick={()=>setNotice('')} role="status">{notice}<X size={12}/></button>}</div>
+      <div className="study-plan__bottom-note"><span>Порядок тем общий. Текущий этап и пройденные части сохраняются отдельно у каждого ученика.</span>{notice&&<button className="study-plan__notice" onClick={()=>setNotice('')} role="status">{notice}<X size={12}/></button>}</div>
     </>}
+    {studyDialog&&studentId&&<StudentStudyDialog key={`${studentId}:${selected}`} teacherId={teacherId} studentId={studentId} blockId={selected||''} partNumber={studentRecord?.current?.blockId===selected?studentRecord.current.partNumber:1} onClose={()=>setStudyDialog(false)}/>}
   </section>;
 }

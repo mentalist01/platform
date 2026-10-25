@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { normalizeLearningGroupList } from '../utils/learningGroups';
 import { studentRosterGroups } from '../utils/studentRosterGroups';
 import { filterStudentDirectory } from '../utils/studentDirectory.js';
+import {StudentStudyBadge} from './StudentStudyProgress.jsx';
 import './TeacherStudentRoster.css';
 
 const pupilCount = count => {
@@ -68,7 +69,7 @@ export default function TeacherStudentRoster({ students, teacherId, activeStuden
     {current?.error && <p className="teacher-student-roster__notice" role="status">Не удалось обновить состав мини-групп. <button type="button" onClick={() => setRevision(value => value + 1)}>Повторить</button></p>}
     {!filtered.length && <div className="student-directory-tools__empty"><Search size={25} /><b>Никого не нашли</b><span>Попробуйте другое имя или уберите часть фильтров.</span></div>}
     {entries.map(entry => {
-      if (entry.student) return <React.Fragment key={`student:${entry.student.id}`}>{renderStudent(entry.student, [])}</React.Fragment>;
+      if (entry.student) return <React.Fragment key={`student:${entry.student.id}`}>{renderStudent(entry.student, [])}<StudentStudyBadge teacherId={teacherId} studentId={entry.student.id}/></React.Fragment>;
       const group = entry.group;
       const selected = group.students.some(student => String(student.id) === String(activeStudentId));
       const open = expanded[group.id] ?? (filtering || allExpanded || (allExpanded === null && selected));
@@ -85,7 +86,7 @@ export default function TeacherStudentRoster({ students, teacherId, activeStuden
           <span className="teacher-student-group__action"><span>{open ? 'Скрыть' : 'Участники'}</span>{open ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}</span>
         </button>
         <div id={contentId} className="teacher-student-group__body" hidden={!open}>
-          {open && group.students.map(student => <React.Fragment key={student.id}>{renderStudent(student, memberships.get(String(student.id)) || [])}</React.Fragment>)}
+          {open && group.students.map(student => <React.Fragment key={student.id}>{renderStudent(student, memberships.get(String(student.id)) || [])}<StudentStudyBadge teacherId={teacherId} studentId={student.id}/></React.Fragment>)}
         </div>
       </section>;
     })}
