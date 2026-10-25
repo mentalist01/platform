@@ -1,4 +1,5 @@
 import {getMockTaskRuleNumber} from './mockTaskIdentity.js';
+import {normalizePreparedAnswerTable} from './preparedAnswerTable.js';
 
 // The question bank combines game theory, while mocks split it into slots.
 export const getAnswerCountForTask = taskNumber => {
@@ -18,7 +19,8 @@ export const getMockAnswerCountForTask = (taskNumber, question) => {
 
 export function preparedAnswerTask(task, taskNumber) {
   const raw = (Array.isArray(task.answers) ? task.answers : [task.answer ?? '']).map(value => String(value ?? ''));
-  const override = Number(task.answerCountOverride);
+  const table = normalizePreparedAnswerTable(task.answerTable);
+  const override = table ? table.rows * table.columns : Number(task.answerCountOverride);
   const count = Number.isInteger(override) && override >= 1 && override <= 50
     ? override : Math.max(getAnswerCountForTask(taskNumber), Math.min(50, raw.length));
   const independent = task.answerMode === 'independent';
@@ -32,7 +34,8 @@ export function preparedAnswerTask(task, taskNumber) {
 // answer is left untouched for the teacher rather than guessed or discarded.
 export function splitLegacyPreparedAnswer(task, taskNumber) {
   if (task.answerMode === 'independent' || task.format === 'manual' || Number(task.answerCountOverride) === 1 || task.answers?.length !== 1) return null;
-  const override = Number(task.answerCountOverride);
+  const table = normalizePreparedAnswerTable(task.answerTable);
+  const override = table ? table.rows * table.columns : Number(task.answerCountOverride);
   const count = Number.isInteger(override) && override >= 1 && override <= 50 ? override : getAnswerCountForTask(taskNumber), values = String(task.answers[0]).trim().split(/\s+/u);
   return count > 1 && values.length === count ? {...task, format: 'fields', answers: values} : null;
 }

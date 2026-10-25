@@ -1,3 +1,5 @@
+import {preparedAnswerIndices} from './preparedAnswerTable.js';
+
 export const splitPastedAnswerValues = (rawText) => String(rawText ?? '')
   .replace(/\r\n?/g, '\n')
   .split('\n')
@@ -17,9 +19,9 @@ export const getAnswerPasteOrder = (answerCount, startIndex = 0) => {
   return Array.from({ length: count - start }, (_, idx) => start + idx);
 };
 
-export const getPreparedAnswerPasteOrder = (answerCount, startIndex = 0, mode = 'combined') => {
-  if (mode !== 'independent') return getAnswerPasteOrder(answerCount, startIndex);
+export const getPreparedAnswerPasteOrder = (answerCount, startIndex = 0, mode = 'combined', answerTable) => {
   const count = Number(answerCount), start = Number(startIndex);
   if (!Number.isInteger(count) || !Number.isInteger(start) || start < 0 || start >= count) return [];
-  return Array.from({length: count - start}, (_, index) => start + index);
+  const order = preparedAnswerIndices({answerCount: count, answerMode: mode, answerTable});
+  return order.slice(order.indexOf(start));
 };

@@ -11,6 +11,7 @@ import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 import {preparedAnswerTask, splitLegacyPreparedAnswer} from '../src/utils/egeAnswerFields.js';
 import {preparedExpectedAnswerIssues} from '../src/utils/preparedAnswerValidation.js';
+import {normalizePreparedAnswerTable,preparedAnswerLayout,preparedAnswerTableChanged,reshapePreparedAnswers} from '../src/utils/preparedAnswerTable.js';
 import {registerPreparedImageStripRoutes} from './preparedImageStrip.js';
 import {preparedSolveReceipt} from './lessonAchievements.js';
 
@@ -129,6 +130,10 @@ export class PreparedLessonTasks {
     for(const imageId of theoryImages){const asset=this.data.assets[imageId];if(!asset||asset.teacherId!==auth.id||!asset.mime.startsWith('image/'))fail(403,'Нет доступа к изображению теории');}
     const sources=await this.sourceFiles(auth),tasks=[];
     for(const [index,raw] of input.tasks.entries()) {
+      const answerTable=normalizePreparedAnswerTable(raw.answerTable);
+      if(raw.answerTable!=null&&!answerTable)fail(400,'Укажите таблицу до 10 столбцов и 50 ячеек, с целыми размерами.');
+      if(answerTable&&(!Array.isArray(raw.answers)||raw.answers.length!==answerTable.rows*answerTable.columns))fail(400,'Размер таблицы не совпадает с количеством ответов');
+      if(answerTable&&raw.answerCountOverride!==undefined&&Number(raw.answerCountOverride)!==answerTable.rows*answerTable.columns)fail(400,'Размер таблицы не совпадает с количеством полей');
       const normalized=preparedAnswerTask(raw,taskNumber);
       if(raw.answerMode!==undefined&&!['combined','independent'].includes(raw.answerMode))fail(400,'Выберите совместную проверку или отдельные вопросы');
       if(raw.answerCountOverride!==undefined&&(!Number.isInteger(Number(raw.answerCountOverride))||Number(raw.answerCountOverride)<1||Number(raw.answerCountOverride)>50))fail(400,'Допустимо от 1 до 50 ячеек ответа');
@@ -139,7 +144,7 @@ export class PreparedLessonTasks {
       if(!imageIds.length){if(!autosave)fail(400,`Добавьте условие задачи ${index+1}`);incomplete=true;}
       for(const imageId of imageIds){const asset=this.data.assets[imageId];if(!asset||asset.teacherId!==auth.id||!asset.mime.startsWith('image/'))fail(403,'Нет доступа к изображению');}
       const issues=preparedExpectedAnswerIssues({...normalized,format,answers},taskNumber);
-      if(issues.missing.length){if(!autosave)fail(400,issues.allowEmpty?`Заполните обе ячейки каждой используемой строки задачи ${index+1}. Лишние строки оставьте пустыми.`:`Укажите ответ к задаче ${index+1}`);incomplete=true;}
+      if(issues.missing.length){if(!autosave)fail(400,issues.allowEmpty?`Заполните все ячейки каждой используемой строки задачи ${index+1}. Лишние строки оставьте пустыми.`:`Укажите ответ к задаче ${index+1}`);incomplete=true;}
       if(issues.invalidNumber){if(!autosave)fail(400,`Ответ задачи ${index+1} должен быть числом`);incomplete=true;}
       const attachments=[];
       for(const ref of (raw.attachments||[]).slice(0,8)) {
@@ -151,7 +156,7 @@ export class PreparedLessonTasks {
         const asset=this.putAsset(auth,fs.readFileSync(source.path),source.name,'application/octet-stream');attachments.push({assetId:asset.id,sourceFileId:source.id,name:source.name,...runtime});
       }
       try{preparedRuntimeFiles(attachments);}catch(error){fail(400,`Задача ${index+1}: ${error.message}`);}
-      tasks.push({difficult:raw.difficult===true,id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
+      tasks.push({difficult:raw.difficult===true,id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(answerTable?{answerTable,answerCountOverride:answerTable.rows*answerTable.columns}:raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
     }
     if(new Set(tasks.map(task=>task.id)).size!==tasks.length)fail(400,'Идентификаторы задач должны быть разными');
     const set={id:previous?.id||requestedId||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,theoryImages,...(previous?.copiedFrom?{copiedFrom:previous.copiedFrom}:{}),...(incomplete?{draft:true}:{}),version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
@@ -163,7 +168,7 @@ export class PreparedLessonTasks {
     if(!run)return null;
     const sources=preparedSourceUpdates(run,this.data.sets);
     return {sources,homework:Boolean(run.homework),id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,taskTotal:run.tasks.filter(task=>!isPreparedTheory(task)).length,canManage:teacher(access.auth)&&!access.readOnly,canEditFiles:!access.readOnly&&(!run.groupId||teacher(access.auth)),newTasksAvailable:teacher(access.auth)?sources.reduce((sum,source)=>sum+source.newTasksAvailable,0):0,checkingUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.checkingUpdateAvailable),filesUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.filesUpdateAvailable),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
+      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
@@ -209,7 +214,7 @@ export class PreparedLessonTasks {
     const anchor=previous&&all.find(item=>item.id===previous.anchorId);
     const previews=Array.from(doc.awareness?.getStates?.().values()||[]).map(state=>state?.drawing).filter(Boolean);
     const point=anchor?preparedNextPoint([...all,...previews],anchor):run.cards.length?preparedNextPoint([...all,...previews],{...run.start,width:640,height:0}):run.start,task=run.tasks[index];
-    const height=(isPreparedTheory(task)?70:124)+Math.max(0,Math.ceil(task.answers.length/2)-1)*44+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
+    const height=(isPreparedTheory(task)?70:124)+Math.max(0,(task.answerTable?preparedAnswerLayout(task).rows:Math.ceil(task.answers.length/2))-1)*44+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
     const card=existing||{id:crypto.randomUUID(),index,anchorId:'prepared-'+crypto.randomUUID(),codeId:'prepared-'+crypto.randomUUID(),x:point.x,y:point.y,width:640,height,spawnScale:1.3,status:isPreparedTheory(task)?'theory':'active',answers:task.answers.map(()=>''),answerRevision:0,code:{text:'',input:'',output:'',revision:0},solutions:{}};
     if(!existing)run.cards.push(card);run.teacherCardId=card.id;card.x=point.x;card.y=point.y;
     card.projectionPending=true;this.save(run);doc.transact(()=>items.push([{id:card.anchorId,type:'shape',shape:'rectangle',x:point.x,y:point.y,width:card.width*(card.spawnScale||1),height:card.height*(card.spawnScale||1),color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId}]),'prepared-lesson:place');card.projectionPending=false;this.save(run);return card;
@@ -249,11 +254,23 @@ export class PreparedLessonTasks {
       const set=this.data.sets[input.setId||run.setId];if(!set||set.teacherId!==auth.id||!preparedRunSources(run).some(source=>source.id===set.id))fail(404,'Набор не найден на этой странице');
       if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Откройте актуальные настройки проверки.');
       const latestById=new Map(preparedSourceLatest(run,set).map(task=>[task.id,task]));
-      const changes=run.tasks.map((task,index)=>({task,index,latest:latestById.get(task.id)})).filter(({task,latest})=>latest&&((task.answerMode||'combined')!==(latest.answerMode||'combined')||task.format!==latest.format));
-      for(const {task,latest} of changes)if(JSON.stringify(task.answers)!==JSON.stringify(latest.answers))fail(409,'Режим проверки можно обновить, если эталоны не менялись. Для новых эталонов откройте набор на новой странице.');
-      for(const {task,index,latest} of changes){
-        run.tasks[index]={...task,answerMode:latest.answerMode||'combined',format:latest.format};
-        const entry=run.cards.find(row=>row.index===index);if(entry){entry.fieldResults=latest.answers.map(()=>entry.status==='solved'?'correct':null);entry.answerRevision++;entry.lease=null;if(entry.status!=='solved')entry.lastResult=null;}
+      const changes=run.tasks.map((task,index)=>({task,index,latest:latestById.get(task.id)})).filter(({task,latest})=>latest&&((task.answerMode||'combined')!==(latest.answerMode||'combined')||task.format!==latest.format||preparedAnswerTableChanged(task,latest)));
+      const updates=changes.map(({task,index,latest})=>{
+        let expected=task.answers,pupilAnswers;
+        const entry=run.cards.find(row=>row.index===index);
+        if(preparedAnswerTableChanged(task,latest)){
+          if(!latest.answerTable)fail(409,'Для изменения структуры ответов откройте набор на новой странице.');
+          try{
+            expected=reshapePreparedAnswers(task,latest.answerTable.rows,latest.answerTable.columns).answers;
+            if(entry)pupilAnswers=reshapePreparedAnswers({...task,answers:entry.answers},latest.answerTable.rows,latest.answerTable.columns).answers;
+          }catch{fail(409,'Новая таблица не вмещает ответы с доски. Используйте новую страницу или очистите лишние ответы.');}
+        }
+        if(JSON.stringify(expected)!==JSON.stringify(latest.answers))fail(409,'Режим проверки можно обновить, если эталоны не менялись. Для новых эталонов откройте набор на новой странице.');
+        return {task,index,latest,entry,pupilAnswers};
+      });
+      for(const {task,index,latest,entry,pupilAnswers} of updates){
+        run.tasks[index]={...task,answerMode:latest.answerMode||'combined',format:latest.format,answers:[...latest.answers],...(latest.answerTable?{answerTable:{...latest.answerTable},answerCountOverride:latest.answers.length}:{})};
+        if(entry){if(pupilAnswers)entry.answers=pupilAnswers;entry.fieldResults=latest.answers.map(()=>entry.status==='solved'?'correct':null);entry.answerRevision++;entry.lease=null;if(entry.status!=='solved')entry.lastResult=null;}
       }
       if(!changes.length)return this.publicRun(run,access);
     }

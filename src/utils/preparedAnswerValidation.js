@@ -1,3 +1,5 @@
+import {preparedAnswerLayout, preparedAnswerIndices} from './preparedAnswerTable.js';
+
 export const preparedAllowsEmptyAnswers = (task,taskNumber) => Number(taskNumber)===25
   && task?.answerMode!=='independent' && task?.format!=='manual';
 
@@ -7,11 +9,14 @@ export function preparedExpectedAnswerIssues(task,taskNumber) {
   const answers=(task?.answers?.length?task.answers:['']).map(value=>String(value??'').trim());
   if(task?.format==='manual')return {missing:[],invalidNumber:false,allowEmpty:false};
   const allowEmpty=preparedAllowsEmptyAnswers(task,taskNumber),missing=[];
-  if(allowEmpty&&answers.length===20){
-    for(let row=0;row<10;row++){
-      if(Boolean(answers[row])!==Boolean(answers[row+10]))missing.push(answers[row]?row+10:row);
+  const layout=preparedAnswerLayout({...task,answers});
+  if(allowEmpty&&(layout.explicit||answers.length===20)){
+    const order=preparedAnswerIndices({...task,answers});
+    for(let row=0;row<layout.rows;row++){
+      const indices=order.slice(row*layout.columns,(row+1)*layout.columns);
+      if(indices.some(index=>answers[index]))missing.push(...indices.filter(index=>!answers[index]));
     }
-    if(!answers.some(Boolean))missing.push(0,10);
+    if(!answers.some(Boolean))missing.push(...order.slice(0,layout.columns));
   }else if(allowEmpty){
     if(!answers.some(Boolean))missing.push(0);
   }else answers.forEach((value,index)=>{if(!value)missing.push(index);});
