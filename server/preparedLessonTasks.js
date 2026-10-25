@@ -11,6 +11,7 @@ import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 import {preparedAnswerTask, splitLegacyPreparedAnswer} from '../src/utils/egeAnswerFields.js';
 import {preparedExpectedAnswerIssues} from '../src/utils/preparedAnswerValidation.js';
+import {registerPreparedImageStripRoutes} from './preparedImageStrip.js';
 import {preparedSolveReceipt} from './lessonAchievements.js';
 
 const digest=value=>crypto.createHash('sha256').update(value).digest('hex');
@@ -363,6 +364,7 @@ export function registerPreparedHelperRoutes(app,store,{allowExchange=()=>true,a
   app.put('/workbook-helper/v1/content',intercept,(req,res,next)=>req.preparedHelper?workbookUpload.single('file')(req,res,next):next(),handler(async(req,res,next)=>{if(!req.preparedHelper)return next();if(!req.file)fail(400,'Файл не найден');const {session,run,card}=req.preparedHelper;const solution=await store.lock(()=>store.saveSolution({auth:session.auth,run,card,assetId:session.assetId,generation:session.generation,viaHelper:true,buffer:req.file.buffer,name:req.body.solutionName||req.file.originalname,revision:req.body.revision??req.headers['x-workbook-revision'],hash:req.body.contentHash||req.headers['x-workbook-content-hash']}));res.json({ok:true,revision:solution.revision,contentHash:solution.hash,fileName:solution.name,solutionName:solution.name,workbookKey:card.bindings[session.assetId].id,requiresName:false,nameRequired:false});}));
 }
 export function registerPreparedTaskRoutes(app,store){
+  registerPreparedImageStripRoutes(app,store);
   app.get('/api/lesson-task-sets',handler(async(req,res)=>{const result=store.listSets(req.auth);res.json({...result,sets:result.sets.filter(s=>!req.query.taskNumber||s.taskNumber===Number(req.query.taskNumber)).map(s=>store.setView(s))});}));
   app.put('/api/lesson-task-set-order',handler(async(req,res)=>{const result=await store.lock(()=>store.reorderSets(req.auth,req.body));res.json({...result,sets:result.sets.map(set=>store.setView(set))});}));
   app.post('/api/lesson-task-sets',handler(async(req,res)=>res.status(201).json(await store.lock(()=>store.saveSet(req.auth,req.body)))));
