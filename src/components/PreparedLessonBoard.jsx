@@ -44,9 +44,9 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   const independent=card.answerMode==='independent',reference=run.canManage&&showReferenceAnswers?card.referenceAnswers:null;
   const blocked=readOnly||draftConflict||busy||Boolean(unavailable),answerLayout=preparedAnswerLayout(card);
   const wrongFeedback=!independent&&card.lastResult==='wrong'&&(!message||message==='Пока неверно. Попробуйте ещё.');
-  const feedbackState=JSON.stringify(card.fieldResults||[]);
+  const feedbackState=JSON.stringify(card.fieldResults||[]),hasWrongQuestion=independent&&card.fieldResults?.includes('wrong');
   useEffect(()=>{
-    if(!wrongFeedback&&!(independent&&card.fieldResults?.includes('wrong')))return;
+    if(!wrongFeedback&&!hasWrongQuestion)return;
     const scroller=element.current?.querySelector('.prepared-card-interactive'),feedback=scroller?.querySelector('.prepared-answer-error');
     if(!scroller||!feedback||scroller.scrollHeight<=scroller.clientHeight)return;
     const frame=requestAnimationFrame(()=>{
@@ -54,7 +54,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
       if(scale>0&&note.bottom>box.bottom)scroller.scrollTop+=(note.bottom-box.bottom)/scale+8;
     });
     return()=>cancelAnimationFrame(frame);
-  },[wrongFeedback,independent,feedbackState,message,card.conditionTop]);
+  },[wrongFeedback,hasWrongQuestion,feedbackState,message,card.conditionTop]);
   const answerInput=i=><input key={i} aria-label={independent?`Ответ на вопрос ${i+1} задачи ${card.index+1}`:`Ответ задачи ${card.index+1}${card.answerCount>1?`, поле ${i+1}`:''}`} value={answers[i]||''} placeholder={reference?.[i]||(independent?'Ваш ответ':card.answerCount>1?`Ответ ${i+1}`:'')} maxLength={500} readOnly={readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct'||Boolean(unavailable)} onFocus={()=>{if(!readOnly&&!draftConflict&&card.status!=='solved'&&!(independent&&card.fieldResults?.[i]==='correct'))void claim().catch(error=>setMessage(error.message));}} onChange={e=>change(i,e.target.value)} onPaste={e=>{if(readOnly||draftConflict||card.status==='solved'||unavailable||independent&&card.fieldResults?.[i]==='correct')return;const values=splitPastedAnswerValues(e.clipboardData.getData('text'));if(values.length>1){e.preventDefault();change(i,'',values);}}} onKeyDown={e=>{if(e.key==='Enter'){if(independent){void check(false,i);return;}const nodes=Array.from(e.currentTarget.parentElement.querySelectorAll('input')),next=nodes[nodes.indexOf(e.currentTarget)+1];if(next)next.focus();else void check(false);}}}/>;
   return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--${card.status}`} style={style} aria-label={`Подготовленная задача ${card.index+1}`}>
     <div className={`prepared-card-controls${Number.isFinite(card.conditionTop)?' is-pinned':''}`} style={Number.isFinite(card.conditionTop)?{height:card.conditionTop}:undefined}>
