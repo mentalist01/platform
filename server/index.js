@@ -288,6 +288,7 @@ import {
 import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
 import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
+import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
 import {PreparedHomework,registerPreparedHomeworkRoutes} from './preparedHomework.js';
 import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress} from '../src/utils/preparedHomework.js';
 let preparedHomeworkStore=null;
@@ -24013,6 +24014,7 @@ app.get('/api/lesson-pages',handleLessonPages);
 app.post('/api/lesson-pages',handleLessonPages);
 registerPreparedTaskRoutes(app,preparedLessonTasks);
 registerPreparedSetExchangeRoutes(app,preparedLessonTasks,readTeachersDb);
+registerEgeStudyPlanRoutes(app,{dataDir});
 preparedHomeworkStore=new PreparedHomework({directory:path.join(dataDir,'prepared-homework'),prepared:preparedLessonTasks,student:findStudentById,homeworks:id=>getStudentData(id).homeworks,writable:({studentId,homework})=>{
   if(!homework.learningGroupId)return true;
   const assignment=getLearningAssignmentById(homework.learningGroupId,homework.learningAssignmentId);

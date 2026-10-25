@@ -62,6 +62,7 @@ const TeacherHomeworkLivesNotice = React.lazy(() => import('./components/Homewor
 import TeacherSubscriptionGate, { TeacherSubscriptionReminder } from './components/TeacherSubscriptionGate';
 import TeacherDesktopNotice from './components/TeacherDesktopNotice';
 const TeacherUpdates = React.lazy(() => import('./components/TeacherUpdates'));
+const EgeStudyPlan = React.lazy(() => import('./components/EgeStudyPlan.jsx'));
 const StudentAchievements = React.lazy(() => import('./components/StudentAchievements.jsx'));
 const PendingWorkbookParts = React.lazy(() => import('./components/WorkbookParts.jsx'));
 import AccountProfileMenu from './components/AccountProfileMenu';
@@ -18552,6 +18553,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'teacher',
         'teacher-students',
         'teacher-settings',
+        'study-plan',
         ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []),
         'notes'
       ]
@@ -20017,6 +20019,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
         { id: 'teacher', label: 'Тесты', icon: Settings },
+        { id: 'study-plan', label: 'План подготовки', icon: MapIcon },
         { id: 'teacher-students', label: 'Список учеников', icon: Users },
         { id: 'teacher-settings', label: 'Настройки', icon: Settings },
         ...(PLATFORM_CHATS_ENABLED ? [{ id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: MessageSquare }] : []),
@@ -26766,6 +26769,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 ? isGroupLessonReplayActive
                 : (callSessionStatus === 'connected' || isTelemostLessonReplayActive))}
             />
+          )}
+          {view === 'study-plan' && user.role === 'teacher' && (
+            <React.Suspense fallback={<div className="surface-panel rounded-2xl p-6">Открываем план подготовки…</div>}>
+              <EgeStudyPlan key={user.id} teacherId={user.id} />
+            </React.Suspense>
           )}
           {view === 'notes' && (
             <NotesSection

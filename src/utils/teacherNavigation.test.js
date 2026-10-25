@@ -3,7 +3,7 @@ import test from 'node:test';
 import { buildTeacherNavigation, getTeacherNavigationGroup } from './teacherNavigation.js';
 
 test('every teacher route belongs to one of five sections; lesson stays a direct action', () => {
-  const routes = ['schedule', 'teacher-calendar', 'groups', 'meetings', 'teacher-students', 'progress', 'rating', 'teacher-comms', 'python', 'teacher', 'notes', 'recording', 'finance', 'teacher-settings'];
+  const routes = ['schedule', 'teacher-calendar', 'groups', 'meetings', 'teacher-students', 'progress', 'rating', 'teacher-comms', 'study-plan', 'python', 'teacher', 'notes', 'recording', 'finance', 'teacher-settings'];
   const nav = routes.map(id => ({ id, label: id }));
   const sections = buildTeacherNavigation(nav);
   assert.deepEqual(sections.map(section => section.label), ['Расписание', 'Урок', 'Ученики', 'Материалы', 'Управление']);
@@ -12,6 +12,7 @@ test('every teacher route belongs to one of five sections; lesson stays a direct
   assert.equal(new Set(children.map(item => item.id)).size, routes.length);
   for (const route of routes) assert.ok(getTeacherNavigationGroup(route));
   for (const route of ['call', 'board', 'collab']) assert.equal(getTeacherNavigationGroup(route), 'lesson');
+  assert.equal(getTeacherNavigationGroup('study-plan'),'nav-materials');
   assert.deepEqual(sections.find(section => section.id === 'lesson').children, []);
   assert.equal(sections.find(section => section.id === 'nav-materials').children.find(item => item.id === 'recording'), nav.find(item => item.id === 'recording'));
 });
