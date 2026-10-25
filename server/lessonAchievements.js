@@ -59,6 +59,7 @@ export function lessonAchievementFacts(events = []) {
 }
 
 export function preparedSolveReceipt(run,card,assets,{participants=[],lessonId=''}={},now=Date.now()) {
+  if(run.tasks[card.index]?.kind==='theory')throw Error('Theory is not a solved task');
   const task=run.tasks[card.index],source=preparedTaskSource(run,task,card.index);
   const ids=[...new Set(participants.map(row=>row.id).filter(id=>typeof id==='string'&&(run.studentId===id||run.participantIds.includes(id))))];
   return {

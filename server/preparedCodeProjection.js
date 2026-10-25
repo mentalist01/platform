@@ -7,6 +7,7 @@ export function projectPreparedCode(doc,run) {
   const pageId=run.room.split('~page~')[1]||DEFAULT_COLLAB_CODE_PAGE_ID;
   const catalog=doc.getMap(COLLAB_SOLUTIONS_MAP_KEY),links=doc.getMap('preparedCodeLinks');
   doc.transact(()=>{for(const card of run.cards){
+    if(run.tasks[card.index]?.kind==='theory')continue;
     if(links.has(card.codeId))continue;
     if(!/^prepared-[a-f0-9-]{36}$/.test(card.codeId))throw Error('Invalid prepared code identity');
     const channels=getCollabSolutionChannels(doc,card.codeId);

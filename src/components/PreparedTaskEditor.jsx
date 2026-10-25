@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {Plus, ImagePlus, Paperclip, ArrowUp, ArrowDown, Scissors, X, Expand} from 'lucide-react';
+import {BookOpen, Plus, ImagePlus, Paperclip, ArrowUp, ArrowDown, Scissors, X, Expand} from 'lucide-react';
 import {preparedAssetUrl} from '../services/preparedLessonTasks.js';
 import {preparedTaskTitle} from '../utils/preparedTaskTitle.js';
 import {preparedAnswerTask} from '../utils/egeAnswerFields.js';
@@ -7,7 +7,7 @@ import {splitPastedAnswerValues, getPreparedAnswerPasteOrder} from '../utils/ans
 import {preparedFileOpenExample} from '../utils/preparedRuntimeFiles.js';
 import {preparedTaskIssues} from '../utils/preparedSetLibrary.js';
 
-export default function PreparedTaskEditor({edit, setEdit, selected, current, busy, files, partCount, dirty, crop, setCrop, uploadRef, editorRef, onUpload, onCrop, onNavigate, onAdd, onMove, onRemove, changeTask, setError, validationTaskId, footer}) {
+export default function PreparedTaskEditor({edit, setEdit, selected, current, busy, files, partCount, dirty, crop, setCrop, uploadRef, editorRef, onUpload, onCrop, onNavigate, onAdd, onMove, onRemove, changeTask, setError, validationTaskId, footer, onTheory}) {
   const [preview, setPreview] = useState(''), [zoom, setZoom] = useState(false);
   const image = current?.images.includes(preview) ? preview : current?.images[0];
   const issues = preparedTaskIssues(current), showIssues = validationTaskId === current?.id && !issues.valid;
@@ -17,7 +17,7 @@ export default function PreparedTaskEditor({edit, setEdit, selected, current, bu
     if (images.length) {event.preventDefault();void onUpload(images).then(ids => {if(ids?.length)setPreview(ids.at(-1));});}
   }}>
     <div className="prepared-fields prepared-set-fields"><label>Название набора<input aria-label="Название набора" value={edit.name} maxLength={80} onChange={e => setEdit({...edit, name:e.target.value})}/></label><label>Номер ЕГЭ<select value={edit.taskNumber} onChange={e => setEdit({...edit, taskNumber:Number(e.target.value), partNumber:1, tasks:edit.tasks.map(task => preparedAnswerTask(task, Number(e.target.value)))})}>{Array.from({length:27}, (_,i) => <option key={i+1} value={i+1}>Задание №{i+1}</option>)}</select></label>{partCount > 1 && <label>Часть<select value={edit.partNumber} onChange={e => setEdit({...edit, partNumber:Number(e.target.value)})}>{Array.from({length:partCount}, (_,i) => <option key={i+1} value={i+1}>Часть {i+1}</option>)}</select></label>}</div>
-    <nav className="prepared-editor-queue" aria-label="Задания набора">{edit.tasks.map((task,i) => <button type="button" key={task.id} disabled={busy} aria-pressed={i === selected} onClick={() => onNavigate(i)}>{preparedTaskTitle(task,i)}</button>)}<button type="button" disabled={busy || edit.tasks.length >= 100} onClick={onAdd}><Plus size={15}/>Добавить</button></nav>
+    <nav className="prepared-editor-queue" aria-label="Задания набора"><button type="button" className="prepared-theory-edit-trigger" disabled={busy} onClick={onTheory}><BookOpen size={15}/>{edit.theoryImages?.length?`Теория · ${edit.theoryImages.length}`:'Добавить теорию'}</button>{edit.tasks.map((task,i) => <button type="button" key={task.id} disabled={busy} aria-pressed={i === selected} onClick={() => onNavigate(i)}>{preparedTaskTitle(task,i)}</button>)}<button type="button" disabled={busy || edit.tasks.length >= 100} onClick={onAdd}><Plus size={15}/>Добавить</button></nav>
     {current && <><div className="prepared-task-edit-head"><label>Название задачи<input aria-label="Название задачи" value={current.title} maxLength={120} placeholder={String(selected+1)} onChange={e => changeTask({title:e.target.value})}/></label><button type="button" aria-label="Переместить задачу выше" disabled={busy || selected === 0} onClick={() => onMove(-1)}><ArrowUp size={16}/></button><button type="button" aria-label="Переместить задачу ниже" disabled={busy || selected === edit.tasks.length-1} onClick={() => onMove(1)}><ArrowDown size={16}/></button><button type="button" disabled={busy || edit.tasks.length === 1} onClick={onRemove}>Убрать</button></div>
     <div className="prepared-task-workspace">
       <section className={`prepared-condition-pane${showIssues && issues.images ? ' has-issue' : ''}`} aria-label="Условие задачи" onDragOver={e => e.preventDefault()} onDrop={e => {e.preventDefault();void onUpload(Array.from(e.dataTransfer.files)).then(ids => {if(ids?.length)setPreview(ids.at(-1));});}}>

@@ -1,5 +1,12 @@
 import {preparedFileSync} from './preparedFileSync.js';
 
+export const isPreparedTheory = task => task?.kind==='theory';
+export function preparedSetSequence(set) {
+  if(!set.theoryImages?.length)return set.tasks;
+  return [{id:`theory-${set.id}`,kind:'theory',title:'Теория',format:'theory',answers:[],images:[...set.theoryImages],attachments:[],sourceIndex:-1},
+    ...set.tasks.map((task,index)=>({...task,sourceIndex:index}))];
+}
+
 // Legacy runs keep their original identity. Only newly appended tasks carry
 // source metadata, so existing cards, answers and code links never move.
 export function preparedTaskSource(run,task,index) {
@@ -13,8 +20,8 @@ export function preparedRunSources(run) {
   for(const [index,task]of run.tasks.entries()) {
     const source=preparedTaskSource(run,task,index);
     let row=sources.find(row=>row.id===source.id);
-    if(!row){row={id:source.id,name:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,version:source.version,total:0,firstIndex:index};sources.push(row);}
-    row.total++;
+    if(!row){row={id:source.id,name:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,version:source.version,total:0,hasTheory:false,firstIndex:index};sources.push(row);}
+    if(isPreparedTheory(task))row.hasTheory=true;else row.total++;
   }
   return sources;
 }
@@ -32,6 +39,7 @@ export function preparedSourceUpdates(run,sets) {
     const set=sets[source.id],latest=preparedSourceLatest(run,set),byId=new Map(latest.map(task=>[task.id,task]));
     const known=new Set(run.tasks.filter(task=>preparedTaskSource(run,task).id===source.id).map(task=>preparedTaskSource(run,task).taskId));
     return {...source,setVersion:set?.version||source.version,
+      theoryUpdateAvailable:Boolean(set&&!set.draft&&set.theoryImages?.length&&!source.hasTheory),
       newTasksAvailable:set&&!set.draft?set.tasks.filter(task=>!known.has(task.id)).length:0,
       filesUpdateAvailable:preparedFileSync(run.tasks,latest).changed>0,
       checkingUpdateAvailable:run.tasks.some(task=>{const row=byId.get(task.id);return row&&((task.answerMode||'combined')!==(row.answerMode||'combined')||task.format!==row.format);})};

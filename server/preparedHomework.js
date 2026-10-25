@@ -34,6 +34,7 @@ export class PreparedHomework {
     const {run}=await this.prepared.getRun(auth,input.runId,true);
     if(!staff(auth)||run.teacherId!==auth.id||run.homework)fail(403,'Выберите свою задачу на уроке');
     const card=run.cards.find(card=>card.id===input.cardId);if(!card)fail(404,'Задача не найдена');
+    if(run.tasks[card.index].kind==='theory')fail(400,'Теория — вступление к набору. Выберите задачу для домашней работы.');
     const key=`${auth.id}:${scopeKey(run)}`,basket=this.data.baskets[key]||[];
     const duplicate=basket.map(id=>this.data.snapshots[id]).find(snapshot=>snapshot.sourceRunId===run.id&&snapshot.sourceCardId===card.id);
     if(duplicate)return {goal:this.goal(duplicate),alreadyQueued:true};

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const staff=auth=>{if(!['teacher','admin'].includes(auth?.role)||!auth.id)fail(403,'Обмен доступен преподавателям');};
-const references=set=>[...new Set(set.tasks.flatMap(task=>[...task.images,...task.attachments.map(file=>file.assetId)]))];
+const references=set=>[...new Set([...(set.theoryImages||[]),...set.tasks.flatMap(task=>[...task.images,...task.attachments.map(file=>file.assetId)])])];
 const clone=value=>structuredClone(value);
 
 // Explicit publication keeps autosaved, incomplete edits out of another teacher's library.
@@ -51,7 +51,7 @@ export class PreparedSetExchange {
   preview(auth,id){
     const share=this.available(auth,id),set=share.snapshot;
     const assetView=assetId=>({...this.store.assetView(assetId),url:`/api/lesson-task-exchange/${id}/assets/${assetId}`});
-    return {version:share.version,authorName:this.author(share.teacherId),set:{id:set.id,name:set.name,taskNumber:set.taskNumber,partNumber:set.partNumber,version:set.version,tasks:set.tasks.map(task=>({...task,imageFiles:task.images.map(assetView),attachments:task.attachments.map(file=>({name:file.name,runtime:file.runtime,runtimeName:file.runtimeName,...assetView(file.assetId)}))}))}};
+    return {version:share.version,authorName:this.author(share.teacherId),set:{id:set.id,name:set.name,taskNumber:set.taskNumber,partNumber:set.partNumber,version:set.version,theoryImages:set.theoryImages||[],theoryImageFiles:(set.theoryImages||[]).map(assetView),tasks:set.tasks.map(task=>({...task,imageFiles:task.images.map(assetView),attachments:task.attachments.map(file=>({name:file.name,runtime:file.runtime,runtimeName:file.runtimeName,...assetView(file.assetId)}))}))}};
   }
   asset(auth,id,assetId){const share=this.available(auth,id);if(!references(share.snapshot).includes(assetId))fail(404,'Файл не найден');const asset=this.store.data.assets[assetId];if(!asset||asset.teacherId!==share.teacherId)fail(404,'Файл не найден');return asset;}
   copy(auth,id,input){
@@ -60,7 +60,7 @@ export class PreparedSetExchange {
     const previous=Object.values(this.store.data.sets).find(row=>row.teacherId===auth.id&&row.copiedFrom?.setId===set.id&&row.copiedFrom?.setVersion===set.version);
     if(previous)return {set:this.store.setView(previous),alreadyCopied:true};
     const assets=this.assets(set),ids=new Map(assets.map(asset=>[asset.id,crypto.randomUUID()]));
-    const copy={...clone(set),id:crypto.randomUUID(),teacherId:auth.id,version:1,updatedAt:new Date(this.store.now()).toISOString(),copiedFrom:{setId:set.id,setVersion:set.version,teacherId:share.teacherId,authorName:this.author(share.teacherId)},tasks:set.tasks.map(task=>({...clone(task),id:crypto.randomUUID(),images:task.images.map(image=>ids.get(image)),attachments:task.attachments.map(file=>({...clone(file),assetId:ids.get(file.assetId),sourceFileId:''}))}))};
+    const copy={...clone(set),id:crypto.randomUUID(),teacherId:auth.id,version:1,updatedAt:new Date(this.store.now()).toISOString(),copiedFrom:{setId:set.id,setVersion:set.version,teacherId:share.teacherId,authorName:this.author(share.teacherId)},theoryImages:(set.theoryImages||[]).map(id=>ids.get(id)),tasks:set.tasks.map(task=>({...clone(task),id:crypto.randomUUID(),images:task.images.map(image=>ids.get(image)),attachments:task.attachments.map(file=>({...clone(file),assetId:ids.get(file.assetId),sourceFileId:''}))}))};
     for(const asset of assets)this.store.data.assets[ids.get(asset.id)]={...clone(asset),id:ids.get(asset.id),teacherId:auth.id};
     this.store.data.sets[copy.id]=copy;
     try{this.store.save();}catch(error){delete this.store.data.sets[copy.id];for(const id of ids.values())delete this.store.data.assets[id];throw error;}
