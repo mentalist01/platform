@@ -285,6 +285,7 @@ import {
 } from './workbookHelper.js';
 import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
+import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
 import {
   buildBoardAssetStorageName,
   detectBoardAssetMimeType,
@@ -23994,6 +23995,7 @@ const handleLessonPages=async(req,res)=>{
 app.get('/api/lesson-pages',handleLessonPages);
 app.post('/api/lesson-pages',handleLessonPages);
 registerPreparedTaskRoutes(app,preparedLessonTasks);
+registerPreparedSetExchangeRoutes(app,preparedLessonTasks,readTeachersDb);
 
 app.post('/api/board/reset', async (req, res) => {
   const requestedLessonId = typeof req.body?.lessonId === 'string'

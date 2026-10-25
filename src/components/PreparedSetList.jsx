@@ -1,11 +1,11 @@
 import {useRef, useState} from 'react';
-import {Search, X, Plus, GripVertical, ArrowUp, ArrowDown} from 'lucide-react';
+import {Search, X, Plus, GripVertical, ArrowUp, ArrowDown, Share2} from 'lucide-react';
 import {filterPreparedSets, movePreparedSet} from '../utils/preparedSetLibrary.js';
 
 const taskPlural = new Intl.PluralRules('ru');
 const taskNoun = count => ({one:'задание',few:'задания',many:'заданий',other:'задания'}[taskPlural.select(count)]);
 
-export default function PreparedSetList({sets, query, setQuery, loading, busy, onCreate, onEdit, onChoose, onReorder}) {
+export default function PreparedSetList({sets, query, setQuery, loading, busy, onCreate, onEdit, onChoose, onReorder, onShare}) {
   const [dragId, setDragId] = useState(''), [drop, setDrop] = useState(null);
   const list = useRef(null), pointer = useRef(null);
   const visible = filterPreparedSets(sets, query);
@@ -47,7 +47,7 @@ export default function PreparedSetList({sets, query, setQuery, loading, busy, o
       {visible.map(set => <article key={set.id} data-set-id={set.id} className={`${dragId === set.id ? 'is-dragging ' : ''}${drop?.id === set.id ? drop.after ? 'drop-after' : 'drop-before' : ''}`}>
         <div className="prepared-set-order-controls"><button type="button" className="prepared-set-grip" disabled={busy} aria-label={`Переместить набор ${set.name || 'Без названия'}`} title="Перетащите или используйте стрелки вверх и вниз" onKeyDown={e => {if (['ArrowUp','ArrowDown'].includes(e.key)) {e.preventDefault();nudge(set.id, e.key === 'ArrowUp' ? -1 : 1);}}} onPointerDown={e=>{if(busy||e.button!==0)return;e.preventDefault();e.currentTarget.focus();e.currentTarget.setPointerCapture(e.pointerId);pointer.current={id:set.id,x:e.clientX,y:e.clientY,active:false,drop:null};}} onPointerMove={pointerMove} onPointerUp={finishPointer} onPointerCancel={()=>{pointer.current=null;setDragId('');setDrop(null);}}><GripVertical size={19}/></button><div><button type="button" aria-label={`Поднять набор ${set.name}`} disabled={busy || sets[0]?.id === set.id} onClick={() => nudge(set.id, -1)}><ArrowUp size={12}/></button><button type="button" aria-label={`Опустить набор ${set.name}`} disabled={busy || sets.at(-1)?.id === set.id} onClick={() => nudge(set.id, 1)}><ArrowDown size={12}/></button></div></div>
         <div className="prepared-set-description"><strong>{set.name || 'Без названия'}{set.draft && <em>Черновик</em>}</strong><small>ЕГЭ №{set.taskNumber} · часть {set.partNumber} · {set.tasks.length} {taskNoun(set.tasks.length)}</small></div>
-        <div className="prepared-set-actions"><button type="button" disabled={busy} onClick={() => onEdit(set)}>Изменить</button>{onChoose && <><button type="button" className="prepared-primary" disabled={busy || set.draft} onClick={() => onChoose(set, false)}>На эту страницу</button><button type="button" disabled={busy || set.draft} onClick={() => onChoose(set, true)}>На новую страницу</button></>}</div>
+        <div className="prepared-set-actions">{onShare&&<button type="button" disabled={busy} onClick={()=>onShare(set)}><Share2 size={14}/>Поделиться</button>}<button type="button" disabled={busy} onClick={() => onEdit(set)}>Изменить</button>{onChoose && <><button type="button" className="prepared-primary" disabled={busy || set.draft} onClick={() => onChoose(set, false)}>На эту страницу</button><button type="button" disabled={busy || set.draft} onClick={() => onChoose(set, true)}>На новую страницу</button></>}</div>
       </article>)}
       {!loading && !visible.length && <div className="prepared-set-empty"><Search size={25}/><strong>{sets.length ? 'Наборы не найдены' : 'Наборов пока нет'}</strong><p>{sets.length ? 'Попробуйте другое название или номер ЕГЭ.' : 'Создайте первый набор — он сохранится для следующих уроков.'}</p>{query && <button type="button" onClick={() => setQuery('')}>Показать все наборы</button>}</div>}
     </div>

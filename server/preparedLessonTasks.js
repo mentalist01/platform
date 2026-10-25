@@ -78,7 +78,7 @@ export class PreparedLessonTasks {
     this.save();
   }
   atomic(filename,data){const tmp=filename+'.tmp';fs.writeFileSync(tmp,JSON.stringify(data),{mode:0o600});fs.renameSync(tmp,filename);}
-  save(run){if(run){this.atomic(path.join(this.runsDir,run.id+'.json'),{...run,cards:run.cards.map(card=>({...card,code:{revision:card.code.revision}}))});return;}const {version,sets,assets,active,sessions,setOrders}=this.data;this.atomic(this.file,{version,sets,assets,runs:{},active,sessions,...(setOrders?{setOrders}:{})});}
+  save(run){if(run){this.atomic(path.join(this.runsDir,run.id+'.json'),{...run,cards:run.cards.map(card=>({...card,code:{revision:card.code.revision}}))});return;}const {version,sets,assets,active,sessions,setOrders,setShares}=this.data;this.atomic(this.file,{version,sets,assets,runs:{},active,sessions,...(setOrders?{setOrders}:{}),...(setShares?{setShares}:{})});}
   listSets(auth){
     if(!teacher(auth))fail(403,'Подготовка доступна преподавателю');
     const owned=Object.values(this.data.sets).filter(set=>set.teacherId===auth.id),order=this.data.setOrders?.[auth.id];
@@ -146,7 +146,7 @@ export class PreparedLessonTasks {
       tasks.push({difficult:raw.difficult===true,id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
     }
     if(new Set(tasks.map(task=>task.id)).size!==tasks.length)fail(400,'Идентификаторы задач должны быть разными');
-    const set={id:previous?.id||requestedId||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,...(incomplete?{draft:true}:{}),version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
+    const set={id:previous?.id||requestedId||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,...(previous?.copiedFrom?{copiedFrom:previous.copiedFrom}:{}),...(incomplete?{draft:true}:{}),version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
     this.data.sets[set.id]=set;this.save();for(const run of Object.values(this.data.runs).filter(run=>run.setId===set.id&&Object.values(this.data.active).includes(run.id)))await this.notify(run,'run');return set;
   }
   assetView(assetId,runId=''){const a=this.data.assets[assetId];return a?{id:a.id,name:a.name,sizeBytes:a.size,mime:a.mime,width:a.width,height:a.height,url:`/api/lesson-task-assets/${a.id}${runId?'?run='+encodeURIComponent(runId):''}`} : null;}
