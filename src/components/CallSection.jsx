@@ -1162,7 +1162,7 @@ export const MediaTile = ({
         data-panel-drag-handle={dragHandle ? true : undefined}
         className={`call-media-video w-full ${isDarkTheme ? 'bg-slate-950' : 'bg-slate-100'} object-cover ${isFullscreen ? 'h-screen' : (isCompact ? 'h-24 md:h-28' : 'h-72 md:h-80')}`}
       />
-      {isFullscreen && fullscreenVoiceParticipants.length > 0 && (
+      {isFullscreen && !isScreenShareTile && fullscreenVoiceParticipants.length > 0 && (
         <CallGameVoiceOverlay
           participants={fullscreenVoiceParticipants}
           className="call-game-overlay--fullscreen"
