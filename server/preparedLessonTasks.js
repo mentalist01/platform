@@ -10,6 +10,7 @@ import {preparedTaskSource,preparedRunSources,preparedSourceLatest,preparedSourc
 import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 import {preparedAnswerTask, splitLegacyPreparedAnswer} from '../src/utils/egeAnswerFields.js';
+import {preparedExpectedAnswerIssues} from '../src/utils/preparedAnswerValidation.js';
 import {preparedSolveReceipt} from './lessonAchievements.js';
 
 const digest=value=>crypto.createHash('sha256').update(value).digest('hex');
@@ -30,7 +31,7 @@ export function preparedAnswerMatches(expected,actual,format='exact') {
   if(format==='manual')return false;
   if(format==='number') {
     const number=v=>/^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(v)?Number(v.replace(',','.')):NaN;
-    return e.length===a.length&&e.every((v,i)=>Number.isFinite(number(v))&&number(v)===number(a[i]));
+    return e.length===a.length&&e.every((v,i)=>!v&&!a[i]||Number.isFinite(number(v))&&number(v)===number(a[i]));
   }
   const split=arr=>arr.flatMap(v=>v.split(/[;\s]+/).filter(Boolean));
   if(format==='sequence'||format==='unordered') {const x=split(e),y=split(a);if(format==='unordered'){x.sort();y.sort();}return JSON.stringify(x)===JSON.stringify(y);}
@@ -136,8 +137,9 @@ export class PreparedLessonTasks {
       const imageIds=[...new Set(Array.isArray(raw.images)?raw.images:[])].slice(0,8);
       if(!imageIds.length){if(!autosave)fail(400,`Добавьте условие задачи ${index+1}`);incomplete=true;}
       for(const imageId of imageIds){const asset=this.data.assets[imageId];if(!asset||asset.teacherId!==auth.id||!asset.mime.startsWith('image/'))fail(403,'Нет доступа к изображению');}
-      if(format!=='manual'&&(!answers.length||answers.some(v=>!v))){if(!autosave)fail(400,`Укажите ответ к задаче ${index+1}`);incomplete=true;}
-      if(format==='number'&&!preparedAnswerMatches(answers,answers,'number')){if(!autosave)fail(400,`Ответ задачи ${index+1} должен быть числом`);incomplete=true;}
+      const issues=preparedExpectedAnswerIssues({...normalized,format,answers},taskNumber);
+      if(issues.missing.length){if(!autosave)fail(400,issues.allowEmpty?`Заполните обе ячейки каждой используемой строки задачи ${index+1}. Лишние строки оставьте пустыми.`:`Укажите ответ к задаче ${index+1}`);incomplete=true;}
+      if(issues.invalidNumber){if(!autosave)fail(400,`Ответ задачи ${index+1} должен быть числом`);incomplete=true;}
       const attachments=[];
       for(const ref of (raw.attachments||[]).slice(0,8)) {
         const runtime={runtime:ref.runtime!==false,runtimeName:text(ref.runtimeName,180)};

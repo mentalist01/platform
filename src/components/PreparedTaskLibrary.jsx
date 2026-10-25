@@ -52,7 +52,7 @@ export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,on
       control?.focus({preventScroll:true});control?.scrollIntoView({block:'nearest'});
     });
   };
-  const allowForward=()=>{if(busy||!current)return false;const issues=preparedTaskIssues(current);if(!issues.valid){focusIssues(current,issues);return false;}return true;};
+  const allowForward=()=>{if(busy||!current)return false;const issues=preparedTaskIssues(current,edit.taskNumber);if(!issues.valid){focusIssues(current,issues);return false;}return true;};
   const navigate=index=>{if(busy||index===selected||index>selected&&!allowForward())return;setSelected(index);setCrop(null);setError('');};
   const add=()=>{if(!allowForward()||edit.tasks.length>=100)return;setEdit({...edit,tasks:[...edit.tasks,blankTask(edit.taskNumber,nextPreparedTaskTitle(edit.tasks.at(-1),edit.tasks.length))]});setSelected(edit.tasks.length);setCrop(null);setSavedNotice('');};
   const move=direction=>{const target=selected+direction;if(busy||!edit||target<0||target>=edit.tasks.length)return;const tasks=[...edit.tasks];[tasks[selected],tasks[target]]=[tasks[target],tasks[selected]];setEdit({...edit,tasks});setSelected(target);setCrop(null);};
@@ -70,8 +70,8 @@ export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,on
   const applyCrop=()=>void execute(async()=>{const asset=await preparedRequest(`/api/lesson-task-images/${crop.id}/crop`,crop);changeTask({images:current.images.map(id=>id===crop.id?asset.id:id)});setCrop(null);});
   const save=sync=>{
     if(!edit.name.trim()){setError('Укажите название набора.');editorRef.current?.querySelector('[aria-label="Название набора"]')?.focus();return;}
-    const invalid=edit.tasks.findIndex(task=>!preparedTaskIssues(task).valid);
-    if(invalid!==-1){setSelected(invalid);setCrop(null);focusIssues(edit.tasks[invalid],preparedTaskIssues(edit.tasks[invalid]));return;}
+    const invalid=edit.tasks.findIndex(task=>!preparedTaskIssues(task,edit.taskNumber).valid);
+    if(invalid!==-1){setSelected(invalid);setCrop(null);focusIssues(edit.tasks[invalid],preparedTaskIssues(edit.tasks[invalid],edit.taskNumber));return;}
     void execute(async()=>{
       const set=await persist(false);if(!set)return;
       try{await onSaved?.(set,sync);}catch(e){setSavedNotice('Набор сохранён. Подключение к уроку не завершено.');throw e;}

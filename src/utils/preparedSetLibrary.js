@@ -35,9 +35,9 @@ export function nextPreparedTaskTitle(previous, index) {
   return String(index + 1);
 }
 
-export function preparedTaskIssues(task) {
+export function preparedTaskIssues(task,taskNumber) {
   const images = !task?.images?.length;
-  const missing = task?.format === 'manual' ? [] : (task?.answers?.length ? task.answers : ['']).flatMap((value, i) => String(value ?? '').trim() ? [] : [i]);
-  const invalidNumber = task?.format === 'number' && task.answers.some(value => !/^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(String(value).trim()));
+  const {missing,invalidNumber} = preparedExpectedAnswerIssues(task,taskNumber);
   return {images, missing, invalidNumber, valid: !images && !missing.length && !invalidNumber};
 }
+import {preparedExpectedAnswerIssues} from './preparedAnswerValidation.js';
