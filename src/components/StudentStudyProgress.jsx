@@ -6,6 +6,7 @@ import {usePreparedLesson} from '../hooks/usePreparedLesson.js';
 import {changeStudyProgress,continueStudentStudy,getStudyProgress,loadStudyProgress} from '../services/studentStudyProgress.js';
 import {requestLessonPages} from '../services/lessonPages.js';
 import {studyProgressLabel,studyTopic,studyPartKey,studyPartCount} from '../utils/studentStudyProgress.js';
+import StudentStudyNextStage from './StudentStudyNextStage.jsx';
 import './StudentStudyProgress.css';
 
 export function StudentStudyBadge({teacherId,studentId,showEmpty=true}) {
@@ -23,13 +24,14 @@ export function StudentStudyBadge({teacherId,studentId,showEmpty=true}) {
 }
 
 export function StudentStudyDialog({teacherId,studentId,pageId='',blockId='',partNumber=1,onClose,onSelectPage}) {
+  const [nextOpen,setNextOpen]=useState(false);
   const [data,setData]=useState(null),[selectedPage,setSelectedPage]=useState(pageId),[topic,setTopic]=useState(blockId),[part,setPart]=useState(partNumber);
   const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[createPage,setCreatePage]=useState(false),[pageName,setPageName]=useState('');
   const dialog=useRef(null),controls=useRef({onClose,busy});controls.current={onClose,busy};
   useEffect(()=>{
     let disposed=false;
     void getStudyProgress(teacherId,studentId).then(result=>{
-      if(disposed)return;setData(result);
+      if(disposed)return;setData(result);if(result.transition?.pending)setNextOpen(true);
       const currentPage=result.pages.find(page=>page.id===pageId)||result.pages.find(page=>result.record.links[page.id]?.blockId===blockId)||result.pages.find(page=>page.id===result.record.current?.pageId);
       if(currentPage){setSelectedPage(currentPage.id);const link=result.record.links[currentPage.id]||currentPage.suggestion;if(!blockId&&link){setTopic(link.blockId);setPart(link.partNumber);}}
       if(!blockId&&!currentPage)setTopic(result.next?.blockId||result.plan.order[0]||'');
@@ -49,15 +51,14 @@ export function StudentStudyDialog({teacherId,studentId,pageId='',blockId='',par
       setData(result);
       if(kind==='current'){onSelectPage?.(target);setMessage('Текущая тема сохранена. Задачи на этой странице будут запоминаться автоматически.');}
       else if(kind==='link')setMessage('Страница связана с темой. Текущий этап ученика не изменился.');
-      else setMessage(result.next?'Этап завершён. Можно выбрать следующий шаг.':'Этап завершён. Дальнейших шагов в маршруте нет.');
+      else if(result.transition?.next){setMessage('');setNextOpen(true);}else setMessage('Этап завершён. Дальнейших шагов в маршруте нет.');
     }catch(error){setMessage(error.message);void getStudyProgress(teacherId,studentId).then(setData).catch(()=>{});}finally{setBusy(false);}
   };
   const choosePage=value=>{setSelectedPage(value);const link=data.record.links[value]||data.pages.find(page=>page.id===value)?.suggestion;if(link){setTopic(link.blockId);setPart(link.partNumber);}};
   const current=data?.record.current,count=topic?studyPartCount(data?.plan,data?.record,topic):1;
-  const useNext=()=>{const next=data.next;if(!next)return;setTopic(next.blockId);setPart(next.partNumber);const page=data.pages.find(page=>{const link=data.record.links[page.id]||page.suggestion;return link?.blockId===next.blockId&&link.partNumber===next.partNumber;});setCreatePage(!page);setSelectedPage(page?.id||'');setPageName('');setMessage('Выберите страницу для следующего этапа и нажмите «Сейчас проходим».');};
   return createPortal(<div className="student-study-backdrop" onPointerDown={event=>{event.stopPropagation();if(event.target===event.currentTarget&&!busy)onClose();}}><section className="student-study-dialog" ref={dialog} role="dialog" aria-modal="true" aria-label="Маршрут ученика" tabIndex={-1}>
-    <header><div><small>ПЛАН ПОДГОТОВКИ</small><h2>Где остановились</h2></div><button type="button" disabled={busy} onClick={onClose} aria-label="Закрыть маршрут"><X size={20}/></button></header>
-    {data?<><div className="student-study-current"><Map size={20}/><div><small>{current?.completed?'Этап завершён':'Сейчас проходим'}</small><strong>{studyProgressLabel(current,data.plan)}</strong>{current&&<span>{current.pageTitle}{current.pageMissing?' · страница убрана':''}</span>}</div></div>
+    <header><div><small>ПЛАН ПОДГОТОВКИ</small>{!nextOpen&&<h2>Где остановились</h2>}</div><button type="button" disabled={busy} onClick={onClose} aria-label="Закрыть маршрут"><X size={20}/></button></header>
+    {data&&nextOpen&&data.transition?.next?<StudentStudyNextStage key={`${data.transition.next.blockId}:${data.transition.next.partNumber}`} teacherId={teacherId} studentId={studentId} data={data} onUpdate={setData} onBusyChange={setBusy} onBack={()=>setNextOpen(false)} onDone={result=>{onSelectPage?.(result.record.current.pageId);onClose();}}/>:data?<><div className="student-study-current"><Map size={20}/><div><small>{current?.completed?'Этап завершён':'Сейчас проходим'}</small><strong>{studyProgressLabel(current,data.plan)}</strong>{current&&<span>{current.pageTitle}{current.pageMissing?' · страница убрана':''}</span>}</div></div>
       <div className="student-study-fields"><label>Тема<select aria-label="Тема маршрута" value={topic} disabled={busy} onChange={event=>{setTopic(event.target.value);setPart(1);}}><option value="" disabled>Выберите тему</option>{data.plan.order.map(id=><option key={id} value={id}>№{id} · {data.plan.blocks[id].title}</option>)}</select></label>
       <label>Часть<select aria-label="Часть маршрута" value={part} disabled={busy} onChange={event=>setPart(Number(event.target.value))}>{Array.from({length:Math.max(count,part,20)},(_,i)=><option key={i} value={i+1}>{data.plan.blocks[topic]?.parts[i]||`Часть ${i+1}`}{data.record.completed[studyPartKey(topic,i+1)]?' · пройдена':''}</option>)}</select></label>
       <label>Страница доски<select aria-label="Страница доски" disabled={busy||createPage} value={selectedPage} onChange={event=>choosePage(event.target.value)}><option value="">Выберите существующую страницу</option>{data.pages.map(page=><option key={page.id} value={page.id}>{page.parentId?'↳ ':''}{page.title}</option>)}</select></label>
@@ -65,7 +66,7 @@ export function StudentStudyDialog({teacherId,studentId,pageId='',blockId='',par
       {createPage&&<label>Название новой страницы<input aria-label="Название новой страницы" value={pageName} maxLength={80} disabled={busy} onChange={event=>setPageName(event.target.value)} placeholder={`${topic} · ${data.plan.blocks[topic]?.parts[part-1]||`Часть ${part}`}`}/></label>}</div>
       <p className="student-study-hint">Открытие другой страницы для повторения не меняет текущую тему. Общий порядок тем настраивается на холсте плана.</p>
       <div className="student-study-actions"><button type="button" disabled={busy||!topic||(!selectedPage&&!createPage)} onClick={()=>void action('link')}><Link2 size={15}/>Связать страницу</button><button type="button" className="student-study-primary" disabled={busy||!topic||(!selectedPage&&!createPage)} onClick={()=>void action('current')}>{busy?'Сохраняем…':'Сейчас проходим'}<ArrowRight size={16}/></button></div>
-      {current&&<div className="student-study-completion">{!current.completed&&<><button type="button" disabled={busy} onClick={()=>void action('complete')}><Check size={15}/>Завершить текущую часть</button>{studyPartCount(data.plan,data.record,current.blockId)>1&&<button type="button" disabled={busy} onClick={()=>void action('complete',true)}>Вся тема пройдена</button>}</>}{current.completed&&data.next&&<button type="button" disabled={busy} onClick={useNext}>Следующий этап: №{data.next.blockId}, часть {data.next.partNumber}<ArrowRight size={15}/></button>}</div>}
+      {current&&<div className="student-study-completion">{!current.completed&&<><button type="button" disabled={busy} onClick={()=>void action('complete')}><Check size={15}/>Завершить текущую часть</button>{studyPartCount(data.plan,data.record,current.blockId)>1&&<button type="button" disabled={busy} onClick={()=>void action('complete',true)}>Вся тема пройдена</button>}</>}{current.completed&&data.next&&<button type="button" disabled={busy} onClick={()=>{setMessage('');setNextOpen(true);}}>Следующий этап: №{data.next.blockId}, часть {data.next.partNumber}<ArrowRight size={15}/></button>}</div>}
     </>:<p>{message?'':'Загружаем страницы и маршрут…'}</p>}
     {message&&<p className="student-study-message" role="status">{message}</p>}
   </section></div>,document.body);

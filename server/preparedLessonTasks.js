@@ -5,6 +5,7 @@ import multer from 'multer';
 import sharp from 'sharp';
 import {isWorkbookFileName, parseWorkbookHelperAuthorization} from './workbookHelper.js';
 import {BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed} from './blankWorkbook.js';
+import {preparedSetParts} from '../src/utils/preparedSetParts.js';
 import {preparedFileSync} from '../src/utils/preparedFileSync.js';
 import {preparedTaskSource,preparedRunSources,preparedSourceLatest,preparedSourceUpdates,preparedSetSequence,isPreparedTheory} from '../src/utils/preparedRunSources.js';
 import {projectPreparedCode} from './preparedCodeProjection.js';
@@ -156,8 +157,11 @@ export class PreparedLessonTasks {
         const asset=this.putAsset(auth,fs.readFileSync(source.path),source.name,'application/octet-stream');attachments.push({assetId:asset.id,sourceFileId:source.id,name:source.name,...runtime});
       }
       try{preparedRuntimeFiles(attachments);}catch(error){fail(400,`Задача ${index+1}: ${error.message}`);}
-      tasks.push({difficult:raw.difficult===true,id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(answerTable?{answerTable,answerCountOverride:answerTable.rows*answerTable.columns}:raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
+      if(raw.startsPart!==undefined&&typeof raw.startsPart!=='boolean')fail(400,'Некорректная граница части');
+      tasks.push({...(index>0&&raw.startsPart===true?{startsPart:true}:{}),difficult:raw.difficult===true,id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(answerTable?{answerTable,answerCountOverride:answerTable.rows*answerTable.columns}:raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments});
     }
+    if([19,20,21].includes(taskNumber)&&preparedSetParts({partNumber:part,tasks}).length>22-taskNumber)fail(400,'Блок игр объединяет задания 19, 20 и 21. Проверьте границы частей.');
+    if(preparedSetParts({partNumber:part,tasks}).at(-1).partNumber>20)fail(400,'В наборе может быть не больше 20 частей');
     if(new Set(tasks.map(task=>task.id)).size!==tasks.length)fail(400,'Идентификаторы задач должны быть разными');
     const set={id:previous?.id||requestedId||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,theoryImages,...(previous?.copiedFrom?{copiedFrom:previous.copiedFrom}:{}),...(incomplete?{draft:true}:{}),version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
     this.data.sets[set.id]=set;this.save();for(const run of Object.values(this.data.runs).filter(run=>preparedRunSources(run).some(source=>source.id===set.id)&&Object.values(this.data.active).includes(run.id)))await this.notify(run,'run');return set;
@@ -176,17 +180,20 @@ export class PreparedLessonTasks {
   async start(auth,input){return this.lock(async()=>{
     const access=await this.access(auth,input.room,true);if(!teacher(auth))fail(403,'Начать набор может преподаватель');
     const set=this.data.sets[input.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
-    const old=this.data.runs[this.data.active[input.room]];if(old){if(old.setId!==set.id)fail(409,'На этой странице уже есть другой набор. Создайте новую страницу.');await this.recover(old);old.mode='prepared';old.version++;this.save(old);await this.notify(old);return this.publicRun(old,access);}
+    const filter=input.partNumber===undefined?undefined:Number(input.partNumber);
+    if(filter!==undefined&&(!Number.isInteger(filter)||!preparedSetParts(set).some(part=>part.partNumber===filter)))fail(400,'В наборе нет выбранной части. Отметьте её начало в редакторе набора.');
+    if(input.setVersion!==undefined&&Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Обновите окно перехода.');
+    const old=this.data.runs[this.data.active[input.room]];if(old){if(old.partFilters?.[set.id]!==filter)fail(409,'На этой странице уже открыта другая часть набора.');if(old.setId!==set.id)fail(409,'На этой странице уже есть другой набор. Создайте новую страницу.');await this.recover(old);old.mode='prepared';old.version++;this.save(old);await this.notify(old);return this.publicRun(old,access);}
     if(set.draft)fail(409,'Сначала заполните название, условия и ответы в наборе');
     const x=Number(input.x),y=Number(input.y);if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>900_000||Math.abs(y)>900_000)fail(400,'Укажите место на доске');
-    const run={id:crypto.randomUUID(),room:input.room,teacherId:set.teacherId,name:set.name,taskNumber:set.taskNumber,partNumber:set.partNumber,setId:set.id,setVersion:set.version,tasks:structuredClone(preparedSetSequence(set)),cards:[],version:1,mode:'prepared',auto:false,participantIds:access.participantIds||[],studentId:access.studentId||'',groupId:access.groupId||'',start:{x,y},createdAt:new Date(this.now()).toISOString()};
+    const run={id:crypto.randomUUID(),room:input.room,teacherId:set.teacherId,name:set.name,taskNumber:set.taskNumber,partNumber:filter??set.partNumber,setId:set.id,setVersion:set.version,...(filter!==undefined?{partFilters:{[set.id]:filter}}:{}),tasks:structuredClone(preparedSetSequence(set,filter)),cards:[],version:1,mode:'prepared',auto:false,participantIds:access.participantIds||[],studentId:access.studentId||'',groupId:access.groupId||'',start:{x,y},createdAt:new Date(this.now()).toISOString()};
     this.data.runs[run.id]=run;this.data.active[run.room]=run.id;this.save(run);this.save();await this.addCard(run);await this.notify(run);return this.publicRun(run,access);
   });}
   sourceTasks(run,set,tasks=preparedSetSequence(set)) {
     const known=new Set(run.tasks.map(task=>task.id));
     return tasks.map(task=>{
       let id=task.id;if(known.has(id))id=crypto.randomUUID();known.add(id);
-      return {...structuredClone(task),id,sourceSetId:set.id,sourceSetName:set.name,sourceTaskNumber:set.taskNumber,sourcePartNumber:set.partNumber,sourceSetVersion:set.version,sourceTaskId:task.id,sourceIndex:set.tasks.findIndex(row=>row.id===task.id)};
+      return {...structuredClone(task),id,sourceSetId:set.id,sourceSetName:set.name,sourceTaskNumber:task.sourceTaskNumber??set.taskNumber,sourcePartNumber:task.sourcePartNumber??set.partNumber,sourceSetVersion:set.version,sourceTaskId:task.id,sourceIndex:set.tasks.findIndex(row=>row.id===task.id)};
     });
   }
   async appendSet(auth,id,input){return this.lock(async()=>{
@@ -279,10 +286,10 @@ export class PreparedLessonTasks {
       if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Обновите список и повторите подключение задач.');
       if(set.draft)fail(409,'Дополните условия и ответы перед подключением новых задач');
       const known=new Set(run.tasks.filter(task=>preparedTaskSource(run,task).id===set.id).map(task=>preparedTaskSource(run,task).taskId));
-      const added=set.tasks.filter(task=>!known.has(task.id));if(run.tasks.filter(task=>!isPreparedTheory(task)).length+added.length>100)fail(409,'На странице может быть не больше 100 задач. Создайте новую страницу.');
+      const sequence=preparedSetSequence(set,run.partFilters?.[set.id]),added=sequence.filter(task=>!isPreparedTheory(task)&&!known.has(task.id));if(run.tasks.filter(task=>!isPreparedTheory(task)).length+added.length>100)fail(409,'На странице может быть не больше 100 задач. Создайте новую страницу.');
       run.tasks=[...run.tasks,...this.sourceTasks(run,set,added)];
-      if(set.theoryImages?.length&&!run.tasks.some(task=>isPreparedTheory(task)&&preparedTaskSource(run,task).id===set.id)){
-        const index=run.tasks.findIndex(task=>preparedTaskSource(run,task).id===set.id),theory=this.sourceTasks(run,set,[preparedSetSequence(set)[0]])[0];
+      if(sequence.some(isPreparedTheory)&&!run.tasks.some(task=>isPreparedTheory(task)&&preparedTaskSource(run,task).id===set.id)){
+        const index=run.tasks.findIndex(task=>preparedTaskSource(run,task).id===set.id),theory=this.sourceTasks(run,set,[sequence.find(isPreparedTheory)])[0];
         run.tasks=run.tasks.map((task,i)=>({...task,sourceIndex:preparedTaskSource(run,task,i).index}));
         run.tasks.splice(index,0,theory);for(const row of run.cards)if(row.index>=index)row.index++;
       }

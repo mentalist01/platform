@@ -9,6 +9,8 @@ test('set search matches Russian names, exam numbers and parts without losing ma
   assert.deepEqual(filterPreparedSets(sets,'ЭКСЕЛЬ').map(s=>s.id),['a']);
   assert.deepEqual(filterPreparedSets(sets,'еще').map(s=>s.id),['c']);
   assert.deepEqual(filterPreparedSets(sets,'несуществующий'),[]);
+  const combined={id:'combined',name:'9 обе части',taskNumber:9,partNumber:1,tasks:[{id:'one'},{id:'two',startsPart:true}]};
+  assert.deepEqual(filterPreparedSets([combined],'9 часть 2').map(set=>set.id),['combined']);
 });
 
 test('moving a filtered result preserves hidden sets and later autosaves never jump the set to the top',()=>{

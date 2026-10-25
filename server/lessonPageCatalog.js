@@ -75,7 +75,7 @@ export function projectLessonPages(book,doc,bookRoom) {
   },LESSON_PAGE_ORIGIN);
 }
 
-export function mutateLessonPage(book,{action,id,name,parentId}={}) {
+export function mutateLessonPage(book,{action,id,name,parentId,creationKey}={}) {
   const map=book.getMap('pages'),visible=boardPagesList(map);
   const parent=()=>{
     if(!parentId)return '';
@@ -84,8 +84,13 @@ export function mutateLessonPage(book,{action,id,name,parentId}={}) {
     return parentId;
   };
   if(action==='create') {
+    if(creationKey!==undefined){
+      if(typeof creationKey!=='string'||!/^[a-zA-Z0-9:_-]{1,120}$/.test(creationKey))throw Error('Некорректный ключ создания страницы.');
+      const existing=Array.from(map.entries()).find(([,page])=>page?.creationKey===creationKey);
+      if(existing){if(existing[1].deleted)throw Error('Созданная страница удалена. Восстановите её перед продолжением.');return existing[0];}
+    }
     if(visible.length>=MAX_BOARD_PAGES)throw Error(`Можно создать не больше ${MAX_BOARD_PAGES} страниц.`);
-    const linked=parent();id=randomUUID();map.set(id,{title:title(name),createdAt:Date.now(),...(linked?{parentId:linked}:{})});return id;
+    const linked=parent();id=randomUUID();map.set(id,{title:title(name),createdAt:Date.now(),...(linked?{parentId:linked}:{}),...(creationKey?{creationKey:creationKey}:{})});return id;
   }
   if(id!==FIRST_BOARD_PAGE_ID&&!validId(id))throw Error('Некорректная страница.');
   const old=map.get(id)||(id===FIRST_BOARD_PAGE_ID?{title:'Страница 1',createdAt:0}:null);

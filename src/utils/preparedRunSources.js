@@ -1,11 +1,13 @@
+import {preparedSetPartTasks,preparedTaskPartNumber,preparedPartTaskNumber} from './preparedSetParts.js';
 import {preparedFileSync} from './preparedFileSync.js';
 import {preparedAnswerTableChanged} from './preparedAnswerTable.js';
 
 export const isPreparedTheory = task => task?.kind==='theory';
-export function preparedSetSequence(set) {
-  if(!set.theoryImages?.length)return set.tasks;
-  return [{id:`theory-${set.id}`,kind:'theory',title:'Теория',format:'theory',answers:[],images:[...set.theoryImages],attachments:[],sourceIndex:-1},
-    ...set.tasks.map((task,index)=>({...task,sourceIndex:index}))];
+export function preparedSetSequence(set,partNumber) {
+  const tasks=preparedSetPartTasks(set,partNumber),split=set.tasks.some(task=>task.startsPart===true);
+  const mapped=partNumber!==undefined||split||set.theoryImages?.length?tasks.map(task=>({...task,sourceIndex:set.tasks.indexOf(task),...(split||partNumber!==undefined?{sourcePartNumber:preparedTaskPartNumber(set,set.tasks.indexOf(task)),sourceTaskNumber:preparedPartTaskNumber(set,preparedTaskPartNumber(set,set.tasks.indexOf(task)))}:{})})):tasks;
+  if(!set.theoryImages?.length||partNumber!==undefined&&Number(partNumber)!==Number(set.partNumber||1))return mapped;
+  return [{id:`theory-${set.id}`,kind:'theory',title:'Теория',format:'theory',answers:[],images:[...set.theoryImages],attachments:[],sourceIndex:-1},...mapped];
 }
 
 // Legacy runs keep their original identity. Only newly appended tasks carry
@@ -37,11 +39,11 @@ export function preparedSourceLatest(run,set) {
 }
 export function preparedSourceUpdates(run,sets) {
   return preparedRunSources(run).map(source=>{
-    const set=sets[source.id],latest=preparedSourceLatest(run,set),byId=new Map(latest.map(task=>[task.id,task]));
+    const set=sets[source.id],sequence=set?preparedSetSequence(set,run.partFilters?.[source.id]):[],latest=preparedSourceLatest(run,set),byId=new Map(latest.map(task=>[task.id,task]));
     const known=new Set(run.tasks.filter(task=>preparedTaskSource(run,task).id===source.id).map(task=>preparedTaskSource(run,task).taskId));
     return {...source,setVersion:set?.version||source.version,
-      theoryUpdateAvailable:Boolean(set&&!set.draft&&set.theoryImages?.length&&!source.hasTheory),
-      newTasksAvailable:set&&!set.draft?set.tasks.filter(task=>!known.has(task.id)).length:0,
+      theoryUpdateAvailable:Boolean(set&&!set.draft&&sequence.some(isPreparedTheory)&&!source.hasTheory),
+      newTasksAvailable:set&&!set.draft?sequence.filter(task=>!isPreparedTheory(task)&&!known.has(task.id)).length:0,
       filesUpdateAvailable:preparedFileSync(run.tasks,latest).changed>0,
       checkingUpdateAvailable:run.tasks.some(task=>{const row=byId.get(task.id);return row&&((task.answerMode||'combined')!==(row.answerMode||'combined')||task.format!==row.format||preparedAnswerTableChanged(task,row));})};
   });

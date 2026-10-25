@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import {studyTransitionPreview,prepareStudyTransition} from './studentStudyTransition.js';
 import {STUDY_PLAN_IDS} from '../src/utils/egeStudyPlan.js';
 import {studyPartKey,studyPartCount,nextStudyStep,studyPageSuggestion,studyTopic} from '../src/utils/studentStudyProgress.js';
 import {boardPageRoom} from '../src/utils/boardPages.js';
@@ -8,8 +9,8 @@ import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 export class StudentStudyProgress {
-  constructor({dataDir,students,pages,plans,prepared}) {
-    Object.assign(this,{students,pages,plans,prepared});
+  constructor({dataDir,students,pages,plans,prepared,createPage,canCreate}) {
+    Object.assign(this,{students,pages,plans,prepared,createPage,canCreate});
     this.file=path.join(dataDir,'student-study-progress.json');this.serial=Promise.resolve();
   }
   read() {
@@ -43,17 +44,25 @@ export class StudentStudyProgress {
   async detail(auth,id) {
     const student=this.owner(auth,id),pages=await this.pages(student),record=this.record(auth.id,id),plan=this.plans.get(auth.id);
     const current=record.current?{...record.current,pageTitle:pages.find(page=>page.id===record.current.pageId)?.title||record.current.pageTitle,pageMissing:!pages.some(page=>page.id===record.current.pageId)}:null;
-    return {record:{...record,current},plan,next:nextStudyStep(plan,record),pages:pages.map(page=>({...page,suggestion:this.position(auth,id,page.id)||studyPageSuggestion(page,pages)}))};
+    return {record:{...record,current},plan,next:nextStudyStep(plan,record),transition:this.prepared&&this.createPage?studyTransitionPreview(this,auth,record,plan,pages):null,pages:pages.map(page=>({...page,suggestion:this.position(auth,id,page.id)||studyPageSuggestion(page,pages)}))};
   }
   change(auth,id,input) {
     const pending=this.serial.catch(()=>{}).then(()=>this.mutate(auth,id,input));this.serial=pending;return pending;
   }
   async mutate(auth,id,input) {
     const student=this.owner(auth,id),data=this.read(),previous=this.record(auth.id,id,data);
+    if(input?.action==='transition'&&previous.stageSetup?.id===input.operationId&&previous.stageSetup.status==='done')return this.detail(auth,id);
     if(!Number.isInteger(input?.revision)||input.revision<0)fail(400,'Некорректная версия маршрута');
     if(input.revision!==previous.revision)fail(409,'Маршрут изменён в другом окне. Обновите данные и повторите действие.');
     const record=structuredClone(previous),plan=this.plans.get(auth.id),now=new Date().toISOString();
     const pages=await this.pages(student),page=pages.find(page=>page.id===input.pageId);
+    const save=async()=>{record.revision++;record.updatedAt=new Date().toISOString();data.records[`${auth.id}:${id}`]=record;this.write(data);};
+    if(input.action==='transition'){
+      if(this.canCreate&&!await this.canCreate(auth,student))fail(403,'Сейчас недоступно создание страниц для этого ученика');
+      if(!this.createPage||!this.prepared)fail(503,'Создание этапов пока недоступно');
+      await prepareStudyTransition(this,{auth,student,record,input,plan,pages,save});return this.detail(auth,id);
+    }
+    if(record.stageSetup?.status==='pending'&&['current','complete'].includes(input.action))fail(409,'Завершите или отмените подготовку следующего этапа');
     if(['link','current','position'].includes(input.action)&&!page)fail(404,'Страница убрана. Выберите другую страницу доски.');
     if(['link','current'].includes(input.action)) {
       if(!STUDY_PLAN_IDS.includes(input.blockId)||!Number.isInteger(input.partNumber)||input.partNumber<1||input.partNumber>20)fail(400,'Выберите задание и часть');
@@ -76,11 +85,14 @@ export class StudentStudyProgress {
       const {blockId,partNumber}=record.current,count=input.wholeTopic?studyPartCount(plan,record,blockId):partNumber;
       for(let part=input.wholeTopic?1:partNumber;part<=count;part++)record.completed[studyPartKey(blockId,part)]=now;
       record.current={...record.current,completed:true,updatedAt:now};
+    } else if(input.action==='cancel-transition'){
+      if(record.stageSetup?.status==='pending')record.stageSetup.status='cancelled';
     } else fail(400,'Неизвестное действие');
-    record.revision++;record.updatedAt=now;data.records[`${auth.id}:${id}`]=record;
+    await save();return this.detail(auth,id);
+  }
+  write(data){
     const tmp=this.file+'.'+crypto.randomUUID()+'.tmp';
     try{fs.writeFileSync(tmp,JSON.stringify(data));fs.renameSync(tmp,this.file);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}
-    return this.detail(auth,id);
   }
 }
 export function registerStudentStudyProgressRoutes(app,dependencies) {

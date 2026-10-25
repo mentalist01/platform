@@ -24018,7 +24018,13 @@ app.post('/api/lesson-pages',handleLessonPages);
 registerPreparedTaskRoutes(app,preparedLessonTasks);
 registerPreparedSetExchangeRoutes(app,preparedLessonTasks,readTeachersDb);
 const egeStudyPlans=registerEgeStudyPlanRoutes(app,{dataDir});
-registerStudentStudyProgressRoutes(app,{dataDir,students:readStudentsDb,plans:egeStudyPlans,prepared:preparedLessonTasks,pages:async student=>{
+registerStudentStudyProgressRoutes(app,{dataDir,students:readStudentsDb,plans:egeStudyPlans,prepared:preparedLessonTasks,canCreate:(auth,student)=>{
+  const room=`board-${student.teacherId}-${student.id}~pages`,access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(room)}`,auth,students:readStudentsDb()});
+  return access.allowed&&!access.readOnly&&!getLearningSubscriptionRoomError(auth,access);
+},createPage:async(student,input)=>{
+  const result=await lessonPageCatalog.change({book:`board-${student.teacherId}-${student.id}~pages`,codes:[`collab-${student.teacherId}-${student.id}`],codeRoom:''},input);
+  return {id:result.id};
+},pages:async student=>{
   const base=`board-${student.teacherId}-${student.id}`,code=`collab-${student.teacherId}-${student.id}`;
   const book=await lessonPageCatalog.ensure({book:base+'~pages',codes:[code],codeRoom:''});
   return boardPagesList(book.getMap('pages'));

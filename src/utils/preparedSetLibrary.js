@@ -1,3 +1,4 @@
+import {preparedSetParts} from './preparedSetParts.js';
 const normalized = value => String(value ?? '').toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 export function filterPreparedSets(sets, query) {
@@ -8,7 +9,8 @@ export function filterPreparedSets(sets, query) {
   if (number) remaining = remaining.replace(number[0], ' ');
   const words = remaining.split(/\s+/).filter(Boolean);
   return sets.filter(set => {
-    if (part && Number(part[1]) !== Number(set.partNumber) || number && Number(number[1]) !== Number(set.taskNumber)) return false;
+    const parts=preparedSetParts(set).map(part=>part.partNumber);
+    if (part && !(parts.length?parts:[Number(set.partNumber)]).includes(Number(part[1])) || number && Number(number[1]) !== Number(set.taskNumber)) return false;
     const text = normalized(`${set.name} ЕГЭ ${set.taskNumber} задание ${set.taskNumber} часть ${set.partNumber} ${set.draft ? 'черновик' : ''}`);
     return words.every(word => text.includes(word));
   });
