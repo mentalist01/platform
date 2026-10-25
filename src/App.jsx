@@ -1,5 +1,5 @@
-import {paintPreparedInk,compositePreparedInk} from './utils/preparedInk.js';
-import {preparedBoardView} from './utils/preparedBoardView.js';
+import {paintPreparedInk,compositePreparedInk,isPreparedTaskAnchor} from './utils/preparedInk.js';
+import {preparedBoardView,animatePreparedBoardView} from './utils/preparedBoardView.js';
 import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
@@ -11435,6 +11435,7 @@ export const BoardCanvasSection = ({
   const boardSizeRef = useRef(boardSize);
   const offsetRef = useRef(offset);
   const zoomRef = useRef(zoom);
+  const preparedFlightRef = useRef(null);
   const toolRef = useRef(tool);
   const boardItemsRef = useRef([]);
   const boardEstimatedBytesRef = useRef(0);
@@ -12176,6 +12177,15 @@ export const BoardCanvasSection = ({
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(lowBandwidthStorageKey, lowBandwidthMode ? '1' : '0');
   }, [lowBandwidthStorageKey, lowBandwidthMode]);
+
+  useEffect(() => {
+    const stop=()=>{preparedFlightRef.current?.();preparedFlightRef.current=null;};
+    const host=containerRef.current;
+    host?.addEventListener('pointerdown',stop,true);
+    host?.addEventListener('wheel',stop,{capture:true,passive:true});
+    window.addEventListener('keydown',stop);
+    return()=>{stop();host?.removeEventListener('pointerdown',stop,true);host?.removeEventListener('wheel',stop,true);window.removeEventListener('keydown',stop);};
+  },[roomId]);
 
   useEffect(() => {
     viewportHydratedRef.current = false;
@@ -14580,7 +14590,7 @@ export const BoardCanvasSection = ({
   };
 
   const drawBoardItemToScene = useCallback((ctx, item) => {
-    if (!ctx || !item) return;
+    if (!ctx || !item || isPreparedTaskAnchor(item)) return;
     if (item.type === 'file') { drawBoardFileCard(ctx, item); return; }
     if (item.type === 'stroke') {
       drawStroke(ctx, item);
@@ -17569,7 +17579,7 @@ export const BoardCanvasSection = ({
         {!isSandbox&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={scheduleBoardRender} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
-          focus={(anchor,options)=>{const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSize.width,zoom,initial:options?.initial,top});setZoom(view.zoom);setOffset(view.offset);}}/>}
+          focus={(anchor,options)=>{preparedFlightRef.current?.();const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSize.width,zoom:zoomRef.current,initial:options?.initial,top});const apply=next=>{zoomRef.current=next.zoom;offsetRef.current=next.offset;setZoom(next.zoom);setOffset(next.offset);};if(options?.initial||window.matchMedia('(prefers-reduced-motion: reduce)').matches)apply(view);else preparedFlightRef.current=animatePreparedBoardView({from:{zoom:zoomRef.current,offset:offsetRef.current},to:view,onFrame:apply});}}/>}
         <div
           className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
           aria-label={boardReadOnly ? 'Завершённые задания на доске' : 'Интерактивные задания на доске'}

@@ -1,5 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {paintPreparedInk,compositePreparedInk} from './preparedInk.js';
+import {paintPreparedInk,compositePreparedInk,isPreparedTaskAnchor} from './preparedInk.js';
+test('reserved prepared anchors are geometry, not a second visible card border; ordinary drawings remain visible',()=>{
+  const anchor={id:'prepared-12345678-1234-1234-1234-123456789abc',type:'shape',shape:'rectangle'};
+  assert.equal(isPreparedTaskAnchor(anchor),true);
+  assert.equal(isPreparedTaskAnchor({...anchor,id:'drawing-123'}),false);
+  assert.equal(isPreparedTaskAnchor({...anchor,type:'stroke'}),false);
+  assert.equal(isPreparedTaskAnchor(null),false);
+});
 test('saved ink and live selection paint above conditions only, with transparent surroundings and preserved anchors',()=>{
   const operations=[];
   const canvas=name=>({name,width:800,height:600,getContext:()=>Object.fromEntries(['clearRect','setTransform','save','restore','beginPath','rect','clip','drawImage'].map(method=>[method,(...args)=>operations.push({name,method,args})]))});

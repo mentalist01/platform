@@ -1,5 +1,8 @@
 // Prepared conditions are DOM images above the ordinary canvas. Composite ink
 // only where that DOM hides it; never duplicate translucent strokes elsewhere.
+export function isPreparedTaskAnchor(item){
+  return item?.type==='shape'&&/^prepared-[a-f0-9-]{36}$/.test(item.id||'');
+}
 export function paintPreparedInk(cache,{canvas,overlay,reference=overlay,width,height,zoom,offset,regions,items,preview,draw,createCanvas}) {
   if(!canvas||!overlay)return;
   const ratio=reference.width/Math.max(1,width);

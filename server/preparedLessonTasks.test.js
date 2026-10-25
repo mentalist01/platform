@@ -43,7 +43,31 @@ test('legacy task17 answers migrate once with backups and preserve run identity,
 });
 test('placement follows handwriting in the work column while ignoring a distant exercise',()=>{
   const point=preparedNextPoint([{type:'stroke',points:[{x:30,y:500},{x:250,y:1500}]},{type:'shape',x:5000,y:0,width:50,height:9000}],{x:0,y:0,width:640,height:400});
-  assert.deepEqual(point,{x:0,y:1600});
+  assert.deepEqual(point,{x:0,y:1548});
+});
+test('short conditions get a compact gap; handwriting and an unfinished stroke keep their full space',()=>{
+  const anchor={id:'previous',x:0,y:100,width:832,height:200};
+  assert.deepEqual(preparedNextPoint([anchor],anchor),{x:0,y:332});
+  assert.deepEqual(preparedNextPoint([anchor,{id:'ink',points:[{x:20,y:350},{x:180,y:700}]}],anchor),{x:0,y:732});
+  assert.deepEqual(preparedNextPoint([{id:'far',x:3000,y:100,width:500,height:8000}],anchor),{x:0,y:332});
+  assert.equal(preparedNextPoint([],{...anchor,height:1400}).y,1564);
+});
+test('new cards use a 30 percent larger visual scale, preserve old widths and restore at their new size',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-spawn-size-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'};
+  const deps={directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]};
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const store=new PreparedLessonTasks(deps),image=store.putAsset(auth,Buffer.from('image'),'task.png','image/png',{width:600,height:100});
+  const set=await store.saveSet(auth,{name:'Размер',taskNumber:3,tasks:[{images:[image.id],answers:['1']},{images:[image.id],answers:['2']}]});
+  let run=await store.start(auth,{room:'board-t-s',setId:set.id,x:0,y:0});const items=doc.getArray('items'),first=run.cards[0];
+  assert.equal(items.get(0).width,832);assert.equal(items.get(0).height,first.height*1.3);
+  // Simulate an older, manually scaled card before adding the next one.
+  const old={...items.get(0),width:704,height:first.height*1.1};items.delete(0,1);items.push([old]);
+  run=await store.action(auth,run.id,{action:'skip',expectedCount:1,fromCardId:first.id});
+  assert.deepEqual(items.toArray().find(item=>item.id===first.anchorId),old);
+  const second=run.cards[1],anchor=items.toArray().find(item=>item.id===second.anchorId);assert.equal(anchor.width,832);
+  const index=items.toArray().findIndex(item=>item.id===second.anchorId);items.delete(index,1);
+  const restarted=new PreparedLessonTasks(deps);await restarted.action(auth,run.id,{action:'restore'});
+  assert.equal(items.toArray().find(item=>item.id===second.anchorId).width,832);
 });
 test('shared run: immutable template, explicit modes, answer lease, idempotent advance, independent code and persistence',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-tasks-test-')),docs=new Map();
