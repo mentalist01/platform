@@ -1,0 +1,76 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import * as Y from 'yjs';
+import {PreparedLessonTasks} from './preparedLessonTasks.js';
+import {preparedSolveReceipt} from './lessonAchievements.js';
+import {getCollabSolutionChannels} from '../src/utils/collabSolutions.js';
+
+test('appended sets keep old cards and code, transitions cross topics, source sync is isolated and restart preserves the queue',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-multi-')),docs=new Map(),auth={id:'t',role:'teacher'},student={id:'s',role:'student'};
+  const document=async room=>{if(!docs.has(room))docs.set(room,new Y.Doc());return docs.get(room);};
+  const deps={directory,authorize:async actor=>({allowed:true,auth:actor,studentId:'s',participantIds:[]}),board:document,code:document,sourceFiles:async()=>[]};
+  t.after(()=>{for(const doc of docs.values())doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const store=new PreparedLessonTasks(deps),image=store.putAsset(auth,Buffer.from('image'),'condition.png','image/png',{width:600,height:100});
+  const file=store.putAsset(auth,Buffer.from('1\n2\n'),'26.txt','application/octet-stream');
+  const a=await store.saveSet(auth,{name:'Кодирование',taskNumber:4,tasks:[{title:'1',images:[image.id],answers:['01']}]});
+  const b=await store.saveSet(auth,{name:'Сортировка · вторая часть',taskNumber:26,partNumber:2,tasks:[{id:a.tasks[0].id,title:'1',images:[image.id],answers:['2','100'],attachments:[{assetId:file.id,runtime:true}]}]});
+  let run=await store.start(auth,{room:'board-t-s',setId:a.id,x:20,y:20}),first=run.cards[0];
+  const raw=store.data.runs[run.id];raw.cards[0].code.text='print(4)';
+  await store.action(auth,run.id,{action:'claim-code',cardId:first.id,leaseKey:'code'});
+  await store.action(auth,run.id,{action:'code',cardId:first.id,leaseKey:'code',revision:0,code:'print(4)'});
+  const native=getCollabSolutionChannels(await document('collab-t-s'),first.codeId);native.codeText.insert(0,'print("native")');
+  const beforeBoard=JSON.stringify((await document(raw.room)).getArray('items').toArray());
+  await assert.rejects(store.appendSet(student,run.id,{setId:b.id,setVersion:b.version}),/преподаватель/);
+  run=await store.appendSet(auth,run.id,{setId:b.id,setVersion:b.version});
+  assert.equal(run.total,2);assert.equal(run.sources.length,2);assert.equal(run.cards.length,1,'Append queues tasks without replacing or spawning the current one');
+  assert.equal(run.cards[0].codeId,first.codeId);assert.equal(run.cards[0].id,first.id);
+  assert.equal(native.codeText.toString(),'print("native")','The native editor is never replayed from its older snapshot');
+  assert.equal(JSON.stringify((await document(raw.room)).getArray('items').toArray()),beforeBoard);
+  assert.equal((await store.appendSet(auth,run.id,{setId:b.id,setVersion:b.version})).total,2,'Retry is idempotent');
+  assert.notEqual(raw.tasks[0].id,raw.tasks[1].id,'Same task UUID in two sets still produces distinct queue identities');
+  run=await store.action(auth,run.id,{action:'skip',expectedCount:1,fromCardId:first.id});
+  const second=run.cards[1];assert.equal(second.taskNumber,26);assert.equal(second.partNumber,2);assert.equal(second.title,'1');assert.equal(second.sourceIndex,0);
+  assert.equal(second.attachments[0].helper,true,'Text file helper eligibility uses the actual task topic');
+  const ticket=await store.startHelper(auth,run.id,second.id,file.id),session=await store.exchange(ticket.ticket,'IvanEgeWorkbookHelper/1.2');assert.equal(session.sourceText.fileName,'26.txt');
+  const pupil=store.publicRun(raw,{auth:student});assert.equal('referenceAnswers' in pupil.cards[1],false);
+  const receipt=preparedSolveReceipt(raw,raw.cards[1],store.data.assets);assert.equal(receipt.taskNumber,26);assert.equal(receipt.partNumber,2);
+  const b2=await store.saveSet(auth,{...b,version:b.version,tasks:[{...b.tasks[0],answerMode:'independent',attachments:[{assetId:file.id,runtimeName:'renamed.txt'}]},{title:'2',images:[image.id],answers:['5','200']}]},b.id);
+  assert.equal(store.publicRun(raw,{auth}).sources[1].newTasksAvailable,1);
+  const originalTask=structuredClone(raw.tasks[0]);
+  await store.action(auth,run.id,{action:'sync-files',setId:b.id,setVersion:b2.version});
+  await store.action(auth,run.id,{action:'sync-checking',setId:b.id,setVersion:b2.version});
+  run=await store.action(auth,run.id,{action:'sync-queue',setId:b.id,setVersion:b2.version});
+  assert.equal(run.total,3);assert.equal(run.cards[1].answerMode,'independent');assert.equal(run.cards[1].attachments[0].runtimeName,'renamed.txt');assert.deepEqual(raw.tasks[0],originalTask);
+  assert.equal(run.sources[1].newTasksAvailable,0);assert.equal(run.sources[0].newTasksAvailable,0);
+  await store.action(auth,run.id,{action:'auto',value:true});
+  for(const [fieldIndex,value]of ['2','100'].entries()){
+    let card=store.publicRun(raw,{auth}).cards[1];await store.action(auth,run.id,{action:'claim',cardId:card.id,leaseKey:'answer'});
+    const answers=[...card.answers];answers[fieldIndex]=value;
+    run=await store.action(auth,run.id,{action:'answer',cardId:card.id,leaseKey:'answer',revision:card.answerRevision,answers});card=run.cards[1];
+    run=await store.action(auth,run.id,{action:'check',cardId:card.id,leaseKey:'answer',revision:card.answerRevision,fieldIndex});
+  }
+  assert.equal(run.cards.length,3,'Auto-next continues within an appended set');
+  const restarted=new PreparedLessonTasks(deps),restored=restarted.publicRun(restarted.data.runs[run.id],{auth});
+  assert.equal(restored.total,3);assert.equal(restored.sources.length,2);assert.equal(restarted.data.runs[run.id].cards[0].code.text,'print(4)');
+  assert.equal(restored.cards[1].status,'solved');assert.equal(restored.cards[2].taskNumber,26);
+});
+
+test('drafts, capacity and failed persistence cannot partly alter an existing lesson',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-multi-limit-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'};
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]});
+  const image=store.putAsset(auth,Buffer.from('image'),'test.png','image/png',{width:600,height:100});
+  const make=name=>store.saveSet(auth,{name,taskNumber:4,tasks:[{images:[image.id],answers:['01']}]});
+  const a=await make('Первый'),b=await make('Второй'),view=await store.start(auth,{room:'board-a',setId:a.id,x:0,y:0}),run=store.data.runs[view.id];
+  const draft=await store.saveSet(auth,{name:'Черновик',taskNumber:4,autosave:true,tasks:[{images:[],answers:['']}]});
+  await assert.rejects(store.appendSet(auth,run.id,{setId:draft.id,setVersion:draft.version}),/Заполните/);
+  const old=run.tasks;run.tasks=Array(100).fill(old[0]);
+  await assert.rejects(store.appendSet(auth,run.id,{setId:b.id,setVersion:b.version}),/100/);assert.equal(run.tasks.length,100);run.tasks=old;
+  run.mode='plain';const save=store.save.bind(store),version=run.version;store.save=()=>{throw Error('disk full');};
+  await assert.rejects(store.appendSet(auth,run.id,{setId:b.id,setVersion:b.version}),/disk full/);
+  assert.equal(run.tasks,old);assert.equal(run.version,version);assert.equal(run.mode,'plain');store.save=save;
+  const after=await store.appendSet(auth,run.id,{setId:b.id,setVersion:b.version});assert.equal(after.total,2);assert.equal(after.mode,'prepared');
+});

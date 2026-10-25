@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
@@ -58,12 +59,12 @@ export function lessonAchievementFacts(events = []) {
 }
 
 export function preparedSolveReceipt(run,card,assets,{participants=[],lessonId=''}={},now=Date.now()) {
-  const task=run.tasks[card.index];
+  const task=run.tasks[card.index],source=preparedTaskSource(run,task,card.index);
   const ids=[...new Set(participants.map(row=>row.id).filter(id=>typeof id==='string'&&(run.studentId===id||run.participantIds.includes(id))))];
   return {
-    taskKey:hash(`${run.teacherId}:${task.id}`),
-    contentKey:hash(JSON.stringify([run.teacherId,run.taskNumber,task.images.map(id=>assets[id]?.hash||id),task.attachments.map(file=>assets[file.assetId]?.hash||file.assetId)])),
-    runId:run.id,cardId:card.id,teacherId:run.teacherId,taskNumber:run.taskNumber,partNumber:run.partNumber,
+    taskKey:hash(`${run.teacherId}:${source.taskId}`),
+    contentKey:hash(JSON.stringify([run.teacherId,source.taskNumber,task.images.map(id=>assets[id]?.hash||id),task.attachments.map(file=>assets[file.assetId]?.hash||file.assetId)])),
+    runId:run.id,cardId:card.id,teacherId:run.teacherId,taskNumber:source.taskNumber,partNumber:source.partNumber,
     scopeKey:`${run.teacherId}:${run.groupId?'group:'+run.groupId:'student:'+run.studentId}`,
     lessonId,groupId:run.groupId||'',solvedAt:new Date(now).toISOString(),difficult:task.difficult===true,
     inputFile:task.attachments.some(file=>file.runtime!==false && /\.(txt|csv|tsv|dat)$/i.test(file.name)),

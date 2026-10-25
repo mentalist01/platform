@@ -289,6 +289,7 @@ import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } f
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
 import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
 import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
+import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 import {PreparedHomework,registerPreparedHomeworkRoutes} from './preparedHomework.js';
 import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress} from '../src/utils/preparedHomework.js';
 let preparedHomeworkStore=null;
@@ -21852,12 +21853,13 @@ const preparedLessonTasks = new PreparedLessonTasks({
     (file.teacherId&&normalizeTeacherId(file.teacherId)===auth.id)||findStudentById(file.studentId)?.teacherId===auth.id
     ||(isLessonSharedFile(file)&&normalizeTeacherId(file.teacherId)===auth.id)
   )).map(file=>({id:file.id,name:file.name,taskNumber:file.taskNumber,category:file.category,folderName:file.folderName||'',path:getWorkbookStoredFilePath(file)})).filter(file=>file.path),
-  saveNotes:async(run,solution)=>{
+  saveNotes:async(run,solution,card)=>{
+    const source=preparedTaskSource(run,run.tasks[card.index],card.index);
     solution.folders={};
     for(const studentId of run.studentId?[run.studentId]:run.participantIds){
       if(!findStudentById(studentId))continue;
-      solution.folders[studentId]=ensureWorkbookSolutionFolder({studentId,taskNumber:run.taskNumber,category:'class',
-        partNumber:workbookPartSettings.count(run.teacherId,run.taskNumber)>1?run.partNumber:0});
+      solution.folders[studentId]=ensureWorkbookSolutionFolder({studentId,taskNumber:source.taskNumber,category:'class',
+        partNumber:workbookPartSettings.count(run.teacherId,source.taskNumber)>1?source.partNumber:0});
     }
     preparedLessonTasks.save(run);
   },

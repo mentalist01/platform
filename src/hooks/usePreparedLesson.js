@@ -23,6 +23,7 @@ export function usePreparedLesson(room){
   const action=useCallback(async(id,input)=>{const result=await preparedRequest(`/api/lesson-task-runs/${id}/action`,input);if(room&&entries.has(room))apply(entryFor(room),result.run);return result.run;},[room]);
   const select=useCallback(id=>{const entry=entryFor(room);if(entry.state.busyCardId&&entry.state.busyCardId!==id)return false;if(!entry.state.run?.cards.some(c=>c.id===id))return false;try{localStorage.setItem(preparedSelectionKey(room),id);}catch{/* optional */}publish(entry,{selectedId:id});return true;},[room]);
   const start=useCallback(async input=>{const result=await preparedRequest('/api/lesson-task-runs',{...input,room});apply(entryFor(room),result.run);return result.run;},[room]);
+  const append=useCallback(async(setId,setVersion)=>{const entry=entryFor(room),result=await preparedRequest(`/api/lesson-task-runs/${entry.state.run.id}/sets`,{setId,setVersion});apply(entry,result.run);return result.run;},[room]);
   const setBusy=useCallback((cardId,busy)=>{const entry=entries.get(room);if(entry)publish(entry,{busyCardId:busy?cardId:''});},[room]);
-  return {...state,action,select,start,setBusy,refresh:()=>room&&refresh(entryFor(room))};
+  return {...state,action,select,start,append,setBusy,refresh:()=>room&&refresh(entryFor(room))};
 }

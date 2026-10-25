@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {getCollabSolutionChannels} from '../src/utils/collabSolutions.js';
@@ -57,7 +58,8 @@ export class PreparedHomework {
       fallbackY=box.y+box.height+12*scale;
       return {id:'homework-condition-'+crypto.randomUUID(),type:'image',preparedAssetId:id,x:box.x,y:box.y,width:box.width,height:box.height};
     });
-    const id=crypto.randomUUID(),snapshot={id,initialAnswers:card.status==='solved'?task.answers.map(()=>''):clone(card.answers),initialFieldResults:card.status==='solved'?[]:clone(card.fieldResults||[]),teacherId:auth.id,studentId:run.studentId||'',groupId:run.groupId||'',sourceRunId:run.id,sourceCardId:card.id,sourceIndex:card.index,taskNumber:run.taskNumber,partNumber:run.partNumber,task,board:{items:[...images,...notes],viewport:{zoom:Math.min(.65,320/anchor.width),offset:{x:anchor.x-40,y:anchor.y-30}}},code:{code:channels.codeText.toString()||card.code?.text||'',input:channels.runMap.get('stdinDraft')||channels.runMap.get('input')||card.code?.input||'',testFile:channels.testFileText.toString(),output:'',error:'',status:'idle'},createdAt:new Date(this.now()).toISOString()};
+    const source=preparedTaskSource(run,task,card.index);
+    const id=crypto.randomUUID(),snapshot={id,initialAnswers:card.status==='solved'?task.answers.map(()=>''):clone(card.answers),initialFieldResults:card.status==='solved'?[]:clone(card.fieldResults||[]),teacherId:auth.id,studentId:run.studentId||'',groupId:run.groupId||'',sourceRunId:run.id,sourceCardId:card.id,sourceIndex:card.index,taskNumber:source.taskNumber,partNumber:source.partNumber,task,board:{items:[...images,...notes],viewport:{zoom:Math.min(.65,320/anchor.width),offset:{x:anchor.x-40,y:anchor.y-30}}},code:{code:channels.codeText.toString()||card.code?.text||'',input:channels.runMap.get('stdinDraft')||channels.runMap.get('input')||card.code?.input||'',testFile:channels.testFileText.toString(),output:'',error:'',status:'idle'},createdAt:new Date(this.now()).toISOString()};
     // A partially solved spreadsheet is copied as an initial private version.
     snapshot.solutions={};
     for(const file of task.attachments){const solution=card.solutions?.[file.assetId];if(solution)snapshot.solutions[file.assetId]=clone(solution);}
