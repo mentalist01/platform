@@ -11307,7 +11307,7 @@ export const BoardCanvasSection = ({
   const sandboxSessionId = String(sandbox?.id || '').trim();
   const isSandbox = Boolean(sandboxSessionId);
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
-  const boardReadOnly = sandboxReadOnly || Boolean(readOnly && isGroupLesson);
+  const boardReadOnly = sandboxReadOnly || Boolean(readOnly && (isGroupLesson || pages?.studyPreview));
   const sandboxReadOnlyItemsSignature = isSandbox && sandboxReadOnly
     ? JSON.stringify(Array.isArray(sandbox?.items) ? sandbox.items : [])
     : '';
@@ -17013,7 +17013,7 @@ export const BoardCanvasSection = ({
     && selectedImageScreenBox.top + selectedImageScreenBox.height + 420 > boardSize.height
   );
   const statusLabel = boardReadOnly && !isSandbox
-    ? 'Архив · только просмотр'
+    ? (pages?.studyPreview ? 'Просмотр доски' : 'Архив · только просмотр')
     : (status === 'local'
     ? (sandboxReadOnly ? 'Запись урока' : 'Локальная копия')
     : (status === 'connected'
@@ -17585,7 +17585,7 @@ export const BoardCanvasSection = ({
         <canvas ref={preparedInkRef} className="prepared-ink-layer absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>
         <BoardFileDownloads items={boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
         {!isSandbox&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={scheduleBoardRender} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
-          readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem}
+          readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
           focus={(anchor,options)=>{preparedFlightRef.current?.();const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSize.width,zoom:zoomRef.current,initial:options?.initial,top});const apply=next=>{zoomRef.current=next.zoom;offsetRef.current=next.offset;setZoom(next.zoom);setOffset(next.offset);};if(options?.initial||window.matchMedia('(prefers-reduced-motion: reduce)').matches)apply(view);else preparedFlightRef.current=animatePreparedBoardView({from:{zoom:zoomRef.current,offset:offsetRef.current},to:view,onFrame:apply});}}/>}
         <div
@@ -26783,7 +26783,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           {view === 'study-plan' && user.role === 'teacher' && (
             <React.Suspense fallback={<div className="surface-panel rounded-2xl p-6">Открываем план подготовки…</div>}>
-              <EgeStudyPlan key={user.id} teacherId={user.id} students={currentStudentsWithNicknames} />
+              <EgeStudyPlan key={user.id} teacherId={user.id} students={currentStudentsWithNicknames}
+                renderStudentBoard={({studentId,initialPageId,onPageChange})=><BoardSection role="teacher" userId={user.id} userName={user.name} teacherId={user.id} tasks={tasksWithTitles} students={currentStudentsWithNicknames} activeStudentId={studentId} theme={theme} embedded hideStudentPicker containedDialogs readOnly studyPreview initialPageId={initialPageId} onPageChange={onPageChange}/>}/>
             </React.Suspense>
           )}
           {view === 'notes' && (

@@ -1,3 +1,4 @@
+import {studyPlanStages,studyPlanDisplay,withStudyStages,validStudyStages} from './studyPlanStages.js';
 // Numbering and topics follow the FIPI draft for 2027. 19–21 form one study block.
 export const STUDY_PLAN_SOURCE = 'https://fipi.ru/ege/demoversii-specifikacii-kodifikatory';
 export const STUDY_PLAN_TOPICS = {
@@ -21,6 +22,10 @@ const parts = {
   '26': Array.from({length:8}, (_,i) => `Часть ${i+1}`),
 };
 export const arrangeStudyPlan = plan => {
+  if(plan.stages) {
+    const stages=plan.stages.map((stage,i)=>{const row=Math.floor(i/STUDY_CARD.columns),col=i%STUDY_CARD.columns;return {...stage,x:STUDY_CARD.margin+(row%2?STUDY_CARD.columns-1-col:col)*STUDY_CARD.pitchX,y:STUDY_CARD.margin+row*STUDY_CARD.pitchY};});
+    return withStudyStages(plan,stages);
+  }
   const blocks = structuredClone(plan.blocks);
   plan.order.forEach((id,i) => {
     const row = Math.floor(i / STUDY_CARD.columns), col = i % STUDY_CARD.columns;
@@ -34,16 +39,22 @@ export function createStudyPlan() {
     blocks:Object.fromEntries(STUDY_PLAN_IDS.map(id => [id,{title:STUDY_PLAN_TOPICS[id],parts:parts[id] || [],note:'',x:60,y:60}]))});
 }
 export const countStudyTasks = order => order.reduce((total,id) => total + (id === '19–21' ? 3 : 1),0);
-export const studyPlanFingerprint = plan => JSON.stringify({year:plan.year,title:plan.title,order:plan.order,blocks:plan.blocks});
+export const studyPlanFingerprint = plan => JSON.stringify({year:plan.year,title:plan.title,order:plan.order,blocks:plan.blocks,...(plan.stages?{stages:plan.stages}:{})});
 export const isStudyPlanDraft = value => value?.year===2027 && typeof value.title==='string'
   && Array.isArray(value.order) && new Set(value.order).size===value.order.length && value.order.every(id=>STUDY_PLAN_IDS.includes(id))
-  && STUDY_PLAN_IDS.every(id=>{
+  && validStudyStages(value) && STUDY_PLAN_IDS.every(id=>{
     const block=value.blocks?.[id];
     return block && typeof block.title==='string' && Array.isArray(block.parts) && block.parts.length<=16
       && block.parts.every(part=>typeof part==='string') && typeof block.note==='string'
       && Number.isFinite(block.x) && Number.isFinite(block.y) && block.x>=0 && block.y>=0 && block.x<=15000 && block.y<=15000;
   });
 export function moveStudyBlock(plan,id,offset) {
+  if(plan.stages) {
+    const stages=[...plan.stages],index=stages.findIndex(stage=>stage.id===id),next=index+offset;
+    if(index<0||next<0||next>=stages.length)return plan;
+    [stages[index],stages[next]]=[stages[next],stages[index]];
+    const result=withStudyStages(plan,stages);return validStudyStages(result)?arrangeStudyPlan(result):plan;
+  }
   const order = [...plan.order], index = order.indexOf(id), next = index + offset;
   if(index < 0 || next < 0 || next >= order.length) return plan;
   [order[index],order[next]] = [order[next],order[index]];
@@ -51,9 +62,18 @@ export function moveStudyBlock(plan,id,offset) {
 }
 export function addStudyBlock(plan,id) {
   if(!STUDY_PLAN_IDS.includes(id) || plan.order.includes(id)) return plan;
+  if(plan.stages)return arrangeStudyPlan(withStudyStages(plan,[...plan.stages,...studyPlanStages({...plan,stages:undefined,order:[id]})]));
   return arrangeStudyPlan({...plan,order:[...plan.order,id]});
 }
 export function dropStudyBlock(plan,id,position) {
+  if(plan.stages) {
+    const view=studyPlanDisplay(plan),center={x:position.x+STUDY_CARD.width/2,y:position.y+STUDY_CARD.height/2};
+    const target=view.order.find(other=>other!==id&&center.x>=view.blocks[other].x&&center.x<=view.blocks[other].x+STUDY_CARD.width&&center.y>=view.blocks[other].y&&center.y<=view.blocks[other].y+STUDY_CARD.height);
+    if(!target)return withStudyStages(plan,plan.stages.map(stage=>stage.id===id?{...stage,...position}:stage));
+    const stages=plan.stages.filter(stage=>stage.id!==id),index=stages.findIndex(stage=>stage.id===target);
+    stages.splice(index+(view.order.indexOf(id)<view.order.indexOf(target)?1:0),0,plan.stages.find(stage=>stage.id===id));
+    const result=withStudyStages(plan,stages);return validStudyStages(result)?arrangeStudyPlan(result):plan;
+  }
   const center={x:position.x+STUDY_CARD.width/2,y:position.y+STUDY_CARD.height/2};
   const target=plan.order.find(other=>other!==id && center.x>=plan.blocks[other].x && center.x<=plan.blocks[other].x+STUDY_CARD.width
     && center.y>=plan.blocks[other].y && center.y<=plan.blocks[other].y+STUDY_CARD.height);
@@ -72,9 +92,11 @@ export function completeStudyPlan(plan) {
     const previous = COMPLETE_STUDY_ORDER.slice(0,i).reverse().find(item => order.includes(item));
     order.splice(previous ? order.indexOf(previous)+1 : 0,0,id);
   });
+  if(plan.stages){let result=plan;for(const id of order)if(!result.order.includes(id))result=addStudyBlock(result,id);return arrangeStudyPlan(result);}
   return arrangeStudyPlan({...plan,order});
 }
 export function studyPlanBounds(plan) {
+  plan=studyPlanDisplay(plan);
   return {width:Math.max(700,...plan.order.map(id => plan.blocks[id].x + STUDY_CARD.width + 60)),
     height:Math.max(400,...plan.order.map(id => plan.blocks[id].y + STUDY_CARD.height + 60))};
 }

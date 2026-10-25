@@ -6,6 +6,7 @@ import {StudentStudyProgress} from './studentStudyProgress.js';
 import {createStudyPlan} from '../src/utils/egeStudyPlan.js';
 import {boardPagesList} from '../src/utils/boardPages.js';
 import {mutateLessonPage} from './lessonPageCatalog.js';
+import {splitStudyStage,studyPlanStages,withStudyStages} from '../src/utils/studyPlanStages.js';
 
 async function fixture(t) {
   const f=await partFixture(t),book=await f.document('board-t-p~pages'),plan=createStudyPlan();
@@ -69,4 +70,26 @@ test('a changed set can be reselected after cancelling a partial setup; empty ch
   assert.ok(parts[0].existingPageId);assert.equal(parts[0].hasRun,false);
   const result=await f.change({...f.input,operationId:crypto.randomUUID(),parts:parts.map(part=>({partNumber:part.partNumber,name:part.name,existingPageId:part.existingPageId,setId:updated.id,version:updated.version,sourcePartNumber:part.partNumber}))});
   assert.equal(result.pages.length,4);assert.equal(Object.values(f.prepared.data.runs).length,2);assert.equal(result.record.current.pageId,parts[0].existingPageId);
+});
+
+test('split task 26 prepares only parts 1–2 now, then resumes parts 3–8 under the same parent',async t=>{
+  const f=await fixture(t),source=splitStudyStage(createStudyPlan(),'26',2),stages=studyPlanStages(source),first=stages.find(stage=>stage.id==='26');
+  stages.splice(stages.indexOf(first),1);stages.splice(stages.findIndex(stage=>stage.id==='22')+1,0,first);
+  const plan=withStudyStages(source,stages);f.deps.plans.get=()=>plan;
+  const set=await f.prepared.saveSet(f.auth,{name:'26 все части',taskNumber:26,partNumber:1,tasks:Array.from({length:8},(_,i)=>({title:String(i+1),startsPart:i>0,images:[f.image.id],answers:['1','2'],attachments:[]}))});
+  await f.change({action:'current',pageId:'main',blockId:'22',partNumber:2});await f.change({action:'complete',pageId:'main'});
+  const input=async()=>{const preview=(await f.progress.detail(f.auth,'p')).transition;return {action:'transition',operationId:crypto.randomUUID(),blockId:preview.next.blockId,partNumber:preview.next.partNumber,name:'Задание №26',parts:preview.parts.map(part=>({partNumber:part.partNumber,name:part.name,existingPageId:part.existingPageId,setId:part.hasRun?'':set.id,version:set.version,sourcePartNumber:part.partNumber}))};};
+  const early=await input();assert.deepEqual(early.parts.map(p=>p.partNumber),[1,2]);
+  const result=await f.change(early),parent=result.pages.find(page=>page.title==='Задание №26');assert.ok(parent);assert.equal(result.pages.filter(page=>page.parentId===parent.id).length,2);
+  await f.change({action:'current',pageId:result.record.current.pageId,blockId:'26',partNumber:2});await f.change({action:'complete',pageId:result.record.current.pageId});assert.equal((await f.progress.detail(f.auth,'p')).next.blockId,'5');
+  await f.change({action:'current',pageId:'main',blockId:'24',partNumber:1});await f.change({action:'complete',pageId:'main'});
+  const late=await input();assert.deepEqual(late.parts.map(p=>p.partNumber),[3,4,5,6,7,8]);
+  const resumed=await f.change(late);assert.equal(resumed.record.current.partNumber,3);assert.equal(resumed.pages.filter(page=>page.title==='Задание №26').length,1);assert.equal(resumed.pages.filter(page=>page.parentId===parent.id).length,8);assert.ok(resumed.record.completed['26:2']);
+});
+
+test('a stage with one part still creates its child inside a multipart topic',async t=>{
+  const f=await fixture(t),plan=splitStudyStage(createStudyPlan(),'9',1);f.deps.plans.get=()=>plan;
+  const preview=(await f.progress.detail(f.auth,'p')).transition;assert.equal(preview.parts.length,1);
+  const result=await f.change({...f.input,parts:f.input.parts.slice(0,1)}),parent=result.pages.find(page=>page.title==='Задание №9');
+  assert.ok(parent);assert.equal(result.pages.find(page=>page.id===result.record.current.pageId).parentId,parent.id);
 });

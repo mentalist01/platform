@@ -1,3 +1,4 @@
+import {studyPlanStages} from './studyPlanStages.js';
 import {STUDY_PLAN_IDS} from './egeStudyPlan.js';
 
 export const studyPartKey=(blockId,partNumber=1)=>`${blockId}:${partNumber}`;
@@ -17,23 +18,21 @@ export function studyPageSuggestion(page,pages=[]) {
 export function studyPartCount(plan,record,blockId) {
   return Math.max(1,plan?.blocks?.[blockId]?.parts?.length||0,...Object.values(record?.links||{}).filter(link=>link.blockId===blockId).map(link=>link.partNumber),record?.current?.blockId===blockId?record.current.partNumber:1);
 }
-export function studyBlockStatus(plan,record,blockId) {
+export function studyBlockStatus(plan,record,blockId,stage=null) {
   if(!record)return 'future';
-  const count=studyPartCount(plan,record,blockId);
-  if(Array.from({length:count},(_,i)=>record.completed?.[studyPartKey(blockId,i+1)]).every(Boolean))return 'completed';
-  return record.current?.blockId===blockId&&!record.current.completed?'current':'future';
+  const split=plan.stages&&studyPlanStages(plan).filter(row=>row.blockId===blockId).length>1;
+  const from=split&&stage?stage.fromPart:1,to=split&&stage?stage.toPart:studyPartCount(plan,record,blockId);
+  if(Array.from({length:to-from+1},(_,i)=>record.completed?.[studyPartKey(blockId,from+i)]).every(Boolean))return 'completed';
+  return record.current?.blockId===blockId&&!record.current.completed&&record.current.partNumber>=from&&record.current.partNumber<=to?'current':'future';
+}
+export function studyRouteParts(plan,record) {
+  const stages=studyPlanStages(plan);
+  return stages.flatMap(stage=>Array.from({length:(plan.stages&&stages.filter(row=>row.blockId===stage.blockId).length>1?stage.toPart:studyPartCount(plan,record,stage.blockId))-stage.fromPart+1},(_,i)=>({blockId:stage.blockId,partNumber:stage.fromPart+i})));
 }
 export function nextStudyStep(plan,record) {
-  const current=record.current;
-  if(!current)return plan.order.length?{blockId:plan.order[0],partNumber:1}:null;
-  const count=studyPartCount(plan,record,current.blockId);
-  for(let part=current.partNumber+1;part<=count;part++)if(!record.completed?.[studyPartKey(current.blockId,part)])return {blockId:current.blockId,partNumber:part};
-  const index=plan.order.indexOf(current.blockId);
-  for(const blockId of plan.order.slice(index<0?0:index+1)) {
-    const parts=studyPartCount(plan,record,blockId);
-    for(let part=1;part<=parts;part++)if(!record.completed?.[studyPartKey(blockId,part)])return {blockId,partNumber:part};
-  }
-  return null;
+  const route=studyRouteParts(plan,record),current=record.current;
+  const index=current?route.findIndex(step=>step.blockId===current.blockId&&step.partNumber===current.partNumber):-1;
+  return route.slice(index+1).find(step=>!record.completed?.[studyPartKey(step.blockId,step.partNumber)])||null;
 }
 export function studyProgressLabel(current,plan) {
   if(!current)return 'Тема пока не отмечена';

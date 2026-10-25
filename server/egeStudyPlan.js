@@ -1,3 +1,4 @@
+import {validStudyStages} from '../src/utils/studyPlanStages.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -15,7 +16,9 @@ export function validateStudyPlan(value) {
     if(!Number.isFinite(block.x) || !Number.isFinite(block.y) || block.x<0 || block.y<0 || block.x>15000 || block.y>15000) fail(400,'Блок выходит за пределы холста');
     blocks[id]={title:block.title,parts:[...block.parts],note:block.note,x:Math.round(block.x),y:Math.round(block.y)};
   }
-  return {year:2027,title:value.title,order:[...value.order],blocks};
+  const result={year:2027,title:value.title,order:[...value.order],blocks};
+  if(value.stages!==undefined){result.stages=value.stages;if(!validStudyStages(result))fail(400,'Проверьте этапы: части темы должны идти по порядку, без пропусков и повторов');result.stages=value.stages.map(({id,blockId,fromPart,toPart,x,y})=>({id,blockId,fromPart,toPart,x:Math.round(x),y:Math.round(y)}));}
+  return result;
 }
 export class EgeStudyPlans {
   constructor(dataDir) {this.file=path.join(dataDir,'ege-study-plans.json');}

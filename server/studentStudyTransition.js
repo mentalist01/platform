@@ -1,3 +1,4 @@
+import {studyPlanStages} from '../src/utils/studyPlanStages.js';
 import {MAX_BOARD_PAGES,boardPageRoom} from '../src/utils/boardPages.js';
 import {studyTopic,nextStudyStep,studyPageSuggestion,studyPartKey,studyPartCount} from '../src/utils/studentStudyProgress.js';
 import {preparedSetParts,preparedPartTaskNumber} from '../src/utils/preparedSetParts.js';
@@ -13,13 +14,17 @@ export function studyTransitionPreview(store,auth,record,plan,pages) {
   const linkedParent=pages.find(page=>record.links[page.id]?.blockId===next.blockId&&page.parentId)?.parentId;
   const roots=pages.filter(page=>!page.parentId&&studyPageSuggestion(page,pages)?.blockId===next.blockId);
   const parent=pages.find(page=>page.id===linkedParent)||(roots.length===1?roots[0]:null);
-  const parts=Array.from({length:count},(_,i)=>{
+  const split=plan.stages&&studyPlanStages(plan).filter(stage=>stage.blockId===next.blockId).length>1;
+  const stage=split&&studyPlanStages(plan).find(stage=>stage.blockId===next.blockId&&next.partNumber>=stage.fromPart&&next.partNumber<=stage.toPart);
+  const start=stage?.fromPart||1,end=stage?.toPart||count;
+  const parts=Array.from({length:end-start+1},(_,offset)=>{
+    const i=start+offset-1;
     const partNumber=i+1,existing=pages.find(page=>record.links[page.id]?.blockId===next.blockId&&record.links[page.id]?.partNumber===partNumber)||pages.find(page=>page.parentId===parent?.id&&linked(page,partNumber));
     const candidates=sets.flatMap(set=>set.parts.filter(part=>part.partNumber===partNumber).map(part=>({setId:set.id,version:set.version,sourcePartNumber:part.sourcePartNumber,count:part.taskIds.length})));
     const hasRun=Boolean(existing&&store.prepared.data.active[boardPageRoom(`board-${auth.id}-${record.studentId}`,existing.id)]);
     return {partNumber,name:plan.blocks[next.blockId]?.parts[i]||`Часть ${partNumber}`,existingPageId:existing?.id||'',existingPageTitle:existing?.title||'',hasRun,suggested:candidates.length===1?candidates[0]:null};
   });
-  return {next,parent:parent?{id:parent.id,title:parent.title}:null,name:`Задание №${next.blockId}`,parts,sets,pending:record.stageSetup?.status==='pending'?record.stageSetup:null};
+  return {next,useParent:count>1,parent:parent?{id:parent.id,title:parent.title}:null,name:`Задание №${next.blockId}`,parts,sets,pending:record.stageSetup?.status==='pending'?record.stageSetup:null};
 }
 
 // Every created page is journalled immediately. A retried request resumes the
@@ -53,8 +58,8 @@ export async function prepareStudyTransition(store,{auth,student,record,input,pl
     }
     if(typeof input.name!=='string'||!input.name.trim()||input.name.trim().length>80)fail(400,'Укажите название страницы задания');
     const parentId=preview.parent?.id||'';
-    if(pages.length+parts.filter(part=>!part.pageId).length+(parts.length>1&&!parentId?1:0)>MAX_BOARD_PAGES)fail(409,'На доске недостаточно места для новых страниц');
-    operation={id:input.operationId,blockId:preview.next.blockId,partNumber:preview.next.partNumber,name:input.name.trim(),parentId,parts:parts.sort((a,b)=>a.partNumber-b.partNumber),status:'pending',createdAt:new Date().toISOString()};
+    if(pages.length+parts.filter(part=>!part.pageId).length+(preview.useParent&&!parentId?1:0)>MAX_BOARD_PAGES)fail(409,'На доске недостаточно места для новых страниц');
+    operation={id:input.operationId,blockId:preview.next.blockId,partNumber:preview.next.partNumber,name:input.name.trim(),useParent:preview.useParent,parentId,parts:parts.sort((a,b)=>a.partNumber-b.partNumber),status:'pending',createdAt:new Date().toISOString()};
     record.stageSetup=operation;await save();
   }
   // Recheck all sets and already-created pages before resuming a partial setup.
@@ -64,11 +69,12 @@ export async function prepareStudyTransition(store,{auth,student,record,input,pl
   }
   if(operation.parentId&&!pages.some(page=>page.id===operation.parentId))fail(409,'Страница задания удалена. Восстановите её перед продолжением.');
   const create=async(name,parentId='',key='parent')=>store.createPage(student,{action:'create',name,parentId,creationKey:`study:${operation.id}:${key}`});
-  if(operation.parts.length>1&&!operation.parentId) {
+  const useParent=operation.useParent??operation.parts.length>1;
+  if(useParent&&!operation.parentId) {
     const page=await create(operation.name);operation.parentId=page.id;await save();
   }
   for(const part of operation.parts) {
-    if(!part.pageId){const page=await create(operation.parts.length>1?part.name:operation.name,operation.parts.length>1?operation.parentId:'',String(part.partNumber));part.pageId=page.id;record.links[part.pageId]={blockId:operation.blockId,partNumber:part.partNumber};await save();}
+    if(!part.pageId){const page=await create(useParent?part.name:operation.name,useParent?operation.parentId:'',String(part.partNumber));part.pageId=page.id;record.links[part.pageId]={blockId:operation.blockId,partNumber:part.partNumber};await save();}
     record.links[part.pageId]={blockId:operation.blockId,partNumber:part.partNumber};
     if(part.setId&&!part.runId) {
       const run=await store.prepared.start(auth,{room:boardPageRoom(`board-${auth.id}-${student.id}`,part.pageId),setId:part.setId,setVersion:part.setVersion,partNumber:part.sourcePartNumber,x:120,y:100});
@@ -77,7 +83,7 @@ export async function prepareStudyTransition(store,{auth,student,record,input,pl
   }
   const selected=operation.parts.find(part=>part.partNumber===operation.partNumber),now=new Date().toISOString();
   const position=store.position(auth,student.id,selected.pageId);
-  record.current={blockId:operation.blockId,partNumber:selected.partNumber,pageId:selected.pageId,pageTitle:operation.parts.length>1?selected.name:operation.name,completed:false,updatedAt:now,...(position?.blockId===operation.blockId&&position.partNumber===selected.partNumber?position:{})};
+  record.current={blockId:operation.blockId,partNumber:selected.partNumber,pageId:selected.pageId,pageTitle:useParent?selected.name:operation.name,completed:false,updatedAt:now,...(position?.blockId===operation.blockId&&position.partNumber===selected.partNumber?position:{})};
   delete record.completed[studyPartKey(operation.blockId,selected.partNumber)];operation.status='done';operation.completedAt=now;await save();
   return selected.pageId;
 }
