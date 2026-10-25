@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal} from './preparedHomework.js';
 import {
   HOMEWORK_ASSIGNMENT_TIER_OPTIONAL,
   getHomeworkGoalAssignmentTier,
@@ -343,6 +344,7 @@ export const normalizeHomeworkDayPlanItems = ({
   });
   const goalItems = getHomeworkGoals(sourceHomework, goals).flatMap((goal, sourceGoalIndex) => {
     if (!isObject(goal)) return [];
+    if(isPreparedHomeworkGoal(goal))return [{kind:'task-goal',itemId:`prepared:${goal.preparedId}`,layoutKey:`prepared:${goal.preparedId}`,sourceGoalIndex,sourceTargetIndex:null,assignmentTier:getHomeworkGoalAssignmentTier(goal),taskNumber:goal.taskNumber,goal:normalizePreparedHomeworkGoal(goal)}];
     return getGoalType(goal) === 'mock'
       ? buildMockGoalPlanItems(goal, sourceGoalIndex)
       : buildTaskGoalPlanItems(goal, sourceGoalIndex);

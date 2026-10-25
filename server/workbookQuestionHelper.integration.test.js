@@ -153,7 +153,7 @@ test('teacher question solutions are immediately readable and isolated from stud
       const res = await putWorkbook({ baseUrl, authorization: studentSession.authorization, bytes: Buffer.from('student solution'), revision: 0, fileName: 'source.ods' });
       await assertStatus(res, 200); studentSaved = await res.json();
     });
-    const progressSnapshot = () => fs.readdirSync(dataDir).filter((name) => /progress|homework|answer|student-data/.test(name)).map((name) => [name, sha256(fs.readFileSync(path.join(dataDir, name)))]);
+    const progressSnapshot = () => fs.readdirSync(dataDir).filter((name) => /progress|homework|answer|student-data/.test(name)&&fs.statSync(path.join(dataDir,name)).isFile()).map((name) => [name, sha256(fs.readFileSync(path.join(dataDir, name)))]);
     const beforeProgress = progressSnapshot();
     await t.test('teacher save is immediately downloadable by student and leaves student file intact', async () => {
       const res = await putWorkbook({ baseUrl, authorization: teacherSession.authorization, bytes: Buffer.from('teacher solution'), revision: 0, fileName: 'source.ods' });

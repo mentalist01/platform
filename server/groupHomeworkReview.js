@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal} from '../src/utils/preparedHomework.js';
 import { LearningGroupDomainError } from './learningGroups.js';
 import { buildHomeworkStatistics } from '../src/utils/homeworkStats.js';
 import { getTaskPresentation } from '../src/utils/taskPresentation.js';
@@ -35,6 +36,7 @@ export function groupHomeworkReviewSnapshot({ assignment, data, testsDb, mockExa
   const from = Date.parse(homework.issuedAt) || 0;
   const items = [];
   for (const goal of stats.goals) {
+    if(goal.type==='prepared')continue;
     if (goal.type === 'mock') {
       const exam = list(mockExams).find(exam => exam.id === goal.mockExamId);
       const stored = data.mockAttempts?.[goal.mockExamId];
@@ -69,7 +71,8 @@ export function groupHomeworkReviewSnapshot({ assignment, data, testsDb, mockExa
         solveDurationMs: last?.solveDurationMs || null });
     }
   }
-  return { ...result, items, checklist: stats.checklist.items, goals: stats.goals.filter(goal => goal.type === 'mock') };
+  const preparedGoals=list(homework.goals).filter(isPreparedHomeworkGoal);
+  return { ...result,...(preparedGoals.length?{preparedGoals}:{}), items, checklist: stats.checklist.items, goals: stats.goals.filter(goal => goal.type === 'mock') };
 }
 
 export function registerGroupHomeworkReview(app, deps) {

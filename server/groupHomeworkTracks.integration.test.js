@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
-import {HomeworkLivesStore} from './homeworkLives.js';
+import {HomeworkLivesStore,livesMonth} from './homeworkLives.js';
 import {partitionConcurrentHomeworks} from '../src/utils/concurrentHomework.js';
 import {buildHomeworkStatistics} from '../src/utils/homeworkStats.js';
 
@@ -44,10 +44,11 @@ test('excluding old EGE withdraws its obligation, restores an existing deduction
     write('students',JSON.parse(fs.readFileSync(path.join(data,'students.json'),'utf8')).map(s=>({...s,createdAt:ago(90)})));
     write('learning-groups',[{id:'old-group',teacherId:'teacher-a',name:'Прежняя выдача',status:'active',members:['student-a','student-b'].map(studentId=>({studentId,status:'active',joinedAt:ago(30)})),createdAt:ago(30)}]);
     write('learning-assignments',[{id:'old-python',groupId:'old-group',teacherId:'teacher-a',title:'Python',status:'assigned',recipientIds:['student-a','student-b'],homework:ege,dueAt:ago(1),publishedAt:ago(4),createdAt:ago(4)}]);
-    write('progress',Object.fromEntries(['student-a','student-b'].map(id=>[id,{progress:{},homeworks:[{...ege,id:'learning-group-old-python',source:'learning-group',learningGroupId:'old-group',learningAssignmentId:'old-python',learningAssignmentStatus:'assigned',issuedAt:ago(4),dueAt:ago(1),goals:[{...ege.goals[0],targetQuestionIds:['ege-question']}]}],notes:'print(42)',solvedByTask:{101:{python:{solved:['previous-question']}}}}])));
+    write('progress',Object.fromEntries(['student-a','student-b'].map(id=>[id,{schedule:Array.from({length:9},(_,i)=>({id:'past-'+i,date:new Date(now-(20+i)*86400000).toISOString().slice(0,10),time:'10:00',durationMinutes:60})),progress:{},homeworks:[{...ege,id:'learning-group-old-python',source:'learning-group',learningGroupId:'old-group',learningAssignmentId:'old-python',learningAssignmentStatus:'assigned',issuedAt:ago(4),dueAt:ago(1),goals:[{...ege.goals[0],targetQuestionIds:['ege-question']}]}],notes:'print(42)',solvedByTask:{101:{python:{solved:['previous-question']}}}}])));
   },{existingGroupId:'old-group'});
   try {
     const teacher=f.tokens['teacher-a'], pupil=f.tokens['student-a'];
+    for(const id of ['student-a','student-b'])await f.request(`/api/homework-lives/${id}/plan`,teacher,{count:4,month:livesMonth(now)});
     const before=await f.request('/api/homework-lives',pupil); assert.equal(before.remaining,1,JSON.stringify({before,progress:JSON.parse(fs.readFileSync(path.join(f.data,'progress.json'),'utf8'))['student-a']}));
     const old=JSON.parse(fs.readFileSync(path.join(f.data,'learning-groups.json'),'utf8')).find(g=>g.id==='old-group');
     await f.request('/api/learning-groups/old-group/members/student-a/homework-track',teacher,{studyTrack:'python'},'PUT');

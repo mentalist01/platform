@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal} from '../src/utils/preparedHomework.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -49,7 +50,7 @@ export function homeworkDeadlineResult(homework, data, testsDb, mockExams, nowMs
   const allGoals = Array.isArray(homework.goals) ? homework.goals : [];
   const goals = filterCancelledGroupEgeGoals(homework).filter(goal => !isOptionalHomeworkGoal(goal) && !isPythonHomeworkGoal(goal));
   if (allGoals.length && !goals.length) return null;
-  if (goals.some(goal => goal.type !== 'mock' && !text(goal.mockExamId)
+  if (goals.some(goal => !isPreparedHomeworkGoal(goal)&&goal.type !== 'mock' && !text(goal.mockExamId)
     && !(Array.isArray(goal.targetQuestionIds) && goal.targetQuestionIds.some(Boolean)))) {
     return { reliable: false, reason: 'Нет сохранённого состава обязательных заданий' };
   }
@@ -60,6 +61,7 @@ export function homeworkDeadlineResult(homework, data, testsDb, mockExams, nowMs
   });
   const due = time(homework.dueAt);
   for (const goal of taskGoals) {
+    if(isPreparedHomeworkGoal(goal))continue;
     const measured = stats?.goals.find(g=>g.taskNumber===Number(goal.taskNumber)&&g.levelId===goal.levelId);
     const snapshotIds = [...new Set(goal.targetQuestionIds.filter(Boolean))];
     if (!measured || measured.items.length !== snapshotIds.length) return { reliable:false, reason:'Состав задания изменился — нужна проверка' };

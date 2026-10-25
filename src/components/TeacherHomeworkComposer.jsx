@@ -1,3 +1,5 @@
+import PreparedHomeworkBasket from './PreparedHomeworkBasket.jsx';
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal} from '../utils/preparedHomework.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { HomeworkLessonNotePreview } from './TeacherHomeworkNotes';
@@ -254,7 +256,8 @@ const TeacherHomeworkComposer = ({
   const questionSelectionDragRef = useRef(null);
   const suppressQuestionSelectionClickRef = useRef(false);
   const suppressQuestionSelectionClickTimerRef = useRef(null);
-  const composerBusy = saving || draftSaving || discarding || materialCreating;
+  const [preparedLoading,setPreparedLoading]=useState(false);
+  const composerBusy = preparedLoading || saving || draftSaving || discarding || materialCreating;
   const restoredDraftDate = draftRestoredAt ? new Date(draftRestoredAt) : null;
   const restoredDraftLabel = restoredDraftDate && !Number.isNaN(restoredDraftDate.getTime())
     ? restoredDraftDate.toLocaleString('ru-RU', {
@@ -435,6 +438,7 @@ const TeacherHomeworkComposer = ({
   }, [activeLevelId, activeTaskNumber, canLoadSolvedQuestions, studentId]);
 
   const plannerGoals = goals.map((goal) => {
+    if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
     const goalType = typeof normalizeGoalType === 'function'
       ? normalizeGoalType(goal)
       : String(goal?.type || goalTypeTask);
@@ -1462,6 +1466,7 @@ const TeacherHomeworkComposer = ({
                   </section>
                 )}
 
+                <PreparedHomeworkBasket open={open} editing={editing} studentId={studentId} groupId={groupId} goals={goals} onChange={onChangeForm} onLoading={setPreparedLoading}/>
                 <section>
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -1489,6 +1494,7 @@ const TeacherHomeworkComposer = ({
                   </div>
                   <div className="space-y-3">
                     {goals.map((goal, index) => (
+                      isPreparedHomeworkGoal(goal)?null:
                       (typeof normalizeGoalType === 'function' ? normalizeGoalType(goal) : goal?.type) === goalTypeMock
                         ? renderMockGoal(goal, index)
                         : renderTaskGoal(goal, index)

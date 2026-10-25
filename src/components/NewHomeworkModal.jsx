@@ -1,4 +1,6 @@
-﻿import React from 'react';
+import {openPreparedHomework} from '../services/preparedHomework.js';
+import {isPreparedHomeworkGoal,preparedHomeworkLabel,preparedHomeworkProgress} from '../utils/preparedHomework.js';
+import React from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './ui';
 import { normalizeHttpUrl, splitTextWithUrls } from '../utils/linkifyText';
@@ -95,6 +97,7 @@ const NewHomeworkModal = ({
   };
   const goalItems = rawGoals
     .map((goal) => {
+      if(isPreparedHomeworkGoal(goal)){const state=preparedHomeworkProgress(goal);return {label:preparedHomeworkLabel(goal),progressLabel:`${state.solvedCount}/1`};}
       const goalType = normalizeGoalType(goal);
       if (goalType === GOAL_TYPE_MOCK) {
         return { label: 'Пробник', progressLabel: '' };
@@ -249,6 +252,7 @@ const NewHomeworkModal = ({
                 <Button
                   className="bg-purple-500/80 hover:bg-purple-500 text-white"
                   onClick={() => {
+                    if(isPreparedHomeworkGoal(firstGoal)){onClose?.();openPreparedHomework(firstGoal);return;}
                     if (firstGoal && Number.isFinite(firstGoalTaskNumber)) {
                       onClose?.();
                       onOpenTask?.(firstGoalTaskNumber, firstGoalLevelId, firstGoalTargets);

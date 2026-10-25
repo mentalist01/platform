@@ -286,6 +286,9 @@ import {
 import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
 import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
+import {PreparedHomework,registerPreparedHomeworkRoutes} from './preparedHomework.js';
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress} from '../src/utils/preparedHomework.js';
+let preparedHomeworkStore=null;
 import {
   buildBoardAssetStorageName,
   detectBoardAssetMimeType,
@@ -14922,8 +14925,8 @@ const getStudentData = (studentId, progressDbOverride = null) => {
         raw.weeklyTaskPracticeMilestones
       ),
       streak: normalizeStreak(raw.streak),
-      nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? raw.nextLesson : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
-      homeworks: Array.isArray(raw.homeworks) ? raw.homeworks : [],
+      nextLesson: raw.nextLesson && typeof raw.nextLesson === 'object' ? (preparedHomeworkStore?.projectEntry(studentId,raw.nextLesson)||raw.nextLesson) : { homeWork: '', lessonLink: '', boardLink: '', targetQuestions: [], goals: [] },
+      homeworks: Array.isArray(raw.homeworks) ? raw.homeworks.map(entry=>preparedHomeworkStore?.projectEntry(studentId,entry)||entry) : [],
       mockAttempts: raw.mockAttempts && typeof raw.mockAttempts === 'object' ? raw.mockAttempts : {},
       mockCompletionEvents: normalizeMockCompletionEvents(raw.mockCompletionEvents),
       mockAttemptResults: normalizeMockExamFollowupHistory(raw.mockAttemptResults),
@@ -15457,6 +15460,7 @@ const GOAL_TYPE_MOCK = 'mock';
 
 const normalizeGoalType = (goal) => {
   const rawType = String(goal?.type || '').trim().toLowerCase();
+  if (isPreparedHomeworkGoal(goal)) return 'prepared';
   if (rawType === GOAL_TYPE_MOCK) return GOAL_TYPE_MOCK;
   if (!rawType && String(goal?.mockExamId || '').trim()) return GOAL_TYPE_MOCK;
   return GOAL_TYPE_TASK;
@@ -15476,6 +15480,7 @@ const normalizeGoals = (goals, testsDb = null) => {
   goals.forEach((goal) => {
     if (!goal || typeof goal !== 'object') return;
     const goalType = normalizeGoalType(goal);
+    if (isPreparedHomeworkGoal(goal)) {const prepared=normalizePreparedHomeworkGoal(goal);if(prepared)result.push(prepared);return;}
     if (goalType === GOAL_TYPE_MOCK) {
       const mockExamId = String(goal.mockExamId || '').trim();
       if (!mockExamId) return;
@@ -15735,6 +15740,7 @@ const collectGoalTargetNumbers = (goal, questionCount) => {
 };
 
 const getTaskGoalProgressSnapshot = (goal, studentData, testsDb) => {
+  if(isPreparedHomeworkGoal(goal))return preparedHomeworkProgress(goal);
   const taskNumber = Number(goal?.taskNumber);
   if (!Number.isFinite(taskNumber)) return { pendingCount: 0, totalCount: 0 };
   const levelId = isPythonTaskNumber(taskNumber) ? PYTHON_LEVEL_ID : String(goal?.levelId || '').trim();
@@ -21810,6 +21816,7 @@ const lessonAchievementStore = new LessonAchievementStore(path.join(dataDir,'les
 const preparedLessonTasks = new PreparedLessonTasks({
   directory:path.join(dataDir,'prepared-lesson-tasks'),
   authorize:async(auth,room,{write}={})=>{
+    if(String(room).startsWith('prepared-homework-'))return preparedHomeworkStore?.access(auth,room,{write})||{allowed:false};
     const access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(room)}`,auth,
       sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningGroupsDb():[],
       attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
@@ -21822,8 +21829,9 @@ const preparedLessonTasks = new PreparedLessonTasks({
   },
   board:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
   code:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
-  achievementContext:async(run,auth,access)=>lessonAchievementContext(run,auth,{target:access.target,students:readStudentsDb(),sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],connections:[...collabWss.clients].map(ws=>({auth:ws.learningCollabAuth,target:ws.learningCollabTarget,readOnly:ws.learningCollabReadOnly,open:ws.readyState===1}))}),
+  achievementContext:async(run,auth,access)=>run.homework?{participants:[],lessonId:''}:lessonAchievementContext(run,auth,{target:access.target,students:readStudentsDb(),sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],connections:[...collabWss.clients].map(ws=>({auth:ws.learningCollabAuth,target:ws.learningCollabTarget,readOnly:ws.learningCollabReadOnly,open:ws.readyState===1}))}),
   onAchievement:async(run,card)=>{
+    if(run.homework){setStudentData(run.studentId,getStudentData(run.studentId));notifyScheduleSyncUpdate({scope:'homework-progress',action:'prepared-task-solved',teacherId:run.teacherId,studentId:run.studentId,entryId:run.homework.homeworkId});return;}
     if(!card.achievementBaselines){card.achievementBaselines=Object.fromEntries(card.solveReceipt.participants.map(person=>[person.id,lessonAchievementStore.facts(person.id)]));preparedLessonTasks.save(run);}
     for(const participant of card.solveReceipt.participants){
       const result=lessonAchievementStore.record(participant.id,card.solveReceipt,{independent:(card.independentStudentIds||[]).includes(participant.id),tableSolution:Object.values(card.solutions||{}).some(solution=>solution.viaHelper===true&&(!run.groupId||solution.savedBy?.role==='teacher'||solution.savedBy?.role==='admin'))});
@@ -23996,6 +24004,20 @@ app.get('/api/lesson-pages',handleLessonPages);
 app.post('/api/lesson-pages',handleLessonPages);
 registerPreparedTaskRoutes(app,preparedLessonTasks);
 registerPreparedSetExchangeRoutes(app,preparedLessonTasks,readTeachersDb);
+preparedHomeworkStore=new PreparedHomework({directory:path.join(dataDir,'prepared-homework'),prepared:preparedLessonTasks,student:findStudentById,homeworks:id=>getStudentData(id).homeworks,writable:({studentId,homework})=>{
+  if(!homework.learningGroupId)return true;
+  const assignment=getLearningAssignmentById(homework.learningGroupId,homework.learningAssignmentId);
+  return Boolean(assignment&&getLearningAssignmentState(assignment).status==='assigned'&&assignment.recipientIds.includes(studentId)&&isLearningGroupMember(readLearningGroupsDb().find(group=>group.id===homework.learningGroupId),studentId,{activeOnly:true}));
+}});
+registerPreparedHomeworkRoutes(app,preparedHomeworkStore);
+const validatePreparedHomeworkPayload=(scope,payload,req,res,next)=>{
+  const goals=payload?.goals;if(!Array.isArray(goals)||!goals.some(isPreparedHomeworkGoal))return next();
+  try{payload.goals=preparedHomeworkStore.validateGoals(req.auth,scope,goals);res.once('finish',()=>{if(res.statusCode>=200&&res.statusCode<300&&req.body.status!=='draft')void preparedLessonTasks.lock(()=>preparedHomeworkStore.consume(req.auth,scope,goals)).catch(error=>console.warn('[prepared-homework] basket cleanup:',error.message));});return next();}
+  catch(error){return res.status(error.status||500).json({error:error.message});}
+};
+app.use('/api/student-next-lesson',(req,res,next)=>req.method==='PATCH'?validatePreparedHomeworkPayload({studentId:req.body.studentId},req.body,req,res,next):next());
+app.use('/api/learning-groups/:groupId/assignments',(req,res,next)=>['POST','PATCH','PUT'].includes(req.method)?validatePreparedHomeworkPayload({groupId:req.params.groupId},req.body.homework,req,res,next):next());
+
 
 app.post('/api/board/reset', async (req, res) => {
   const requestedLessonId = typeof req.body?.lessonId === 'string'

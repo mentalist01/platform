@@ -4,7 +4,7 @@ import { filterCancelledGroupEgeGoals } from './groupHomeworkCancellations.js';
 const list = value => Array.isArray(value) ? value : [];
 const key = entry => `${entry.learningGroupId}|${entry.learningAssignmentId}`;
 const taskKey = goal => `${Number(goal.taskNumber)}|${goal.levelId || 'basic'}|${getHomeworkGoalAssignmentTier(goal)}`;
-const isTask = goal => goal?.type !== 'mock' && !goal?.mockExamId;
+const isTask = goal => goal?.type !== 'prepared' && goal?.type !== 'mock' && !goal?.mockExamId;
 
 const mergeTargets = (current, extra) => {
   const targets = new Map();

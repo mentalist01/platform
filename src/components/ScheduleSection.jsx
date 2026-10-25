@@ -1,3 +1,6 @@
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress,preparedHomeworkLabel} from '../utils/preparedHomework.js';
+import PreparedHomeworkGoal from './PreparedHomeworkGoal.jsx';
+import {openPreparedHomework} from '../services/preparedHomework.js';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import RutubeViewingHelp from './RutubeViewingHelp';
 import RutubeChapterPlayer from './RutubeChapterPlayer';
@@ -1404,6 +1407,7 @@ const ScheduleSection = ({
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       handleRefreshData();
     };
+    window.addEventListener('prepared-homework-progress',poll);
     const intervalId = setInterval(poll, AUTO_REFRESH_INTERVAL_MS);
     const onVisibilityChange = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
@@ -1415,6 +1419,7 @@ const ScheduleSection = ({
     }
     return () => {
       clearInterval(intervalId);
+      window.removeEventListener('prepared-homework-progress',poll);
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibilityChange);
       }
@@ -2442,6 +2447,7 @@ const ScheduleSection = ({
     if (Array.isArray(entry.goals) && entry.goals.length > 0) {
       return entry.goals
         .map((goal) => {
+          if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
           const goalType = normalizeGoalType(goal);
           if (goalType === GOAL_TYPE_MOCK) {
             const mockExamId = normalizeMockExamId(goal?.mockExamId);
@@ -2876,6 +2882,7 @@ const ScheduleSection = ({
   }, [nextHomeworkEntry]);
 
   function buildGoalView(goal, goalIndex = 0) {
+    if(isPreparedHomeworkGoal(goal)){const state=preparedHomeworkProgress(goal);return {...goal,...state,type:'prepared',viewKey:`prepared-${goal.preparedId}`,sourceGoalIndex:goalIndex,heading:preparedHomeworkLabel(goal),progressPercent:state.solvedCount*100};}
     const goalType = normalizeGoalType(goal);
     if (goalType === GOAL_TYPE_MOCK) {
       const mockExamId = normalizeMockExamId(goal?.mockExamId);
@@ -3275,7 +3282,7 @@ const ScheduleSection = ({
     const canOpenFirstPending = Boolean(
       firstPendingGoal
       && (
-        (firstPendingGoal.type === GOAL_TYPE_MOCK && onOpenMockGoal)
+        isPreparedHomeworkGoal(firstPendingGoal)||(firstPendingGoal.type === GOAL_TYPE_MOCK && onOpenMockGoal)
         || (firstPendingGoal.type === GOAL_TYPE_TASK && onOpenTask)
       )
     );
@@ -3330,6 +3337,7 @@ const ScheduleSection = ({
 
     const openGoal = (goalView) => {
       if (!goalView) return;
+      if(isPreparedHomeworkGoal(goalView)){openPreparedHomework(goalView,effectiveStudentId);return;}
       if (goalView.type === GOAL_TYPE_MOCK) {
         const firstPendingTask = (goalView.targetStatus || []).find((item) => !item?.solved)
           || goalView.targetStatus?.[0]
@@ -3394,6 +3402,7 @@ const ScheduleSection = ({
 
       const renderCurrentGoalBlock = (goalView, goalIndex) => {
         if (!goalView) return null;
+        if(isPreparedHomeworkGoal(goalView))return <PreparedHomeworkGoal key={goalView.viewKey} goal={goalView} studentId={effectiveStudentId} role={role} disabled={withdrawnFromGroup||groupAcceptanceClosed}/>;
         const progressPercent = Math.max(0, Math.min(100, Number(goalView.progressPercent) || 0));
         const remaining = goalView.totalCount > 0
           ? Math.max(goalView.totalCount - goalView.solvedCount, 0)
@@ -3406,7 +3415,7 @@ const ScheduleSection = ({
         const showTierHeading = goalIndex === 0
           || isOptionalHomeworkGoal(orderedGoalViews[goalIndex - 1]) !== isOptional;
         const isOpenable = Boolean(
-          (goalView.type === GOAL_TYPE_MOCK && onOpenMockGoal)
+          isPreparedHomeworkGoal(goalView)||(goalView.type === GOAL_TYPE_MOCK && onOpenMockGoal)
           || (goalView.type === GOAL_TYPE_TASK && onOpenTask)
         );
         const actionLabel = isCompleted
@@ -4228,6 +4237,7 @@ const ScheduleSection = ({
         {goalViews.length > 0 && !scheduleCompactMode && (
           <div className="space-y-2.5">
             {goalViews.map((goalView) => {
+              if(isPreparedHomeworkGoal(goalView))return <PreparedHomeworkGoal key={goalView.viewKey} goal={goalView} studentId={effectiveStudentId} role={role} disabled={withdrawnFromGroup||groupAcceptanceClosed}/>;
               if (goalView.type === GOAL_TYPE_MOCK) {
                 const remainingCount = goalView.totalCount > 0
                   ? Math.max(goalView.totalCount - goalView.solvedCount, 0)
@@ -5022,6 +5032,7 @@ const ScheduleSection = ({
       materialIds: Array.isArray(entry.materialIds) ? entry.materialIds : [],
       goals: goals.length
         ? goals.map((goal) => {
+            if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
             if (goal.type === GOAL_TYPE_MOCK) {
               return {
                 ...createDefaultGoal(GOAL_TYPE_MOCK),
@@ -5092,6 +5103,7 @@ const ScheduleSection = ({
       let goalValidationError = '';
       const goalsPayload = (Array.isArray(form.goals) ? form.goals : [])
         .map((goal) => {
+          if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
           const goalType = normalizeGoalType(goal);
           if (goalType === GOAL_TYPE_MOCK) {
             const mockExamId = normalizeMockExamId(goal?.mockExamId);

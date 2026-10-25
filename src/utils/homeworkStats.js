@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress,preparedHomeworkLabel} from './preparedHomework.js';
 import { getTaskPresentation } from './taskPresentation.js';
 import { isMockAttemptForHomework, resolveHomeworkTaskTargetDescriptors } from './homeworkComposer.js';
 import { mergeGroupHomeworkCarryover } from './groupHomeworkCarryover.js';
@@ -264,6 +265,13 @@ const buildTaskGoal = ({
   };
 };
 
+const buildPreparedGoal=(goal,index,checkpointMs,dueAtMs)=>{
+  const progress=preparedHomeworkProgress(goal),completedAt=progress.completedAt?Date.parse(progress.completedAt):null,wrong=Number(goal.preparedResult?.wrongCount)||0;
+  const state=progress.solvedCount?(wrong?HOMEWORK_STAT_STATE.WITH_ERRORS:HOMEWORK_STAT_STATE.CLEAN):(goal.preparedResult?.lastResult==='wrong'?HOMEWORK_STAT_STATE.WRONG:HOMEWORK_STAT_STATE.UNTOUCHED);
+  const item={id:goal.preparedId,label:goal.title,state,completedAt,attemptCount:goal.preparedResult?.attempts||0,wrongCount:wrong,checkpointState:completedAt!=null&&completedAt<=checkpointMs?state:HOMEWORK_STAT_STATE.UNTOUCHED,checkpointWrongCount:0,completedLate:completedAt!=null&&dueAtMs!=null&&completedAt>dueAtMs,estimated:false};
+  return {id:`prepared-${index}-${goal.preparedId}`,type:'prepared',label:preparedHomeworkLabel(goal),taskNumber:goal.taskNumber,items:[item],estimated:false};
+};
+
 const getMockAttemptActivityMs = (attempt) => {
   const candidates = [
     attempt?.updatedAt,
@@ -310,6 +318,7 @@ export const snapshotHomeworkGoalTargets = ({
   }, {});
 
   return (Array.isArray(goals) ? goals : []).map((goal) => {
+    if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
     if (!goal || typeof goal !== 'object') return goal;
     if (getGoalType(goal) === 'mock') {
       const storedTaskKeys = getMockTargetKeys(goal, null);
@@ -545,7 +554,7 @@ export const buildHomeworkStatistics = ({
     const isLatest = chronologicalIndex === sorted.length - 1;
     const goals = getHomeworkGoals(entry)
       .map((goal, goalIndex) => (
-        getGoalType(goal) === 'mock'
+        isPreparedHomeworkGoal(goal)?buildPreparedGoal(goal,goalIndex,checkpointMs,dueAtMs):getGoalType(goal) === 'mock'
           ? buildMockGoal({
               goal,
               goalIndex,

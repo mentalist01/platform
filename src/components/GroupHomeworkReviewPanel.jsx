@@ -1,3 +1,4 @@
+import PreparedHomeworkGoal from './PreparedHomeworkGoal.jsx';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, ChevronRight, Loader2, RefreshCcw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -81,7 +82,7 @@ export default function GroupHomeworkReviewPanel({ groupId, assignment }) {
         </>}
       </article>;
     })}
-    {detail && (detail.items?.length ? <React.Suspense fallback={<p role="status">Открываем задания…</p>}>
+    {detail?.preparedGoals?.length>0?<PreparedGroupReviewDetail detail={detail} assignment={assignment} onClose={()=>setDetail(null)}/>:detail && (detail.items?.length ? <React.Suspense fallback={<p role="status">Открываем задания…</p>}>
       <ReviewModal key={detail.studentId} open studentId={detail.studentId} studentLabel={`${name(detail)} · ${assignment.title}`}
         items={detail.items} refreshProgress={false} initialFilter={detail.filter} gameTheoryTask={19} onClose={() => setDetail(null)}/>
     </React.Suspense> : createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true" aria-label={`Работа · ${name(detail)}`}>
@@ -91,4 +92,11 @@ export default function GroupHomeworkReviewPanel({ groupId, assignment }) {
       </div>
     </div>, document.body))}
   </section>;
+}
+
+
+function PreparedGroupReviewDetail({detail,assignment,onClose}){
+  const [bank,setBank]=useState(false);
+  if(bank)return <React.Suspense fallback={<p role="status">Открываем задания…</p>}><ReviewModal open studentId={detail.studentId} studentLabel={`${name(detail)} · ${assignment.title}`} items={detail.items} refreshProgress={false} initialFilter={detail.filter} gameTheoryTask={19} onClose={()=>setBank(false)}/></React.Suspense>;
+  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true" aria-label={`Работа · ${name(detail)}`}><div className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-3xl bg-white p-6"><header className="flex items-center justify-between gap-3"><h3 className="font-bold">{name(detail)} · {assignment.title}</h3><button type="button" aria-label="Закрыть работу" onClick={onClose}><X size={20}/></button></header>{detail.preparedGoals.map(goal=><PreparedHomeworkGoal key={goal.preparedId} goal={goal} studentId={detail.studentId} role="teacher"/>)}{detail.items?.length>0&&<button type="button" className="rounded-xl bg-violet-600 px-4 py-2 text-white text-sm" onClick={()=>setBank(true)}>Открыть задания из тестирования</button>}{detail.checklist?.map(item=><p key={item.id} className="mt-2 text-sm">{item.completedAt?'✓':'○'} {item.label}</p>)}</div></div>,document.body);
 }

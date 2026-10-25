@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal,preparedHomeworkLabel} from '../utils/preparedHomework.js';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -37,6 +38,7 @@ const formatDayLabel = (value) => {
 };
 
 const findGoalView = (item, goalViews) => {
+  if(isPreparedHomeworkGoal(item?.goal))return (goalViews||[]).find(view=>view.preparedId===item.goal.preparedId)||null;
   const views = Array.isArray(goalViews) ? goalViews : [];
   const sourceGoalIndex = Number(item?.sourceGoalIndex);
   if (Number.isInteger(sourceGoalIndex) && sourceGoalIndex >= 0) {
@@ -104,6 +106,7 @@ const resolveItemState = (item, goalViews, checklistItems) => {
 };
 
 const getItemLabel = (item, mockExamById = {}) => {
+  if(isPreparedHomeworkGoal(item?.goal))return preparedHomeworkLabel(item.goal);
   if (item?.type === 'text') return item.text || 'Дополнительный пункт';
   if (item?.type === 'task-target') {
     if (item.unavailable) return `Задание ${formatClassicTaskNumber(item.taskNumber)} · удалённый номер`;

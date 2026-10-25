@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal} from '../utils/preparedHomework.js';
 import {isGroupHomeworkTrackAllowed,groupHomeworkTrackLabel} from '../utils/groupHomeworkTracks.js';
 import RutubeViewingHelp from './RutubeViewingHelp';
 import { LessonPaceResults } from './LessonPaceFeedback.jsx';
@@ -856,6 +857,7 @@ const LearningGroupsSection = ({
     const template = asObject(assignment?.homework || assignment?.homeworkTemplate);
     const sourceGoals = Array.isArray(template.goals) ? template.goals : [];
     const goals = sourceGoals.map((goal) => {
+      if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
       const type = normalizeGoalType(goal);
       if (type === GOAL_TYPE_MOCK) {
         return {
@@ -1034,6 +1036,7 @@ const LearningGroupsSection = ({
     let validationError = '';
     const goals = (Array.isArray(assignmentComposerForm.goals) ? assignmentComposerForm.goals : [])
       .map((goal) => {
+        if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
         const type = normalizeGoalType(goal);
         if (type === GOAL_TYPE_MOCK) {
           const mockExamId = normalizeMockExamId(goal?.mockExamId);

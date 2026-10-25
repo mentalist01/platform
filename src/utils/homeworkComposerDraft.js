@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal} from './preparedHomework.js';
 import { normalizeHomeworkDueAtMode } from './homeworkDueAt.js';
 import { normalizeHomeworkAssignmentTier } from './homeworkAssignmentTier.js';
 import { getPythonHomeworkTheorySelection } from './pythonTheoryHomework.js';
@@ -77,6 +78,7 @@ const normalizeDraftCarryover = (value) => {
 
 const normalizeDraftGoal = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if(isPreparedHomeworkGoal(value))return normalizePreparedHomeworkGoal(value);
   const type = String(value.type || '').trim().toLowerCase() === 'mock' ? 'mock' : 'task';
   const rawTaskNumber = value.taskNumber;
   const numericTaskNumber = Number(rawTaskNumber);

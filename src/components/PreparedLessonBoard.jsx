@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-import {Check,ChevronRight,FileSpreadsheet,Download,ExternalLink,SkipForward,LocateFixed,Upload,RefreshCcw} from 'lucide-react';
+import {Check,ChevronRight,FileSpreadsheet,Download,ExternalLink,SkipForward,LocateFixed,Upload,RefreshCcw,Home} from 'lucide-react';
 import {usePreparedLesson} from '../hooks/usePreparedLesson.js';
 import {preparedRequest,preparedAssetUrl} from '../services/preparedLessonTasks.js';
 import {getExternalApiOrigin} from '../utils/runtimeUrls.js';
@@ -13,8 +13,9 @@ import {preparedTaskTitle} from '../utils/preparedTaskTitle.js';
 import {splitPastedAnswerValues,getAnswerPasteOrder,getPreparedAnswerPasteOrder} from '../utils/answerPaste.js';
 import './PreparedLessonTasks.css';
 
-function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showReferenceAnswers}){
+export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showReferenceAnswers,worldAnchor}){
   const element=useRef(null);
+  const [homeworkQueued,setHomeworkQueued]=useState(false);
   useEffect(()=>{if(!element.current||!onMeasure)return;const observer=new ResizeObserver(()=>onMeasure(card.id,element.current.offsetHeight));observer.observe(element.current);onMeasure(card.id,element.current.offsetHeight);return()=>observer.disconnect();},[card.id,onMeasure]);
   const draftKey=`prepared-answer:${auth.role}:${auth.id}:${run.id}:${card.id}`;
   const [draft]=useState(()=>{try{return JSON.parse(localStorage.getItem(draftKey)||'null');}catch{return null;}});
@@ -33,6 +34,7 @@ function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showRe
   const perform=async fn=>{if(busy)return;setBusy(true);setMessage('');try{await fn();}catch(error){setMessage(error.message);}finally{setBusy(false);}};
   const check=(accept,fieldIndex)=>perform(async()=>{setCheckingField(fieldIndex??null);try{const current=await flush();await claim();const result=await action({action:'check',revision:current.answerRevision,accept,...(fieldIndex!==undefined?{fieldIndex}:{})});if(card.answerMode!=='independent')setMessage(result.cards.find(c=>c.id===card.id)?.status==='solved'?'':'Пока неверно. Попробуйте ещё.');if(result.teacherCardId!==run.teacherCardId)context.select(result.teacherCardId);}finally{setCheckingField(null);}});
   const helper=asset=>perform(async()=>{const install=getWorkbookHelperInstall();if(!install.supported)throw Error('Для этого устройства доступно скачивание файла. Помощник таблиц можно установить из раздела «Загрузки».');const launch=await preparedRequest(`/api/lesson-task-runs/${run.id}/helper`,{cardId:card.id,assetId:asset.assetId});window.location.assign(`ivan-ege://workbook/open?${new URLSearchParams({origin:getExternalApiOrigin(),ticket:launch.ticket})}`);setMessage('Помощник открывается. После Ctrl+S решение появится здесь и в конспектах.');});
+  const queueHomework=()=>perform(async()=>{await flush();const root=element.current.getBoundingClientRect(),anchor=worldAnchor||{x:0,y:0,width:card.width};const images=Array.from(element.current.querySelectorAll('.prepared-card-body>img')).map((image,i)=>{const box=image.getBoundingClientRect(),ratio=anchor.width/root.width;return {id:card.images[i].id,x:anchor.x+(box.left-root.left)*ratio,y:anchor.y+(box.top-root.top)*ratio,width:box.width*ratio,height:box.height*ratio};});await preparedRequest('/api/prepared-homework/basket',{runId:run.id,cardId:card.id,images});setHomeworkQueued(true);});
   const title=preparedTaskTitle(card);
   const canEditFiles=!readOnly&&run.canEditFiles!==false&&(!run.groupId||run.canManage);
   const unavailable=card.lease&&card.lease.actor!==`${auth.role}:${auth.id}`&&card.lease.until>Date.now();
@@ -40,7 +42,7 @@ function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showRe
   const blocked=readOnly||draftConflict||busy||Boolean(unavailable);
   const answerInput=i=><input key={i} aria-label={independent?`Ответ на вопрос ${i+1} задачи ${card.index+1}`:`Ответ задачи ${card.index+1}${card.answerCount>1?`, поле ${i+1}`:''}`} value={answers[i]||''} placeholder={reference?.[i]||(independent?'Ваш ответ':card.answerCount>1?`Ответ ${i+1}`:'')} maxLength={500} readOnly={readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct'||Boolean(unavailable)} onFocus={()=>{if(!readOnly&&!draftConflict&&card.status!=='solved'&&!(independent&&card.fieldResults?.[i]==='correct'))void claim().catch(error=>setMessage(error.message));}} onChange={e=>change(i,e.target.value)} onPaste={e=>{if(readOnly||draftConflict||card.status==='solved'||unavailable||independent&&card.fieldResults?.[i]==='correct')return;const values=splitPastedAnswerValues(e.clipboardData.getData('text'));if(values.length>1){e.preventDefault();change(i,'',values);}}} onKeyDown={e=>{if(e.key==='Enter'){if(independent){void check(false,i);return;}const nodes=Array.from(e.currentTarget.parentElement.querySelectorAll('input')),next=nodes[nodes.indexOf(e.currentTarget)+1];if(next)next.focus();else void check(false);}}}/>;
   return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--${card.status}`} style={style} aria-label={`Подготовленная задача ${card.index+1}`}>
-    <header><strong className="prepared-task-name">{title}</strong><span>ЕГЭ №{run.taskNumber}</span>{card.difficult&&<span className="prepared-hard-badge">Сложная</span>}<strong className="prepared-task-status">{card.status==='solved'?'Решено':card.status==='skipped'?'Пропущено':'Решаем'}</strong></header>
+    <header><strong className="prepared-task-name">{title}</strong><span>ЕГЭ №{run.taskNumber}</span>{card.difficult&&<span className="prepared-hard-badge">Сложная</span>}<strong className="prepared-task-status">{card.status==='solved'?'Решено':card.status==='skipped'?'Пропущено':'Решаем'}</strong>{run.canManage&&!run.homework&&!readOnly&&<button type="button" className={`prepared-card-homework${homeworkQueued?' is-queued':''}`} disabled={busy} title="Добавить задачу в подготовку домашки" onPointerDown={e=>e.stopPropagation()} onClick={()=>void queueHomework()}><Home size={12}/>{homeworkQueued?'В черновике ДЗ':'На дом'}</button>}</header>
     <div className="prepared-card-interactive" onPointerDown={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>
       {draftConflict&&<div className="prepared-draft-conflict"><p>Сохранённый на этом устройстве ответ отличается от общего. Какой оставить?</p><button type="button" onClick={()=>{setDraftConflict(false);answerRevision.current=card.answerRevision;setAnswers(draft.answers);latest.current.answers=draft.answers;dirty.current=true;void flush().catch(error=>setMessage(error.message));}}>Восстановить мой черновик</button><button type="button" onClick={()=>{setDraftConflict(false);try{localStorage.removeItem(draftKey);}catch{/* optional backup */}}}>Оставить общий ответ</button></div>}
       <div className={`prepared-card-answer${card.status==='solved'?' is-solved':''}`}>
@@ -93,7 +95,7 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   </div>;
   return <div className={`prepared-board-layer${dark?' prepared-dark':''}`}>
     {headerSlot?createPortal(controls,headerSlot):<div className="prepared-toolbar-fallback">{controls}</div>}
-    {run&&run.cards.map(card=>{const stored=items.current.find(item=>item.id===card.anchorId);if(!stored)return null;const anchor=preview(stored),sx=zoom*anchor.width/card.width;return <PreparedTaskCard key={card.id} card={card} run={run} context={context} auth={{id:userId,role}} readOnly={readOnly||!ready||run.readOnly} showReferenceAnswers={showReferenceAnswers} onMeasure={measured} style={{left:(anchor.x-offset.x)*zoom,top:(anchor.y-offset.y)*zoom,width:card.width,transform:`scale(${sx})`}}/>;})}
+    {run&&run.cards.map(card=>{const stored=items.current.find(item=>item.id===card.anchorId);if(!stored)return null;const anchor=preview(stored),sx=zoom*anchor.width/card.width;return <PreparedTaskCard key={card.id} card={card} run={run} context={context} auth={{id:userId,role}} readOnly={readOnly||!ready||run.readOnly} showReferenceAnswers={showReferenceAnswers} worldAnchor={anchor} onMeasure={measured} style={{left:(anchor.x-offset.x)*zoom,top:(anchor.y-offset.y)*zoom,width:card.width,transform:`scale(${sx})`}}/>;})}
     {pending&&<div className="prepared-placement" onPointerDown={place}><span>{busy?'Добавляем задание…':`Нажмите на доске: здесь появится «${pending.set.name}». Esc — отмена.`}</span></div>}
     {(error||context.error)&&<div className="prepared-board-error" role="alert">{error||context.error}<button type="button" onClick={()=>{setError('');context.refresh();}}>Повторить</button></div>}
   </div>;

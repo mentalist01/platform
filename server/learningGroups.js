@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal} from '../src/utils/preparedHomework.js';
 import {normalizeGroupHomeworkTrack, groupHomeworkRecipients} from '../src/utils/groupHomeworkTracks.js';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../src/utils/telemost.js';
 import { groupHomeworkLessonChoices, groupHomeworkStudyTrackAt, normalizeGroupStudyPlan } from '../src/utils/groupStudyPlan.js';
@@ -118,6 +119,7 @@ const normalizeLearningHomeworkGoals = (value) => (
     .slice(0, 50)
     .map((goal) => {
       if (!goal || typeof goal !== 'object' || Array.isArray(goal)) return null;
+      if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
       const type = cleanText(goal.type, 20).toLowerCase() === 'mock' ? 'mock' : 'task';
       const assignmentTier = cleanText(goal.assignmentTier, 20).toLowerCase() === 'optional'
         ? 'optional'

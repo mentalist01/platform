@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';
 import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
 import {partitionConcurrentHomeworks} from '../src/utils/concurrentHomework.js';
-import {HomeworkLivesStore} from './homeworkLives.js';
+import {HomeworkLivesStore,livesMonth} from './homeworkLives.js';
 const goal=(task,ids,levelId='basic')=>({type:'task',taskNumber:task,levelId,targetQuestions:ids,targetQuestionIds:ids.map(n=>`${task}-${levelId}-${n}`)});
 const tests=Object.fromEntries([4,7].map(task=>[task,Object.fromEntries(['basic','advanced'].map(level=>[level,[1,2,3,4].map(n=>({id:`${task}-${level}-${n}`,question:'Проверка',answer:String(n)}))]))]));
 
@@ -49,11 +49,13 @@ test('lives use cancellation even with stale pupil projection and retain damage 
    write('tests',tests);
    new HomeworkLivesStore(path.join(data,'homework-lives.json'),{now:()=>now-6*86400000}).configure('teacher-a',true);
    write('students',JSON.parse(fs.readFileSync(path.join(data,'students.json'),'utf8')).map(student=>({...student,createdAt:ago(90)})));
+   write('progress',Object.fromEntries(['student-a','student-b'].map(id=>[id,{schedule:Array.from({length:9},(_,i)=>({id:'past-'+i,date:new Date(now-(20+i)*86400000).toISOString().slice(0,10),time:'10:00',durationMinutes:60}))}])));
  });
  try{
   const teacher=f.tokens['teacher-a'],route=`/api/learning-groups/${f.groupId}/assignments`,dueAt=new Date(now+86400000).toISOString();
   const assignment=(await f.request(route,teacher,{title:'ЕГЭ',dueAt,homework:{studyTrack:'ege',dueAt,goals:[goal(4,[1])]}},'POST',201)).assignment;
   await f.request(`${route}/${assignment.id}`,teacher,{dueAt:new Date(now-60000).toISOString(),homework:{...assignment.homework,dueAt:new Date(now-60000).toISOString()}},'PATCH');
+  await f.request('/api/homework-lives/student-b/plan',teacher,{count:4,month:livesMonth(now)});
   const before=await f.request('/api/homework-lives',f.tokens['student-b']);
   assert.equal(before.remaining,1);
   await f.request(`${route}/${assignment.id}/ege-cancellations`,teacher,{taskNumber:4,all:true},'POST',201);

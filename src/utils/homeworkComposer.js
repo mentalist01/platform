@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress} from './preparedHomework.js';
 import {
   getHomeworkGoalAssignmentTier,
   isOptionalHomeworkGoal,
@@ -322,7 +323,7 @@ export const buildHomeworkCarryoverDraft = ({
     .map((goal, goalIndex) => ({ goal, goalIndex }))
     .filter(({ goal }) => !isOptionalHomeworkGoal(goal))
     .map(({ goal, goalIndex }) => (
-      getGoalType(goal) === 'mock'
+      isPreparedHomeworkGoal(goal)?(preparedHomeworkProgress(goal).pendingCount?{...normalizePreparedHomeworkGoal(goal),origin:'carryover'}:null):getGoalType(goal) === 'mock'
         ? buildPendingMockGoal({ goal, goalIndex, homework, studentData, mockExamById })
         : buildPendingTaskGoal({ goal, goalIndex, homework, studentData, testsDb })
     ))

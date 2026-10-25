@@ -1,3 +1,4 @@
+import {isPreparedHomeworkGoal,preparedHomeworkLabel} from '../utils/preparedHomework.js';
 import React, { useMemo } from 'react';
 import {
   ArrowRight,
@@ -67,6 +68,7 @@ const getDeadlineSummary = (entry) => {
 
 const getGoalLabel = (goal) => {
   if (!goal) return '';
+  if(isPreparedHomeworkGoal(goal))return preparedHomeworkLabel(goal);
   if (goal.type === 'mock') return goal.mockExamTitle || 'Продолжить пробник';
   const taskTitle = String(goal.taskTitle || '').trim();
   const taskNumber = String(goal.taskNumber || '').trim();

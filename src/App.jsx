@@ -1,3 +1,6 @@
+import PreparedHomeworkHost from './components/PreparedHomeworkHost.jsx';
+import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress} from './utils/preparedHomework.js';
+import {openPreparedHomework} from './services/preparedHomework.js';
 import {paintPreparedInk,compositePreparedInk,isPreparedTaskAnchor} from './utils/preparedInk.js';
 import {preparedBoardView,animatePreparedBoardView} from './utils/preparedBoardView.js';
 import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
@@ -1089,6 +1092,7 @@ const normalizeBoardAssetUrl = (value) => {
   if (!raw || raw.length > 2048) return '';
   try {
     const url = new URL(raw, 'https://board-assets.local');
+    if(/^\/api\/prepared-homework\/[a-f0-9-]{36}\/assets\/[a-f0-9-]{36}$/.test(url.pathname))return url.pathname+(url.searchParams.get('studentId')?'?studentId='+encodeURIComponent(url.searchParams.get('studentId')):'');
     return /^\/uploads\/board-asset-[a-f0-9]{64}\.(?:png|jpe?g|webp|gif)$/i.test(url.pathname)
       ? url.pathname
       : '';
@@ -1104,6 +1108,7 @@ const getBoardImageStoredSource = (item) => {
 const getBoardImageSource = (item) => {
   const source = getBoardImageStoredSource(item);
   if (!source || source.startsWith('data:')) return source;
+  if(source.startsWith('/api/prepared-homework/'))return withStoredAuthToken(resolveApiUrl(source));
   return resolveAuthenticatedUploadsUrl(source);
 };
 const prepareBoardImageElement = (image, source) => {
@@ -1737,6 +1742,7 @@ const getTaskDisplayNumber = (task) => task?.displayNumber ?? formatTaskNumber(
 const normalizeMockExamId = (value) => String(value || '').trim();
 
 const normalizeGoalType = (goal) => {
+  if(isPreparedHomeworkGoal(goal))return 'prepared';
   const rawType = String(goal?.type || '').trim().toLowerCase();
   if (rawType === GOAL_TYPE_MOCK) return GOAL_TYPE_MOCK;
   if (!rawType && normalizeMockExamId(goal?.mockExamId)) return GOAL_TYPE_MOCK;
@@ -6061,7 +6067,7 @@ export const CollabSection = ({
       name: COLLAB_TEST_FILE_RUNTIME_NAME,
       bytes: new TextEncoder().encode(normalizeCollabTextFileContent(testFileText)),
     }];
-    for(const asset of preparedRuntimeFiles(preparedCodeCard?.attachments||[])) {
+    for(const asset of preparedRuntimeFiles(isSandbox?sandbox?.runtimeFiles||[]:preparedCodeCard?.attachments||[])) {
       if(asset.sizeBytes>16*1024*1024)throw Error('Входной файл задачи должен быть не больше 16 МБ.');
       if(payload.some(file=>file.name.toLowerCase()===asset.runtimeName.toLowerCase()))throw Error(`Имя ${asset.runtimeName} уже используется во вводе и файлах.`);
       const response=await apiFetch(asset.url);if(!response.ok)throw Error(`Не удалось получить файл ${asset.runtimeName}`);
@@ -6139,7 +6145,7 @@ export const CollabSection = ({
       });
     });
     return payload;
-  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText, preparedCodeCard]);
+  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText, preparedCodeCard, isSandbox, sandbox?.runtimeFiles]);
 
   const handleUploadTaskFiles = async (fileList) => {
     if (isSandbox || collabReadOnly) return;
@@ -18392,7 +18398,7 @@ export const BoardCanvasSection = ({
   );
 };
 
-const LessonReplaySandboxSurface = ({
+export const LessonReplaySandboxSurface = ({
   branch,
   branchEpoch,
   surface,
@@ -18405,6 +18411,7 @@ const LessonReplaySandboxSurface = ({
   tasks,
   students,
   withStudentId,
+  runtimeFiles = [],
 }) => {
   const branchBoard = branch?.board;
   const sandboxBoard = useMemo(() => ({
@@ -18485,6 +18492,7 @@ const LessonReplaySandboxSurface = ({
       sandbox={{
         id: `${sandboxId}:lesson`,
         code: branch.code,
+        runtimeFiles,
         board: sandboxBoard,
         readOnly,
       }}
@@ -23757,6 +23765,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         if (Array.isArray(item.goals) && item.goals.length > 0) {
           return item.goals
             .map((goal) => {
+              if(isPreparedHomeworkGoal(goal))return normalizePreparedHomeworkGoal(goal);
               const goalType = normalizeGoalType(goal);
               if (goalType === GOAL_TYPE_MOCK) {
                 const mockExamId = normalizeMockExamId(goal?.mockExamId);
@@ -23863,6 +23872,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       }
 
       const goalsForEntry = (entry) => normalizeEntryGoals(entry).map((goal) => {
+        if(isPreparedHomeworkGoal(goal)){const progress=preparedHomeworkProgress(goal);return {...goal,...progress,completed:progress.solvedCount===1};}
         if (goal.type === GOAL_TYPE_MOCK) {
           const mockExamId = normalizeMockExamId(goal.mockExamId);
           const mockExam = mockExamById[mockExamId] || null;
@@ -23937,7 +23947,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       const entryStates = entries.map(entry => {
       const filteredGoals = goalsForEntry(entry).filter(
         (goal) => (
-          goal.type === GOAL_TYPE_MOCK
+          isPreparedHomeworkGoal(goal)?true:goal.type === GOAL_TYPE_MOCK
             ? Boolean(goal.mockExamId)
             : (goal.includeAll || (Array.isArray(goal.targetNumbers) && goal.targetNumbers.length > 0))
         )
@@ -23992,6 +24002,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     refreshGoalState();
   }, [user.role, user.id, goalRefreshTick, homeworkSyncTick, goalTestsDb, goalTestsLoaded, taskTitles, taskCatalog]);
 
+  useEffect(()=>{const refresh=()=>setGoalRefreshTick(value=>value+1);window.addEventListener('prepared-homework-progress',refresh);return()=>window.removeEventListener('prepared-homework-progress',refresh);},[]);
   const goalGoals = Array.isArray(goalState?.goals) ? goalState.goals : [];
   const requiredGoalGoals = goalGoals.filter((goal) => !isOptionalHomeworkGoal(goal));
   const optionalGoalGoals = goalGoals.filter((goal) => isOptionalHomeworkGoal(goal));
@@ -26290,6 +26301,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   scheduleHomeworkFlyRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
                   return;
                 }
+                if(isPreparedHomeworkGoal(firstGoal)){openPreparedHomework(firstGoal,user.id);return;}
                 if (firstGoal.type === GOAL_TYPE_MOCK) {
                   openHomeworkMockGoal(firstGoal);
                 } else {
@@ -27846,10 +27858,10 @@ const MainApp = () => {
     </>
   );
   return user.role === 'teacher' ? (
-    <><LessonFallback user={user} /><React.Suspense fallback={<div className="app-loading-screen">Проверяем защиту аккаунта…</div>}>
+    <><PreparedHomeworkHost user={user} theme={theme}/><LessonFallback user={user} /><React.Suspense fallback={<div className="app-loading-screen">Проверяем защиту аккаунта…</div>}>
       <TeacherEmailEnrollment key={user.id} user={user} onLogout={handleLogout}>{dashboard}</TeacherEmailEnrollment>
     </React.Suspense></>
-  ) : <><LessonFallback user={user} /><React.Suspense fallback={null}><LessonPaceFeedback key={user.id} user={user} /></React.Suspense>{dashboard}</>;
+  ) : <><PreparedHomeworkHost user={user} theme={theme}/><LessonFallback user={user} /><React.Suspense fallback={null}><LessonPaceFeedback key={user.id} user={user} /></React.Suspense>{dashboard}</>;
 };
 
 const LessonPaceFeedback = React.lazy(() => import('./components/LessonPaceFeedback.jsx'));
