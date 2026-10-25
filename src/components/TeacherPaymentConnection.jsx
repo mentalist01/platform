@@ -75,6 +75,7 @@ export default function TeacherPaymentConnection({ teacherId }) {
       <dl className="payment-connection__details"><div><dt>Последний запрос с личным ключом</dt><dd>{date(connection.lastRequestAt)}</dd></div><div><dt>Результат</dt><dd>{statuses[connection.lastStatus] || 'Ожидает запрос'}</dd></div></dl>
       {connection.lastReason && <p className="payment-connection__reason">{connection.lastReason}</p>}
     </>}
-    <PaymentNotificationHistory key={teacherId} notifications={notifications} loading={busy} />
+    <PaymentNotificationHistory key={teacherId} teacherId={teacherId} notifications={notifications} loading={busy}
+      onResolved={result => setNotifications(previous => previous.map(entry => entry.id === result.notification.id ? result.notification : entry))} />
   </section>;
 }

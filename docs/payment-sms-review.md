@@ -18,8 +18,16 @@ Use a stable notification ID and timestamp across retries. POST only to the `/tb
 
 ## Teacher Workflow
 
-Open Finance > Auto Payment and select the pending/review status. Each SMS states that no money has been credited. Check the bank history and any matching bank-app payment before manually recording a missing receipt through the balance or lesson payment form. Never confirm a matching SMS merely because it is visible in this list.
+Open Finance > Auto Payment and select the pending/review status. Each SMS states that no money has been credited. Check the bank history and any matching bank-app payment, then use the SMS row's review action. Never confirm a matching SMS merely because it is visible in this list.
 
-Notification totals describe saved messages, not a bank statement. A bank push and its SMS may both appear; this does not credit money twice because the SMS cannot create a receipt.
+The review dialog offers a new receipt or a link to an existing equal-amount receipt within three days. A new receipt requires explicit confirmation; if similar receipts exist, it also requires confirmation that this is a separate transfer. Linking changes the SMS to `duplicate` and credits nothing. Only active per-lesson student balance accounts are supported.
+
+`GET /api/payment-notifications/:id/review` is read-only and returns a preview token. `POST` to the same path requires strict JSON with `confirmed`, the preview token, and mode `new` or `link`. Only the owning teacher may act. Amount and pupil are resolved from the saved SMS, never the submitted fields. Receipt plus SMS resolution are persisted together in the wallet ledger; repeated or concurrent submissions reuse that resolution. A lost notification-status write can be repaired without crediting again.
+
+New SMS receipts are manual receipts. The existing delayed bank-push check routes a matching push within three days to manual confirmation. Linking that bank notification to a reviewed SMS receipt marks it as a duplicate in notification totals. This is a similarity safeguard, not a bank transaction ID or unlimited proof of economic identity.
+
+Notification totals describe saved messages, not a bank statement. Pending SMS are not credited automatically. Reviewed SMS and explicitly linked bank pushes are counted once.
 
 Verification: `node --test server/paymentSmsReview.integration.test.js` covers the screenshot format, read-only wallet and legacy behavior, teacher isolation, retries, SMS/push identity separation, and platform-subscription protection.
+
+`node --test server/paymentSmsReviewActions.integration.test.js src/utils/paymentSmsReview.test.js` also covers review authorization, read-only previews, double submission, late pushes, links without credit, conflicting/stale decisions, and recovery after process restart.

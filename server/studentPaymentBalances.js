@@ -175,6 +175,60 @@ export function possibleManualReceipts(account, receipt) {
     && (!entry.senderName || key(entry.senderName) === key(receipt.senderName)));
 }
 
+export const smsReviewResolution = (account, notificationId) => account.entries.find(entry => (
+  entry.type === 'receipt-link' && entry.reviewNotificationId === notificationId
+));
+
+export function smsReviewCandidates(account, notification) {
+  const cents = balanceCents(notification.amount);
+  const at = Date.parse(notification.receivedAt);
+  return account.entries.filter(entry => entry.type === 'receipt' && entry.creditCents === cents
+    && Math.abs(Date.parse(entry.at) - at) <= 3 * 86_400_000);
+}
+
+export const smsReviewToken = (account, notification) => crypto.createHash('sha256').update(JSON.stringify({
+  notification: [notification.id, notification.studentId, notification.amount, notification.receivedAt],
+  receipts: account.entries.filter(entry => entry.type === 'receipt' || entry.reviewNotificationId)
+    .map(entry => [entry.id, entry.receiptId, entry.creditCents, entry.bankConfirmed, entry.reviewNotificationId]),
+})).digest('hex');
+
+export function resolveBalanceSmsReview(account, notification, { mode, receiptEntryId = '', previewToken, confirmedSeparate = false }, now) {
+  if (!['new', 'link'].includes(mode)) throw balanceError('Выберите новый или уже учтённый перевод.', 'sms_review_invalid', 400);
+  const existing = smsReviewResolution(account, notification.id);
+  if (existing) {
+    if (existing.reviewMode !== mode || (mode === 'link' && existing.linkedReceiptEntryId !== receiptEntryId)) {
+      throw balanceError('Это SMS уже обработано. Обновите историю.', 'sms_review_resolved');
+    }
+    return { ...existing, alreadyResolved: true, skipAllocation: true };
+  }
+  if (notification.status !== 'pending') throw balanceError('Это уведомление уже обработано.', 'sms_review_resolved');
+  if (previewToken !== smsReviewToken(account, notification)) {
+    throw balanceError('История оплат изменилась. Обновите проверку перед подтверждением.', 'sms_review_stale');
+  }
+  const candidates = smsReviewCandidates(account, notification);
+  let receipt;
+  if (mode === 'link') {
+    receipt = candidates.find(entry => entry.id === receiptEntryId);
+    if (!receipt) throw balanceError('Выберите подходящий платёж этого ученика.', 'sms_review_invalid', 400);
+    account.knownReceiptIds.push(notification.id, notification.rawHash);
+  } else {
+    if (candidates.length && confirmedSeparate !== true) {
+      throw balanceError('Похожий перевод уже учтён. Свяжите SMS с ним или подтвердите отдельный перевод.', 'sms_review_existing_receipt');
+    }
+    const receiptId = `manual:sms:${notification.id}`;
+    addBalanceReceipt(account, { id: receiptId, amount: notification.amount, at: notification.receivedAt,
+      senderName: notification.senderName, source: 'manual', note: 'Перевод подтверждён по SMS',
+      aliases: [notification.id, notification.rawHash] }, now);
+    receipt = account.entries.find(entry => entry.type === 'receipt' && entry.receiptId === receiptId);
+    if (!receipt) throw balanceError('Поступление уже связано с другой записью. Нужна сверка.', 'sms_review_resolved');
+  }
+  account.knownReceiptIds = [...new Set(account.knownReceiptIds.filter(Boolean))];
+  const resolution = journal(account, 'receipt-link', 0, { receiptId: notification.id,
+    reviewNotificationId: notification.id, reviewMode: mode, linkedReceiptEntryId: receipt.id,
+    note: mode === 'new' ? 'Платёж по SMS подтверждён вручную' : 'SMS связано с ранее учтённым переводом; новых денег нет' }, now);
+  return { ...resolution, alreadyResolved: false, skipAllocation: mode === 'link' };
+}
+
 export function releaseBalanceAllocation(account, markKey, now, { block = false, reason = 'Оплата освобождена' } = {}) {
   const allocation = account.allocations[markKey];
   if (block) account.blocked[markKey] = now;

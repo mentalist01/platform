@@ -1,0 +1,31 @@
+.payment-review { box-sizing:border-box; width:min(560px,calc(100% - 24px)); max-height:calc(100dvh - 24px); padding:24px; border:1px solid #d8e0e5; border-radius:8px; background:#fff; color:#202b37; overflow-y:auto; overflow-wrap:anywhere; font-size:14px; line-height:1.5; letter-spacing:0; }
+.payment-review::backdrop { background:#11182770; }
+.payment-review .payment-review__header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; }
+.payment-review .payment-review__header h2 { margin:0; font-size:20px; letter-spacing:0; }
+.payment-review .payment-review__details { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px 20px; padding:0 0 20px; margin:0; border-bottom:1px solid #e4e9ed; }
+.payment-review dt { color:#647180; font-size:12px; }
+.payment-review dd { margin:3px 0 0; font-weight:600; }
+.payment-connection .payment-review button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 12px; border:1px solid #cbd5df; border-radius:6px; color:#334354; background:#fff; font-size:13px; line-height:1.4; white-space:normal; }
+.payment-connection .payment-review button:disabled { opacity:.55; cursor:not-allowed; }
+.payment-connection .payment-review .payment-review__close { width:36px; height:36px; min-height:36px; padding:0; flex-shrink:0; }
+.payment-connection .payment-review .payment-review__submit { background:#087e8b; border-color:#087e8b; color:white; }
+.payment-connection .payment-review .payment-review__submit:hover:not(:disabled) { background:#076773; }
+.payment-review__status { display:flex; align-items:flex-start; gap:8px; margin:16px 0; color:#556473; font-size:13px; }
+.payment-review__status svg { flex-shrink:0; }
+.payment-review__error { color:#a1243c; margin:16px 0; }
+.payment-review__warning { margin:16px 0; padding-left:12px; border-left:3px solid #bc841f; color:#865b13; font-size:13px; }
+.payment-review .payment-review__modes { display:flex; flex-wrap:wrap; gap:8px; margin:20px 0 16px; padding:0; border:0; }
+.payment-review .payment-review__modes label { display:flex; flex-direction:row; align-items:center; gap:6px; min-height:40px; padding:8px 10px; border:1px solid #d4dde4; border-radius:6px; color:#344454; font-size:13px; cursor:pointer; }
+.payment-review .payment-review__modes label:has(input:checked) { background:#eef8f8; border-color:#087e8b; color:#09616b; }
+.payment-review .payment-review__check { display:flex; flex-direction:row; align-items:flex-start; gap:9px; margin:16px 0; color:inherit; font-size:13px; font-weight:400; }
+.payment-review .payment-review__check input, .payment-review .payment-review__modes input { min-height:0; width:16px; height:16px; padding:0; margin:3px 0 0; flex-shrink:0; accent-color:#087e8b; }
+.payment-review .payment-review__modes input { margin:0; }
+.payment-review .payment-review__select { display:flex; flex-direction:column; gap:6px; color:#536372; font-size:12px; }
+.payment-review select { box-sizing:border-box; width:100%; min-height:42px; border:1px solid #cbd5df; border-radius:6px; background:white; color:#253545; font-size:13px; padding:8px; }
+.payment-review__footer { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:24px; padding-top:16px; border-top:1px solid #e4e9ed; }
+.payment-review :focus-visible { outline:2px solid #087e8b; outline-offset:3px; }
+.payment-connection .payment-history button.payment-history__review { display:inline-flex; align-items:center; gap:6px; min-height:34px; margin:8px 0; padding:6px 10px; border-radius:6px; border-color:#087e8b; color:#08626c; background:#eef8f8; }
+.payment-history__review-result { padding:12px 0 12px 12px; border-left:3px solid #168054; color:#14633e; font-size:13px; }
+@media(max-width:420px) { .payment-review { padding:16px; } .payment-review__footer > button { flex:1 1 100%; } }
+html[data-theme='dark'] .payment-review { background:#20262c; color:#edf1f4; border-color:#46515b; }
+html[data-theme='dark'] .payment-review dt, html[data-theme='dark'] .payment-review__status { color:#b5c0ca; }

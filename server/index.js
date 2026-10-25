@@ -18,7 +18,9 @@ import {
   addBalanceReceipt, possibleManualReceipts, reconcileBalanceAccount,
   reserveBalanceAllocation, releaseBalanceAllocation, balancePaidByMonth, balanceError,
   confirmBalancePending, adjustBalance, settleBalanceLesson,
+  smsReviewResolution, smsReviewCandidates, smsReviewToken, resolveBalanceSmsReview,
 } from './studentPaymentBalances.js';
+import { isSmsPaymentNotification } from '../src/utils/paymentSmsReview.js';
 import { retainWalletPaymentProjections, selectBalanceReconciliationStudents } from './studentBalanceCore.js';
 import { createStudentBalanceReadContext } from './studentBalanceReadContext.js';
 import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordinator.js';
@@ -3573,6 +3575,9 @@ const normalizePaymentNotificationEntry = (value) => {
     matchMode: normalizePaymentNotificationText(source.matchMode).slice(0, 40),
     paymentTarget: source.paymentTarget === 'teacher-platform' ? 'teacher-platform' : 'student',
     paymentMonth: normalizeTeacherFinanceMonthKey(source.paymentMonth),
+    reviewSource: isSmsPaymentNotification(source) ? 'sms' : '',
+    reviewedAt: normalizePaymentNotificationTimestamp(source.reviewedAt, ''),
+    linkedReceiptId: String(source.linkedReceiptId || '').slice(0, 160),
     markKeys: Array.isArray(source.markKeys)
       ? source.markKeys.map((item) => normalizeTeacherCalendarMarkKey(item)).filter(Boolean).slice(0, 20)
       : [],
@@ -18447,6 +18452,7 @@ const handleTbankPaymentNotification = async (payload = {}, context = {}) => {
     requestedTeacherId: context.requestedTeacherId,
     authMode: context.authMode,
     keyId: context.keyId,
+    reviewSource: context.reviewOnly ? 'sms' : '',
   };
 
   const existingDb = readPaymentNotificationsDb();
@@ -18603,6 +18609,9 @@ const serializePaymentNotificationEntry = (entry = {}, options = {}) => {
     matchMode: normalizePaymentNotificationText(entry.matchMode).slice(0, 40),
     paymentTarget: entry.paymentTarget === 'teacher-platform' ? 'teacher-platform' : 'student',
     paymentMonth: normalizeTeacherFinanceMonthKey(entry.paymentMonth),
+    reviewSource: isSmsPaymentNotification(entry) ? 'sms' : '',
+    reviewedAt: normalizePaymentNotificationTimestamp(entry.reviewedAt, ''),
+    linkedReceiptId: String(entry.linkedReceiptId || ''),
     markKeys: Array.isArray(entry.markKeys) ? entry.markKeys.map((item) => String(item || '').trim()).filter(Boolean) : [],
   };
   if (includeText) {
@@ -39736,6 +39745,99 @@ const walletResponseError = (res, error) => res.status(error.status || 500).json
   error: error.code ? error.message : 'Не удалось обновить баланс. Деньги не начисляйте повторно; обновите историю.',
   code: error.code || 'balance_failed',
 });
+
+const readSmsReviewContext = (teacher, notificationId) => {
+  const notification = readPaymentNotificationsDb().items.find(item => item.id === notificationId
+    && paymentNotificationReceiverMatches(item, teacher.id));
+  if (!notification) throw balanceError('Уведомление не найдено.', 'sms_review_not_found', 404);
+  if (!isSmsPaymentNotification(notification) || notification.paymentTarget === 'teacher-platform'
+    || notification.currency !== 'RUB' || balanceCents(notification.amount) <= 0) {
+    throw balanceError('Для этого уведомления учёт по SMS недоступен.', 'sms_review_invalid', 400);
+  }
+  const studentId = notification.studentId || readPaymentSenderLinksDb()[teacher.id]?.links?.[notification.senderKey]?.studentId;
+  const student = studentId && findStudentById(studentId, { allowDeleted: true });
+  if (!student || student.teacherId !== teacher.id) {
+    throw balanceError('Сначала привяжите плательщика к ученику в разделе «Ученики».', 'sms_review_student_missing');
+  }
+  const entry = getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacher.id);
+  const account = entry.studentPaymentBalances?.accounts?.[student.id];
+  if (!account || !walletStudentEligible(student, entry)) {
+    throw balanceError('Поурочный баланс ученика не подключён или приостановлен. Проверьте «Финансы → Балансы».', 'sms_review_balance_unavailable');
+  }
+  const resolved = { ...notification, studentId: student.id, studentName: student.nickname || student.name };
+  return { notification: resolved, student, account };
+};
+
+app.get('/api/payment-notifications/:notificationId/review', (req, res) => {
+  const teacher = walletRequestTeacher(req, res);
+  if (!teacher) return;
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const { notification, student, account } = readSmsReviewContext(teacher, req.params.notificationId);
+    const resolution = smsReviewResolution(account, notification.id);
+    return res.json({ notification: serializePaymentNotificationEntry(notification, { includeText: true }),
+      student: { studentId: student.id, studentName: notification.studentName, available: balanceSummary(account).available },
+      alreadyResolved: notification.status !== 'pending',
+      recovery: resolution && notification.status === 'pending'
+        ? { mode: resolution.reviewMode, receiptEntryId: resolution.linkedReceiptEntryId } : null,
+      previewToken: smsReviewToken(account, notification),
+      candidates: smsReviewCandidates(account, notification).map(receipt => ({ entryId: receipt.id,
+        amount: receipt.creditCents / 100, receivedAt: receipt.at, senderName: receipt.senderName || '', source: receipt.source })),
+    });
+  } catch (error) { return walletResponseError(res, error); }
+});
+
+app.post('/api/payment-notifications/:notificationId/review', async (req, res) => {
+  // The webhook prefix uses a text parser for bank notifications; account actions require strict JSON.
+  try {
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Invalid object');
+    req.body = body;
+  } catch {
+    return res.status(400).json({ error: 'Некорректный запрос проверки оплаты.', code: 'sms_review_invalid' });
+  }
+  const teacher = walletRequestTeacher(req, res);
+  if (!teacher) return;
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    if (req.body?.confirmed !== true) throw balanceError('Подтвердите результат сверки перевода.', 'sms_review_confirmation', 400);
+    const response = await enqueuePaymentNotification(teacher.id, async () => {
+      const { notification, student } = readSmsReviewContext(teacher, req.params.notificationId);
+      const balances = await mutateStudentBalances(teacher.id, { studentId: student.id, allowCalendarFailure: true,
+        action: ({ wallet, entry, now }) => {
+          const account = wallet.accounts[student.id];
+          if (!account || !walletStudentEligible(student, entry)) throw balanceError('Поурочный баланс ученика недоступен.');
+          return resolveBalanceSmsReview(account, notification, req.body || {}, now);
+        },
+      });
+      const resolution = balances.actionResult;
+      const studentBalance = balances.students.find(row => row.studentId === student.id);
+      const account = getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacher.id).studentPaymentBalances.accounts[student.id];
+      const notifications = readPaymentNotificationsDb();
+      const stored = notifications.items.find(item => item.id === notification.id && paymentNotificationReceiverMatches(item, teacher.id));
+      if (!stored) throw balanceError('Платёж сохранён, но журнал недоступен. Не начисляйте деньги повторно.', 'sms_review_history_missing', 503);
+      // The resolution lives in the wallet commit. A retry repairs this projection without crediting again.
+      if (!stored.reviewedAt) {
+        Object.assign(stored, {
+          studentId: student.id, studentName: notification.studentName, reviewSource: 'sms',
+          reviewedAt: resolution.recordedAt, linkedReceiptId: resolution.linkedReceiptEntryId,
+          status: resolution.reviewMode === 'new' ? 'applied' : 'duplicate',
+          reason: resolution.reviewMode === 'new'
+            ? `Учтено вручную по SMS: ${notification.amount} ₽. Свободный баланс: ${studentBalance?.available || 0} ₽.`
+            : 'SMS связано с уже учтённым переводом. Повторного начисления нет.',
+          markKeys: resolution.reviewMode === 'new' ? Object.values(account.allocations)
+            .filter(allocation => allocation.funds?.some(fund => fund.entryId === resolution.linkedReceiptEntryId))
+            .map(allocation => allocation.markKey) : [],
+        });
+        writePaymentNotificationsDb(notifications);
+      }
+      return { notification: serializePaymentNotificationEntry(stored, { includeText: true }), student: studentBalance,
+        alreadyResolved: resolution.alreadyResolved,
+        receivedAmount: !resolution.alreadyResolved && resolution.reviewMode === 'new' ? notification.amount : 0 };
+    });
+    return res.json(response);
+  } catch (error) { return walletResponseError(res, error); }
+});
 app.use('/api/student-payment-balances', (_req, res, next) => {
   if (isStudentBalanceMaintenance()) return walletResponseError(res, studentBalanceMaintenanceError());
   return next();
@@ -39822,7 +39924,15 @@ app.post('/api/student-payment-balances/:studentId/confirm', async (req, res) =>
       } });
       const notifications = readPaymentNotificationsDb();
       const notification = notifications.items.find(n => n.id === req.body?.notificationId && n.teacherId === teacher.id && n.studentId === student.id);
-      if (notification) { notification.status = 'applied'; notification.reason = req.body.manualEntryId ? 'Связано с ранее внесённым ручным платежом; повторного начисления нет.' : 'Подтверждено как новый платёж на баланс.'; writePaymentNotificationsDb(notifications); }
+      if (notification) {
+        const manual = response.students.find(row => row.studentId === student.id)?.entries.find(item => item.id === req.body.manualEntryId);
+        const smsOrigin = manual?.receiptId?.startsWith('manual:sms:')
+          && notifications.items.some(item => item.id === manual.receiptId.slice('manual:sms:'.length)
+            && item.teacherId === teacher.id && item.studentId === student.id && item.status === 'applied');
+        notification.status = smsOrigin ? 'duplicate' : 'applied';
+        notification.reason = req.body.manualEntryId ? 'Связано с ранее внесённым ручным платежом; повторного начисления нет.' : 'Подтверждено как новый платёж на баланс.';
+        writePaymentNotificationsDb(notifications);
+      }
       return response;
     });
     return res.json(result);
