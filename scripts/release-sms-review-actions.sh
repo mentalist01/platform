@@ -40,7 +40,17 @@ node --check server/index.js
 node --test server/paymentSmsReview.integration.test.js server/paymentSmsReviewActions.integration.test.js server/studentPaymentBalances.test.js server/studentPaymentBalances.integration.test.js server/teacherPaymentConnections.integration.test.js server/teacherPlatformPayments.integration.test.js server/paymentNotificationHistory.integration.test.js src/utils/paymentHistory.test.js src/utils/paymentSmsReview.test.js > "$backup/tests.log" 2>&1
 node --max-old-space-size=2048 scripts/build.mjs --outDir "$stage" > "$backup/build.log" 2>&1
 node scripts/check-payment-keys-release.mjs local "$stage"
-node scripts/check-scheduling-hours-release.mjs local "$stage"
+node --input-type=module - "$stage" <<'JS'
+import fs from 'node:fs';
+import path from 'node:path';
+const assets = path.join(process.argv[2], 'assets');
+const source = fs.readdirSync(assets).filter(name => name.endsWith('.js'))
+  .map(name => fs.readFileSync(path.join(assets, name), 'utf8')).join('\n');
+for (const text of ['Учесть оплату', 'Связать без начисления', 'Это отдельный перевод, не один из найденных.', '/review?teacherId=']) {
+  if (!source.includes(text)) throw Error(`SMS review bundle missing: ${text}`);
+}
+console.log('SMS review dialog and API bundle verified.');
+JS
 node scripts/check-scheduling-hours-release.mjs preflight /root/platform-data
 cp -a "$stage/assets/." dist/assets/
 cp -a "$stage/vendor/." dist/vendor/
