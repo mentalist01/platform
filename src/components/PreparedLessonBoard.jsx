@@ -19,7 +19,7 @@ import {preparedAnswerLayout} from '../utils/preparedAnswerTable.js';
 export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showReferenceAnswers,worldAnchor}){
   const element=useRef(null);
   const [homeworkQueued,setHomeworkQueued]=useState(false);
-  useEffect(()=>{if(!element.current||!onMeasure)return;const node=element.current,report=()=>{if(node.isConnected)onMeasure(card.id,node.offsetHeight);},observer=new ResizeObserver(report);observer.observe(node);report();return()=>observer.disconnect();},[card.id,onMeasure]);
+  useEffect(()=>{if(!element.current||!onMeasure)return;const node=element.current,report=()=>{if(node.isConnected)onMeasure(card.id,node.offsetHeight,node.querySelector('.prepared-card-body')?.offsetTop);},observer=new ResizeObserver(report);observer.observe(node);report();return()=>observer.disconnect();},[card.id,card.conditionTop,onMeasure]);
   const draftKey=`prepared-answer:${auth.role}:${auth.id}:${run.id}:${card.id}`;
   const [draft]=useState(()=>{try{return JSON.parse(localStorage.getItem(draftKey)||'null');}catch{return null;}});
   const [draftConflict,setDraftConflict]=useState(Boolean(draft&&draft.revision!==card.answerRevision));
@@ -45,6 +45,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   const blocked=readOnly||draftConflict||busy||Boolean(unavailable),answerLayout=preparedAnswerLayout(card);
   const answerInput=i=><input key={i} aria-label={independent?`Ответ на вопрос ${i+1} задачи ${card.index+1}`:`Ответ задачи ${card.index+1}${card.answerCount>1?`, поле ${i+1}`:''}`} value={answers[i]||''} placeholder={reference?.[i]||(independent?'Ваш ответ':card.answerCount>1?`Ответ ${i+1}`:'')} maxLength={500} readOnly={readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct'||Boolean(unavailable)} onFocus={()=>{if(!readOnly&&!draftConflict&&card.status!=='solved'&&!(independent&&card.fieldResults?.[i]==='correct'))void claim().catch(error=>setMessage(error.message));}} onChange={e=>change(i,e.target.value)} onPaste={e=>{if(readOnly||draftConflict||card.status==='solved'||unavailable||independent&&card.fieldResults?.[i]==='correct')return;const values=splitPastedAnswerValues(e.clipboardData.getData('text'));if(values.length>1){e.preventDefault();change(i,'',values);}}} onKeyDown={e=>{if(e.key==='Enter'){if(independent){void check(false,i);return;}const nodes=Array.from(e.currentTarget.parentElement.querySelectorAll('input')),next=nodes[nodes.indexOf(e.currentTarget)+1];if(next)next.focus();else void check(false);}}}/>;
   return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--${card.status}`} style={style} aria-label={`Подготовленная задача ${card.index+1}`}>
+    <div className={`prepared-card-controls${Number.isFinite(card.conditionTop)?' is-pinned':''}`} style={Number.isFinite(card.conditionTop)?{height:card.conditionTop}:undefined}>
     <header><strong className="prepared-task-name">{title}</strong><span>ЕГЭ №{card.taskNumber||run.taskNumber}</span>{run.sources?.length>1&&<span className="prepared-card-source" title={card.setName}>{card.setName}</span>}{card.difficult&&<span className="prepared-hard-badge">Сложная</span>}<strong className="prepared-task-status">{card.status==='solved'?'Решено':card.status==='skipped'?'Пропущено':'Решаем'}</strong>{run.canManage&&!run.homework&&!readOnly&&<button type="button" className={`prepared-card-homework${homeworkQueued?' is-queued':''}`} disabled={busy} title="Добавить задачу в подготовку домашки" onPointerDown={e=>e.stopPropagation()} onClick={()=>void queueHomework()}><Home size={12}/>{homeworkQueued?'В черновике ДЗ':'На дом'}</button>}</header>
     <div className="prepared-card-interactive" onPointerDown={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>
       {draftConflict&&<div className="prepared-draft-conflict"><p>Сохранённый на этом устройстве ответ отличается от общего. Какой оставить?</p><button type="button" onClick={()=>{setDraftConflict(false);answerRevision.current=card.answerRevision;setAnswers(draft.answers);latest.current.answers=draft.answers;dirty.current=true;void flush().catch(error=>setMessage(error.message));}}>Восстановить мой черновик</button><button type="button" onClick={()=>{setDraftConflict(false);try{localStorage.removeItem(draftKey);}catch{/* optional backup */}}}>Оставить общий ответ</button></div>}
@@ -62,6 +63,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
       {canEditFiles&&<input ref={upload} type="file" hidden onChange={event=>{const file=event.target.files?.[0];if(!file)return;const assetId=event.target.dataset.assetId,revision=event.target.dataset.revision;event.target.value='';void perform(async()=>{const form=new FormData();form.append('file',file);form.append('cardId',card.id);form.append('assetId',assetId);form.append('revision',revision);await preparedRequest(`/api/lesson-task-runs/${run.id}/solution`,form);context.refresh();setMessage('Решение сохранено на доске и в конспектах.');});}}/>}
 
     </div>
+    </div>
     <div className="prepared-card-body">{card.images.map((asset,i)=><img key={asset.id} src={preparedAssetUrl(asset.url)} alt={`Условие задачи ${card.index+1}, изображение ${i+1}`} draggable={false} style={{height:Math.min(900,600*asset.height/asset.width)}}/>)}</div>
   </article>;
 }
@@ -78,7 +80,18 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   useEffect(()=>{setHeaderSlot(surface.current?.querySelector('.board-prepared-slot')||null);focused.current='';},[room,surface]);
   const layoutAction=context.action;
   useEffect(()=>{onVisualChange?.();return()=>onVisualChange?.();},[room,run?.version,onVisualChange]);
-  const measured=useCallback((id,height)=>{onVisualChange?.();heights.current.set(id,height);clearTimeout(layoutTimer.current);layoutTimer.current=setTimeout(()=>{const current=latest.current.run;if(!current?.canManage||readOnly)return;const cards=current.cards.filter(card=>heights.current.has(card.id)&&Math.abs(heights.current.get(card.id)-card.height)>=2).map(card=>({id:card.id,height:heights.current.get(card.id)}));if(cards.length)void layoutAction(current.id,{action:'layout',cards}).catch(e=>setError(e.message));},140);},[layoutAction,readOnly,onVisualChange]);
+  const measured=useCallback((id,height,conditionTop)=>{
+    onVisualChange?.();heights.current.set(id,{height,conditionTop});clearTimeout(layoutTimer.current);
+    layoutTimer.current=setTimeout(()=>{
+      const current=latest.current.run;if(!current?.canManage||readOnly)return;
+      const cards=current.cards.flatMap(card=>{
+        const size=heights.current.get(card.id);if(!size)return [];
+        const pin=card.kind!=='theory'&&!Number.isFinite(card.conditionTop)&&Number.isFinite(size.conditionTop);
+        return Math.abs(size.height-card.height)>=2||pin?[{id:card.id,height:size.height,...(pin?{conditionTop:size.conditionTop}:{})}]:[];
+      });
+      if(cards.length)void layoutAction(current.id,{action:'layout',cards}).catch(e=>setError(e.message));
+    },140);
+  },[layoutAction,readOnly,onVisualChange]);
   useEffect(()=>()=>clearTimeout(layoutTimer.current),[]);
   const pick=(card)=>{if(context.select(card.id)===false)return;const anchor=items.current.find(i=>i.id===card.anchorId);if(anchor){focus(anchor);focused.current=card.id;}if(run.canManage)void context.action(run.id,{action:'focus',cardId:card.id}).catch(e=>setError(e.message));};
   const selectedId=selected?.id,selectTask=context.select,runAction=context.action;

@@ -30,7 +30,7 @@
 .prepared-board-options-menu{position:absolute;right:0;top:38px;width:250px;padding:10px;background:var(--pt-panel);border:1px solid var(--pt-line);border-radius:12px;box-shadow:0 6px 24px #28203324;display:flex;gap:7px;flex-wrap:wrap;z-index:10}
 .prepared-board-options-menu label{display:flex;align-items:center;gap:6px;font-size:12px;width:100%}.prepared-board-options-menu label input{width:14px;height:14px}
 .prepared-card{position:absolute;transform-origin:0 0;background:var(--pt-panel);border:1px solid var(--pt-line);border-radius:12px;color:var(--pt-text);box-shadow:0 3px 14px #20172a0d;pointer-events:none;overflow:hidden}
-.prepared-card>header{display:flex;align-items:center;gap:10px;padding:9px 16px;font-size:11px;color:var(--pt-muted);border-bottom:1px solid var(--pt-line)}
+.prepared-card>header,.prepared-card-controls>header{display:flex;align-items:center;gap:10px;padding:9px 16px;font-size:11px;color:var(--pt-muted);border-bottom:1px solid var(--pt-line)}
 .prepared-card .prepared-task-name{font-size:15px;color:var(--pt-text);overflow-wrap:anywhere}.prepared-card .prepared-task-status{margin-left:auto;color:var(--pt-green);font-size:11px;white-space:nowrap}
 .prepared-card-interactive{pointer-events:auto;padding:10px 16px 0}.prepared-card-body{padding:10px 18px 14px}.prepared-card-body>img{width:600px;object-fit:contain;background:white;display:block;max-width:100%;margin:0 auto 6px}.prepared-card-body>img:last-child{margin-bottom:0}
 .prepared-card-answer>label{display:block;font-size:11px;font-weight:600;color:var(--pt-muted);margin-bottom:5px}.prepared-card-answer>div{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -105,7 +105,7 @@
 @media(max-width:640px){.prepared-exchange-preview{grid-template-columns:85px minmax(0,1fr)}.prepared-exchange-condition{padding:8px}.prepared-exchange-heading{flex-wrap:wrap;gap:8px}.prepared-set-actions button{font-size:11px}}
 
 .prepared-card{border-color:#ddd5ee;border-radius:15px;box-shadow:0 5px 22px #35205e0b;background:var(--pt-panel)}
-.prepared-card>header{padding:10px 16px;gap:9px;background:linear-gradient(105deg,var(--pt-soft),var(--pt-panel) 72%);border-bottom-color:color-mix(in srgb,var(--pt-accent) 14%,var(--pt-line))}
+.prepared-card>header,.prepared-card-controls>header{padding:10px 16px;gap:9px;background:linear-gradient(105deg,var(--pt-soft),var(--pt-panel) 72%);border-bottom-color:color-mix(in srgb,var(--pt-accent) 14%,var(--pt-line))}
 .prepared-card .prepared-task-name{display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;padding:2px 8px;border-radius:8px;background:var(--pt-panel);border:1px solid var(--pt-line);color:var(--pt-accent);font-size:14px;font-weight:750}
 .prepared-card .prepared-task-status{display:inline-flex;align-items:center;gap:5px;color:var(--pt-accent);background:var(--pt-soft);padding:4px 8px;border-radius:20px;font-weight:650;font-size:10px}
 .prepared-card .prepared-task-status:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
@@ -146,3 +146,5 @@
 .prepared-table-settings{padding:8px;margin-bottom:10px}.prepared-table-settings>div{flex-wrap:wrap;align-items:center}.prepared-table-settings label{display:flex;align-items:center;gap:6px;flex:1;white-space:nowrap}.prepared-table-settings input{width:58px;flex:1;min-width:40px}.prepared-table-settings>div>span{padding:0}.prepared-table-settings small{margin-top:5px}.prepared-table-settings button{min-height:32px}.prepared-task-settings>.prepared-difficulty-toggle{margin-bottom:8px}
 
 .prepared-task-settings .prepared-expected-answers>div.prepared-answer-table{gap:5px 7px}.prepared-task-settings .prepared-answer-table label{font-size:10px;line-height:1.15;gap:2px}.prepared-task-settings .prepared-answer-table input{min-height:32px;padding:6px 8px;font-size:12px}.prepared-task-settings .prepared-answer-table[data-columns="1"] label{grid-template-columns:56px minmax(0,1fr);align-items:center;gap:5px}
+
+.prepared-card-controls.is-pinned{display:flex;flex-direction:column;box-sizing:border-box;min-height:0;overflow:hidden}.prepared-card-controls.is-pinned>header{flex:none}.prepared-card-controls.is-pinned>.prepared-card-interactive{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-gutter:stable;padding-bottom:8px;overscroll-behavior:contain}

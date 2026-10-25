@@ -168,7 +168,7 @@ export class PreparedLessonTasks {
     if(!run)return null;
     const sources=preparedSourceUpdates(run,this.data.sets);
     return {sources,homework:Boolean(run.homework),id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,taskTotal:run.tasks.filter(task=>!isPreparedTheory(task)).length,canManage:teacher(access.auth)&&!access.readOnly,canEditFiles:!access.readOnly&&(!run.groupId||teacher(access.auth)),newTasksAvailable:teacher(access.auth)?sources.reduce((sum,source)=>sum+source.newTasksAvailable,0):0,checkingUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.checkingUpdateAvailable),filesUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.filesUpdateAvailable),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
+      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,...(Number.isFinite(c.conditionTop)?{conditionTop:c.conditionTop}:{}),status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:c.lease&&c.lease.until>this.now()?{name:c.lease.name,until:c.lease.until,actor:c.lease.actor}:null,images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),solution:this.solutionView(c.solutions?.[a.assetId])})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
@@ -290,12 +290,21 @@ export class PreparedLessonTasks {
     else if(input.action==='layout') {
       if(!Array.isArray(input.cards)||input.cards.length>200)fail(400,'Неверные размеры карточек');
       const doc=await this.board(run.room),items=doc.getArray('items');let changed=false;
-      const updates=input.cards.map(value=>{const entry=run.cards.find(c=>c.id===value.id),height=Math.ceil(Number(value.height));if(!entry||!Number.isFinite(height)||height<80||height>15000)fail(400,'Неверная высота карточки');return {entry,height};});
-      doc.transact(()=>{for(const {entry,height} of updates){
+      const updates=input.cards.map(value=>{
+        const entry=run.cards.find(c=>c.id===value.id),height=Math.ceil(Number(value.height));
+        if(!entry||!Number.isFinite(height)||height<80||height>15000)fail(400,'Неверная высота карточки');
+        const conditionTop=value.conditionTop===undefined?undefined:Math.ceil(Number(value.conditionTop));
+        if(conditionTop!==undefined&&(!Number.isFinite(conditionTop)||conditionTop<40||conditionTop>=height))fail(400,'Неверное положение условия');
+        return {entry,height,conditionTop};
+      });
+      doc.transact(()=>{for(const {entry,height,conditionTop} of updates){
+        if(!Number.isFinite(entry.conditionTop)&&conditionTop!==undefined&&!isPreparedTheory(run.tasks[entry.index])){
+          entry.conditionTop=conditionTop;entry.layoutVersion=3;changed=true;
+        }
         if(Math.abs(entry.height-height)<2)continue;
         const index=items.toArray().findIndex(item=>item.id===entry.anchorId),anchor=index>=0?items.get(index):null;
         if(anchor){const next={...anchor,height:height*(anchor.height/entry.height)};items.delete(index,1);items.insert(index,[next]);}
-        entry.height=height;entry.layoutVersion=2;changed=true;
+        entry.height=height;entry.layoutVersion=Number.isFinite(entry.conditionTop)?3:2;changed=true;
       }},'prepared-lesson:layout');
       if(!changed)return this.publicRun(run,access);
     }
