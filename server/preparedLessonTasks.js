@@ -7,6 +7,7 @@ import {isWorkbookFileName, parseWorkbookHelperAuthorization} from './workbookHe
 import {BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed} from './blankWorkbook.js';
 import {preparedSetParts} from '../src/utils/preparedSetParts.js';
 import {preparedFileSync} from '../src/utils/preparedFileSync.js';
+import {updatePreparedSet} from './preparedSetUpdate.js';
 import {preparedTaskSource,preparedRunSources,preparedSourceLatest,preparedSourceUpdates,preparedSetSequence,isPreparedTheory} from '../src/utils/preparedRunSources.js';
 import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
@@ -245,13 +246,23 @@ export class PreparedLessonTasks {
     const requireCard=()=>{if(!card)fail(404,'Задача не найдена');};
     if(card&&isPreparedTheory(run.tasks[card.index])&&['claim','answer','check','confirm-independent','claim-code','code'].includes(input.action))fail(400,'Теория не требует ответа и не считается решённой задачей');
     const lease=(kind='lease')=>{requireCard();const previous=card[kind];if(!previous||previous.until<now||previous.actor!==actorKey(auth)||previous.key!==input.leaseKey)fail(409,`${previous?.name||'Другой участник'} редактирует поле либо время ввода истекло. Возьмите ввод заново.`);};
-    if(['remove-set','restore-set','mode','auto','next','skip','focus','restore','layout','sync-files','sync-queue','sync-checking','choose','confirm-independent'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
+    if(['remove-set','restore-set','mode','auto','next','skip','focus','restore','layout','sync-set','sync-files','sync-queue','sync-checking','choose','confirm-independent'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
     if(input.action==='remove-set'||input.action==='restore-set'){
       if(run.teacherId!==auth.id)fail(403,'Наборами управляет преподаватель этой доски');
       if(run.homework)fail(409,'Состав домашней задачи меняется при назначении домашки');
       if(input.action==='remove-set')await removePreparedSet(this,run,text(input.setId));
       else await restorePreparedSet(this,run,text(input.removalId));
       await this.notify(run);return this.publicRun(run,access);
+    }
+    if(input.action==='sync-set'){
+      if(run.teacherId!==auth.id)fail(403,'Обновлять задачи может преподаватель этой доски');
+      if(run.homework)fail(409,'Назначенная домашка хранит отдельную копию задачи');
+      const set=this.data.sets[input.setId||run.setId];
+      if(!set||set.teacherId!==auth.id||!preparedRunSources(run).some(source=>source.id===set.id))fail(404,'Набор не найден на этой странице');
+      if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Откройте актуальную версию перед обновлением урока.');
+      if(set.draft)fail(409,'Дополните условия и ответы перед обновлением урока');
+      if(updatePreparedSet(this,run,set,auth))await this.notify(run);
+      return this.publicRun(run,access);
     }
     if(input.action==='mode')run.mode=input.mode==='prepared'?'prepared':'plain';
     else if(input.action==='confirm-independent'){

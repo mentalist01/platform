@@ -1,6 +1,7 @@
 import {preparedSetPartTasks,preparedTaskPartNumber,preparedPartTaskNumber} from './preparedSetParts.js';
 import {preparedFileSync} from './preparedFileSync.js';
 import {preparedAnswerTableChanged} from './preparedAnswerTable.js';
+import {preparedTaskContentChanged} from './preparedTaskContent.js';
 
 export const isPreparedTheory = task => task?.kind==='theory';
 export function preparedSetSequence(set,partNumber) {
@@ -33,7 +34,7 @@ export function preparedSourceLatest(run,set) {
   return run.tasks.flatMap((task,index)=>{
     const source=preparedTaskSource(run,task,index);
     if(source.id!==set.id)return [];
-    const latest=set.tasks.find(row=>row.id===source.taskId);
+    const latest=isPreparedTheory(task)?{...task,images:[...(set.theoryImages||[])]}:set.tasks.find(row=>row.id===source.taskId);
     return latest?[{...latest,id:task.id}]:[];
   });
 }
@@ -42,6 +43,7 @@ export function preparedSourceUpdates(run,sets) {
     const set=sets[source.id],sequence=set?preparedSetSequence(set,run.partFilters?.[source.id]):[],latest=preparedSourceLatest(run,set),byId=new Map(latest.map(task=>[task.id,task]));
     const known=new Set(run.tasks.filter(task=>preparedTaskSource(run,task).id===source.id).map(task=>preparedTaskSource(run,task).taskId));
     return {...source,setVersion:set?.version||source.version,
+      contentUpdateAvailable:Boolean(set&&!set.draft&&(set.name!==source.name||run.tasks.some(task=>{const row=byId.get(task.id);return row&&preparedTaskContentChanged(task,row);}))),
       theoryUpdateAvailable:Boolean(set&&!set.draft&&sequence.some(isPreparedTheory)&&!source.hasTheory),
       newTasksAvailable:set&&!set.draft?sequence.filter(task=>!isPreparedTheory(task)&&!known.has(task.id)).length:0,
       filesUpdateAvailable:preparedFileSync(run.tasks,latest).changed>0,
