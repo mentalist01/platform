@@ -1,3 +1,4 @@
+import PreparedQueueSummary from './PreparedQueueSummary.jsx';
 import {preparedSetParts} from '../utils/preparedSetParts.js';
 import {useRef, useState} from 'react';
 import {Search, X, Plus, GripVertical, ArrowUp, ArrowDown, Share2} from 'lucide-react';
@@ -6,7 +7,7 @@ import {filterPreparedSets, movePreparedSet} from '../utils/preparedSetLibrary.j
 const taskPlural = new Intl.PluralRules('ru');
 const taskNoun = count => ({one:'задание',few:'задания',many:'заданий',other:'задания'}[taskPlural.select(count)]);
 
-export default function PreparedSetList({sets, query, setQuery, loading, busy, onCreate, onEdit, onChoose, onReorder, onShare, activeRun}) {
+export default function PreparedSetList({sets, query, setQuery, loading, busy, onCreate, onEdit, onChoose, onReorder, onShare, activeRun,onRemove,onRestore}) {
   const [dragId, setDragId] = useState(''), [drop, setDrop] = useState(null);
   const list = useRef(null), pointer = useRef(null);
   const visible = filterPreparedSets(sets, query);
@@ -38,18 +39,18 @@ export default function PreparedSetList({sets, query, setQuery, loading, busy, o
     else {setDragId('');setDrop(null);}
   };
   return <div className="prepared-library-list-view">
-    {activeRun&&<div className="prepared-queue-summary"><strong>Наборов на этой странице: {activeRun.sources?.length||1}</strong><div>{(activeRun.sources||[{id:activeRun.setId,name:activeRun.name,total:activeRun.total}]).map((source,index)=><span key={source.id}><b>{index+1}</b>{source.name}<small>{source.total} {taskNoun(source.total)}</small></span>)}</div><p>«Добавить следом» продолжит очередь. Уже добавленные задачи и решения останутся на доске.</p></div>}
+    {activeRun&&<PreparedQueueSummary run={activeRun} busy={busy} onRemove={onRemove} onRestore={onRestore}/>}
     <div className="prepared-library-list-tools">
       <label className="prepared-set-search"><Search size={18}/><input aria-label="Поиск по наборам" placeholder="Найти набор: название, № ЕГЭ или часть" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="Очистить поиск наборов" onClick={() => setQuery('')}><X size={15}/></button>}</label>
       <button type="button" className="prepared-primary" disabled={busy || loading} onClick={onCreate}><Plus size={17}/>Создать набор</button>
     </div>
-    <div className="prepared-list-caption"><span>{query.trim() ? `Найдено ${visible.length} из ${sets.length}` : `Наборов: ${sets.length}`}</span><span role="status">{busy ? 'Сохраняем порядок…' : 'Перетаскивайте за ⋮⋮, чтобы изменить порядок'}</span></div>
+    <div className="prepared-list-caption"><span>{query.trim() ? `Найдено ${visible.length} из ${sets.length}` : `Наборов: ${sets.length}`}</span><span role="status">{busy ? 'Сохраняем…' : 'Перетаскивайте за ⋮⋮, чтобы изменить порядок'}</span></div>
     <div className="prepared-set-list" aria-label="Наборы заданий" ref={list}>
       {loading && <p className="prepared-muted" role="status">Загружаем наборы…</p>}
       {visible.map(set => <article key={set.id} data-set-id={set.id} className={`${dragId === set.id ? 'is-dragging ' : ''}${drop?.id === set.id ? drop.after ? 'drop-after' : 'drop-before' : ''}`}>
         <div className="prepared-set-order-controls"><button type="button" className="prepared-set-grip" disabled={busy} aria-label={`Переместить набор ${set.name || 'Без названия'}`} title="Перетащите или используйте стрелки вверх и вниз" onKeyDown={e => {if (['ArrowUp','ArrowDown'].includes(e.key)) {e.preventDefault();nudge(set.id, e.key === 'ArrowUp' ? -1 : 1);}}} onPointerDown={e=>{if(busy||e.button!==0)return;e.preventDefault();e.currentTarget.focus();e.currentTarget.setPointerCapture(e.pointerId);pointer.current={id:set.id,x:e.clientX,y:e.clientY,active:false,drop:null};}} onPointerMove={pointerMove} onPointerUp={finishPointer} onPointerCancel={()=>{pointer.current=null;setDragId('');setDrop(null);}}><GripVertical size={19}/></button><div><button type="button" aria-label={`Поднять набор ${set.name}`} disabled={busy || sets[0]?.id === set.id} onClick={() => nudge(set.id, -1)}><ArrowUp size={12}/></button><button type="button" aria-label={`Опустить набор ${set.name}`} disabled={busy || sets.at(-1)?.id === set.id} onClick={() => nudge(set.id, 1)}><ArrowDown size={12}/></button></div></div>
         <div className="prepared-set-description"><strong>{set.name || 'Без названия'}{set.draft && <em>Черновик</em>}</strong><small>ЕГЭ №{set.taskNumber} · {preparedSetParts(set).length>1?`части ${preparedSetParts(set).map(part=>part.partNumber).join(', ')}`:`часть ${set.partNumber}`} · {set.tasks.length} {taskNoun(set.tasks.length)}{set.theoryImages?.length?' · с теорией':''}</small></div>
-        <div className="prepared-set-actions">{onShare&&<button type="button" disabled={busy} onClick={()=>onShare(set)}><Share2 size={14}/>Поделиться</button>}<button type="button" disabled={busy} onClick={() => onEdit(set)}>Изменить</button>{onChoose && <><button type="button" className="prepared-primary" disabled={busy || set.draft || Boolean(activeRun&&(activeRun.sources||[{id:activeRun.setId}]).some(source=>source.id===set.id))} onClick={() => onChoose(set, false)}>{activeRun?(activeRun.sources||[{id:activeRun.setId}]).some(source=>source.id===set.id)?'В очереди':'Добавить следом':'На эту страницу'}</button><button type="button" disabled={busy || set.draft} onClick={() => onChoose(set, true)}>На новую страницу</button></>}</div>
+        <div className="prepared-set-actions">{onShare&&<button type="button" disabled={busy} onClick={()=>onShare(set)}><Share2 size={14}/>Поделиться</button>}<button type="button" disabled={busy} onClick={() => onEdit(set)}>Изменить</button>{onChoose && <><button type="button" className="prepared-primary" disabled={busy || set.draft || Boolean(activeRun?.removedSets?.some(row=>row.setId===set.id)) || Boolean(activeRun&&(activeRun.sources||[{id:activeRun.setId}]).some(source=>source.id===set.id))} onClick={() => onChoose(set, false)}>{activeRun?.total?(activeRun.sources||[{id:activeRun.setId}]).some(source=>source.id===set.id)?'В очереди':'Добавить следом':'На эту страницу'}</button><button type="button" disabled={busy || set.draft} onClick={() => onChoose(set, true)}>На новую страницу</button></>}</div>
       </article>)}
       {!loading && !visible.length && <div className="prepared-set-empty"><Search size={25}/><strong>{sets.length ? 'Наборы не найдены' : 'Наборов пока нет'}</strong><p>{sets.length ? 'Попробуйте другое название или номер ЕГЭ.' : 'Создайте первый набор — он сохранится для следующих уроков.'}</p>{query && <button type="button" onClick={() => setQuery('')}>Показать все наборы</button>}</div>}
     </div>
