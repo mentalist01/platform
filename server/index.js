@@ -23126,7 +23126,8 @@ registerHomeworkLives(app, homeworkLives, {
         ? 'Направление домашки не входит в план ученика' : '',
       estimatePlan: month => estimateHomeworkPlan(schedule, month),
       evaluate: homework => {
-        const testsDb = batch.testsDb ||= getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
+        const baseTestsDb = batch.testsDb ||= getTestsDbWithPythonInfiniteTraining(readTestsDbForStudent(student));
+        const testsDb = getTestsDbWithStudentMockFollowups(data, baseTestsDb);
         return homeworkDeadlineResult(
           { ...homework, goals: getNormalizedHomeworkGoals(homework, testsDb),
             learningEgeCancellations: groupEgeCancellationsForAssignment(

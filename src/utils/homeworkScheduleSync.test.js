@@ -231,6 +231,32 @@ test('does not roll an overdue legacy automatic homework forward without a calen
   assert.equal(result.studentData.homeworks[0].dueAt, homework.dueAt);
 });
 
+test('an ordinary read after the lesson starts never rolls a valid Moscow deadline to the next lesson', () => {
+  const homework = makeHomework({ issuedAt: '2026-10-14T19:22:59.412Z', dueAt: '2026-10-18T09:10:00.000Z', calendarOffsetMinutes: 180 });
+  const schedule = [{ id: 'sun', weekdayKey: 'sunday', time: '12:10' }, { id: 'wed', weekdayKey: 'wednesday', time: '17:00' }];
+  for (const now of ['2026-10-18T09:10:00.000Z', '2026-10-18T10:49:39.518Z', '2026-10-19T12:00:00.000Z']) {
+    const result = synchronizeHomeworkDueAtWithSchedule({
+      studentData: { homeworks: [homework], nextLesson: homework }, previousSchedule: schedule, schedule,
+      now: new Date(now), calendarOffsetMinutes: 180,
+      buildDayPlan: () => assert.fail('An expired deadline must not rebuild the plan'),
+    });
+    assert.equal(result.deadlineChanged, false);
+    assert.deepEqual(result.studentData.homeworks, [homework]);
+    assert.deepEqual(result.studentData.nextLesson, homework);
+  }
+});
+
+test('a past dated lesson kept in the authoritative calendar is not a deleted lesson', () => {
+  const homework = makeHomework({ dueAt: '2026-10-21T14:00:00.000Z', calendarOffsetMinutes: 180 });
+  const schedule = [{ id: 'previous', date: '2026-10-21', time: '17:00' }, { id: 'next', date: '2026-10-25', time: '12:00' }];
+  const result = synchronizeHomeworkDueAtWithSchedule({
+    studentData: { homeworks: [homework], nextLesson: homework }, previousSchedule: schedule, schedule,
+    now: new Date('2026-10-21T15:00:00Z'), treatMissingPlannedLessonAsDeleted: true, calendarOffsetMinutes: 180,
+  });
+  assert.equal(result.deadlineChanged, false);
+  assert.equal(result.studentData.homeworks[0].dueAt, homework.dueAt);
+});
+
 test('extends an overdue plan when the lesson at its boundary was explicitly deleted', () => {
   const homework = makeHomework({
     dueAt: '2026-07-30T09:30:00.000Z',

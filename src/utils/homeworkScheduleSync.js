@@ -133,11 +133,13 @@ export const synchronizeHomeworkDueAtWithSchedule = ({
       || legacyScheduleEntryWasRemoved
       || Boolean(treatMissingPlannedLessonAsDeleted)
     );
+  // Knowing the calendar time zone does not renew an expired assignment.
+  // Reading homework after a lesson starts must keep its original deadline;
+  // only evidence that the planned lesson was removed allows an extension.
   if (
     Number.isFinite(currentDueAtMs)
     && currentDueAtMs <= safeReference.getTime()
     && !plannedLessonWasDeleted
-    && !canReliablyResolveScheduleWallTime
   ) {
     return migrateTrackingMode()
       || { studentData: { ...data, schedule: nextSchedule }, deadlineChanged: false };
