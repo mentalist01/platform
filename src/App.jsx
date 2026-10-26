@@ -26534,7 +26534,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               getMockAnswerCountForTask={getMockAnswerCountForTask}
             />
           )}
-          {user.role === 'student' && <StudentAchievements key={user.id} user={user} onXpGain={handleXpGain} open={view === 'achievements'} quiet={['call', 'board', 'collab', 'lesson'].includes(view)} onOpen={() => navigateToView('achievements')} />}
+          {user.role === 'student' && <StudentAchievements key={user.id} user={user} onXpGain={handleXpGain} open={view === 'achievements'} onOpen={() => navigateToView('achievements')} />}
           {['teacher','student'].includes(user.role) && <PendingWorkbookParts key={`workbook-parts-${user.id}`} user={user}/>}
           {view === 'rating' && (
             <StudentLeaderboardSection

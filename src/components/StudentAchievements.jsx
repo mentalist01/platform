@@ -19,7 +19,7 @@ function Progress({ item }) {
   return <div className="achievement-progress" role="progressbar" aria-label={item.title} aria-valuemin={0} aria-valuemax={item.target} aria-valuenow={Math.min(item.value, item.target)}><i style={{ width: `${ratio(item)}%` }} /></div>;
 }
 
-export default function StudentAchievements({ user, open = false, quiet = false, onOpen, onXpGain }) {
+export default function StudentAchievements({ user, open = false, onOpen, onXpGain }) {
   const [data, setData] = useState(EMPTY), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('all'), [filter, setFilter] = useState('all'), [query, setQuery] = useState(''), [rarity, setRarity] = useState('all');
   const xpCallback = useRef(onXpGain);
@@ -33,18 +33,25 @@ export default function StudentAchievements({ user, open = false, quiet = false,
     document.addEventListener('pointerdown', prime, { passive: true }); document.addEventListener('keydown', prime);
     return () => { document.removeEventListener('pointerdown', prime); document.removeEventListener('keydown', prime); sound.current?.dispose(); sound.current = null; };
   }, []);
+  const [toastHost, setToastHost] = useState(() => document.fullscreenElement || document.webkitFullscreenElement || document.body);
   useEffect(() => {
-    if (quiet) return undefined;
-    let cancelled = false, busy = false, timer;
+    const syncHost = () => setToastHost(document.fullscreenElement || document.webkitFullscreenElement || document.body);
+    document.addEventListener('fullscreenchange', syncHost);
+    document.addEventListener('webkitfullscreenchange', syncHost);
+    return () => { document.removeEventListener('fullscreenchange', syncHost); document.removeEventListener('webkitfullscreenchange', syncHost); };
+  }, []);
+  useEffect(() => {
+    let cancelled = false, busy = false, pending = false, timer;
     const refresh = async () => {
-      if (busy || document.visibilityState === 'hidden') return;
+      if (cancelled || document.visibilityState === 'hidden') return;
+      if (busy) { pending = true; return; }
       busy = true;
       try {
         const result = await api.getAchievements();
         if (cancelled) return;
         setData(result); setError('');
         if (result.xpGained > 0) xpCallback.current?.({ xpTotal: result.xpTotal, xpGained: result.xpGained });
-        if (!quiet && (result.historicalXpPending > 0 || result.items?.some(item => item.unlocked && !item.seenAt))) {
+        if (result.historicalXpPending > 0 || result.items?.some(item => item.unlocked && !item.seenAt)) {
           const claimed = await api.claimAchievementNotifications();
           if (!cancelled) {
             const fresh = (claimed.items || []).filter(item => !displayed.current.has(item.id)).sort((a, b) => ACHIEVEMENT_RARITY_ORDER.indexOf(a.rarity) - ACHIEVEMENT_RARITY_ORDER.indexOf(b.rarity) || b.xpGained - a.xpGained);
@@ -53,7 +60,7 @@ export default function StudentAchievements({ user, open = false, quiet = false,
           }
         }
       } catch (failure) { if (!cancelled) setError(failure.message || 'Не удалось загрузить достижения.'); }
-      finally { busy = false; if (!cancelled) setLoading(false); }
+      finally { busy = false; if (!cancelled) { setLoading(false); if (pending) { pending = false; schedule(); } } }
     };
     const schedule = () => { clearTimeout(timer); timer = setTimeout(refresh, 180); };
     const focus = () => { if (document.visibilityState === 'visible') schedule(); };
@@ -61,8 +68,8 @@ export default function StudentAchievements({ user, open = false, quiet = false,
     const interval = setInterval(refresh, 60_000);
     window.addEventListener(ACHIEVEMENT_PROGRESS_EVENT, schedule); window.addEventListener('focus', focus); document.addEventListener('visibilitychange', focus);
     return () => { cancelled = true; clearTimeout(timer); clearInterval(interval); window.removeEventListener(ACHIEVEMENT_PROGRESS_EVENT, schedule); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus); };
-  }, [user.id, quiet, retry]);
-  const current = !quiet && queue[0] ? { ...queue[0], xpGained: queue.length > 3 ? queue.reduce((sum, item) => sum + (item.xpGained || 0), 0) : queue[0].xpGained } : null;
+  }, [user.id, retry]);
+  const current = queue[0] ? { ...queue[0], xpGained: queue.length > 3 ? queue.reduce((sum, item) => sum + (item.xpGained || 0), 0) : queue[0].xpGained } : null;
   const currentId = current?.id;
   useEffect(() => {
     if (!currentId) return;
@@ -118,6 +125,6 @@ export default function StudentAchievements({ user, open = false, quiet = false,
         <footer className="achievements-footer"><LockKeyhole size={14} /><p>Полученные достижения сохраняются. Перерыв в занятиях их не обнуляет.</p></footer>
       </>}
     </section>}
-    {current && createPortal(<AchievementToast key={current.id} item={current} badge={<Medal item={current} />} additionalCount={queue.length > 3 ? queue.length - 1 : 0} onDismiss={dismiss} onOpen={onOpen} />, document.body)}
+    {current && createPortal(<AchievementToast key={current.id} item={current} badge={<Medal item={current} />} additionalCount={queue.length > 3 ? queue.length - 1 : 0} onDismiss={dismiss} onOpen={onOpen} />, toastHost)}
   </>;
 }

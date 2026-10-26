@@ -1,14 +1,15 @@
 import {useCallback,useSyncExternalStore} from 'react';
 import {loadYjsRuntime} from '../utils/collaborationRuntime.js';
 import {getCollabWsUrl} from '../utils/runtimeUrls.js';
-import {getStoredAuthToken} from '../services/api.js';
+import {getStoredAuthToken,ACHIEVEMENT_PROGRESS_EVENT} from '../services/api.js';
+import {hasPreparedAchievementProgress} from '../utils/preparedAchievementProgress.js';
 import {preparedRequest,preparedSelectionKey} from '../services/preparedLessonTasks.js';
 
 const empty={run:null,selectedId:'',loading:false,error:'',codeVersion:0,busyCardId:''};
 const entries=new Map(),resumeSelections=new Map();
 const entryFor=room=>{if(!entries.has(room))entries.set(room,{state:empty,listeners:new Set(),users:0,sequence:0});return entries.get(room);};
 function publish(entry,patch){entry.state={...entry.state,...patch};for(const listener of entry.listeners)listener();}
-function apply(entry,run){if(entry.state.run&&run?.id===entry.state.run.id&&run.version<entry.state.run.version)return;if(run?.changeOnly){publish(entry,{run:{...entry.state.run,version:run.version},codeVersion:entry.state.codeVersion+1});return;}let selectedId=resumeSelections.get(entry.room)||entry.state.selectedId;try{selectedId=selectedId||localStorage.getItem(preparedSelectionKey(entry.room))||'';}catch{/* optional preference */}if(!run?.cards.some(c=>c.id===selectedId))selectedId=run?.cards.at(-1)?.id||'';if(run)resumeSelections.delete(entry.room);publish(entry,{run,selectedId,loading:false,error:''});}
+function apply(entry,run){if(entry.state.run&&run?.id===entry.state.run.id&&run.version<entry.state.run.version)return;if(run?.changeOnly){publish(entry,{run:{...entry.state.run,version:run.version},codeVersion:entry.state.codeVersion+1});return;}const achievementProgress=hasPreparedAchievementProgress(entry.state.run,run);let selectedId=resumeSelections.get(entry.room)||entry.state.selectedId;try{selectedId=selectedId||localStorage.getItem(preparedSelectionKey(entry.room))||'';}catch{/* optional preference */}if(!run?.cards.some(c=>c.id===selectedId))selectedId=run?.cards.at(-1)?.id||'';if(run)resumeSelections.delete(entry.room);publish(entry,{run,selectedId,loading:false,error:''});if(achievementProgress&&typeof window!=='undefined')window.dispatchEvent(new CustomEvent(ACHIEVEMENT_PROGRESS_EVENT));}
 async function refresh(entry){const sequence=++entry.sequence;try{const data=await preparedRequest(`/api/lesson-task-run?room=${encodeURIComponent(entry.room)}`);if(sequence===entry.sequence&&entry.users)apply(entry,data.run);}catch(error){if(entry.users)publish(entry,{loading:false,error:error.message});}}
 function connect(entry){entry.room=entry.room||'';let disposed=false;publish(entry,{loading:true});void refresh(entry);
   const book=entry.room.split('~page~')[0].split('~student~')[0]+'~pages';

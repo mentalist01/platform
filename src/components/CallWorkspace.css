@@ -228,14 +228,16 @@ html[data-theme='dark'] .call-workspace.call-panel-root[data-call-role] .call-co
 .call-workspace.call-panel-root--prejoin[data-call-role] .call-workspace-body { justify-content: safe center; padding: 24px; }
 .call-workspace.call-panel-root[data-call-role] .call-prejoin-stage {
   display: grid;
-  grid-template-columns: minmax(260px, 1.08fr) minmax(260px, 1fr);
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
   grid-template-areas: 'preview intro' 'preview side' 'checks actions';
   grid-template-rows: auto 1fr auto;
   align-items: start;
   flex: 0 0 auto;
-  gap: 12px 32px;
+  gap: 12px clamp(24px, 3cqw, 44px);
   min-height: 0;
-  width: min(960px, 100%);
+  width: 100%;
+  max-width: 1440px;
+  box-sizing: border-box;
   margin-inline: auto;
   overflow: visible;
   padding: 24px;
@@ -360,7 +362,7 @@ html[data-theme='dark'] .call-workspace.call-panel-root--prejoin[data-call-role]
   .call-workspace.call-panel-root[data-chat-open='true'] .call-experience-grid { grid-template-columns: minmax(0, 1fr); }
   .call-workspace.call-panel-root[data-chat-open='true'] .call-lesson-chat { position: absolute; inset: 0; z-index: 20; background: var(--call-surface); }
 }
-@container (max-width: 600px) {
+@container (max-width: 720px) {
   .call-workspace.call-panel-root--prejoin[data-call-role] .call-workspace-body { padding: 12px; }
   .call-workspace.call-panel-root[data-call-role] .call-prejoin-stage { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'intro' 'preview' 'side' 'checks' 'actions'; grid-template-rows: auto auto auto auto auto; gap: 18px; padding: 20px; border-radius: 22px; }
   .call-workspace.call-panel-root[data-call-role] .call-prejoin-preview { min-height: 240px; }
