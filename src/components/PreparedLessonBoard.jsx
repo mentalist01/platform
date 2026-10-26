@@ -6,6 +6,7 @@ import {preparedRequest} from '../services/preparedLessonTasks.js';
 import PreparedConditionImage from './PreparedConditionImage.jsx';
 import PreparedAnswerStatus from './PreparedAnswerStatus.jsx';
 import PreparedFileHandoff from './PreparedFileHandoff.jsx';
+import PreparedSolveCelebration from './PreparedSolveCelebration.jsx';
 import {getExternalApiOrigin} from '../utils/runtimeUrls.js';
 import {getWorkbookHelperInstall} from '../utils/workbookHelperInstall.js';
 import {requestLessonPages} from '../services/lessonPages.js';
@@ -38,7 +39,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   flushRef.current=flush;
   const change=(i,value,pasted)=>{const values=[...answers];if(pasted)getPreparedAnswerPasteOrder(card.answerCount,i,card.answerMode,card.answerTable).forEach((index,n)=>{if(n<pasted.length&&!(card.answerMode==='independent'&&card.fieldResults?.[index]==='correct'))values[index]=pasted[n];});else values[i]=value;latest.current.answers=values;setAnswers(values);dirty.current=true;try{localStorage.setItem(draftKey,JSON.stringify({answers:values,revision:latest.current.card.answerRevision}));}catch{/* optional backup */}setMessage('');clearTimeout(timer.current);timer.current=setTimeout(()=>{void flush().catch(error=>setMessage(error.message));},600);};
   const perform=async fn=>{if(busy)return;setBusy(true);setMessage('');try{await fn();}catch(error){setMessage(error.message);}finally{setBusy(false);}};
-  const check=(accept,fieldIndex)=>perform(async()=>{setCheckingField(fieldIndex??null);try{const current=await flush();await claim();const result=await action({action:'check',revision:current.answerRevision,accept,...(fieldIndex!==undefined?{fieldIndex}:{})});if(card.answerMode!=='independent')setMessage(result.cards.find(c=>c.id===card.id)?.status==='solved'?'':'Пока неверно. Попробуйте ещё.');if(result.teacherCardId!==run.teacherCardId)context.select(result.teacherCardId);}finally{setCheckingField(null);}});
+  const check=(accept,fieldIndex)=>perform(async()=>{if(context.selectedId&&context.selectedId!==card.id)context.select(card.id);setCheckingField(fieldIndex??null);try{const current=await flush();await claim();const result=await action({action:'check',revision:current.answerRevision,accept,...(fieldIndex!==undefined?{fieldIndex}:{})});if(card.answerMode!=='independent')setMessage(result.cards.find(c=>c.id===card.id)?.status==='solved'?'':'Пока неверно. Попробуйте ещё.');}finally{setCheckingField(null);}});
   const helper=asset=>perform(async()=>{const install=getWorkbookHelperInstall();if(!install.supported)throw Error('Для этого устройства доступно скачивание файла. Помощник таблиц можно установить из раздела «Загрузки».');const launch=await preparedRequest(`/api/lesson-task-runs/${run.id}/helper`,{cardId:card.id,assetId:asset.assetId});window.location.assign(`ivan-ege://workbook/open?${new URLSearchParams({origin:getExternalApiOrigin(),ticket:launch.ticket})}`);setMessage('Помощник открывается. После Ctrl+S решение появится здесь и в конспектах.');});
   const queueHomework=()=>perform(async()=>{await flush();const root=element.current.getBoundingClientRect(),anchor=worldAnchor||{x:0,y:0,width:card.width};const images=Array.from(element.current.querySelectorAll('.prepared-card-body>img')).map((image,i)=>{const box=image.getBoundingClientRect(),ratio=anchor.width/root.width;return {id:card.images[i].id,x:anchor.x+(box.left-root.left)*ratio,y:anchor.y+(box.top-root.top)*ratio,width:box.width*ratio,height:box.height*ratio};});await preparedRequest('/api/prepared-homework/basket',{runId:run.id,cardId:card.id,images});setHomeworkQueued(true);});
   const title=preparedTaskTitle(card);
@@ -71,6 +72,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
     </div>
     </div>
     <div className="prepared-card-body">{card.images.map((asset,i)=><PreparedConditionImage key={asset.id} asset={asset} alt={`Условие задачи ${card.index+1}, изображение ${i+1}`}/>)}</div>
+    {context.celebrationCardId===card.id&&<PreparedSolveCelebration group={Boolean(run.groupId)}/>}
   </article>;
 }
 
