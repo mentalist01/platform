@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace IvanEge.WorkbookHelper;
 
@@ -15,10 +16,10 @@ internal sealed class HelperApiClient : IDisposable
     private readonly HttpClient _client;
     private readonly Uri _origin;
 
-    public HelperApiClient(Uri origin)
+    public HelperApiClient(Uri origin, HttpMessageHandler? messageHandler = null)
     {
         _origin = origin;
-        var handler = new HttpClientHandler
+        var handler = messageHandler ?? new HttpClientHandler
         {
             AllowAutoRedirect = false,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
@@ -27,7 +28,7 @@ internal sealed class HelperApiClient : IDisposable
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.2");
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.4.0 (Windows)");
         _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
@@ -96,7 +97,9 @@ internal sealed class HelperApiClient : IDisposable
             requiresName,
             solutionName,
             sourceTextFileName,
-            sourceTextContentHash);
+            sourceTextContentHash,
+            TryGetObject(root, "live", out var live)
+                ? new LiveWorkbookGrant(live.GetProperty("protocol").GetInt32(), ReadString(live, "epoch") ?? "", ReadString(live, "actorId") ?? "") : null);
     }
 
     public async Task<DownloadReceipt> DownloadAsync(WorkbookGrant grant, string destinationPath, CancellationToken cancellationToken)
@@ -314,6 +317,34 @@ internal sealed class HelperApiClient : IDisposable
         request.Headers.Authorization = new AuthenticationHeaderValue("Workbook", grant.Token);
         request.Headers.TryAddWithoutValidation("X-Workbook-Key", grant.WorkbookKey);
         return request;
+    }
+
+    internal async Task<JsonObject> LiveRequestAsync(WorkbookGrant grant, string route, JsonObject? body, CancellationToken cancellationToken)
+    {
+        if (grant.Live?.Protocol != 1 || !route.StartsWith("/workbook-helper/v1/live/", StringComparison.Ordinal)) throw new FormatException("Неизвестный протокол общей таблицы");
+        using var request = CreateAuthorizedRequest(body is null ? HttpMethod.Get : HttpMethod.Post, grant, route);
+        if (body is not null) request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
+        using var response = await SendAsync(request, HttpCompletionOption.ResponseContentRead, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        var value = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (value.Length > 32 * 1024 * 1024) throw new FormatException("Слишком большая общая таблица");
+        return JsonNode.Parse(value)?.AsObject() ?? throw new FormatException("Пустой ответ общей таблицы");
+    }
+
+    internal async Task<UploadReceipt> LiveCheckpointAsync(WorkbookGrant grant, string file, long liveRevision, string fileRevision, CancellationToken cancellationToken)
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(file, cancellationToken))).ToLowerInvariant();
+        using var request = CreateAuthorizedRequest(HttpMethod.Post, grant, "/workbook-helper/v1/live/checkpoint");
+        using var multipart = new MultipartFormDataContent();
+        await using var input = File.OpenRead(file); using var bytes = new StreamContent(input);
+        multipart.Add(bytes, "file", Path.GetFileNameWithoutExtension(grant.FileName) + ".xlsx");
+        multipart.Add(new StringContent(hash), "contentHash"); multipart.Add(new StringContent(fileRevision), "revision");
+        multipart.Add(new StringContent(liveRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)), "liveRevision");
+        request.Content = multipart;
+        using var response = await SendAsync(request, HttpCompletionOption.ResponseContentRead, TimeSpan.FromMinutes(2), cancellationToken).ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+        return ParseUploadResponse(document.RootElement, fileRevision, hash, null);
     }
 
     private Uri BuildUri(string path) => new(_origin, path);

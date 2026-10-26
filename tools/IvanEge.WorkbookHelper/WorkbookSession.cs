@@ -35,6 +35,7 @@ internal sealed class WorkbookSession : IDisposable
     private string _revision;
     private bool _requiresName;
     private string? _pendingSolutionName;
+    private readonly LiveWorkbookSession? _live;
 
     public WorkbookSession(
         HelperApiClient api,
@@ -52,6 +53,14 @@ internal sealed class WorkbookSession : IDisposable
         _revision = grant.Revision;
         _requiresName = grant.RequiresName;
         RequiresManualMacroOpen = requiresManualMacroOpen;
+        if (grant.Live is not null)
+        {
+            if (requiresManualMacroOpen) throw new InvalidOperationException("Не удалось проверить защитную метку таблицы. Откройте безопасную копию вручную в обычном режиме.");
+            _live = new LiveWorkbookSession(api, grant, localPath);
+            _live.Status += (_, status) => Publish(status);
+            _worker = Task.CompletedTask;
+            return;
+        }
         CreateWatcher();
         _worker = Task.Run(ProcessSignalsAsync);
     }
@@ -63,16 +72,20 @@ internal sealed class WorkbookSession : IDisposable
     {
         get
         {
-            lock (_watcherGate) return _localPath;
+            lock (_watcherGate) return !string.IsNullOrEmpty(_live?.LocalPath) ? _live.LocalPath : _localPath;
         }
     }
     public string FileName => Path.GetFileName(LocalPath);
     public WorkbookGrant Grant => _grant;
-    public bool IsPaused => _paused;
+    public bool IsPaused => _live?.IsPaused ?? _paused;
+    public bool IsLive => _live is not null;
+    public bool IsLiveClosed => _live?.IsClosed == true;
+    public void ShowLiveControls() => _live?.ShowControls();
     public bool RequiresManualMacroOpen { get; }
 
     public void SetPaused(bool paused)
     {
+        if (_live is not null) { _live.SetPaused(paused); return; }
         _paused = paused;
         Publish(paused
             ? new WorkbookStatus(WorkbookStatusKind.Paused, "Автосохранение приостановлено")
@@ -80,7 +93,7 @@ internal sealed class WorkbookSession : IDisposable
         if (!paused) Signal();
     }
 
-    public void RetryNow() => Signal();
+    public void RetryNow() { if (_live is not null) _live.Wake(); else Signal(); }
 
     private void CreateWatcher()
     {
@@ -412,6 +425,7 @@ internal sealed class WorkbookSession : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _live?.Dispose();
         lock (_watcherGate)
         {
             _watcher?.Dispose();

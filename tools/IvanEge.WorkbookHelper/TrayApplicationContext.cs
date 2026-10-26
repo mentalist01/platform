@@ -141,6 +141,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
             SetStatus("Подключаюсь к платформе…");
             api = new HelperApiClient(request.Origin);
             var grant = await api.ExchangeAsync(request.Ticket, CancellationToken.None);
+            if (grant.Live is not null)
+            {
+                var existing = _sessionOrder.FirstOrDefault(session => session.IsLive && session.Grant.WorkbookKey == grant.WorkbookKey &&
+                    session.Grant.Origin == grant.Origin);
+                if (existing is not null && !existing.IsLiveClosed) { existing.ShowLiveControls(); return; }
+                if (existing is not null) RemoveSession(existing, true);
+            }
             if (grant.ExpiresAt is { } expiresAt && expiresAt <= DateTimeOffset.UtcNow)
             {
                 throw new HelperApiException("Одноразовая ссылка уже истекла. Нажмите «Решать» ещё раз.");
@@ -215,7 +222,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             var workbookOpened = false;
             try
             {
-                OpenPath(finalPath);
+                if (currentGrant.Live is null) OpenPath(finalPath);
                 workbookOpened = true;
             }
             catch (Exception openError)
@@ -443,6 +450,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void OpenCurrentFile()
     {
+        if (_latestSession?.IsLive == true) { _latestSession.ShowLiveControls(); return; }
         if (_latestSession is null || !File.Exists(_latestSession.LocalPath))
         {
             ShowNotification("Помощник таблиц", _statusText, ToolTipIcon.Info);

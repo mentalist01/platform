@@ -5,6 +5,9 @@ internal static class Program
     [STAThread]
     private static int Main(string[] arguments)
     {
+        if (arguments.Contains("--live-excel-bridge")) return LiveExcelBridge.Run(arguments);
+        var liveCheck = Array.IndexOf(arguments, "--live-check");
+        if (liveCheck >= 0 && liveCheck + 1 < arguments.Length) return LiveWorkbookCheck.Run(arguments[liveCheck + 1]);
         if (arguments.Any(argument => string.Equals(argument, "--self-test", StringComparison.OrdinalIgnoreCase)))
         {
             return SelfTest.Run();

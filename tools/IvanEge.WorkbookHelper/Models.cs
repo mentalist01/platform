@@ -15,7 +15,10 @@ internal sealed record WorkbookGrant(
     bool RequiresName = false,
     string? SolutionName = null,
     string? SourceTextFileName = null,
-    string? SourceTextContentHash = null);
+    string? SourceTextContentHash = null,
+    LiveWorkbookGrant? Live = null);
+
+internal sealed record LiveWorkbookGrant(int Protocol, string Epoch, string ActorId);
 
 internal sealed record DownloadReceipt(
     string LocalContentHash,

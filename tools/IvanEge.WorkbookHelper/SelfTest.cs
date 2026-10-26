@@ -31,6 +31,7 @@ internal static class SelfTest
             TestStableSnapshot(temporaryDirectory).GetAwaiter().GetResult();
             TestFlatWorkbookSnapshot(temporaryDirectory).GetAwaiter().GetResult();
             TestHashValidation();
+            TestLiveWorkbookXml();
             TryDelete(ReportPath);
             return 0;
         }
@@ -69,6 +70,20 @@ internal static class SelfTest
             "ivan-ege://open?origin=https%3A%2F%2Fexample.ru&origin=https%3A%2F%2Fother.ru&ticket=abcdefghijklmnop"));
         AssertThrows<FormatException>(() => ProtocolRequestParser.Parse(
             "ivan-ege://delete?origin=https%3A%2F%2Fexample.ru&ticket=abcdefghijklmnop"));
+    }
+
+    private static void TestLiveWorkbookXml()
+    {
+        Assert(LiveWorkbookXml.ShiftFormula("SUM(A1,$B2,C$3,$D$4,'A1'!E5,\"A1\",LOG10(A1),A:A,2:2)", "C2", "D4") ==
+            "SUM(B3,$B4,D$3,$D$4,'A1'!F7,\"A1\",LOG10(B3),B:B,4:4)", "Shared formulas must preserve quoted text and absolute references");
+        Assert(LiveWorkbookXml.ShiftFormula("A1+$A$1", "B2", "A1") == "#REF!+$A$1", "Shared formula boundaries");
+        XNamespace s = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        var solid = new XElement(s + "fill", new XElement(s + "patternFill", new XAttribute("patternType", "solid"), new XElement(s + "fgColor", new XAttribute("indexed", 5))));
+        Assert(LiveWorkbookXml.Fill(solid, null, null) == 0xffff00, "Indexed fill palette");
+        var color = solid.Descendants(s + "fgColor").Single(); color.RemoveAttributes(); color.SetAttributeValue("theme", 4); color.SetAttributeValue("tint", 1);
+        var scheme = XElement.Parse("<clrScheme><accent1><srgbClr val='4472C4'/></accent1></clrScheme>");
+        Assert(LiveWorkbookXml.Fill(solid, scheme, null) == 0xffffff, "Theme tint to white");
+        color.SetAttributeValue("tint", -1); Assert(LiveWorkbookXml.Fill(solid, scheme, null) == 0, "Theme tint to black");
     }
 
     private static void TestPackageIdentity()
