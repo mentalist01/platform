@@ -1,3 +1,4 @@
+import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {ArrowDown,ArrowUp,BookOpen,ImagePlus,Scissors,X} from 'lucide-react';
@@ -5,6 +6,7 @@ import {preparedAssetUrl,preparedRequest} from '../services/preparedLessonTasks.
 import PreparedImageStripEditor from './PreparedImageStripEditor.jsx';
 
 export default function PreparedTheoryEditor({images,onChange,onClose,dark}) {
+  const portalTarget=useFullscreenPortalTarget();
   const input=useRef(null),drop=useRef(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[stripImage,setStripImage]=useState(null);
   useEffect(()=>{drop.current?.focus();},[]);
   const upload=async files=>{
@@ -25,5 +27,5 @@ export default function PreparedTheoryEditor({images,onChange,onClose,dark}) {
     <div ref={drop} tabIndex={0} className="prepared-theory-drop" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();e.stopPropagation();void upload(Array.from(e.dataTransfer.files));}}><ImagePlus size={25}/><strong>Вставьте скриншот через Ctrl+V</strong><span>Или перетащите картинки · {images.length}/8</span><button type="button" className="prepared-primary" disabled={busy||images.length>=8} onClick={()=>input.current.click()}>{busy?'Загружаем…':'Добавить картинки'}</button><input ref={input} type="file" multiple accept="image/*" aria-label="Картинки теории" hidden onChange={e=>{void upload(Array.from(e.target.files));e.target.value='';}}/></div>
     <div className="prepared-theory-images">{images.map((id,index)=><article key={id}><div><strong>{index+1}</strong><button type="button" disabled={busy} title="Вырезать пустую полосу и склеить картинку" aria-label={`Вырезать полосу в теории ${index+1}`} onClick={()=>setStripImage(id)}><Scissors size={14}/></button><button type="button" disabled={busy||index===0} aria-label={`Поднять картинку теории ${index+1}`} onClick={()=>move(index,-1)}><ArrowUp size={14}/></button><button type="button" disabled={busy||index===images.length-1} aria-label={`Опустить картинку теории ${index+1}`} onClick={()=>move(index,1)}><ArrowDown size={14}/></button><button type="button" disabled={busy} aria-label={`Убрать картинку теории ${index+1}`} onClick={()=>onChange(images.filter(value=>value!==id))}><X size={14}/></button></div><img src={preparedAssetUrl(`/api/lesson-task-assets/${id}`)} alt={`Теория, картинка ${index+1}`}/></article>)}</div>
     <footer><span className="prepared-muted">Сохраняется вместе с набором</span><button type="button" className="prepared-primary" disabled={busy} onClick={onClose}>К задачам набора</button></footer>
-  </section></div>,document.fullscreenElement||document.body)}{stripImage&&<PreparedImageStripEditor imageId={stripImage} dark={dark} onReplace={(asset,oldId)=>onChange(images.map(id=>id===oldId?asset.id:id))} onClose={()=>setStripImage(null)}/>}</>;
+  </section></div>,portalTarget)}{stripImage&&<PreparedImageStripEditor imageId={stripImage} dark={dark} onReplace={(asset,oldId)=>onChange(images.map(id=>id===oldId?asset.id:id))} onClose={()=>setStripImage(null)}/>}</>;
 }

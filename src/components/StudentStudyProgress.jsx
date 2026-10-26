@@ -1,3 +1,4 @@
+import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {Map,ArrowRight,Check,Link2,X} from 'lucide-react';
@@ -24,6 +25,7 @@ export function StudentStudyBadge({teacherId,studentId,showEmpty=true,onContinue
 }
 
 export function StudentStudyDialog({teacherId,studentId,pageId='',blockId='',partNumber=1,onClose,onSelectPage}) {
+  const portalTarget=useFullscreenPortalTarget();
   const [nextOpen,setNextOpen]=useState(false);
   const [data,setData]=useState(null),[selectedPage,setSelectedPage]=useState(pageId),[topic,setTopic]=useState(blockId),[part,setPart]=useState(partNumber);
   const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[createPage,setCreatePage]=useState(false),[pageName,setPageName]=useState('');
@@ -69,7 +71,7 @@ export function StudentStudyDialog({teacherId,studentId,pageId='',blockId='',par
       {current&&<div className="student-study-completion">{!current.completed&&<><button type="button" disabled={busy} onClick={()=>void action('complete')}><Check size={15}/>Завершить текущую часть</button>{studyPartCount(data.plan,data.record,current.blockId)>1&&<button type="button" disabled={busy} onClick={()=>void action('complete',true)}>Вся тема пройдена</button>}</>}{current.completed&&data.next&&<button type="button" disabled={busy} onClick={()=>{setMessage('');setNextOpen(true);}}>Следующий этап: №{data.next.blockId}, часть {data.next.partNumber}<ArrowRight size={15}/></button>}</div>}
     </>:<p>{message?'':'Загружаем страницы и маршрут…'}</p>}
     {message&&<p className="student-study-message" role="status">{message}</p>}
-  </section></div>,document.body);
+  </section></div>,portalTarget);
 }
 
 export function StudentStudyBoardControl({teacherId,studentId,pageId,room,onSelectPage}) {

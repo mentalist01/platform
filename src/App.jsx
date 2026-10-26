@@ -1,3 +1,6 @@
+import {useFullscreenPortalTarget} from './hooks/useFullscreenPortalTarget.js';
+import {installBoardSelectionGuard} from './utils/boardTextSelection.js';
+import './components/BoardInteraction.css';
 import {createBoardRenderIndex,boardItemBounds as getItemBounds} from './utils/boardRenderIndex.js';
 import PreparedHomeworkHost from './components/PreparedHomeworkHost.jsx';
 import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress} from './utils/preparedHomework.js';
@@ -3784,6 +3787,7 @@ export const CollabSection = ({
   const outputPanelHeightStorageKey = useMemo(() => `collab-output-panel-height-${userId || role || 'anon'}`, [userId, role]);
   const taskFilesListHeightStorageKey = useMemo(() => `collab-task-files-list-height-${userId || role || 'anon'}`, [userId, role]);
   const collabRootRef = useRef(null);
+  const fullscreenPortalTarget = useFullscreenPortalTarget();
   const boardCodeSplitDragCleanupRef = useRef(null);
   const outputPanelResizeCleanupRef = useRef(null);
   const notesPdfResizeCleanupRef = useRef(null);
@@ -11201,11 +11205,11 @@ export const CollabSection = ({
       {collabTurtleWindow && (
         isCollabFullscreen || typeof document === 'undefined'
           ? collabTurtleWindow
-          : createPortal(collabTurtleWindow, document.body)
+          : createPortal(collabTurtleWindow, fullscreenPortalTarget)
       )}
       {isCollabFullscreen
         ? saveModal
-        : (typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null)}
+        : (typeof document !== 'undefined' ? createPortal(saveModal, fullscreenPortalTarget) : null)}
     </div>
   );
 };
@@ -11397,6 +11401,8 @@ export const BoardCanvasSection = ({
   const overlayRef = useRef(null);
   const containerRef = useRef(null);
   const boardRootRef = useRef(null);
+  useEffect(() => installBoardSelectionGuard(boardRootRef.current), []);
+  const fullscreenPortalTarget = useFullscreenPortalTarget();
   const docRef = useRef(null);
   const yItemsRef = useRef(null);
   const providerRef = useRef(null);
@@ -18333,7 +18339,7 @@ export const BoardCanvasSection = ({
   return (
     <div
       ref={boardRootRef}
-      className={boardShellClass}
+      className={`board-interaction-root ${boardShellClass}`}
       data-lesson-replay-board-sandbox={isSandbox ? 'true' : undefined}
       onFocusCapture={() => { boardPasteFocusedRef.current = true; }}
       onBlurCapture={(event) => {
@@ -18364,7 +18370,7 @@ export const BoardCanvasSection = ({
       )}
       {isFullscreen || containedDialogs
         ? saveModal
-        : (typeof document !== 'undefined' ? createPortal(saveModal, document.body) : null)}
+        : (typeof document !== 'undefined' ? createPortal(saveModal, fullscreenPortalTarget) : null)}
     </div>
   );
 };

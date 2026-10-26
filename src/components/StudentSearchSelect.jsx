@@ -1,3 +1,4 @@
+import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isCurrentStudent } from '../utils/studentStudyStatus';
@@ -99,6 +100,7 @@ const StudentSearchSelect = ({
   includeGraduates = false,
   onOpen,
 }) => {
+  const portalTarget=useFullscreenPortalTarget();
   const rootRef = useRef(null);
   const inputRef = useRef(null);
   const menuRef = useRef(null);
@@ -201,7 +203,7 @@ const StudentSearchSelect = ({
       window.removeEventListener('resize', updateMenuPosition);
       window.removeEventListener('scroll', updateMenuPosition, true);
     };
-  }, [disabled, isOpen]);
+  }, [disabled, isOpen,portalTarget]);
 
   const commitOption = (option) => {
     if (!option || disabled) return;
@@ -333,7 +335,7 @@ const StudentSearchSelect = ({
         onKeyDown={handleKeyDown}
       />
 
-      {menuNode && typeof document !== 'undefined' ? createPortal(menuNode, document.body) : menuNode}
+      {menuNode && typeof document !== 'undefined' ? createPortal(menuNode, portalTarget) : menuNode}
     </div>
   );
 };

@@ -1,3 +1,4 @@
+import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Columns2, Layers3, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
@@ -41,6 +42,7 @@ export default function CollabSolutionTabs({
   peers = [],
   participantPresence = null,
 }) {
+  const portalTarget=useFullscreenPortalTarget();
   const inputId = useId();
   const formId = useId();
   const tabsRef = useRef(null);
@@ -328,12 +330,10 @@ export default function CollabSolutionTabs({
           selectTabEntry(entry);
           const menuWidth = entry.id === mainSolutionId ? 190 : 210;
           const menuHeight = entry.id === mainSolutionId ? 48 : 86;
-          const ownerDocument = event.currentTarget.ownerDocument || document;
           setContextMenu({
             solution: entry,
             x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
             y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
-            portalRoot: ownerDocument.fullscreenElement || ownerDocument.body,
           });
         }}
         title={`${entry.name}${presenceLabel ? ` · ${presenceLabel}` : ''}${viewerNames ? ` · Смотрят: ${viewerNames}` : ''}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}${canEdit && !isParticipant ? ' · Правая кнопка — действия' : ''}`}
@@ -452,7 +452,7 @@ export default function CollabSolutionTabs({
             </button>
           )}
         </div>
-      ), contextMenu.portalRoot?.isConnected ? contextMenu.portalRoot : document.body)}
+      ), portalTarget)}
 
       {form && form.id === activeId && !readOnly && solutions.some((item) => item.id === form.id) && (
         <form id={formId} className="collab-solutions__form" onSubmit={saveName}>

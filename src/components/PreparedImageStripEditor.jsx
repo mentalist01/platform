@@ -1,3 +1,4 @@
+import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {ArrowRight,Check,Scissors,Undo2,X} from 'lucide-react';
@@ -6,6 +7,7 @@ import {imageStripGeometry} from '../utils/imageStrip.js';
 import './PreparedImageStripEditor.css';
 
 export default function PreparedImageStripEditor({imageId,onReplace,onClose,dark}) {
+  const portalTarget=useFullscreenPortalTarget();
   const [current,setCurrent]=useState(imageId),[info,setInfo]=useState(null),[selection,setSelection]=useState(null);
   const [dimensions,setDimensions]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const image=useRef(null),frame=useRef(null),gesture=useRef(null),close=useRef(null);
@@ -73,5 +75,5 @@ export default function PreparedImageStripEditor({imageId,onReplace,onClose,dark
       {notice&&<p className="prepared-strip-notice" role="status"><Check size={15}/>{notice}</p>}
       <footer><button type="button" disabled={busy||!info?.previous} onClick={undo}><Undo2 size={15}/>Отменить вырезание</button><span className="prepared-muted">Исходная картинка сохранена</span><button type="button" disabled={busy} onClick={onClose}>Готово</button><button type="button" className="prepared-primary" disabled={busy||!geometry} onClick={()=>void apply()}><Scissors size={15}/>{busy?'Склеиваем…':'Применить вырезание'}</button></footer>
     </section>
-  </div>,document.fullscreenElement||document.body);
+  </div>,portalTarget);
 }

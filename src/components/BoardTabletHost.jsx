@@ -1,3 +1,4 @@
+import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Smartphone, X, Copy, Unplug, Check } from 'lucide-react';
@@ -10,6 +11,7 @@ import './BoardTablet.css';
 const linkOrigin = () => isNativeAppRuntime() ? getConfiguredApiBaseUrl() : window.location.origin;
 
 export default function BoardTabletHost({ roomId, connected, authorId, getFrame, onStroke, onUndo, onPreview }) {
+  const portalTarget=useFullscreenPortalTarget();
   const [session, setSession] = useState(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -194,6 +196,6 @@ export default function BoardTabletHost({ roomId, connected, authorId, getFrame,
         {session ? <button className="tablet-disconnect" onClick={disconnect}><Unplug size={16} /> {state === 'ended' ? 'Закрыть подключение' : 'Отключить телефон'}</button>
           : !busy && <button className="tablet-primary" onClick={start}>Попробовать снова</button>}
       </section>
-    </div>, document.fullscreenElement || document.body)}
+    </div>, portalTarget)}
   </>;
 }

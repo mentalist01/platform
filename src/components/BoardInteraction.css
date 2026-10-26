@@ -1,0 +1,4 @@
+.board-interaction-root{user-select:none;-webkit-user-select:none}
+.board-interaction-root :is(input,textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[data-board-selectable], [role="dialog"]){user-select:text;-webkit-user-select:text}
+.board-interaction-root :is(button,summary,label){-webkit-user-select:none;user-select:none}
+.collab-workspace-card :is(button,summary),.collab-toolbar :is(button,summary){user-select:none;-webkit-user-select:none}
