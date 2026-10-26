@@ -4,6 +4,7 @@ import {groupNotebookBoard} from './groupNotebook.js';
 export const groupStudySubject=id=>`group:${id}`;
 export const studySubjectGroup=id=>typeof id==='string'&&id.startsWith('group:')?id.slice(6):'';
 export const studySubjectBoard=(teacherId,id)=>studySubjectGroup(id)?groupNotebookBoard(studySubjectGroup(id)):`board-${teacherId}-${id}`;
+export const mergeStudyGroups=(...sources)=>[...new Map(sources.flat().map(group=>[group.id,group])).values()];
 export function activeStudyGroupMembers(group) {
   if(Array.isArray(group.members))return [...new Set(group.members.filter(member=>member.status==='active').map(member=>member.studentId).filter(Boolean))];
   return [...new Set(group.participantIds||[])];

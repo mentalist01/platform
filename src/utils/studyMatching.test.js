@@ -2,12 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createStudyPlan} from './egeStudyPlan.js';
 import {splitStudyStage,withStudyStages,studyPlanStages} from './studyPlanStages.js';
-import {studyPlanSubjects,groupStudySubject} from './studySubjects.js';
+import {studyPlanSubjects,groupStudySubject,mergeStudyGroups} from './studySubjects.js';
 import {studyMatchProfiles,matchStudyStudents} from './studyMatching.js';
 import {searchStudyStudents} from './studyStudentSearch.js';
 
 const pupil=id=>({id,name:`Ученик ${id}`,grade:'11'});
 const record=(blockId='17',partNumber=1)=>({current:{blockId,partNumber,updatedAt:'2026-10-26T00:00:00Z'},completed:{},links:{}});
+test('group directory merge keeps one current group per ID and retains prepared groups',()=>{
+  const older=[{id:'g',name:'Группа 2',status:'ready'},{id:'draft',name:'Группа 3',status:'ready'}],current=[{id:'g',name:'Группа 2',status:'active',participantIds:['a']}];
+  const groups=mergeStudyGroups(older,current);assert.equal(groups.length,2);assert.equal(groups[0].status,'active');assert.equal(older[0].status,'ready');assert.equal(studyPlanSubjects([pupil('a')],groups).individuals.length,0);
+});
 test('active groups replace only their current members in the plan and pupil matching pool',()=>{
   const students=['a','b','c','d'].map(pupil);students.push({...pupil('former'),studyStatus:'inactive'});
   const groups=[{id:'g',name:'Группа 2',status:'active',members:[{studentId:'a',status:'active'},{studentId:'b',status:'removed'}]},{id:'draft',name:'Группа 3',status:'ready',participantIds:['c']}];

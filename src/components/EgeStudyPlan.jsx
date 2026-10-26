@@ -8,7 +8,7 @@ import {studyBlockStatus} from '../utils/studentStudyProgress.js';
 import StudyStageEditor from './StudyStageEditor.jsx';
 import {studyPlanDisplay,studyPlanStages,studyStageFor,studyStageLabel,splitStudyStage,mergeStudyStages,withStudyStages} from '../utils/studyPlanStages.js';
 import StudyStudentMatching from './StudyStudentMatching.jsx';
-import {studyPlanSubjects} from '../utils/studySubjects.js';
+import {studyPlanSubjects,mergeStudyGroups} from '../utils/studySubjects.js';
 import StudyStudentPicker from './StudyStudentPicker.jsx';
 import StudyStudentBoardPreview from './StudyStudentBoardPreview.jsx';
 import './EgeStudyPlan.css';
@@ -52,7 +52,7 @@ export default function EgeStudyPlan({teacherId,students=[],groups=[],groupsLoad
   const [studentId,setStudentId]=useState(''),[studyDialog,setStudyDialog]=useState(false);
   const [previewStudent,setPreviewStudent]=useState(null),[inspectedPage,setInspectedPage]=useState('');
   const study=useStudentStudyProgress(teacherId),studentRecord=study.records[studentId];
-  const allGroups=[...new Map([...groups,...(study.groups||[])].map(group=>[group.id,group])).values()],{subjects}=studyPlanSubjects(students,allGroups);
+  const allGroups=mergeStudyGroups(groups,study.groups||[]),{subjects}=studyPlanSubjects(students,allGroups);
   const [matching,setMatching]=useState(false);
   const target=subjects.find(subject=>subject.id===studentId);
   const viewBoard=id=>{const subject=subjects.find(subject=>subject.id===id);if(!subject)return;setStudentId(id);setSelected(null);setInspectedPage('');setPreviewStudent(subject);};
