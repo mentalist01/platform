@@ -9,8 +9,8 @@ import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 export class StudentStudyProgress {
-  constructor({dataDir,students,pages,plans,prepared,createPage,canCreate}) {
-    Object.assign(this,{students,pages,plans,prepared,createPage,canCreate});
+  constructor({dataDir,students,pages,plans,prepared,createPage,canCreate,groupStore}) {
+    Object.assign(this,{students,pages,plans,prepared,createPage,canCreate,groupStore});
     this.file=path.join(dataDir,'student-study-progress.json');this.serial=Promise.resolve();
   }
   read() {
@@ -30,12 +30,14 @@ export class StudentStudyProgress {
     if(auth?.role!=='teacher'||!auth.id)fail(403,'Маршрут доступен преподавателю');
     const data=this.read(),records={};
     for(const student of this.students())if(!student.deletedAt&&student.teacherId===auth.id)records[student.id]=this.record(auth.id,student.id,data);
-    return {records,plan:this.plans.get(auth.id)};
+    const shared=this.groupStore?.list(auth);return {records:{...records,...shared?.records},...(shared?{groups:shared.groups}:{}),plan:this.plans.get(auth.id)};
   }
+  room(auth,id,pageId) {return boardPageRoom(`board-${auth.id}-${id}`,pageId);}
+  matchesRun(auth,id,run) {return !run.homework&&!run.groupId&&run.teacherId===auth.id&&run.studentId===id;}
   position(auth,studentId,pageId,runId,cardId) {
-    const room=boardPageRoom(`board-${auth.id}-${studentId}`,pageId);
+    const room=this.room(auth,studentId,pageId);
     const active=this.prepared?.data.active[room],run=this.prepared?.data.runs[active];
-    if(!run||run.homework||run.groupId||run.teacherId!==auth.id||run.studentId!==studentId||(runId&&run.id!==runId))return null;
+    if(!run||!this.matchesRun(auth,studentId,run)||(runId&&run.id!==runId))return null;
     const card=run.cards.find(card=>card.id===(cardId||run.teacherCardId))||(!cardId?run.cards.at(-1):null);
     if(!card)return null;
     const task=run.tasks[card.index],source=preparedTaskSource(run,task,card.index),topic=studyTopic(source.taskNumber,source.partNumber);

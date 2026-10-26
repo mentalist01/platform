@@ -7,6 +7,8 @@ import {StudentStudyBadge,StudentStudyDialog} from './StudentStudyProgress.jsx';
 import {studyBlockStatus} from '../utils/studentStudyProgress.js';
 import StudyStageEditor from './StudyStageEditor.jsx';
 import {studyPlanDisplay,studyPlanStages,studyStageFor,studyStageLabel,splitStudyStage,mergeStudyStages,withStudyStages} from '../utils/studyPlanStages.js';
+import StudyStudentMatching from './StudyStudentMatching.jsx';
+import {studyPlanSubjects} from '../utils/studySubjects.js';
 import StudyStudentPicker from './StudyStudentPicker.jsx';
 import StudyStudentBoardPreview from './StudyStudentBoardPreview.jsx';
 import './EgeStudyPlan.css';
@@ -46,10 +48,14 @@ async function exportPlan(plan) {
   }finally{URL.revokeObjectURL(url);}
 }
 
-export default function EgeStudyPlan({teacherId,students=[],renderStudentBoard}) {
+export default function EgeStudyPlan({teacherId,students=[],groups=[],groupsLoading=false,onGroupsChanged,renderStudentBoard}) {
   const [studentId,setStudentId]=useState(''),[studyDialog,setStudyDialog]=useState(false);
   const [previewStudent,setPreviewStudent]=useState(null),[inspectedPage,setInspectedPage]=useState('');
   const study=useStudentStudyProgress(teacherId),studentRecord=study.records[studentId];
+  const allGroups=[...new Map([...groups,...(study.groups||[])].map(group=>[group.id,group])).values()],{subjects}=studyPlanSubjects(students,allGroups);
+  const [matching,setMatching]=useState(false);
+  const target=subjects.find(subject=>subject.id===studentId);
+  const viewBoard=id=>{const subject=subjects.find(subject=>subject.id===id);if(!subject)return;setStudentId(id);setSelected(null);setInspectedPage('');setPreviewStudent(subject);};
   const {plan,change,status,error,save,load,recovery,recover,discardRecovery,conflict,resolveConflict}=useEgeStudyPlan(teacherId);
   const [selected,setSelected]=useState(null),[zoom,setZoom]=useState(1),[query,setQuery]=useState('');
   const [history,setHistory]=useState([]),[dragging,setDragging]=useState(null),[draftPosition,setDraftPosition]=useState(null);
@@ -130,7 +136,9 @@ export default function EgeStudyPlan({teacherId,students=[],renderStudentBoard})
     {recovery && <div className="study-plan__banner">На этом устройстве остались несохранённые изменения.<button onClick={recover}>Восстановить</button><button onClick={discardRecovery}>Оставить план из аккаунта</button></div>}
     {error && <div className="study-plan__banner is-error" role="alert">{error}{conflict?<><button onClick={()=>resolveConflict(true)}>Сохранить мою версию</button><button onClick={()=>resolveConflict(false)}>Загрузить с сервера</button></>:<button onClick={()=>void(plan?save():load())}>Повторить</button>}</div>}
     {!plan ? <div className="study-plan__loading">{status==='loading'?'Открываем холст…':'План пока не загружен'}</div>:<>
-      <div className="student-study-plan-pupil"><StudyStudentPicker students={students} studentId={studentId} onSelect={id=>{setStudentId(id);setSelected(null);setInspectedPage('');if(id)setPreviewStudent(students.find(student=>student.id===id));}}/>{studentId?<div className="study-pupil-current"><StudentStudyBadge teacherId={teacherId} studentId={studentId}/><button type="button" className="study-pupil-board-button" onClick={()=>setPreviewStudent(students.find(student=>student.id===studentId))}>Посмотреть доску</button></div>:<p className="study-plan__muted">Один маршрут — отдельные отметки для каждого ученика.</p>}{studentId&&<div className="student-study-legend"><span>Пройдено</span><span>Сейчас проходим</span><span>Впереди</span></div>}</div>
+      <div className="student-study-plan-pupil"><StudyStudentPicker loading={groupsLoading} students={subjects} studentId={studentId} onSelect={id=>{if(id)viewBoard(id);else{setStudentId('');setSelected(null);setInspectedPage('');}}}/>{target?<div className="study-pupil-current"><StudentStudyBadge teacherId={teacherId} studentId={studentId} onContinue={()=>viewBoard(studentId)}/><button type="button" className="study-pupil-board-button" onClick={()=>viewBoard(studentId)}>Посмотреть доску</button></div>:<p className="study-plan__muted">Один маршрут — отдельные отметки для учеников и групп.</p>}{target&&<div className="student-study-legend"><span>Пройдено</span><span>Сейчас проходим</span><span>Впереди</span></div>}</div>
+      <div className="study-matching-intro"><div><strong>Кого можно объединить?</strong><span>Сравните индивидуальных учеников по текущей теме и части плана.</span></div><button type="button" onClick={()=>setMatching(value=>!value)} aria-expanded={matching}>{matching?'Свернуть подбор':'Подобрать пары и группы'}</button></div>
+      {matching&&<StudyStudentMatching teacherId={teacherId} students={students} groups={allGroups} plan={plan} records={study.records} loading={study.loading||groupsLoading} onInspect={viewBoard} onGroupsChanged={onGroupsChanged}/>}
       <div className="study-plan__workspace">
         <div className="study-plan__main">
           <div className="study-plan__toolbar"><div className="study-plan__progress"><strong>{countStudyTasks(plan.order)}<span>/27</span></strong><span>заданий в плане</span><div><i style={{width:`${countStudyTasks(plan.order)/27*100}%`}}/></div></div>
@@ -157,7 +165,7 @@ export default function EgeStudyPlan({teacherId,students=[],renderStudentBoard})
         </div>
         <aside className="study-plan__sidebar" aria-label="Настройки маршрута">
           {active?<><div className="study-plan__panel-heading"><span>ЗАДАНИЕ {topicId}</span><button onClick={()=>setSelected(null)} aria-label="Закрыть настройки задания"><X size={17}/></button></div>
-            {studentId&&onCanvas&&<div className="student-study-plan-actions"><p className="study-plan__muted">{students.find(student=>student.id===studentId)?.name} · №{topicId}</p><button type="button" className="study-plan__primary" onClick={()=>{setInspectedPage('');setStudyDialog(true);}}><Map size={15}/>Связать страницу / отметить этап</button></div>}
+            {studentId&&onCanvas&&<div className="student-study-plan-actions"><p className="study-plan__muted">{target?.name} · №{topicId}</p><button type="button" className="study-plan__primary" onClick={()=>{setInspectedPage('');setStudyDialog(true);}}><Map size={15}/>Связать страницу / отметить этап</button></div>}
             <label className="study-plan__field">Название<input maxLength={100} value={active.title} onChange={e=>updateBlock(selected,{title:e.target.value})} onBlur={()=>{if(!active.title.trim())updateBlock(selected,{title:STUDY_PLAN_TOPICS[topicId]});}}/></label>
             {onCanvas&&stage.toPart>stage.fromPart||onCanvas&&siblings>1?<StudyStageEditor key={`${stage.id}:${stage.toPart}`} stage={stage} siblings={siblings} onSplit={after=>{remember(arrangeStudyPlan(splitStudyStage(plan,selected,after)));setNotice('Тема разделена. Перетащите каждый этап на нужное место в маршруте.');}} onMerge={()=>{remember(arrangeStudyPlan(mergeStudyStages(plan,topicId)));setSelected(topicId);}}/>:null}
             <div className="study-plan__parts-heading"><h3>Части задания</h3><span>{active.parts.length}/16</span></div>

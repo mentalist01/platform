@@ -289,6 +289,8 @@ import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } f
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
 import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
 import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
+import {registerGroupStudyProgressRoutes} from './groupStudyProgress.js';
+import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
 import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
 import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 import {PreparedHomework,registerPreparedHomeworkRoutes} from './preparedHomework.js';
@@ -24018,7 +24020,19 @@ app.post('/api/lesson-pages',handleLessonPages);
 registerPreparedTaskRoutes(app,preparedLessonTasks);
 registerPreparedSetExchangeRoutes(app,preparedLessonTasks,readTeachersDb);
 const egeStudyPlans=registerEgeStudyPlanRoutes(app,{dataDir});
-registerStudentStudyProgressRoutes(app,{dataDir,students:readStudentsDb,plans:egeStudyPlans,prepared:preparedLessonTasks,canCreate:(auth,student)=>{
+const groupStudyScope=async group=>{
+  const auth={id:group.teacherId,role:'teacher'},access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(groupNotebookBoard(group.id)+'~pages')}`,auth,
+    sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningGroupsDb():[],attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
+  if(!access.allowed||getLearningSubscriptionRoomError(auth,access))throw Object.assign(Error('Нет доступа к доске группы'),{status:403});
+  await ensureGroupNotebook(access);
+  return {access,scope:lessonPageRooms(access.target)||{book:groupNotebookBoard(group.id)+'~pages',codes:[groupNotebookCode(group.id)],codeRoom:''}};
+};
+const groupStudyProgress=registerGroupStudyProgressRoutes(app,{dataDir,groups:()=>LEARNING_GROUPS_ENABLED?readLearningGroupsDb():[],plans:egeStudyPlans,prepared:preparedLessonTasks,
+  canCreate:async(_auth,group)=>!(await groupStudyScope(group)).access.readOnly,
+  pages:async group=>{const {scope}=await groupStudyScope(group);const book=await lessonPageCatalog.ensure(scope);return boardPagesList(book.getMap('pages'));},
+  createPage:async(group,input)=>{const {access,scope}=await groupStudyScope(group);if(access.readOnly)throw Object.assign(Error('Доска группы доступна только для просмотра'),{status:403});return {id:(await lessonPageCatalog.change(scope,input)).id};},
+});
+registerStudentStudyProgressRoutes(app,{dataDir,students:readStudentsDb,plans:egeStudyPlans,prepared:preparedLessonTasks,groupStore:groupStudyProgress,canCreate:(auth,student)=>{
   const room=`board-${student.teacherId}-${student.id}~pages`,access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(room)}`,auth,students:readStudentsDb()});
   return access.allowed&&!access.readOnly&&!getLearningSubscriptionRoomError(auth,access);
 },createPage:async(student,input)=>{

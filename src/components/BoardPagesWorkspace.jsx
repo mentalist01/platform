@@ -9,6 +9,7 @@ import {StudentStudyBoardControl} from './StudentStudyProgress.jsx';
 import useStudentStudyProgress from '../hooks/useStudentStudyProgress.js';
 import BoardSelectionClipboard from './BoardSelectionClipboard.jsx';
 import {useLessonPageSelection} from '../hooks/useLessonPageSelection.js';
+import {groupStudySubject} from '../utils/studySubjects.js';
 import {groupNotebookBoard} from '../utils/groupNotebook.js';
 import {useCollapsedLessonPages} from '../hooks/useCollapsedLessonPages.js';
 import {lessonPageTree,lessonPageParentChoices} from '../utils/lessonPageTree.js';
@@ -26,11 +27,12 @@ function PagedBoardWorkspace(props) {
   const {Canvas,...canvasProps}=props;
   const {role,userId,userName,teacherId,lessonId,groupId,activeStudentId,readOnly}=canvasProps;
   const teacher=role==='teacher' || role==='admin';
-  const group=Boolean(lessonId && groupId);
+  const group=Boolean(groupId && (lessonId || canvasProps.studyPreview));
+  const studySubjectId=group?groupStudySubject(groupId):activeStudentId;
   const base=group ? groupNotebookBoard(groupId) : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null);
   const bookRoom=boardPageBookRoom(base);
-  const study=useStudentStudyProgress(teacher&&!group?teacherId:'');
-  const studyCurrent=study.records[activeStudentId]?.current;
+  const study=useStudentStudyProgress(teacher?teacherId:'');
+  const studyCurrent=study.records[studySubjectId]?.current;
   const storageKey=bookRoom ? `board-page:${bookRoom}:${role}:${userId}` : '';
   const [initialPage]=useState(()=>{try{return boardPageInitialState(window.localStorage.getItem(storageKey));}catch{return boardPageInitialState(null);}});
   const [pages,setPages]=useState(initialPage.pages);
@@ -154,7 +156,7 @@ function PagedBoardWorkspace(props) {
     <button type="button" onClick={toggle} className={`board-pages-current ${open?'is-active':''}`} aria-label={`Выбор страницы: ${page.title}`} aria-expanded={open} title={page.title}>
       <PanelLeft size={16}/><span className="board-pages-current__title">{page.title}</span><span className="board-pages-current__count">{index+1}/{pages.length}</span><ChevronDown size={14}/>
     </button>
-    {teacher&&!group&&!readOnly&&activeStudentId&&<StudentStudyBoardControl teacherId={teacherId} studentId={activeStudentId} pageId={pageId} room={boardPageRoom(base,pageId)} onSelectPage={choose}/>}
+    {teacher&&!readOnly&&studySubjectId&&(!group||!boardStudentId)&&<StudentStudyBoardControl teacherId={teacherId} studentId={studySubjectId} pageId={pageId} room={boardPageRoom(base,pageId)} onSelectPage={choose}/>}
     <div className="board-prepared-slot"/>
     {uniquePeers.length>0 && <details className="board-pages-peers"><summary aria-label="Участники на страницах" title={uniquePeers.map(label).join('\n')}>
       <span className="board-pages-avatars" aria-hidden="true">{uniquePeers.slice(0,3).map(peer=><span className={`board-pages-avatar ${together(peer)?'is-together':''}`} key={peer.userId}>{initials(peer)}</span>)}</span>
@@ -170,7 +172,7 @@ function PagedBoardWorkspace(props) {
       {editing===p.id?<form className="board-page-inline-edit" onSubmit={event=>{event.preventDefault();void rename();}} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'){event.preventDefault();setEditing('');}}}>
         <div className="board-page-inline-title"><span className="board-pages-number">{p.depth?'↳':i+1}</span><input autoFocus aria-label="Название страницы" value={title} maxLength={80} onFocus={event=>event.currentTarget.select()} onChange={event=>setTitle(event.target.value)} required disabled={pageActionBusy}/><button type="submit" aria-label="Сохранить название страницы" title="Сохранить · Enter" disabled={!connected||pageActionBusy||!title.trim()}><Check size={15}/></button><button type="button" aria-label="Отменить переименование" title="Отмена · Esc" disabled={pageActionBusy} onClick={()=>setEditing('')}><X size={14}/></button></div>
         <label className="board-page-inline-parent">Внутри<select aria-label="Родительская страница доски" value={parentId} onChange={event=>setParentId(event.target.value)} disabled={pageActionBusy||pages.some(page=>page.parentId===editing)}><option value="">Основная страница</option>{lessonPageParentChoices(pages,editing).map(page=><option key={page.id} value={page.id}>{page.title}</option>)}</select></label>
-      </form>:<>{p.childCount>0&&<button type="button" className="board-pages-collapse" aria-label={`${p.expanded?'Свернуть':'Развернуть'} подстраницы ${p.title}`} aria-expanded={p.expanded} onClick={()=>toggleParent(p.id)}>{p.expanded?<ChevronDown size={14}/>:<ChevronRight size={14}/>}</button>}<button className="board-pages-choose" type="button" onClick={()=>choose(p.id)} onDoubleClick={()=>beginRename(p)} aria-current={p.id===pageId?'page':undefined} title={teacher&&!readOnly?'Двойной щелчок — переименовать':p.title}><span className="board-pages-number">{p.depth?'↳':i+1}</span><span>{p.title}</span>{teacher&&!group&&studyCurrent?.pageId===p.id&&<i className="student-study-page-mark" title="Текущая тема ученика"/>}{p.childCount>0&&<small className="board-pages-child-count">{p.childCount}</small>}</button>{teacher&&!readOnly&&<><button type="button" className="board-pages-rename" disabled={!connected||pageActionBusy} aria-label={`Переименовать ${p.title}`} onClick={()=>beginRename(p)}><Pencil size={13}/></button>{!p.depth&&<button type="button" className="board-pages-rename" disabled={!connected||pageActionBusy} aria-label={`Добавить подстраницу в ${p.title}`} onClick={()=>void create(p.id)}><Plus size={14}/></button>}<button type="button" className="board-pages-delete" disabled={!connected||pages.length<=1} aria-label={`Удалить ${p.title}`} title={pages.length<=1?'На доске должна остаться хотя бы одна страница':'Удалить страницу'} onClick={()=>setDeleting(p)}><Trash2 size={14}/></button></>}</>}
+      </form>:<>{p.childCount>0&&<button type="button" className="board-pages-collapse" aria-label={`${p.expanded?'Свернуть':'Развернуть'} подстраницы ${p.title}`} aria-expanded={p.expanded} onClick={()=>toggleParent(p.id)}>{p.expanded?<ChevronDown size={14}/>:<ChevronRight size={14}/>}</button>}<button className="board-pages-choose" type="button" onClick={()=>choose(p.id)} onDoubleClick={()=>beginRename(p)} aria-current={p.id===pageId?'page':undefined} title={teacher&&!readOnly?'Двойной щелчок — переименовать':p.title}><span className="board-pages-number">{p.depth?'↳':i+1}</span><span>{p.title}</span>{teacher&&studyCurrent?.pageId===p.id&&<i className="student-study-page-mark" title="Текущая тема ученика"/>}{p.childCount>0&&<small className="board-pages-child-count">{p.childCount}</small>}</button>{teacher&&!readOnly&&<><button type="button" className="board-pages-rename" disabled={!connected||pageActionBusy} aria-label={`Переименовать ${p.title}`} onClick={()=>beginRename(p)}><Pencil size={13}/></button>{!p.depth&&<button type="button" className="board-pages-rename" disabled={!connected||pageActionBusy} aria-label={`Добавить подстраницу в ${p.title}`} onClick={()=>void create(p.id)}><Plus size={14}/></button>}<button type="button" className="board-pages-delete" disabled={!connected||pages.length<=1} aria-label={`Удалить ${p.title}`} title={pages.length<=1?'На доске должна остаться хотя бы одна страница':'Удалить страницу'} onClick={()=>setDeleting(p)}><Trash2 size={14}/></button></>}</>}
       {uniquePeers.some(peer=>peer.pageId===p.id)&&<small><span className="board-pages-dot"/>{uniquePeers.filter(peer=>peer.pageId===p.id).map(peer=>peer.name||'Участник').join(', ')}</small>}
     </div>)}</nav>
     {deleting && <div className="board-pages-delete-confirm" role="alertdialog" aria-label="Удалить страницу?" onKeyDown={e=>{if(e.key==='Escape')setDeleting(null);}}><strong>Убрать страницу?</strong><p>«{deleting.title}» с доской и кодом будет убрана у участников. Её можно восстановить.{group?' Личные работы сохраняются.':''}</p><div><button type="button" autoFocus onClick={()=>setDeleting(null)}>Отмена</button><button type="button" disabled={!connected||pageActionBusy} className="board-pages-delete-confirm__submit" onClick={remove}>Убрать страницу</button></div></div>}

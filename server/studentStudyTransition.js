@@ -1,5 +1,5 @@
 import {studyPlanStages} from '../src/utils/studyPlanStages.js';
-import {MAX_BOARD_PAGES,boardPageRoom} from '../src/utils/boardPages.js';
+import {MAX_BOARD_PAGES} from '../src/utils/boardPages.js';
 import {studyTopic,nextStudyStep,studyPageSuggestion,studyPartKey,studyPartCount} from '../src/utils/studentStudyProgress.js';
 import {preparedSetParts,preparedPartTaskNumber} from '../src/utils/preparedSetParts.js';
 
@@ -21,7 +21,7 @@ export function studyTransitionPreview(store,auth,record,plan,pages) {
     const i=start+offset-1;
     const partNumber=i+1,existing=pages.find(page=>record.links[page.id]?.blockId===next.blockId&&record.links[page.id]?.partNumber===partNumber)||pages.find(page=>page.parentId===parent?.id&&linked(page,partNumber));
     const candidates=sets.flatMap(set=>set.parts.filter(part=>part.partNumber===partNumber).map(part=>({setId:set.id,version:set.version,sourcePartNumber:part.sourcePartNumber,count:part.taskIds.length})));
-    const hasRun=Boolean(existing&&store.prepared.data.active[boardPageRoom(`board-${auth.id}-${record.studentId}`,existing.id)]);
+    const hasRun=Boolean(existing&&store.prepared.data.active[store.room(auth,record.groupId||record.studentId,existing.id)]);
     return {partNumber,name:plan.blocks[next.blockId]?.parts[i]||`Часть ${partNumber}`,existingPageId:existing?.id||'',existingPageTitle:existing?.title||'',hasRun,suggested:candidates.length===1?candidates[0]:null};
   });
   return {next,useParent:count>1,parent:parent?{id:parent.id,title:parent.title}:null,name:`Задание №${next.blockId}`,parts,sets,pending:record.stageSetup?.status==='pending'?record.stageSetup:null};
@@ -77,7 +77,7 @@ export async function prepareStudyTransition(store,{auth,student,record,input,pl
     if(!part.pageId){const page=await create(useParent?part.name:operation.name,useParent?operation.parentId:'',String(part.partNumber));part.pageId=page.id;record.links[part.pageId]={blockId:operation.blockId,partNumber:part.partNumber};await save();}
     record.links[part.pageId]={blockId:operation.blockId,partNumber:part.partNumber};
     if(part.setId&&!part.runId) {
-      const run=await store.prepared.start(auth,{room:boardPageRoom(`board-${auth.id}-${student.id}`,part.pageId),setId:part.setId,setVersion:part.setVersion,partNumber:part.sourcePartNumber,x:120,y:100});
+      const run=await store.prepared.start(auth,{room:store.room(auth,student.id,part.pageId),setId:part.setId,setVersion:part.setVersion,partNumber:part.sourcePartNumber,x:120,y:100});
       part.runId=run.id;await save();
     }
   }

@@ -4,6 +4,7 @@ import {openPreparedHomework} from './services/preparedHomework.js';
 import {paintPreparedInk,compositePreparedInk,isPreparedTaskAnchor} from './utils/preparedInk.js';
 import {preparedBoardView,animatePreparedBoardView} from './utils/preparedBoardView.js';
 import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
+import {studySubjectGroup} from './utils/studySubjects.js';
 import {STUDY_CONTINUE_EVENT} from './services/studentStudyProgress.js';
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
@@ -11256,7 +11257,7 @@ const createLessonReplayBoardPayload = (items, previousState, forceSnapshot = fa
 
 const BoardSection = (props) => (
   <React.Suspense fallback={<div role="status">Загружаем доску…</div>}>
-    <BoardPagesWorkspace {...props} Canvas={BoardCanvasSection} key={props.lessonId || `${props.teacherId}:${props.role==='teacher'?props.activeStudentId:props.userId}`}/>
+    <BoardPagesWorkspace {...props} Canvas={BoardCanvasSection} key={props.lessonId || props.groupId || `${props.teacherId}:${props.role==='teacher'?props.activeStudentId:props.userId}`}/>
   </React.Suspense>
 );
 
@@ -11295,7 +11296,7 @@ export const BoardCanvasSection = ({
       .map((value) => String(value || '').trim())
       .filter(Boolean)
   )), [participantIds]);
-  const isGroupLesson = Boolean(learningLessonId && learningGroupId);
+  const isGroupLesson = Boolean(learningGroupId && (learningLessonId || pages?.studyPreview));
   const boardStudentId = isGroupLesson && !sandbox?.id
     && (isTeacher ? learningParticipantIds.includes(pages?.boardStudentId) : pages?.boardStudentId === userId)
     ? pages.boardStudentId : '';
@@ -11547,17 +11548,17 @@ export const BoardCanvasSection = ({
   };
 
   useEffect(() => {
-    if (!isGroupLesson || !isTeacher) {
+    if (!isGroupLesson || !isTeacher || pages?.studyPreview) {
       setGroupResponseStudentId('');
       return;
     }
     setGroupResponseStudentId((current) => (
       learningParticipantIds.includes(current) ? current : (learningParticipantIds[0] || '')
     ));
-  }, [isGroupLesson, isTeacher, learningParticipantIds]);
+  }, [isGroupLesson, isTeacher, learningParticipantIds, pages?.studyPreview]);
 
   useEffect(() => {
-    if (!isGroupLesson || isSandbox || !responseStudentId) {
+    if (!isGroupLesson || isSandbox || !responseStudentId || pages?.studyPreview) {
       setLearningBoardResponsesById({});
       setLearningBoardResponsesLoading(false);
       return undefined;
@@ -11592,7 +11593,7 @@ export const BoardCanvasSection = ({
     return () => {
       active = false;
     };
-  }, [isGroupLesson, isSandbox, learningGroupId, learningLessonId, responseStudentId]);
+  }, [isGroupLesson, isSandbox, learningGroupId, learningLessonId, responseStudentId, pages?.studyPreview]);
 
   useEffect(() => () => {
     const prefix = `${learningGroupId}:${learningLessonId}:${responseStudentId}:`;
@@ -17032,7 +17033,7 @@ export const BoardCanvasSection = ({
       : 'board-surface-card board-surface-card--main relative overflow-visible rounded-none border-0 bg-transparent shadow-none flex min-h-0 flex-1 flex-col overflow-visible');
   const zoomLabel = `${Math.round((zoom || 1) * 100)}%`;
   const renderStudentPicker = () => {
-    if (isSandbox || boardStudentId || !isTeacher || (hideStudentPicker && !isGroupLesson)) return null;
+    if (isSandbox || pages?.studyPreview || boardStudentId || !isTeacher || (hideStudentPicker && !isGroupLesson)) return null;
     const pickerStudents = isGroupLesson
       ? groupParticipantStudents
       : (Array.isArray(students) ? students : []);
@@ -17193,7 +17194,7 @@ export const BoardCanvasSection = ({
   ) : null;
   const boardCardContent = (
     <>
-      {isGroupLesson && !isSandbox && (
+      {isGroupLesson && !isSandbox && !pages?.studyPreview && (
         <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto py-1" role="tablist" aria-label="Доски группы">
           {['', ...(isTeacher ? learningParticipantIds : [String(userId)])].map((studentId) => {
             const student = (Array.isArray(students) ? students : []).find((entry) => entry.id === studentId);
@@ -18188,7 +18189,7 @@ export const BoardCanvasSection = ({
           </div>
         )}
 
-        {isGroupLesson && !isSandbox && (
+        {isGroupLesson && !isSandbox && !pages?.studyPreview && (
           <GroupAnswerChat
             groupId={learningGroupId}
             lessonId={learningLessonId}
@@ -23598,12 +23599,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   useEffect(() => {
     if (user.role !== 'teacher') return undefined;
     const resume = event => {
+      if(event.detail?.groupId){void handleSelectLessonTarget(buildLearningGroupTargetValue(event.detail.groupId));return;}
       if (currentStudentsWithNicknames.some(student => student.id === event.detail?.studentId))
         handleOpenTeacherLessonWorkspace('collab', event.detail.studentId);
     };
     window.addEventListener(STUDY_CONTINUE_EVENT, resume);
     return () => window.removeEventListener(STUDY_CONTINUE_EVENT, resume);
-  }, [user.role, currentStudentsWithNicknames, handleOpenTeacherLessonWorkspace]);
+  }, [user.role, currentStudentsWithNicknames, handleOpenTeacherLessonWorkspace, handleSelectLessonTarget]);
 
   const handleOpenStudentPlatformLesson = useCallback(() => {
     if (user.role !== 'student') return;
@@ -26783,8 +26785,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           {view === 'study-plan' && user.role === 'teacher' && (
             <React.Suspense fallback={<div className="surface-panel rounded-2xl p-6">Открываем план подготовки…</div>}>
-              <EgeStudyPlan key={user.id} teacherId={user.id} students={currentStudentsWithNicknames}
-                renderStudentBoard={({studentId,initialPageId,onPageChange})=><BoardSection role="teacher" userId={user.id} userName={user.name} teacherId={user.id} tasks={tasksWithTitles} students={currentStudentsWithNicknames} activeStudentId={studentId} theme={theme} embedded hideStudentPicker containedDialogs readOnly studyPreview initialPageId={initialPageId} onPageChange={onPageChange}/>}/>
+              <EgeStudyPlan key={user.id} teacherId={user.id} students={currentStudentsWithNicknames} groups={lessonTargetGroups} groupsLoading={lessonTargetGroupsLoading} onGroupsChanged={refreshLessonTargetGroups}
+                renderStudentBoard={({studentId,initialPageId,onPageChange,participantIds})=><BoardSection groupId={studySubjectGroup(studentId)} participantIds={participantIds||[]} role="teacher" userId={user.id} userName={user.name} teacherId={user.id} tasks={tasksWithTitles} students={currentStudentsWithNicknames} activeStudentId={studentId} theme={theme} embedded hideStudentPicker containedDialogs readOnly studyPreview initialPageId={initialPageId} onPageChange={onPageChange}/>}/>
             </React.Suspense>
           )}
           {view === 'notes' && (

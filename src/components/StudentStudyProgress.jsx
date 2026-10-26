@@ -9,15 +9,15 @@ import {studyProgressLabel,studyTopic,studyPartKey,studyPartCount} from '../util
 import StudentStudyNextStage from './StudentStudyNextStage.jsx';
 import './StudentStudyProgress.css';
 
-export function StudentStudyBadge({teacherId,studentId,showEmpty=true}) {
-  const {records,plan,error,loading}=useStudentStudyProgress(teacherId),record=records[studentId];
+export function StudentStudyBadge({teacherId,studentId,showEmpty=true,onContinue}) {
+  const {records,groups=[],plan,error,loading}=useStudentStudyProgress(teacherId),group=groups.find(group=>group.participantIds.includes(studentId)||`group:${group.id}`===studentId),subjectId=group?`group:${group.id}`:studentId,record=records[subjectId];
   const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[editing,setEditing]=useState(false);
   if(!teacherId||!studentId||(!record&&!loading&&!error)||(!record?.current&&!showEmpty))return null;
   return <div className={`student-study-badge ${record?.current?.completed?'is-completed':''}`} onClick={event=>event.stopPropagation()}>
-    <Map size={16}/><div><small>{record?.current?.completed?'Этап завершён':'Сейчас проходим'}</small><strong>{loading&&!record?'Загружаем маршрут…':studyProgressLabel(record?.current,plan)}</strong></div>
-    {record?.current&&<button type="button" disabled={busy} onClick={async()=>{setBusy(true);setMessage('');try{await continueStudentStudy(teacherId,studentId);}catch(error){setMessage(error.message);}finally{setBusy(false);}}}>{busy?'Открываем…':'Продолжить'}<ArrowRight size={14}/></button>}
-    <button type="button" onClick={()=>setEditing(true)} aria-label="Отметить этап ученика">{record?.current?'Изменить':'Отметить тему'}</button>
-    {editing&&<StudentStudyDialog teacherId={teacherId} studentId={studentId} onClose={()=>setEditing(false)}/>}
+    <Map size={16}/><div><small>{record?.current?.completed?'Этап завершён':'Сейчас проходим'}</small><strong>{loading&&!record?'Загружаем маршрут…':`${group?group.name+' · ':''}${studyProgressLabel(record?.current,plan)}`}</strong></div>
+    {record?.current&&<button type="button" disabled={busy} onClick={async()=>{setBusy(true);setMessage('');try{await (onContinue?onContinue():continueStudentStudy(teacherId,subjectId));}catch(error){setMessage(error.message);}finally{setBusy(false);}}}>{busy?'Открываем…':'Продолжить'}<ArrowRight size={14}/></button>}
+    <button type="button" onClick={()=>setEditing(true)} aria-label={group?"Отметить этап группы":"Отметить этап ученика"}>{record?.current?'Изменить':'Отметить тему'}</button>
+    {editing&&<StudentStudyDialog teacherId={teacherId} studentId={subjectId} onClose={()=>setEditing(false)}/>}
     {error&&<button type="button" onClick={()=>void loadStudyProgress(teacherId,true)}>Повторить загрузку</button>}
     {(message||error)&&<span role="alert" className="student-study-error">{message||error}</span>}
   </div>;
@@ -56,8 +56,8 @@ export function StudentStudyDialog({teacherId,studentId,pageId='',blockId='',par
   };
   const choosePage=value=>{setSelectedPage(value);const link=data.record.links[value]||data.pages.find(page=>page.id===value)?.suggestion;if(link){setTopic(link.blockId);setPart(link.partNumber);}};
   const current=data?.record.current,count=topic?studyPartCount(data?.plan,data?.record,topic):1;
-  return createPortal(<div className="student-study-backdrop" onPointerDown={event=>{event.stopPropagation();if(event.target===event.currentTarget&&!busy)onClose();}}><section className="student-study-dialog" ref={dialog} role="dialog" aria-modal="true" aria-label="Маршрут ученика" tabIndex={-1}>
-    <header><div><small>ПЛАН ПОДГОТОВКИ</small>{!nextOpen&&<h2>Где остановились</h2>}</div><button type="button" disabled={busy} onClick={onClose} aria-label="Закрыть маршрут"><X size={20}/></button></header>
+  return createPortal(<div className="student-study-backdrop" onPointerDown={event=>{event.stopPropagation();if(event.target===event.currentTarget&&!busy)onClose();}}><section className="student-study-dialog" ref={dialog} role="dialog" aria-modal="true" aria-label={studentId.startsWith('group:')?'Маршрут группы':'Маршрут ученика'} tabIndex={-1}>
+    <header><div><small>ПЛАН ПОДГОТОВКИ</small>{!nextOpen&&<h2>{data?.group?data.group.name:'Где остановились'}</h2>}</div><button type="button" disabled={busy} onClick={onClose} aria-label="Закрыть маршрут"><X size={20}/></button></header>
     {data&&nextOpen&&data.transition?.next?<StudentStudyNextStage key={`${data.transition.next.blockId}:${data.transition.next.partNumber}`} teacherId={teacherId} studentId={studentId} data={data} onUpdate={setData} onBusyChange={setBusy} onBack={()=>setNextOpen(false)} onDone={result=>{onSelectPage?.(result.record.current.pageId);onClose();}}/>:data?<><div className="student-study-current"><Map size={20}/><div><small>{current?.completed?'Этап завершён':'Сейчас проходим'}</small><strong>{studyProgressLabel(current,data.plan)}</strong>{current&&<span>{current.pageTitle}{current.pageMissing?' · страница убрана':''}</span>}</div></div>
       <div className="student-study-fields"><label>Тема<select aria-label="Тема маршрута" value={topic} disabled={busy} onChange={event=>{setTopic(event.target.value);setPart(1);}}><option value="" disabled>Выберите тему</option>{data.plan.order.map(id=><option key={id} value={id}>№{id} · {data.plan.blocks[id].title}</option>)}</select></label>
       <label>Часть<select aria-label="Часть маршрута" value={part} disabled={busy} onChange={event=>setPart(Number(event.target.value))}>{Array.from({length:Math.max(count,part,20)},(_,i)=><option key={i} value={i+1}>{data.plan.blocks[topic]?.parts[i]||`Часть ${i+1}`}{data.record.completed[studyPartKey(topic,i+1)]?' · пройдена':''}</option>)}</select></label>
