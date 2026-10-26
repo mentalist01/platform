@@ -106,6 +106,7 @@ import { Worker } from 'worker_threads';
 import { monitorEventLoopDelay } from 'perf_hooks';
 import webpush from 'web-push';
 import { WebSocketServer } from 'ws';
+import {collabTransportOptions} from './collabTransport.js';
 import { createBoardTabletService } from './boardTablet.js';
 import yWsUtils from 'y-websocket/bin/utils';
 import {
@@ -4243,10 +4244,10 @@ const normalizeTeacherFinanceDb = (value) => {
 };
 
 let teacherFinanceReader = null;
-const readTeacherFinanceDb = () => {
+const readTeacherFinanceDb = ({readOnly = false} = {}) => {
   teacherFinanceReader ||= createTeacherFinanceReader(teacherFinanceFile, normalizeTeacherFinanceDb,
     () => balanceError('Не удалось прочитать финансовый журнал. Изменения остановлены.', 'balance_corrupt', 503));
-  return teacherFinanceReader.read();
+  return readOnly ? teacherFinanceReader.readSnapshot() : teacherFinanceReader.read();
 };
 
 const writeTeacherFinanceDb = (data) => {
@@ -16892,11 +16893,11 @@ const buildStudentScheduleOverdueEntry = (entry, occurrence, paymentState) => {
   };
 };
 
-const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
+const buildStudentSchedulePaymentResponse = async (student, schedule = [], {includePayments = true} = {}) => {
   const studentId = String(student?.id || '').trim();
   const teacherId = normalizeTeacherId(student?.teacherId);
   materializeAvailabilitySchedules();
-  if (studentId && teacherId) {
+  if (includePayments && studentId && teacherId) {
     try {
       await reconcileTeacherPaymentCredits(teacherId, { studentId });
     } catch (error) {
@@ -16933,6 +16934,7 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = []) => {
       || hasGroupEntryPaidMark({ ...entry, teacherId }, studentId, readContext)),
     teacherMarks
   );
+  if (!includePayments) return baseSchedule;
   const nowInfo = getStudentSchedulePaymentNowInfo();
   if (!Number.isFinite(nowInfo.todayNumber)) return baseSchedule;
 
@@ -17941,8 +17943,8 @@ const buildTeacherFinanceResponseWithProfitability = async (teacherId, monthKey)
 
 const isStudentBalanceMaintenance = () => process.env.BALANCE_MAINTENANCE === '1';
 const studentBalanceMaintenanceError = () => balanceError('Балансы временно приостановлены для восстановления работы платформы. Деньги и история сохранены.', 'balance_maintenance', 503);
-const walletEnabled = teacherId => Boolean(getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId).studentPaymentBalances);
-const walletHasStudent = (teacherId, studentId) => Boolean(getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacherId).studentPaymentBalances?.accounts?.[studentId]);
+const walletEnabled = teacherId => Boolean(readTeacherFinanceDb({readOnly:true})[String(teacherId||'').trim()]?.studentPaymentBalances);
+const walletHasStudent = (teacherId, studentId) => Boolean(readTeacherFinanceDb({readOnly:true})[String(teacherId||'').trim()]?.studentPaymentBalances?.accounts?.[studentId]);
 const walletStudentEligible = (student, entry, readContext = null) => !student.deletedAt
   && entry.studentProfiles?.[student.id]?.pricingMode !== 'monthly'
   && !(readContext ? readContext.subscriptions() : learningSubscriptions.read()).blocks.some(b => b.teacherId === student.teacherId && b.studentId === student.id && !b.cancelledAt);
@@ -34800,7 +34802,7 @@ app.get('/api/student-schedule', async (req, res) => {
   } catch {
     schedule = data.schedule || [];
   }
-  const responseSchedule = await buildStudentSchedulePaymentResponse(student, schedule);
+  const responseSchedule = await buildStudentSchedulePaymentResponse(student, schedule, {includePayments:req.query.purpose!=='lesson'});
   if (req.query.includeOptions === '1') {
     res.setHeader('Cache-Control', 'no-store');
     return res.json({ schedule: responseSchedule, canRequestIndividualSchedule: canRequestIndividualSchedule(student.id) });
@@ -38106,7 +38108,8 @@ app.get('/api/teacher-schedule', async (req, res) => {
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
   const teacherMarks = Object.freeze(normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacher.id]));
-  const homeworkProgressByStudentId = buildTeacherCalendarHomeworkProgressByStudentId(teacher.id);
+  const lessonOnly = req.query.purpose === 'lesson';
+  const homeworkProgressByStudentId = lessonOnly ? new Map() : buildTeacherCalendarHomeworkProgressByStudentId(teacher.id);
   const localEntries = getTeacherScheduleEntries(teacher.id)
     .map((entry) => annotateTeacherCalendarCancellation(teacher.id, entry, teacherMarks))
     .map((entry) => annotateTeacherCalendarEntryWithHomeworkProgress(entry, homeworkProgressByStudentId));
@@ -38115,6 +38118,10 @@ app.get('/api/teacher-schedule', async (req, res) => {
   readContext.paymentMarks = teacherMarks;
   readContext.paymentNowInfo = getStudentSchedulePaymentNowInfo();
   const availabilityEntries = availabilityCalendarEntries(teacher.id, true);
+  if (lessonOnly) return res.json(deduplicateGroupScheduleEntries([
+    ...localEntries, ...availabilityEntries.map(entry=>annotateTeacherCalendarCancellation(teacher.id,entry,teacherMarks)),
+    ...googleEntries.map(entry=>annotateTeacherCalendarCancellation(teacher.id,entry,teacherMarks)),
+  ]));
   const financeSnapshot = [...availabilityEntries, ...googleEntries].some(entry => entry?.isLearningGroupEvent && entry?.groupId)
     ? getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), teacher.id) : null;
   return res.json(deduplicateGroupScheduleEntries([
@@ -38528,7 +38535,7 @@ const reconcileTeacherPaymentCredits = async (
     }
   }
   if (normalizedStudentId && walletHasStudent(normalizedTeacherId, normalizedStudentId)
-    && walletStudentEligible(findStudentById(normalizedStudentId, { allowDeleted: true }) || {}, getTeacherFinanceTeacherEntry(readTeacherFinanceDb(), normalizedTeacherId))) {
+    && walletStudentEligible(findStudentById(normalizedStudentId, { allowDeleted: true }) || {}, readTeacherFinanceDb({readOnly:true})[normalizedTeacherId] || getDefaultTeacherFinanceTeacherEntry())) {
     return { changed: false, transfers: [] };
   }
   const invalidatedIds = new Set(
@@ -39997,7 +40004,7 @@ app.get('/api/teacher-calendar-marks', async (req, res) => {
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
   try {
-    if (!isStudentBalanceMaintenance() && walletEnabled(teacher.id)) await reconcileStudentBalanceReads(teacher.id);
+    if (req.query.purpose !== 'lesson' && !isStudentBalanceMaintenance() && walletEnabled(teacher.id)) await reconcileStudentBalanceReads(teacher.id);
     const db = readTeacherCalendarMarksDb();
     return res.json({ marks: normalizeTeacherCalendarMarks(db[teacher.id]) });
   } catch (error) { return walletResponseError(res, error); }
@@ -43753,7 +43760,7 @@ const pushSweepStartTimer = setTimeout(startPushReminderSweep, PUSH_SWEEP_START_
 if (typeof pushSweepStartTimer.unref === 'function') pushSweepStartTimer.unref();
 
 const server = createServer(app);
-const collabWss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
+const collabWss = new WebSocketServer(collabTransportOptions);
 const rtcWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 const notificationsWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 const WS_OPEN_STATE = 1;

@@ -33,6 +33,19 @@ test('unchanged reads validate once and return independent complete financial sn
   assert.equal(f.validations(), 1);
 });
 
+test('hot wallet predicates reuse a deeply immutable validated snapshot without cloning the journal', t => {
+  const f=fixture(t),snapshot=f.reader.readSnapshot();
+  for(let i=0;i<100;i++)assert.equal(f.reader.readSnapshot(),snapshot);
+  assert.equal(f.validations(),1);
+  assert.throws(()=>{snapshot.teacher.studentPaymentBalances.accounts.pupil.entries[0].creditCents=1;},TypeError);
+  const copy=f.reader.read();copy.teacher.note='edited';
+  assert.equal(f.reader.readSnapshot().teacher.note,'keep');
+  const next=structuredClone(f.value);next.teacher.note='next';f.write(next);
+  assert.notEqual(f.reader.readSnapshot(),snapshot);
+  assert.equal(f.reader.readSnapshot().teacher.note,'next');
+  assert.equal(f.validations(),2);
+});
+
 test('atomic same-sized replacement is observed and explicitly invalidating revalidates', t => {
   const f = fixture(t);
   f.reader.read();

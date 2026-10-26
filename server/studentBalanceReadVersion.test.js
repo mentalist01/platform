@@ -14,8 +14,10 @@ test('actual read coordinator version invalidates every financial, roster and ca
     'learningLessonSessionsFile', 'paymentNotificationsFile'];
   const stats = new Map();
   const calendar = { sourceKey: 'calendar', loadedAtMs: 1, toMs: 2 };
+  let recordingRevision=1;
   const context = { path, dataDir: 'fixture', learningSubscriptions: { file: 'subscriptions' },
     teacherCalendarSyncCache: new Map([['teacher', calendar]]),
+    desktopRecordings: {availabilityRevision:()=>recordingRevision},
     getStudentSchedulePaymentNowInfo: () => ({ todayKey: '2026-10-08' }),
     fs: { statSync(file) {
       if (!stats.has(file)) throw Object.assign(new Error('Missing'), { code: 'ENOENT' });
@@ -24,7 +26,7 @@ test('actual read coordinator version invalidates every financial, roster and ca
   };
   for (const name of names) context[name] = name;
   const files = [...names, 'subscriptions', ...['group-availability.json', 'lesson-reschedules.json',
-    'weekly-schedules.json', 'lesson-pace.json', 'desktop-recordings.json', 'lesson-replay-storage-index.json',
+    'weekly-schedules.json', 'lesson-pace.json', 'lesson-replay-storage-index.json',
     'lesson-replay-receipts'].map(name => path.join('fixture', name))];
   for (const file of files) stats.set(file, { ino: 1, size: 10, mtimeMs: 1, ctimeMs: 1 });
   vm.runInNewContext(`${source.slice(start, end)}\nglobalThis.version = studentBalanceReadVersion;`, context);
@@ -38,6 +40,9 @@ test('actual read coordinator version invalidates every financial, roster and ca
   calendar.loadedAtMs = 3;
   assert.notEqual(context.version('teacher'), original);
   calendar.loadedAtMs = 1;
+  recordingRevision=2;
+  assert.notEqual(context.version('teacher'),original,'recording availability changes invalidate wallet reads');
+  recordingRevision=1;
   context.getStudentSchedulePaymentNowInfo = () => ({ todayKey: '2026-10-09' });
   assert.notEqual(context.version('teacher'), original);
   stats.delete('subscriptions');

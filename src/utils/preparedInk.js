@@ -3,7 +3,7 @@
 export function isPreparedTaskAnchor(item){
   return item?.type==='shape'&&/^prepared-[a-f0-9-]{36}$/.test(item.id||'');
 }
-export function paintPreparedInk(cache,{canvas,overlay,reference=overlay,width,height,zoom,offset,regions,items,preview,draw,createCanvas}) {
+export function paintPreparedInk(cache,{canvas,overlay,reference=overlay,width,height,zoom,offset,regions,items,preview,draw,createCanvas,query}) {
   if(!canvas||!overlay)return;
   const ratio=reference.width/Math.max(1,width);
   if(!cache.base)cache.base=createCanvas();
@@ -19,7 +19,8 @@ export function paintPreparedInk(cache,{canvas,overlay,reference=overlay,width,h
     ctx.save();ctx.setTransform(ratio,0,0,ratio,0,0);ctx.beginPath();ctx.rect(region.body.x,region.body.y,region.body.width,region.body.height);ctx.clip();
     ctx.setTransform(ratio*zoom,0,0,ratio*zoom,-offset.x*ratio*zoom,-offset.y*ratio*zoom);
     const anchorIndex=items.findIndex(item=>item.id===region.anchorId);
-    items.forEach((item,index)=>{if(anchors.has(item.id))return;if(['stroke','line','arrow','shape','text'].includes(item.type)||index>anchorIndex)draw(ctx,preview(item));});
+    const indexes=query?query({minX:offset.x+region.body.x/zoom,minY:offset.y+region.body.y/zoom,maxX:offset.x+(region.body.x+region.body.width)/zoom,maxY:offset.y+(region.body.y+region.body.height)/zoom}):items.map((_,index)=>index);
+    for(const index of indexes){const item=items[index];if(anchors.has(item.id))continue;if(['stroke','line','arrow','shape','text'].includes(item.type)||index>anchorIndex)draw(ctx,preview(item));}
     ctx.restore();
   }
   compositePreparedInk(cache,canvas,overlay);

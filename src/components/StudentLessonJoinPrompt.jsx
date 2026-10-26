@@ -330,7 +330,7 @@ const StudentLessonJoinPrompt = ({
     }
 
     const [scheduleResult, nextLessonResult, telemostResult] = await Promise.allSettled([
-      api.getStudentSchedule(studentId),
+      api.getStudentSchedule(studentId,undefined,{purpose:'lesson'}),
       api.getStudentNextLesson(studentId),
       api.getTelemostSettings(),
     ]);

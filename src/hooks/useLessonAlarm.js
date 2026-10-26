@@ -142,7 +142,7 @@ export function useLessonAlarm(teacherId) {
       if (loading) { refreshAgain = true; return; }
       loading = true;
       try {
-        const [schedule, response] = await Promise.all([api.getTeacherSchedule(teacherId), api.getTeacherCalendarMarks(teacherId)]);
+        const [schedule, response] = await Promise.all([api.getTeacherSchedule(teacherId,{purpose:'lesson'}), api.getTeacherCalendarMarks(teacherId,{purpose:'lesson'})]);
         if (disposed) return;
         entries = Array.isArray(schedule) ? schedule : [];
         marks = response?.marks || {};

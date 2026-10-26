@@ -4,19 +4,20 @@ import {getCollabWsUrl} from '../utils/runtimeUrls.js';
 import {getStoredAuthToken,ACHIEVEMENT_PROGRESS_EVENT} from '../services/api.js';
 import {hasPreparedAchievementProgress} from '../utils/preparedAchievementProgress.js';
 import {preparedRequest,preparedSelectionKey} from '../services/preparedLessonTasks.js';
+import {createPreparedRefresh} from '../utils/preparedRefresh.js';
 
 const empty={run:null,selectedId:'',loading:false,error:'',codeVersion:0,busyCardId:''};
 const entries=new Map(),resumeSelections=new Map();
 const entryFor=room=>{if(!entries.has(room))entries.set(room,{state:empty,listeners:new Set(),users:0,sequence:0});return entries.get(room);};
 function publish(entry,patch){entry.state={...entry.state,...patch};for(const listener of entry.listeners)listener();}
 function apply(entry,run){if(entry.state.run&&run?.id===entry.state.run.id&&run.version<entry.state.run.version)return;if(run?.changeOnly){publish(entry,{run:{...entry.state.run,version:run.version},codeVersion:entry.state.codeVersion+1});return;}const achievementProgress=hasPreparedAchievementProgress(entry.state.run,run);let selectedId=resumeSelections.get(entry.room)||entry.state.selectedId;try{selectedId=selectedId||localStorage.getItem(preparedSelectionKey(entry.room))||'';}catch{/* optional preference */}if(!run?.cards.some(c=>c.id===selectedId))selectedId=run?.cards.at(-1)?.id||'';if(run)resumeSelections.delete(entry.room);publish(entry,{run,selectedId,loading:false,error:''});if(achievementProgress&&typeof window!=='undefined')window.dispatchEvent(new CustomEvent(ACHIEVEMENT_PROGRESS_EVENT));}
-async function refresh(entry){const sequence=++entry.sequence;try{const data=await preparedRequest(`/api/lesson-task-run?room=${encodeURIComponent(entry.room)}`);if(sequence===entry.sequence&&entry.users)apply(entry,data.run);}catch(error){if(entry.users)publish(entry,{loading:false,error:error.message});}}
-function connect(entry){entry.room=entry.room||'';let disposed=false;publish(entry,{loading:true});void refresh(entry);
+function refresh(entry,signal){return entry.refresher?.refresh(signal);}
+function connect(entry){entry.room=entry.room||'';let disposed=false;publish(entry,{loading:true});entry.refresher=createPreparedRefresh({read:async signal=>(await preparedRequest(`/api/lesson-task-run?room=${encodeURIComponent(entry.room)}`,undefined,'GET',signal)).run,apply:run=>apply(entry,run),current:()=>entry.state.run,onError:error=>publish(entry,{loading:false,error:error.message}),active:()=>entry.users>0});void refresh(entry);
   const book=entry.room.split('~page~')[0].split('~student~')[0]+'~pages';
   loadYjsRuntime().then(({Y,WebsocketProvider})=>{if(disposed)return;const doc=new Y.Doc(),provider=new WebsocketProvider(getCollabWsUrl(),book,doc,{params:{_auth:getStoredAuthToken()},disableBc:true});entry.runtime={doc,provider};const signals=doc.getMap('preparedTaskSignals');let timer;
-    const update=()=>{const change=signals.get(entry.room);if(!change)return;if(change.kind==='code'){publish(entry,{codeVersion:entry.state.codeVersion+1});return;}clearTimeout(timer);timer=setTimeout(()=>void refresh(entry),90);};
-    signals.observe(update);provider.on('sync',()=>{if(provider.synced)void refresh(entry);});entry.cleanup=()=>{clearTimeout(timer);signals.unobserve(update);provider.destroy();doc.destroy();};
-  }).catch(error=>{if(!disposed)publish(entry,{loading:false,error:error.message});});return()=>{disposed=true;entry.sequence++;entry.cleanup?.();entry.cleanup=null;entry.runtime=null;};
+    const update=()=>{const change=signals.get(entry.room);if(!change)return;if(change.kind==='code'){publish(entry,{codeVersion:entry.state.codeVersion+1});return;}clearTimeout(timer);timer=setTimeout(()=>void refresh(entry,change),90);};
+    signals.observe(update);provider.on('sync',()=>{const change=signals.get(entry.room);if(provider.synced&&(change||entry.state.error))void refresh(entry,entry.state.error?undefined:change);});entry.cleanup=()=>{clearTimeout(timer);signals.unobserve(update);provider.destroy();doc.destroy();};
+  }).catch(error=>{if(!disposed)publish(entry,{loading:false,error:error.message});});return()=>{disposed=true;entry.refresher?.dispose();entry.refresher=null;entry.sequence++;entry.cleanup?.();entry.cleanup=null;entry.runtime=null;};
 }
 export function selectPreparedLessonCard(room,id){
   const entry=entries.get(room);

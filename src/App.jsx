@@ -1,3 +1,4 @@
+import {createBoardRenderIndex,boardItemBounds as getItemBounds} from './utils/boardRenderIndex.js';
 import PreparedHomeworkHost from './components/PreparedHomeworkHost.jsx';
 import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress} from './utils/preparedHomework.js';
 import {openPreparedHomework} from './services/preparedHomework.js';
@@ -36,11 +37,11 @@ import {
   Map as MapIcon, Crop, FlipHorizontal2, Link2, Copy, Lock, Shield, ThumbsUp, Target,
   ArrowUpToLine, ArrowDownToLine, Type, Shapes, ArrowUpRight, Circle, Diamond, TextSelect, ListPlus
 } from 'lucide-react';  
-import mascotApproval from './assets/mascot/Approval.png';
-import mascotDisapproval from './assets/mascot/disapproval.png';
-import mascotGreetings from './assets/mascot/greetings.png';
-import mascotPeeking from './assets/mascot/peeking.png';
-import mascotPondering from './assets/mascot/pondering.png';
+import mascotApproval from './assets/mascot/Approval.webp';
+import mascotDisapproval from './assets/mascot/disapproval.webp';
+import mascotGreetings from './assets/mascot/greetings.webp';
+import mascotPeeking from './assets/mascot/peeking.webp';
+import mascotPondering from './assets/mascot/pondering.webp';
 import ivanCoin from './assets/ivan-coin-badge-128.webp';
 import leagueBronze from './assets/leagues/bronze.png';
 import leagueSilver from './assets/leagues/silver.png';
@@ -11450,6 +11451,10 @@ export const BoardCanvasSection = ({
   const boardEstimatedBytesRef = useRef(0);
   const boardImageUsageRef = useRef(new Map());
   const boardSceneRef = useRef(null);
+  const boardRenderIndex = useMemo(() => createBoardRenderIndex(getItemBounds), []);
+  const minimapOpenRef = useRef(isMinimapOpen);
+  const boardSceneDirtyRef = useRef(true);
+  useEffect(() => { minimapOpenRef.current = isMinimapOpen; }, [isMinimapOpen]);
   const boardRenderRafRef = useRef(null);
   const sceneRenderRafRef = useRef(null);
   const pendingSceneRenderRef = useRef(null);
@@ -14105,51 +14110,6 @@ export const BoardCanvasSection = ({
     }
   };
 
-  const getItemBounds = (item) => {
-    if (!item) return null;
-    if (item.type === 'stroke') {
-      const points = Array.isArray(item.points) ? item.points : [];
-      if (points.length === 0) return null;
-      let minX = Number.POSITIVE_INFINITY;
-      let minY = Number.POSITIVE_INFINITY;
-      let maxX = Number.NEGATIVE_INFINITY;
-      let maxY = Number.NEGATIVE_INFINITY;
-      points.forEach((pt) => {
-        if (!pt) return;
-        minX = Math.min(minX, pt.x || 0);
-        minY = Math.min(minY, pt.y || 0);
-        maxX = Math.max(maxX, pt.x || 0);
-        maxY = Math.max(maxY, pt.y || 0);
-      });
-      if (!Number.isFinite(minX)) return null;
-      return { minX, minY, maxX, maxY };
-    }
-    if (item.type === 'line' || item.type === 'arrow') {
-      const start = item.start || { x: 0, y: 0 };
-      const end = item.end || { x: 0, y: 0 };
-      const minX = Math.min(start.x || 0, end.x || 0);
-      const minY = Math.min(start.y || 0, end.y || 0);
-      const maxX = Math.max(start.x || 0, end.x || 0);
-      const maxY = Math.max(start.y || 0, end.y || 0);
-      return { minX, minY, maxX, maxY };
-    }
-    if (item.type === 'shape' || item.type === 'text' || item.type === 'task' || item.type === 'file') {
-      const x = item.x || 0;
-      const y = item.y || 0;
-      const w = item.width || 0;
-      const h = item.height || 0;
-      return { minX: x, minY: y, maxX: x + w, maxY: y + h };
-    }
-    if (item.type === 'image') {
-      const x = item.x || 0;
-      const y = item.y || 0;
-      const w = item.width || 0;
-      const h = item.height || 0;
-      return { minX: x, minY: y, maxX: x + w, maxY: y + h };
-    }
-    return null;
-  };
-
   const getBoardContentBounds = (items) => {
     const sourceItems = Array.isArray(items) ? items : [];
     let minX = Number.POSITIVE_INFINITY;
@@ -14711,6 +14671,7 @@ export const BoardCanvasSection = ({
 
   const renderBoardSceneFull = useCallback(() => {
     buildBoardScene();
+    boardSceneDirtyRef.current = false;
     scheduleBoardRenderRef.current?.();
     scheduleMinimapRenderRef.current?.(0);
   }, [buildBoardScene]);
@@ -14768,6 +14729,7 @@ export const BoardCanvasSection = ({
 
   const scheduleBoardSceneRender = useCallback((renderPlan = { mode: 'full' }) => {
     if (typeof window === 'undefined') return;
+    if (!minimapOpenRef.current) { boardSceneDirtyRef.current = true; return; }
     const normalizedPlan = renderPlan?.mode === 'append' && Array.isArray(renderPlan?.items) && renderPlan.items.length > 0
       ? { mode: 'append', items: renderPlan.items.slice() }
       : (renderPlan?.mode === 'none' ? { mode: 'none' } : { mode: 'full' });
@@ -14790,7 +14752,8 @@ export const BoardCanvasSection = ({
       const nextPlan = pendingSceneRenderRef.current;
       pendingSceneRenderRef.current = null;
       if (!nextPlan || nextPlan.mode === 'none') return;
-      if (nextPlan.mode === 'append') {
+      if (!minimapOpenRef.current) { boardSceneDirtyRef.current = true; return; }
+      if (nextPlan.mode === 'append' && !boardSceneDirtyRef.current) {
         renderBoardSceneAppend(nextPlan.items);
         return;
       }
@@ -14798,13 +14761,18 @@ export const BoardCanvasSection = ({
     });
   }, [renderBoardSceneAppend, renderBoardSceneFull]);
 
+  useEffect(() => {
+    if (isMinimapOpen && boardSceneDirtyRef.current) scheduleBoardSceneRender();
+  }, [isMinimapOpen, scheduleBoardSceneRender]);
+
+  const visibleBoardIndexes=useCallback(viewport=>boardRenderIndex.indexes(boardItemsRef.current,viewport,[...(selectionDragRef.current.active?selectedIdsRef.current:[]),...(dragImageRef.current.active?[dragImageRef.current.id]:[]),...(imageResizePreviewRef.current?[imageResizePreviewRef.current.id]:[])]),[boardRenderIndex]);
   preparedInkActionsRef.current={preview:getSelectionDragPreviewItem,draw:drawBoardItemToScene};
   const renderPreparedInk=useCallback(()=>{
     const surface=containerRef.current;if(!surface)return;
     const origin=canvasRef.current.getBoundingClientRect(),box=element=>{const b=element.getBoundingClientRect();return {x:b.left-origin.left,y:b.top-origin.top,width:b.width,height:b.height};};
     const regions=Array.from(surface.querySelectorAll('.prepared-card')).map(card=>({anchorId:card.dataset.anchorId,card:box(card),body:box(card.querySelector('.prepared-card-body'))}));
-    paintPreparedInk(preparedInkCache.current,{canvas:preparedInkRef.current,overlay:overlayRef.current,reference:canvasRef.current,width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:zoomRef.current,offset:offsetRef.current,regions,items:boardItemsRef.current,preview:preparedInkActionsRef.current.preview,draw:preparedInkActionsRef.current.draw,createCanvas:()=>document.createElement('canvas')});
-  },[]);
+    paintPreparedInk(preparedInkCache.current,{canvas:preparedInkRef.current,overlay:overlayRef.current,reference:canvasRef.current,width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:zoomRef.current,offset:offsetRef.current,regions,items:boardItemsRef.current,preview:preparedInkActionsRef.current.preview,draw:preparedInkActionsRef.current.draw,createCanvas:()=>document.createElement('canvas'),query:visibleBoardIndexes});
+  },[visibleBoardIndexes]);
   const renderBoard = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -14842,23 +14810,18 @@ export const BoardCanvasSection = ({
       -(currentOffset.y || 0) * renderScale
     );
     const resizePreview = imageResizePreviewRef.current;
-    items.forEach((item) => {
+    const padding = 32 / currentZoom;
+    const visible = visibleBoardIndexes({minX:currentOffset.x-padding,minY:currentOffset.y-padding,maxX:currentOffset.x+boardSizeRef.current.width/currentZoom+padding,maxY:currentOffset.y+boardSizeRef.current.height/currentZoom+padding});
+    for (const index of visible) {
+      const item = items[index];
       drawBoardItemToScene(
         ctx,
         resizePreview?.id === item?.id ? { ...item, ...resizePreview } : getSelectionDragPreviewItem(item)
       );
-    });
+    }
     ctx.restore();
     renderPreparedInk();
-  }, [drawBoardItemToScene,renderPreparedInk]);
-
-  useEffect(() => {
-    renderBoard();
-  }, [renderBoard, boardSize]);
-
-  useEffect(() => {
-    renderBoard();
-  }, [boardRevision, renderBoard]);
+  }, [drawBoardItemToScene,renderPreparedInk,visibleBoardIndexes]);
 
   useEffect(() => {
     if (typeof onMemorySnapshotRenderer !== 'function') return undefined;
@@ -15157,6 +15120,10 @@ export const BoardCanvasSection = ({
   useEffect(() => {
     scheduleBoardRenderRef.current = scheduleBoardRender;
   }, [scheduleBoardRender]);
+
+  useEffect(() => {
+    scheduleBoardRender();
+  }, [boardRevision, boardSize, scheduleBoardRender]);
 
   useEffect(() => {
     scheduleBoardSceneRenderRef.current = scheduleBoardSceneRender;
@@ -15526,6 +15493,7 @@ export const BoardCanvasSection = ({
       undoManager.off('stack-item-popped', updateUndoState);
       undoManager.off('stack-item-updated', updateUndoState);
       undoManager.off('stack-item-removed', updateUndoState);
+      undoManager.destroy();
       if (provider) {
         provider.awareness.off('change', handleAwareness);
         provider.off('connection-close', handleConnectionClose);

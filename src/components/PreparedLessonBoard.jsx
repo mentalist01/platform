@@ -2,11 +2,12 @@ import {useCallback,useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {Check,ChevronRight,FileSpreadsheet,Download,ExternalLink,SkipForward,LocateFixed,Upload,RefreshCcw,Home,AlertCircle} from 'lucide-react';
 import {usePreparedLesson} from '../hooks/usePreparedLesson.js';
-import {preparedRequest,preparedAssetUrl} from '../services/preparedLessonTasks.js';
+import {preparedRequest} from '../services/preparedLessonTasks.js';
+import PreparedConditionImage from './PreparedConditionImage.jsx';
 import {getExternalApiOrigin} from '../utils/runtimeUrls.js';
 import {getWorkbookHelperInstall} from '../utils/workbookHelperInstall.js';
 import {requestLessonPages} from '../services/lessonPages.js';
-import PreparedTaskLibrary from './PreparedTaskLibrary.jsx';
+import PreparedTaskLibrary from './PreparedTaskLibraryLauncher.jsx';
 import PreparedTaskPicker from './PreparedTaskPicker.jsx';
 import PreparedTheoryCard from './PreparedTheoryCard.jsx';
 import PreparedBoardOptions from './PreparedBoardOptions.jsx';
@@ -76,7 +77,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
 
     </div>
     </div>
-    <div className="prepared-card-body">{card.images.map((asset,i)=><img key={asset.id} src={preparedAssetUrl(asset.url)} alt={`Условие задачи ${card.index+1}, изображение ${i+1}`} draggable={false} style={{height:Math.min(900,600*asset.height/asset.width)}}/>)}</div>
+    <div className="prepared-card-body">{card.images.map((asset,i)=><PreparedConditionImage key={asset.id} asset={asset} alt={`Условие задачи ${card.index+1}, изображение ${i+1}`}/>)}</div>
   </article>;
 }
 

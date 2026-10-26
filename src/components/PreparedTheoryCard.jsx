@@ -1,6 +1,6 @@
 import {useEffect,useRef} from 'react';
 import {BookOpen} from 'lucide-react';
-import {preparedAssetUrl} from '../services/preparedLessonTasks.js';
+import PreparedConditionImage from './PreparedConditionImage.jsx';
 
 export default function PreparedTheoryCard({card,run,style,onMeasure}) {
   const element=useRef(null);
@@ -11,6 +11,6 @@ export default function PreparedTheoryCard({card,run,style,onMeasure}) {
   },[card.id,onMeasure]);
   return <article ref={element} data-anchor-id={card.anchorId} className="prepared-card prepared-card--theory" style={style} aria-label={`Теория набора ${card.setName||run.name}`}>
     <header><strong className="prepared-theory-label"><BookOpen size={15}/>Теория</strong><span className="prepared-card-source" title={card.setName||run.name}>{card.setName||run.name}</span><span className="prepared-task-status">Перед задачами</span></header>
-    <div className="prepared-card-body">{card.images.map((asset,index)=><img key={asset.id} src={preparedAssetUrl(asset.url)} alt={`Теория, изображение ${index+1}`} draggable={false} style={{height:Math.min(900,600*asset.height/asset.width)}}/>)}</div>
+    <div className="prepared-card-body">{card.images.map((asset,index)=><PreparedConditionImage key={asset.id} asset={asset} alt={`Теория, изображение ${index+1}`}/>)}</div>
   </article>;
 }

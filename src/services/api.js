@@ -2310,10 +2310,11 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getStudentSchedule: async (studentId, includeOptions) => {
+  getStudentSchedule: async (studentId, includeOptions, {purpose} = {}) => {
     const params = new URLSearchParams();
     if (studentId) params.set('studentId', studentId);
     if (includeOptions) params.set('includeOptions', '1');
+    if (purpose === 'lesson') params.set('purpose', 'lesson');
     const qs = String(params);
     const res = await apiFetch(`/api/student-schedule${qs ? `?${qs}` : ''}`);
     if (!res.ok) throw new Error(await parseApiError(res));
@@ -2616,19 +2617,21 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getTeacherSchedule: async (teacherId) => {
+  getTeacherSchedule: async (teacherId, {purpose} = {}) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', String(teacherId));
     const qs = params.toString();
-    const res = await apiFetch(qs ? `/api/teacher-schedule?${qs}` : '/api/teacher-schedule');
+    const suffix = purpose === 'lesson' ? `${qs ? '&' : '?'}purpose=lesson` : '';
+    const res = await apiFetch((qs ? `/api/teacher-schedule?${qs}` : '/api/teacher-schedule') + suffix);
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
-  getTeacherCalendarMarks: async (teacherId) => {
+  getTeacherCalendarMarks: async (teacherId, {purpose} = {}) => {
     const params = new URLSearchParams();
     if (teacherId) params.append('teacherId', String(teacherId));
     const qs = params.toString();
-    const res = await apiFetch(qs ? `/api/teacher-calendar-marks?${qs}` : '/api/teacher-calendar-marks');
+    const suffix = purpose === 'lesson' ? `${qs ? '&' : '?'}purpose=lesson` : '';
+    const res = await apiFetch((qs ? `/api/teacher-calendar-marks?${qs}` : '/api/teacher-calendar-marks') + suffix);
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },

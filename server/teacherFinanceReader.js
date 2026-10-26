@@ -6,7 +6,12 @@ export function createTeacherFinanceReader(filePath, normalize, corrupt) {
   let signature = '';
   let snapshot = null;
   const invalidate = () => { signature = ''; snapshot = null; };
-  const read = () => {
+  const freeze = value => {
+    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+    for (const child of Object.values(value)) freeze(child);
+    return Object.freeze(value);
+  };
+  const readSnapshot = () => {
     try {
       const stat = fs.statSync(filePath);
       const current = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
@@ -14,15 +19,16 @@ export function createTeacherFinanceReader(filePath, normalize, corrupt) {
         const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid finance database');
         const normalized = normalize(raw);
-        snapshot = normalized;
+        snapshot = freeze(normalized);
         signature = current;
       }
-      return structuredClone(snapshot);
+      return snapshot;
     } catch (error) {
       invalidate();
-      if (error.code === 'ENOENT') return {};
+      if (error.code === 'ENOENT') return Object.freeze({});
       throw corrupt();
     }
   };
-  return { read, invalidate };
+  const read = () => structuredClone(readSnapshot());
+  return { read, readSnapshot, invalidate };
 }

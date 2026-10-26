@@ -13,8 +13,8 @@ import PreparedTheoryEditor from './PreparedTheoryEditor.jsx';
 import './PreparedLessonTasks.css';
 
 const blankTask=(number,title='1')=>preparedAnswerTask({id:crypto.randomUUID(),title,difficult:false,format:'exact',answers:[''],images:[],attachments:[]},number);
-export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,onSaved,activeRun,label='Задания к уроку'}) {
-  const [open,setOpen]=useState(false),[sets,setSets]=useState([]),[edit,setEdit]=useState(null),[selected,setSelected]=useState(0),[files,setFiles]=useState([]);
+export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,onSaved,activeRun,label='Задания к уроку',initiallyOpen=false}) {
+  const [open,setOpen]=useState(initiallyOpen),[sets,setSets]=useState([]),[edit,setEdit]=useState(null),[selected,setSelected]=useState(0),[files,setFiles]=useState([]);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[crop,setCrop]=useState(null),[partCount,setPartCount]=useState(1);
   const [query,setQuery]=useState(''),[orderVersion,setOrderVersion]=useState(0),[validationTaskId,setValidationTaskId]=useState('');
   const [exchange,setExchange]=useState(null),[theoryOpen,setTheoryOpen]=useState(false);
