@@ -80,7 +80,7 @@ test('apply only an owned, complete, current version; failed storage rolls back 
   await assert.rejects(f.sync(run,set),{status:409});
 });
 
-test('independent corrections reset only affected questions; answer reshaping preserves visual order and rejects destructive or busy changes',async t=>{
+test('independent corrections reset only affected questions; answer reshaping preserves visual order and rejects destructive changes',async t=>{
   const f=fixture(t),{store,auth,pupil}=f;
   let set=await f.make([{answerMode:'independent',answerCountOverride:3,answers:['11','22','33']}]);
   let run=await store.start(auth,{room:'board-t-s',setId:set.id,x:0,y:0});
@@ -94,7 +94,6 @@ test('independent corrections reset only affected questions; answer reshaping pr
   const before=JSON.stringify(store.data.runs[run.id]);await assert.rejects(f.sync(run,smaller),{status:409});assert.equal(JSON.stringify(store.data.runs[run.id]),before);
   const expanded=await store.saveSet(auth,{...smaller,tasks:smaller.tasks.map(task=>({...task,answerCountOverride:4,answers:['12','44','33','55']}))},set.id);
   await store.action(pupil,run.id,{action:'claim',cardId:run.cards[0].id,leaseKey:'typing'});
-  await assert.rejects(f.sync(run,expanded),{status:409});
   await store.action(pupil,run.id,{action:'release',cardId:run.cards[0].id,leaseKey:'typing'});
   run=await f.sync(run,expanded);assert.deepEqual(run.cards[0].answers,['11','0','0','']);assert.equal(run.cards[0].answerRevision,2);
 });

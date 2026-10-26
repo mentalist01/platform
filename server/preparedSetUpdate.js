@@ -8,12 +8,9 @@ const fail=message=>{throw Object.assign(new Error(message),{status:409});};
 const schemaChanged=(before,after)=>before.answers.length!==after.answers.length||
   (before.answerMode||'combined')!==(after.answerMode||'combined')||preparedAnswerTableChanged(before,after);
 
-function updatedCard(card,before,after,auth,now){
+function updatedCard(card,before,after){
   if(isPreparedTheory(before)||!preparedCheckingChanged(before,after))return card;
   const schema=schemaChanged(before,after);
-  if(schema&&card.lease?.until>now&&card.lease.actor!==`${auth.role}:${auth.id}`){
-    fail('Ученик вводит ответ. Количество и порядок полей можно поменять после завершения ввода. Правильный ответ и условие можно исправлять сразу.');
-  }
   let answers=card.answers;
   if(schema){
     const values=preparedAnswerIndices(before).map(index=>card.answers[index]||'');
@@ -33,7 +30,7 @@ function updatedCard(card,before,after,auth,now){
 
 // Apply one validated library version only to the requested lesson. No polling,
 // respawning, board rewrites or replay of code snapshots is involved.
-export function updatePreparedSet(store,run,set,auth){
+export function updatePreparedSet(store,run,set){
   const latest=new Map(preparedSourceLatest(run,set).map(task=>[task.id,task]));
   const cardsByIndex=new Map(run.cards.map(card=>[card.index,card]));
   const cardUpdates=new Map();
@@ -53,7 +50,7 @@ export function updatePreparedSet(store,run,set,auth){
     if(next.attachments.length>16)fail('Слишком много вложений. Используйте новую страницу.');
     try{preparedRuntimeFiles(next.attachments);}catch(error){fail(error.message);}
     const card=cardsByIndex.get(index);
-    if(card)cardUpdates.set(card.id,updatedCard(card,task,next,auth,store.now()));
+    if(card)cardUpdates.set(card.id,updatedCard(card,task,next));
     return next;
   });
   const known=new Set(run.tasks.filter(task=>preparedTaskSource(run,task).id===set.id).map(task=>preparedTaskSource(run,task).taskId));

@@ -69,7 +69,7 @@ test('new cards use a 30 percent larger visual scale, preserve old widths and re
   const restarted=new PreparedLessonTasks(deps);await restarted.action(auth,run.id,{action:'restore'});
   assert.equal(items.toArray().find(item=>item.id===second.anchorId).width,832);
 });
-test('shared run: immutable template, explicit modes, answer lease, idempotent advance, independent code and persistence',async t=>{
+test('shared run: immutable template, explicit modes, shared input, idempotent advance, independent code and persistence',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-tasks-test-')),docs=new Map();
   const auth={id:'teacher-a',role:'teacher',name:'Учитель'},pupil={id:'student-a',role:'student',name:'Ученик'},outsider={id:'student-c',role:'student'};
   const deps={directory,authorize:async actor=>({allowed:actor.id!=='student-c',readOnly:false,auth:actor,groupId:'group-a',participantIds:['student-a','student-b']}),board:async room=>{if(!docs.has(room))docs.set(room,new Y.Doc());return docs.get(room);},sourceFiles:async()=>[]};
@@ -85,7 +85,7 @@ test('shared run: immutable template, explicit modes, answer lease, idempotent a
   await store.saveSet(auth,{...set,tasks:[{...set.tasks[0],answers:['new answer']},set.tasks[1]]},set.id);
   await store.action(pupil,id,{action:'claim',cardId:first.id,leaseKey:key});
   await assert.rejects(store.action(pupil,id,{action:'answer',cardId:first.id,leaseKey:key,revision:0,answers:[]}),{status:400});
-  await assert.rejects(store.action({id:'student-b',role:'student'},id,{action:'claim',cardId:first.id,leaseKey:'other'}),{status:409});
+  assert.equal((await store.action({id:'student-b',role:'student'},id,{action:'claim',cardId:first.id,leaseKey:'other'})).cards[0].lease,null);
   await store.action(pupil,id,{action:'answer',cardId:first.id,leaseKey:key,revision:0,answers:['7']});
   run=await store.action(pupil,id,{action:'check',cardId:first.id,leaseKey:key,revision:1});assert.equal(run.cards[0].status,'active');assert.equal(run.result,'wrong');
   await store.action(auth,id,{action:'auto',value:true});
