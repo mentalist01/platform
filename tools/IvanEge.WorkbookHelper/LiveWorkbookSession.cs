@@ -8,6 +8,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly LiveWorkbookClient _client;
     private readonly LiveWorkbookWindow _window;
+    private readonly LivePresenceOverlay _presence;
     private readonly SynchronizationContext _ui;
     private readonly Task _worker;
     private bool _disposed;
@@ -15,16 +16,20 @@ internal sealed class LiveWorkbookSession : IDisposable
     public string LocalPath => _client.LocalPath;
     public bool IsPaused => _client.Paused;
     public bool IsClosed => _failed || _disposed || _client.Office?.Closed == true;
+    public string Engine { get; }
     public event EventHandler<WorkbookStatus>? Status;
 
-    public LiveWorkbookSession(HelperApiClient api, WorkbookGrant grant, string source)
+    public LiveWorkbookSession(HelperApiClient api, WorkbookGrant grant, string source, string? requestedEngine = null)
     {
-        string engine = LiveWorkbookWindow.ChooseEngine();
+        string engine = LiveOfficePreference.Choose(source, requestedEngine);
+        Engine = engine;
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         string directory = Path.Combine(Path.GetDirectoryName(source)!, "Совместная работа " + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(directory);
         _client = new LiveWorkbookClient(api, grant, directory);
         _window = new LiveWorkbookWindow();
+        _presence = new LivePresenceOverlay();
+        _client.Presence += (frame, peers) => _ui.Post(_ => { if (!_disposed) _presence.Present(frame, peers); }, null);
         _window.SaveRequested += () => { _client.RequestSave(); Wake(); };
         _window.UndoRequested += redo => voidUndo(redo);
         _window.ResolveRequested += async () =>
@@ -38,7 +43,6 @@ internal sealed class LiveWorkbookSession : IDisposable
             catch (Exception error) { Update(new(WorkbookStatusKind.Warning, error.Message)); }
         };
         _client.Status += (_, status) => Update(status);
-        _window.Show();
         _worker = Task.Run(async () =>
         {
             try
@@ -49,8 +53,9 @@ internal sealed class LiveWorkbookSession : IDisposable
                 while (!_lifetime.IsCancellationRequested)
                 {
                     var cycle = System.Diagnostics.Stopwatch.StartNew();
-                    try { await _client.TickAsync(_lifetime.Token); failures = 0; }
+                    try { await _client.PollAsync(_lifetime.Token); failures = 0; }
                     catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { break; }
+                    catch (LiveOfficeBusyException) { failures = 0; }
                     catch (LiveOfficeDisconnectedException error)
                     {
                         AppLog.Error("Shared workbook office connection failed: " + error);
@@ -65,7 +70,7 @@ internal sealed class LiveWorkbookSession : IDisposable
                         break;
                     }
                     catch (Exception error) { failures++; Update(new(WorkbookStatusKind.Warning, "Синхронизация приостановлена: " + error.Message + " Локальная копия сохранена.", failures == 1)); }
-                    var delay = TimeSpan.FromMilliseconds(failures == 0 ? Math.Clamp(cycle.ElapsedMilliseconds, 900, 5000) : Math.Min(15000, 1500 * Math.Pow(2, Math.Min(failures, 4))));
+                    var delay = TimeSpan.FromMilliseconds(failures == 0 ? Math.Max(40, 180 - cycle.ElapsedMilliseconds) : Math.Min(15000, 1500 * Math.Pow(2, Math.Min(failures, 4))));
                     await _wake.WaitAsync(delay, _lifetime.Token);
                 }
             }
@@ -76,7 +81,7 @@ internal sealed class LiveWorkbookSession : IDisposable
                 _failed = true;
                 Update(new(WorkbookStatusKind.Error, error.Message + " Исходный файл остался на компьютере. Нажмите «Решать» на доске ещё раз.", true));
             }
-            finally { _client.Dispose(); }
+            finally { _client.Dispose(); _ui.Post(_ => { if (!_disposed) _presence.Hide(); }, null); }
         });
     }
     private async void voidUndo(bool redo)
@@ -87,15 +92,24 @@ internal sealed class LiveWorkbookSession : IDisposable
     private void Update(WorkbookStatus status)
     {
         Status?.Invoke(this, status);
-        _ui.Post(_ => { if (!_disposed) _window.UpdateStatus(status.Message, _client.Conflicted); }, null);
+        _ui.Post(_ =>
+        {
+            if (_disposed) return;
+            _window.UpdateStatus(status.Message, _client.Conflicted);
+            if (_client.Conflicted && !_window.Visible) _window.Show();
+        }, null);
     }
     public void Wake() { if (_wake.CurrentCount == 0) _wake.Release(); }
     public void SetPaused(bool paused) { _client.Paused = paused; Wake(); }
     public void ShowControls() => _ui.Post(_ => { if (!_disposed) { _window.Show(); _window.Activate(); } }, null);
+    public async Task ActivateOfficeAsync()
+    {
+        if (_client.Office is not null) await _client.Office.CommandAsync(new() { ["type"] = "activate" }, _lifetime.Token);
+    }
     public void Dispose()
     {
         if (_disposed) return; _disposed = true; _lifetime.Cancel();
-        _ui.Post(_ => _window.Dispose(), null);
+        _ui.Post(_ => { _window.Dispose(); _presence.Dispose(); }, null);
         // Worker closes its scoped office instance after persisting the local
         // recovery file. Never block the tray thread while office is busy.
     }
@@ -127,14 +141,4 @@ internal sealed class LiveWorkbookWindow : Form
         FormClosing += (_, args) => { if (args.CloseReason == CloseReason.UserClosing) { args.Cancel = true; Hide(); } };
     }
     public void UpdateStatus(string status, bool conflict) { _status.Text = status; _resolve.Visible = conflict; }
-    public static string ChooseEngine()
-    {
-        using var form = new Form { Text = "Где открыть общую таблицу?", Size = new Size(420, 180), StartPosition = FormStartPosition.CenterScreen, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false };
-        var title = new Label { Text = "Выберите программу на этом компьютере", Left = 20, Top = 18, Width = 370, Height = 25 };
-        var excel = new Button { Text = "Microsoft Excel", Left = 20, Top = 58, Width = 175, Height = 40, DialogResult = DialogResult.Yes, Enabled = Type.GetTypeFromProgID("Excel.Application") is not null };
-        bool hasCalc; try { LiveOfficeProcess.FindCalc(); hasCalc = true; } catch { hasCalc = false; }
-        var calc = new Button { Text = "LibreOffice Calc", Left = 210, Top = 58, Width = 175, Height = 40, DialogResult = DialogResult.No, Enabled = hasCalc };
-        form.Controls.AddRange([title, excel, calc]);
-        return form.ShowDialog() switch { DialogResult.Yes => "excel", DialogResult.No => "calc", _ => throw new OperationCanceledException("Открытие общей таблицы отменено") };
-    }
 }

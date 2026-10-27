@@ -43,7 +43,8 @@ internal sealed class WorkbookSession : IDisposable
         string localPath,
         string initialContentHash,
         Func<string?, CancellationToken, Task<string?>> requestSolutionName,
-        bool requiresManualMacroOpen = false)
+        bool requiresManualMacroOpen = false,
+        string? requestedEngine = null)
     {
         _api = api;
         _grant = grant;
@@ -56,7 +57,7 @@ internal sealed class WorkbookSession : IDisposable
         if (grant.Live is not null)
         {
             if (requiresManualMacroOpen) throw new InvalidOperationException("Не удалось проверить защитную метку таблицы. Откройте безопасную копию вручную в обычном режиме.");
-            _live = new LiveWorkbookSession(api, grant, localPath);
+            _live = new LiveWorkbookSession(api, grant, localPath, requestedEngine);
             _live.Status += (_, status) => Publish(status);
             _worker = Task.CompletedTask;
             return;
@@ -80,7 +81,9 @@ internal sealed class WorkbookSession : IDisposable
     public bool IsPaused => _live?.IsPaused ?? _paused;
     public bool IsLive => _live is not null;
     public bool IsLiveClosed => _live?.IsClosed == true;
+    public string? LiveEngine => _live?.Engine;
     public void ShowLiveControls() => _live?.ShowControls();
+    public Task ActivateLiveOfficeAsync() => _live?.ActivateOfficeAsync() ?? Task.CompletedTask;
     public bool RequiresManualMacroOpen { get; }
 
     public void SetPaused(bool paused)

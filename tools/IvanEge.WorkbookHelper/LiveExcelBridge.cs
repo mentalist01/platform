@@ -11,6 +11,7 @@ internal sealed class LiveExcelBridge : IDisposable
     private readonly dynamic _book = null!;
     private readonly string _localPath;
     private readonly bool _hidden;
+    private readonly LiveExcelChanges _changes = null!;
     private static void Release(object? value) { if (value is not null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value); }
 
     public LiveExcelBridge(string source, string localPath, bool hidden)
@@ -28,6 +29,7 @@ internal sealed class LiveExcelBridge : IDisposable
             if ((int)_book.Styles.Count == 0) _book.Styles.Add("IVAN100");
             _book.SaveAs(localPath, 51); // Common file format, no macros.
             _app.Visible = !hidden;
+            _changes = new LiveExcelChanges(_app);
         }
         catch { try { _app.Quit(); } finally { Release(_book); Release(_app); } throw; }
     }
@@ -85,6 +87,49 @@ internal sealed class LiveExcelBridge : IDisposable
     {
         switch (command["type"]!.GetValue<string>())
         {
+            case "pulse": return Pulse(command["peers"] as JsonArray ?? []);
+            case "activate":
+                dynamic activeWindow = _app.ActiveWindow;
+                try { activeWindow.Activate(); return new { activated = true }; }
+                finally { Release(activeWindow); }
+            case "view":
+                dynamic view = _app.ActiveWindow;
+                try
+                {
+                    if (command["freezeRows"] is not null) { view.FreezePanes = false; view.SplitRow = command["freezeRows"]!.GetValue<int>(); view.SplitColumn = command["freezeColumns"]?.GetValue<int>() ?? 0; view.FreezePanes = (int)view.SplitRow > 0 || (int)view.SplitColumn > 0; }
+                    view.Zoom = command["zoom"]!.GetValue<int>(); view.ScrollRow = command["row"]!.GetValue<int>() + 1; view.ScrollColumn = command["column"]!.GetValue<int>() + 1; return new { viewed = true };
+                }
+                finally { Release(view); }
+            case "fixture-object":
+                dynamic objectSheet = _app.ActiveSheet, objectShapes = objectSheet.Shapes;
+                try
+                {
+                    dynamic shape = objectShapes.AddShape(1, 114, 85, 114, 57);
+                    try { shape.Name = command["name"]!.GetValue<string>(); shape.Select(); return new { created = true }; }
+                    finally { Release(shape); }
+                }
+                finally { Release(objectShapes); Release(objectSheet); }
+            case "select":
+                dynamic selectedSheet = Sheet(command["sheetName"]!.GetValue<string>());
+                try
+                {
+                    selectedSheet.Activate();
+                    dynamic? selectedCells = null;
+                    try
+                    {
+                        foreach (var item in command["ranges"]!.AsArray())
+                        {
+                            var r = item!.AsArray(); string address = CellAddress(r[0]!.GetValue<int>(), r[1]!.GetValue<int>()) + ":" + CellAddress(r[2]!.GetValue<int>(), r[3]!.GetValue<int>());
+                            dynamic next = selectedSheet.Range[address];
+                            if (selectedCells is null) selectedCells = next;
+                            else { dynamic combined = _app.Union(selectedCells, next); Release(selectedCells); Release(next); selectedCells = combined; }
+                        }
+                        selectedCells!.Select();
+                    }
+                    finally { Release(selectedCells); }
+                    return new { selected = true };
+                }
+                finally { Release(selectedSheet); }
             case "snapshot":
                 string destination = command["path"]!.GetValue<string>(); _book.SaveCopyAs(destination); return new { path = destination, localPath = (string)_book.FullName };
             case "save": _book.Save(); return new { saved = true };
@@ -153,6 +198,88 @@ internal sealed class LiveExcelBridge : IDisposable
         }
     }
 
+    private static string CellAddress(int row, int column)
+    {
+        string letters = ""; for (int n = column + 1; n > 0; n = (n - 1) / 26) letters = (char)('A' + (n - 1) % 26) + letters;
+        return letters + (row + 1);
+    }
+    private static JsonArray RangeAddress(dynamic range)
+    {
+        dynamic rows = range.Rows, columns = range.Columns;
+        try { int row = (int)range.Row - 1, col = (int)range.Column - 1; return new JsonArray(row, col, row + (int)rows.Count - 1, col + (int)columns.Count - 1); }
+        finally { Release(rows); Release(columns); }
+    }
+    private JsonObject Pulse(JsonArray peers)
+    {
+        dynamic window = _app.ActiveWindow, sheet = _app.ActiveSheet, selected = _app.Selection, active = _app.ActiveCell;
+        try
+        {
+            var ranges = new JsonArray(); var objects = new JsonArray(); string sheetName = sheet.Name;
+            try
+            {
+                dynamic areas = selected.Areas;
+                try { for (int i = 1; i <= Math.Min((int)areas.Count, 16); i++) { dynamic area = areas.Item[i]; try { ranges.Add(RangeAddress(area)); } finally { Release(area); } } }
+                finally { Release(areas); }
+            }
+            catch (Exception error) when (error is COMException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException && error.HResult is not unchecked((int)0x80010001) and not unchecked((int)0x8001010A))
+            {
+                dynamic shapes = selected.ShapeRange;
+                try { for (int i = 1; i <= Math.Min((int)shapes.Count, 16); i++) { dynamic shape = shapes.Item(i); try { string name = new(((string)shape.Name).Where(ch => !char.IsControl(ch)).Take(120).ToArray()); if (name.Length > 0) objects.Add(new JsonObject { ["name"] = name, ["kind"] = "shape" }); } finally { Release(shape); } } }
+                finally { Release(shapes); }
+            }
+            var result = new JsonObject { ["serial"] = _changes.Serial, ["watching"] = _changes.Watching,
+                ["selection"] = new JsonObject { ["sheetName"] = sheetName, ["ranges"] = ranges, ["objects"] = objects, ["activeCell"] = new JsonArray((int)active.Row - 1, (int)active.Column - 1) },
+                ["window"] = Convert.ToInt64(_app.Hwnd), ["marks"] = new JsonArray(), ["view"] = null };
+            if (_hidden || peers.Count == 0) return result;
+            dynamic panes = window.Panes;
+            try
+            {
+                for (int p = 1; p <= (int)panes.Count; p++)
+                {
+                    dynamic pane = panes.Item[p], visible = pane.VisibleRange;
+                    try
+                    {
+                        Rectangle clip = ScreenRectangle(pane, visible);
+                        if (result["view"] is JsonArray prior) clipView(Rectangle.Union(new Rectangle(prior[0]!.GetValue<int>(), prior[1]!.GetValue<int>(), prior[2]!.GetValue<int>(), prior[3]!.GetValue<int>()), clip));
+                        else clipView(clip);
+                        void clipView(Rectangle box) => result["view"] = new JsonArray(box.X, box.Y, box.Width, box.Height);
+                        foreach (var peer in peers.Take(32))
+                        {
+                            if (peer!["selection"]!["sheetName"]!.GetValue<string>() != sheetName) continue;
+                            void Mark(dynamic native)
+                            {
+                                Rectangle bounds = Rectangle.Intersect(clip, ScreenRectangle(pane, native));
+                                if (bounds.Width > 0 && bounds.Height > 0) result["marks"]!.AsArray().Add(new JsonObject { ["bounds"] = new JsonArray(bounds.X, bounds.Y, bounds.Width, bounds.Height), ["name"] = peer["name"]!.DeepClone(), ["color"] = peer["color"]!.DeepClone() });
+                            }
+                            foreach (var item in peer["selection"]!["ranges"]!.AsArray().Take(16))
+                            {
+                                var r = item!.AsArray(); string address = CellAddress(r[0]!.GetValue<int>(), r[1]!.GetValue<int>()) + ":" + CellAddress(r[2]!.GetValue<int>(), r[3]!.GetValue<int>());
+                                dynamic native = sheet.Range[address]; try { Mark(native); } finally { Release(native); }
+                            }
+                            foreach (var item in peer["selection"]!["objects"]!.AsArray().Take(16))
+                            {
+                                dynamic? shape = null; dynamic? shapes = null;
+                                try { shapes = sheet.Shapes; shape = shapes.Item(item!["name"]!.GetValue<string>()); Mark(shape); }
+                                catch (COMException) { /* An object absent in this copy has a text indicator instead. */ }
+                                finally { Release(shape); Release(shapes); }
+                            }
+                        }
+                    }
+                    finally { Release(visible); Release(pane); }
+                }
+            }
+            finally { Release(panes); }
+            return result;
+        }
+        finally { Release(active); Release(selected); Release(sheet); Release(window); }
+    }
+    private static Rectangle ScreenRectangle(dynamic pane, dynamic item)
+    {
+        int x = pane.PointsToScreenPixelsX((int)Math.Round((double)item.Left)), y = pane.PointsToScreenPixelsY((int)Math.Round((double)item.Top));
+        int right = pane.PointsToScreenPixelsX((int)Math.Round((double)item.Left + (double)item.Width)), bottom = pane.PointsToScreenPixelsY((int)Math.Round((double)item.Top + (double)item.Height));
+        return new Rectangle(x, y, Math.Max(0, right - x), Math.Max(0, bottom - y));
+    }
+
     private void Replace(JsonObject book)
     {
         var sheets = book["sheets"]!.AsArray();
@@ -210,6 +337,7 @@ internal sealed class LiveExcelBridge : IDisposable
     }
     public void Dispose()
     {
+        _changes?.Dispose();
         // Preserve a complete local recovery file before closing our own instance.
         try { if (!IsClosed()) { _book.Save(); _book.Close(false); } _app.Quit(); }
         catch { /* Leave an unsaved document open rather than discarding it. */ }
@@ -223,11 +351,14 @@ internal sealed class LiveExcelBridge : IDisposable
         {
             using var bridge = new LiveExcelBridge(Argument("--file"), Argument("--local"), args.Contains("--hidden"));
             Console.WriteLine("{\"ready\":true}"); string? line;
-            while ((line = Console.ReadLine()) is not null)
+            while (true)
             {
+                var inputLine = Task.Run(Console.ReadLine);
+                while (!inputLine.IsCompleted) { Application.DoEvents(); Thread.Sleep(5); }
+                line = inputLine.GetAwaiter().GetResult(); if (line is null) break;
                 var input = JsonNode.Parse(line)!.AsObject(); if (input["type"]!.GetValue<string>() == "close") break;
                 try { Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), result = bridge.Execute(input) })); }
-                catch (Exception error) { Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), error = error.Message, closed = bridge.IsClosed() })); }
+                catch (Exception error) { Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), error = error.Message, closed = bridge.IsClosed(), busy = error.HResult is unchecked((int)0x80010001) or unchecked((int)0x8001010A) })); }
             }
             return 0;
         }

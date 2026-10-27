@@ -19,6 +19,11 @@ internal sealed class LiveWorkbookClient : IDisposable
     private string _fileRevision;
     private bool _saveRequested;
     private bool _conflict;
+    private JsonArray _peers = [];
+    private long _lastPresence, _lastSnapshot, _lastSerial = -1, _remoteHint = -1;
+    private bool _presenceSupported = true;
+    private bool _presenceWarningLogged;
+    public event Action<JsonObject, JsonArray>? Presence;
     public string? ConflictDescription { get; private set; }
     public bool Conflicted => _conflict;
     public LiveOfficeProcess Office { get; private set; } = null!;
@@ -172,6 +177,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                 _pendingLocal = Copy(snapshot.Book);
             }
             if (_pending is not null) await PersistAsync(snapshot.Book, snapshot.File, token);
+            long previousRevision = _revision; bool hadPending = _pending is not null;
             JsonObject response;
             try
             {
@@ -213,7 +219,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                 var recovery = await Office.SnapshotAsync(token);
                 try { await PersistAsync(recovery.Book, recovery.File, token); } finally { File.Delete(recovery.File); }
             }
-            else await PersistAsync(_observed, null, token);
+            else if (hadPending || previousRevision != _revision || _saveRequested) await PersistAsync(_observed, null, token);
             if (_conflict) { Publish(WorkbookStatusKind.Warning, "Нужно согласовать структуру таблицы", true); return; }
             if (_saveRequested && applied)
             {
@@ -235,6 +241,43 @@ internal sealed class LiveWorkbookClient : IDisposable
             else Publish(WorkbookStatusKind.Watching, _checkpoint == _revision ? "Все изменения переданы · общая версия сохранена" : "Изменения переданы · Ctrl+S сохранит общую версию на доску");
         }
         finally { if (snapshotFile is not null) File.Delete(snapshotFile); _gate.Release(); }
+    }
+    public async Task PollAsync(CancellationToken token)
+    {
+        if (Office.Closed) { if (!Paused) await TickAsync(token); return; }
+        JsonObject pulse;
+        try { pulse = await Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = _peers.DeepClone() }, token); }
+        catch (InvalidOperationException error)
+        {
+            if (!_presenceWarningLogged) { AppLog.Error("Native selection unavailable; cell synchronization continues", error); _presenceWarningLogged = true; }
+            pulse = new() { ["serial"] = _lastSerial, ["watching"] = false, ["selection"] = null };
+        }
+        long now = Environment.TickCount64;
+        if (_presenceSupported && now - _lastPresence >= 400)
+        {
+            _lastPresence = now;
+            try
+            {
+                var reply = await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/presence", new() { ["selection"] = pulse["selection"]?.DeepClone() }, token, TimeSpan.FromSeconds(2));
+                _peers = reply["peers"] is JsonArray peers ? (JsonArray)peers.DeepClone() : [];
+                _remoteHint = reply["revision"]?.GetValue<long>() ?? -1;
+            }
+            catch (HelperApiException error) when (error.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+            { _presenceSupported = false; _peers = []; }
+            catch (HelperApiException error) when (error.IsTransient)
+            { _peers = []; _lastPresence = Environment.TickCount64 + 1500; }
+        }
+        Presence?.Invoke(pulse, (JsonArray)_peers.DeepClone());
+        if (Paused || _conflict) return;
+        long serial = pulse["serial"]?.GetValue<long>() ?? -1;
+        bool watching = pulse["watching"]?.GetValue<bool>() == true;
+        bool nativeSaved = _lastWrite != 0 && File.GetLastWriteTimeUtc(Office.LocalPath).Ticks != _lastWrite;
+        if (_pending is not null || _saveRequested || nativeSaved || serial != _lastSerial || (_presenceSupported && _remoteHint >= 0 && _remoteHint != _revision) ||
+            now - _lastSnapshot >= (_presenceSupported && watching ? 2000 : 600))
+        {
+            await TickAsync(token);
+            _lastSerial = serial; _lastSnapshot = Environment.TickCount64; _remoteHint = Math.Max(_remoteHint, _revision);
+        }
     }
     public void RequestSave() => _saveRequested = true;
     public async Task UndoAsync(bool redo, CancellationToken token)

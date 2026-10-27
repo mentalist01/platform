@@ -43,7 +43,9 @@ internal static class ProtocolRequestParser
         }
 
         var origin = NormalizeAndValidateOrigin(originValue);
-        return new ProtocolRequest(origin, ticket);
+        string? engine = query.GetValueOrDefault("engine");
+        if (engine is not null and not "auto" and not "excel" and not "calc") throw new FormatException("Неизвестная программа для таблицы.");
+        return new ProtocolRequest(origin, ticket, engine);
     }
 
     public static Uri NormalizeAndValidateOrigin(string value)

@@ -5,6 +5,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] arguments)
     {
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         if (arguments.Contains("--live-excel-bridge")) return LiveExcelBridge.Run(arguments);
         var liveCheck = Array.IndexOf(arguments, "--live-check");
         if (liveCheck >= 0 && liveCheck + 1 < arguments.Length) return LiveWorkbookCheck.Run(arguments[liveCheck + 1]);

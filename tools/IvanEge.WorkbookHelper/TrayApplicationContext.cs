@@ -17,6 +17,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _pauseItem;
     private readonly ToolStripMenuItem _retryItem;
     private readonly ToolStripMenuItem _stopItem;
+    private readonly ToolStripMenuItem _controlsItem;
     private readonly System.Windows.Forms.Timer _queueTimer;
     private readonly Dictionary<string, WorkbookSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<WorkbookSession> _sessionOrder = [];
@@ -41,7 +42,19 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _pauseItem = new ToolStripMenuItem("Приостановить автосохранение", null, (_, _) => TogglePause()) { Enabled = false };
         _retryItem = new ToolStripMenuItem("Проверить и отправить сейчас", null, (_, _) => _latestSession?.RetryNow()) { Enabled = false };
         _stopItem = new ToolStripMenuItem("Остановить слежение", null, (_, _) => StopSession()) { Enabled = false };
+        _controlsItem = new ToolStripMenuItem("Состояние и отмена общих правок", null, (_, _) => _latestSession?.ShowLiveControls()) { Enabled = false };
         var helpItem = new ToolStripMenuItem("Как пользоваться", null, (_, _) => ShowUsageInstructions());
+        var programItem = new ToolStripMenuItem("Программа для общей таблицы");
+        foreach (var (value, label) in new[] { ("auto", "По настройке Windows"), ("excel", "Microsoft Excel"), ("calc", "LibreOffice Calc") })
+        {
+            var option = new ToolStripMenuItem(label) { Checked = LiveOfficePreference.Preferred == value };
+            option.Click += (_, _) =>
+            {
+                LiveOfficePreference.Preferred = value;
+                foreach (ToolStripMenuItem other in programItem.DropDownItems) other.Checked = ReferenceEquals(other, option);
+            };
+            programItem.DropDownItems.Add(option);
+        }
         var openPlatformItem = new ToolStripMenuItem("Открыть ivan100.ru", null, (_, _) => OpenPlatform());
         var clearTrustItem = new ToolStripMenuItem("Сбросить доверенные сайты", null, (_, _) => ClearTrustedOrigins());
         var exitItem = new ToolStripMenuItem("Выход", null, (_, _) => ExitThread());
@@ -55,7 +68,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _pauseItem,
             _retryItem,
             _stopItem,
+            _controlsItem,
             new ToolStripSeparator(),
+            programItem,
             helpItem,
             openPlatformItem,
             clearTrustItem,
@@ -145,7 +160,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
             {
                 var existing = _sessionOrder.FirstOrDefault(session => session.IsLive && session.Grant.WorkbookKey == grant.WorkbookKey &&
                     session.Grant.Origin == grant.Origin);
-                if (existing is not null && !existing.IsLiveClosed) { existing.ShowLiveControls(); return; }
+                if (existing is not null && !existing.IsLiveClosed)
+                {
+                    if (request.Engine is "excel" or "calc" && request.Engine != existing.LiveEngine)
+                        ShowNotification("Сначала закройте открытую таблицу", "Сохраните её через Ctrl+S, дождитесь сохранения на доске и закройте файл. Затем нажмите «Решать» с выбранной программой.", ToolTipIcon.Info);
+                    await existing.ActivateLiveOfficeAsync(); return;
+                }
                 if (existing is not null) RemoveSession(existing, true);
             }
             if (grant.ExpiresAt is { } expiresAt && expiresAt <= DateTimeOffset.UtcNow)
@@ -204,7 +224,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 finalPath,
                 download.LocalContentHash,
                 RequestSolutionNameAsync,
-                requiresManualMacroOpen);
+                requiresManualMacroOpen,
+                request.Engine);
             api = null; // Ownership was transferred to WorkbookSession.
             nextSession.StatusChanged += OnSessionStatusChanged;
             RegisterSession(currentGrant, nextSession);
@@ -448,9 +469,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
             : $"Активных таблиц: {_sessions.Count} · {_latestSession.FileName}");
     }
 
-    private void OpenCurrentFile()
+    private async void OpenCurrentFile()
     {
-        if (_latestSession?.IsLive == true) { _latestSession.ShowLiveControls(); return; }
+        if (_latestSession?.IsLive == true)
+        {
+            try { await _latestSession.ActivateLiveOfficeAsync(); }
+            catch (Exception error) { ShowNotification("Не удалось открыть таблицу", error.Message, ToolTipIcon.Warning); }
+            return;
+        }
         if (_latestSession is null || !File.Exists(_latestSession.LocalPath))
         {
             ShowNotification("Помощник таблиц", _statusText, ToolTipIcon.Info);
@@ -527,6 +553,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _openItem.Enabled = active;
         _pauseItem.Enabled = active;
         _retryItem.Enabled = active;
+        _controlsItem.Enabled = active && _latestSession?.IsLive == true;
         _stopItem.Enabled = active;
         _pauseItem.Text = _latestSession?.IsPaused == true
             ? "Продолжить автосохранение"

@@ -41,6 +41,16 @@ test('shared helper is scoped, requires an upgraded client, persists both author
     const results=await Promise.all([helper(teacher.token,'live/sync',{command:command('teacher1','A1',12),since:0}),helper(pupil.token,'live/sync',{command:command('pupil1','B1',30),since:0})]);
     assert.ok(results.every(result=>result.receipt.status==='accepted'));
     const state=await helper(pupil.token,'live/state');assert.equal(state.revision,2);assert.equal(state.book.sheets[0].cells.A1.content.value,12);assert.equal(state.book.sheets[0].cells.B1.content.value,30);
+    const selection={sheetName:'Лист 1',activeCell:[2,1],ranges:[[2,1,8,3]],objects:[]};
+    assert.equal((await helper(teacher.token,'live/presence',{selection,name:'Forged',color:'red'})).peers.length,0);
+    const visible=await helper(pupil.token,'live/presence',{selection});
+    assert.equal(visible.peers.length,1);assert.equal(visible.peers[0].color,'#8b5cf6');assert.notEqual(visible.peers[0].name,'Forged');assert.deepEqual(visible.peers[0].selection,selection);
+    assert.equal(JSON.stringify(visible).includes(teacher.token),false);assert.equal(visible.revision,2);
+    await helper(pupil.token,'live/presence',{selection:{...selection,ranges:[[0,0,1048576,1]]}},400);
+    await helper(teacher.token.slice(0,-1)+'x','live/presence',{selection},401);
+    for(let i=0;i<15;i++)await helper(teacher.token,'live/presence',{selection});
+    assert.deepEqual(await helper(pupil.token,'live/state'),state,'Presence must not alter the workbook, revision or undo journal');
+    await helper(teacher.token,'live/presence',{selection:null});assert.equal((await helper(pupil.token,'live/presence',{selection})).peers.length,0);
     await request(route,a,{...target,enabled:false},'POST',409);
     const regular=new FormData();regular.append('file',new Blob([BLANK_WORKBOOK_ODS]),'book.ods');regular.append('revision','0');
     assert.equal((await fetch(base+'/workbook-helper/v1/content',{method:'PUT',headers:{Authorization:`Workbook ${pupil.token}`},body:regular})).status,409);
@@ -52,6 +62,7 @@ test('shared helper is scoped, requires an upgraded client, persists both author
     assert.equal((await helper(pupil.token,'live/state')).checkpointRevision,2);
     const foreign=await fetch(base+'/workbook-helper/v1/live/state',{headers:{Authorization:`Workbook ${teacher.token.slice(0,-1)+'x'}`}});assert.equal(foreign.status,401);
     await request(route,a,{...target,enabled:false});await helper(pupil.token,'live/state',null,410);
+    await helper(pupil.token,'live/presence',{selection},410);
     const group=await request('/api/lesson-task-runs',a,{room:`board-group-${f.groupId}`,setId:set.id,x:0,y:0},'POST',201);
     await request(`/api/lesson-task-runs/${group.run.id}/live/helper`,tokens['student-a'],{cardId:group.run.cards[0].id,assetId:group.run.cards[0].attachments[0].assetId},'POST',403);
   }finally{await f.stop();}

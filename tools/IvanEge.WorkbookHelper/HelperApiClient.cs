@@ -28,7 +28,7 @@ internal sealed class HelperApiClient : IDisposable
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.4.1 (Windows)");
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.5.0 (Windows)");
         _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
@@ -319,12 +319,12 @@ internal sealed class HelperApiClient : IDisposable
         return request;
     }
 
-    internal async Task<JsonObject> LiveRequestAsync(WorkbookGrant grant, string route, JsonObject? body, CancellationToken cancellationToken)
+    internal async Task<JsonObject> LiveRequestAsync(WorkbookGrant grant, string route, JsonObject? body, CancellationToken cancellationToken, TimeSpan? timeout = null)
     {
         if (grant.Live?.Protocol != 1 || !route.StartsWith("/workbook-helper/v1/live/", StringComparison.Ordinal)) throw new FormatException("Неизвестный протокол общей таблицы");
         using var request = CreateAuthorizedRequest(body is null ? HttpMethod.Get : HttpMethod.Post, grant, route);
         if (body is not null) request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
-        using var response = await SendAsync(request, HttpCompletionOption.ResponseContentRead, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        using var response = await SendAsync(request, HttpCompletionOption.ResponseContentRead, timeout ?? TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
         var value = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (value.Length > 32 * 1024 * 1024) throw new FormatException("Слишком большая общая таблица");

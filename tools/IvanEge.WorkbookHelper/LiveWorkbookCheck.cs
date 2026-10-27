@@ -51,6 +51,94 @@ internal static class LiveWorkbookCheck
         {
             var clock = Stopwatch.StartNew(); await action(); checks.Add(new JsonObject { ["name"] = name, ["passed"] = true, ["ms"] = clock.ElapsedMilliseconds });
         }
+        await Check("Native cell and range presence reaches the peer without changing its own selection or workbook", async () =>
+        {
+            var wanted = new JsonArray(new JsonArray(2, 1, 8, 3));
+            await teacher.Office.CommandAsync(new() { ["type"] = "select", ["sheetName"] = sheet, ["ranges"] = wanted.DeepClone() }, token);
+            var own = await teacher.Office.CommandAsync(new() { ["type"] = "pulse" }, token);
+            Ensure(JsonNode.DeepEquals(own["selection"]!["ranges"], wanted), "Native range selection was not captured: " + own);
+            Ensure(own["watching"]?.GetValue<bool>() == true, "Native change events were not installed: " + own);
+            await teacherApi.LiveRequestAsync(teacherGrant, "/workbook-helper/v1/live/presence", new() { ["selection"] = own["selection"]!.DeepClone() }, token);
+            var before = await pupil.Office.CommandAsync(new() { ["type"] = "pulse" }, token);
+            var peers = await pupilApi.LiveRequestAsync(pupilGrant, "/workbook-helper/v1/live/presence", new() { ["selection"] = before["selection"]!.DeepClone() }, token);
+            Ensure(peers["peers"]!.AsArray().Count == 1, "Peer presence was not delivered");
+            var after = await pupil.Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = peers["peers"]!.DeepClone() }, token);
+            Ensure(JsonNode.DeepEquals(before["selection"], after["selection"]), "Peer selection moved our own cursor");
+            if (!hidden) Ensure(after["marks"]!.AsArray().Count > 0, "Visible native peer rectangles were not located: " + after);
+            var snapshot = await pupil.Office.SnapshotAsync(token);
+            try { Ensure(JsonNode.DeepEquals(snapshot.Book, (await pupilApi.LiveRequestAsync(pupilGrant, "/workbook-helper/v1/live/state", null, token))["book"]), "Presence changed saved workbook contents"); }
+            finally { File.Delete(snapshot.File); }
+        });
+        await Check("Peer ranges follow native zoom and scroll without changing the local cursor", async () =>
+        {
+            if (hidden) return;
+            var own = await teacher.Office.CommandAsync(new() { ["type"] = "pulse" }, token);
+            await teacherApi.LiveRequestAsync(teacherGrant, "/workbook-helper/v1/live/presence", new() { ["selection"] = own["selection"]!.DeepClone() }, token);
+            var local = await pupil.Office.CommandAsync(new() { ["type"] = "pulse" }, token);
+            var peers = (await pupilApi.LiveRequestAsync(pupilGrant, "/workbook-helper/v1/live/presence", new() { ["selection"] = local["selection"]!.DeepClone() }, token))["peers"]!;
+            var first = await pupil.Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = peers.DeepClone() }, token);
+            await pupil.Office.CommandAsync(new() { ["type"] = "view", ["zoom"] = 140, ["row"] = 1, ["column"] = 1 }, token);
+            await Task.Delay(250, token);
+            var moved = await pupil.Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = peers.DeepClone() }, token);
+            Ensure(moved["marks"]!.AsArray().Count > 0, "Zoomed peer range is missing: " + moved);
+            Ensure(!JsonNode.DeepEquals(first["marks"], moved["marks"]), "Peer geometry did not follow zoom/scroll");
+            Ensure(JsonNode.DeepEquals(local["selection"], moved["selection"]), "Zoom/scroll presence moved the local cursor");
+            await pupil.Office.CommandAsync(new() { ["type"] = "view", ["zoom"] = 100, ["row"] = 0, ["column"] = 0 }, token);
+        });
+        await Check("Selected named objects are identified and outlined in the other native application", async () =>
+        {
+            foreach (var client in new[] { teacher, pupil }) await client.Office.CommandAsync(new() { ["type"] = "fixture-object", ["name"] = "PresenceFixture" }, token);
+            var selected = await teacher.Office.CommandAsync(new() { ["type"] = "pulse" }, token);
+            Ensure(selected["selection"]!["objects"]!.AsArray().Count == 1, "Native object selection is missing: " + selected);
+            await teacherApi.LiveRequestAsync(teacherGrant, "/workbook-helper/v1/live/presence", new() { ["selection"] = selected["selection"]!.DeepClone() }, token);
+            var local = await pupil.Office.CommandAsync(new() { ["type"] = "pulse" }, token);
+            var peers = (await pupilApi.LiveRequestAsync(pupilGrant, "/workbook-helper/v1/live/presence", new() { ["selection"] = local["selection"]!.DeepClone() }, token))["peers"]!;
+            var rendered = await pupil.Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = peers.DeepClone() }, token);
+            for (int retry = 0; !hidden && rendered["marks"]!.AsArray().Count == 0 && retry < 8; retry++)
+            {
+                await Task.Delay(200, token);
+                rendered = await pupil.Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = peers.DeepClone() }, token);
+            }
+            if (!hidden) Ensure(rendered["marks"]!.AsArray().Count > 0, "Named native object could not be outlined: " + rendered);
+            foreach (var client in new[] { teacher, pupil }) await client.Office.CommandAsync(new() { ["type"] = "select", ["sheetName"] = sheet, ["ranges"] = new JsonArray(new JsonArray(0, 0, 0, 0)) }, token);
+        });
+        await Check("Multi-range presence remains visible across frozen rows and columns", async () =>
+        {
+            if (hidden) return;
+            var ranges = new JsonArray(new JsonArray(0, 0, 8, 3), new JsonArray(11, 5, 12, 6));
+            await teacher.Office.CommandAsync(new() { ["type"] = "select", ["sheetName"] = sheet, ["ranges"] = ranges.DeepClone() }, token);
+            var selected = await teacher.Office.CommandAsync(new() { ["type"] = "pulse" }, token);
+            Ensure(selected["selection"]!["ranges"]!.AsArray().Count == 2, "Multiple native ranges were not captured");
+            await teacherApi.LiveRequestAsync(teacherGrant, "/workbook-helper/v1/live/presence", new() { ["selection"] = selected["selection"]!.DeepClone() }, token);
+            var local = await pupil.Office.CommandAsync(new() { ["type"] = "pulse" }, token);
+            var peers = (await pupilApi.LiveRequestAsync(pupilGrant, "/workbook-helper/v1/live/presence", new() { ["selection"] = local["selection"]!.DeepClone() }, token))["peers"]!;
+            await pupil.Office.CommandAsync(new() { ["type"] = "view", ["zoom"] = 100, ["row"] = 3, ["column"] = 2, ["freezeRows"] = 2, ["freezeColumns"] = 1 }, token);
+            await Task.Delay(250, token);
+            var frame = await pupil.Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = peers.DeepClone() }, token);
+            Ensure(frame["marks"]!.AsArray().Count >= 2, "Peer ranges disappeared in a frozen pane: " + frame);
+            await pupil.Office.CommandAsync(new() { ["type"] = "view", ["zoom"] = 100, ["row"] = 0, ["column"] = 0, ["freezeRows"] = 0, ["freezeColumns"] = 0 }, token);
+        });
+        await Check("Committed native edits use the fast poll path and idle cursors avoid repeated full snapshots", async () =>
+        {
+            for (int round = 0; round < 3; round++)
+            {
+                await Edit(teacher, "Z1", Number(100 + round)); var clock = Stopwatch.StartNew();
+                while (true)
+                {
+                    await Task.WhenAll(teacher.PollAsync(token), pupil.PollAsync(token));
+                    var value = await pupil.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "Z1" }, token);
+                    if (value["value"]?.GetValue<double>() == 100 + round) break;
+                    Ensure(clock.ElapsedMilliseconds < 2500, "Native committed edit exceeded the fast poll budget");
+                    await Task.Delay(100, token);
+                }
+            }
+            await teacher.PollAsync(token); long before = teacher.Office.SnapshotCount;
+            for (int i = 0; i < 6; i++) { await Task.Delay(100, token); await teacher.PollAsync(token); }
+            Ensure(teacher.Office.SnapshotCount - before <= 1, "Idle presence repeatedly exported the complete workbook");
+            // Leave the semantic fixture empty for the convergence cases below.
+            await Edit(teacher, "Z1", new() { ["kind"] = "empty" }); await Settle();
+        });
+        if (config["presenceOnly"]?.GetValue<bool>() == true) return;
         await Check("Real Excel and Calc clients publish different cells through scoped production endpoints", async () =>
         {
             await Edit(teacher, "A1", Number(12)); await Edit(pupil, "B1", Number(30), 0x72dca0); await Settle();

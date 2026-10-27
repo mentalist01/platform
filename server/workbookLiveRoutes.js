@@ -4,6 +4,7 @@ import multer from 'multer';
 import {parseWorkbookHelperAuthorization,isWorkbookFileName} from './workbookHelper.js';
 import {BLANK_WORKBOOK_ODS} from './blankWorkbook.js';
 import {liveDigest,LIVE_WORKBOOK_LIMITS} from './workbookLiveState.js';
+import {WorkbookLivePresence} from './workbookLivePresence.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const teacher=auth=>['teacher','admin'].includes(auth?.role);
@@ -20,7 +21,7 @@ export function workbookLiveView(store,run,card,assetId){
 }
 
 export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,allowContent=()=>true}={}){
-  const tickets=new Map(),rates=new Map();
+  const tickets=new Map(),rates=new Map(),presence=new WorkbookLivePresence();
   const authorize=async(auth,id,cardId,assetId)=>{
     const {run,access}=await store.getRun(auth,id,true);
     if(access.readOnly||(run.groupId&&!teacher(auth)))fail(403,'В группе общую таблицу изменяет преподаватель');
@@ -125,6 +126,12 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
   app.put('/workbook-helper/v1/content',intercept,handler(async(req,res,next)=>{if(!req.liveWorkbook)return next();fail(409,'В совместном режиме сохраняется общая версия таблицы, а не отдельная копия.');}));
   app.get('/workbook-helper/v1/live/state',intercept,handler(async(req,res)=>{
     if(!req.liveWorkbook)fail(401,'Требуется доступ совместного помощника');res.setHeader('Cache-Control','no-store');res.json({...store.liveWorkbooks.response(req.liveWorkbook.mode.key,Number(req.query.since??-1)),fileRevision:req.liveWorkbook.card.solutions[req.liveWorkbook.asset.id]?.revision||0});
+  }));
+  app.post('/workbook-helper/v1/live/presence',intercept,handler(async(req,res)=>{
+    if(!req.liveWorkbook)fail(401,'Требуется доступ совместного помощника');
+    const {mode,entry}=req.liveWorkbook,state=store.liveWorkbooks.read(mode.key).state;
+    res.setHeader('Cache-Control','no-store');
+    res.json({...presence.exchange(mode.key,liveDigest(parseWorkbookHelperAuthorization(req.headers.authorization)),entry.auth,req.body.selection,store.now()),revision:state?.revision||0});
   }));
   app.post('/workbook-helper/v1/live/initialize',intercept,handler(async(req,res)=>{
     if(!req.liveWorkbook)fail(401,'Требуется доступ совместного помощника');const {mode}=req.liveWorkbook;

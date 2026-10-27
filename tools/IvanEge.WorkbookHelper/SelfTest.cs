@@ -32,6 +32,7 @@ internal static class SelfTest
             TestFlatWorkbookSnapshot(temporaryDirectory).GetAwaiter().GetResult();
             TestHashValidation();
             TestLiveWorkbookXml();
+            TestOfficePreference();
             TryDelete(ReportPath);
             return 0;
         }
@@ -63,6 +64,8 @@ internal static class SelfTest
         var second = ProtocolRequestParser.Parse(
             "ivan-ege://workbook/open?ticket=0123456789abcdef&origin=http%3A%2F%2Flocalhost%3A5175");
         Assert(second.Origin.Port == 5175 && second.Origin.IsLoopback, "Local development origin failed");
+        Assert(ProtocolRequestParser.Parse("ivan-ege://open?origin=https%3A%2F%2Fivan100.ru&ticket=abcdefghijklmnop&engine=calc").Engine == "calc", "Explicit office choice must reach the helper");
+        AssertThrows<FormatException>(() => ProtocolRequestParser.Parse("ivan-ege://open?origin=https%3A%2F%2Fivan100.ru&ticket=abcdefghijklmnop&engine=cmd.exe"));
 
         AssertThrows<FormatException>(() => ProtocolRequestParser.Parse(
             "ivan-ege://open?origin=http%3A%2F%2Fevil.example&ticket=abcdefghijklmnop"));
@@ -70,6 +73,14 @@ internal static class SelfTest
             "ivan-ege://open?origin=https%3A%2F%2Fexample.ru&origin=https%3A%2F%2Fother.ru&ticket=abcdefghijklmnop"));
         AssertThrows<FormatException>(() => ProtocolRequestParser.Parse(
             "ivan-ege://delete?origin=https%3A%2F%2Fexample.ru&ticket=abcdefghijklmnop"));
+    }
+    private static void TestOfficePreference()
+    {
+        Assert(LiveOfficePreference.Resolve("auto", @"C:\Program Files\LibreOffice\program\soffice.exe", true, true) == "calc", "Windows LibreOffice association must be respected");
+        Assert(LiveOfficePreference.Resolve("auto", @"C:\Office\EXCEL.EXE", true, true) == "excel", "Windows Excel association must be respected");
+        Assert(LiveOfficePreference.Resolve("calc", "EXCEL.EXE", true, true) == "calc", "Explicit helper program preference must win");
+        Assert(LiveOfficePreference.Resolve("excel", null, false, true) == "calc", "An uninstalled preferred program must fall back to the installed one");
+        AssertThrows<InvalidOperationException>(() => LiveOfficePreference.Resolve("auto", null, false, false));
     }
 
     private static void TestLiveWorkbookXml()

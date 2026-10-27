@@ -14,6 +14,7 @@ internal sealed class LiveOfficeProcess : IDisposable
     private readonly Task<string> _diagnostics;
     public string LocalPath { get; private set; }
     public bool Closed { get; private set; }
+    public long SnapshotCount { get; private set; }
     public LiveWorkbookBook Reader { get; } = new();
     private LiveOfficeProcess(Process process, string directory, string localPath)
     {
@@ -84,6 +85,7 @@ internal sealed class LiveOfficeProcess : IDisposable
             var line = await _process.StandardOutput.ReadLineAsync(token).AsTask().WaitAsync(TimeSpan.FromSeconds(60), token);
             if (line is null) { Closed = _disconnected = true; throw new LiveOfficeDisconnectedException(); }
             var response = JsonNode.Parse(line)!;
+            if (response["busy"]?.GetValue<bool>() == true) throw new LiveOfficeBusyException();
             if (response["disconnected"]?.GetValue<bool>() == true)
             {
                 Closed = _disconnected = true;
@@ -104,6 +106,7 @@ internal sealed class LiveOfficeProcess : IDisposable
     }
     public async Task<(JsonObject Book, string File)> SnapshotAsync(CancellationToken token)
     {
+        SnapshotCount++;
         string file = Path.Combine(_directory, "snapshot-" + Guid.NewGuid().ToString("N") + ".xlsx");
         try
         {
@@ -133,6 +136,8 @@ internal sealed class LiveOfficeProcess : IDisposable
         catch { }
     }
 }
+
+internal sealed class LiveOfficeBusyException : Exception { }
 
 internal sealed class LiveOfficeDisconnectedException : IOException
 {

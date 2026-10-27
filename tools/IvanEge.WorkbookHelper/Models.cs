@@ -2,7 +2,7 @@ using System.Net;
 
 namespace IvanEge.WorkbookHelper;
 
-internal sealed record ProtocolRequest(Uri Origin, string Ticket);
+internal sealed record ProtocolRequest(Uri Origin, string Ticket, string? Engine = null);
 
 internal sealed record WorkbookGrant(
     Uri Origin,
