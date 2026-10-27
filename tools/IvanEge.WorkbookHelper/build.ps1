@@ -29,8 +29,8 @@ $sourceLogo = Join-Path $repositoryRoot 'public\logo1.png'
 if ($PublishDownload -and $Target -eq 'StoreMsix') {
     throw 'PublishDownload applies only to Target DirectExe, SignedExe or All.'
 }
-if ($PublishDownload -and $Target -in @('SignedExe', 'All') -and [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
-    throw 'Refusing to publish an unsigned EXE. Pass CertificateThumbprint for a trusted code-signing certificate.'
+if ($Target -in @('SignedExe', 'All') -and [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+    throw 'SignedExe requires a trusted code-signing certificate. Pass CertificateThumbprint; unsigned builds must use DirectExe or StoreMsix.'
 }
 
 function Assert-ChildPath {
@@ -103,6 +103,15 @@ function Invoke-CodeSigning {
         throw 'CertificateThumbprint must contain the 40-character SHA-1 certificate thumbprint used by SignTool.'
     }
 
+    $certificate = Get-Item -LiteralPath "Cert:\CurrentUser\My\$thumbprint" -ErrorAction Stop
+    if (-not $certificate.HasPrivateKey -or $certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or $certificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow) {
+        throw 'The code-signing certificate must be current and have access to its private key.'
+    }
+    $codeSigningUsage = $certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' } | ForEach-Object { $_.EnhancedKeyUsages } | Where-Object { $_.Value -eq '1.3.6.1.5.5.7.3.3' }
+    if ($certificate.Subject -eq $certificate.Issuer -or -not $codeSigningUsage) {
+        throw 'Public downloads require an issued Code Signing certificate. A self-signed or TLS certificate is not sufficient.'
+    }
+
     $signTool = Find-WindowsSdkTool -Name 'signtool.exe'
     & $signTool sign /fd SHA256 /sha1 $thumbprint /tr $TimestampUrl /td SHA256 $Path
     if ($LASTEXITCODE -ne 0) {
@@ -112,6 +121,13 @@ function Invoke-CodeSigning {
     $signature = Get-AuthenticodeSignature -LiteralPath $Path
     if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
         throw "Authenticode verification failed for ${Path}: $($signature.StatusMessage)"
+    }
+    if (-not $signature.TimeStamperCertificate) {
+        throw "The signature on $Path has no verified timestamp. Refusing to publish it."
+    }
+    & $signTool verify /pa /all /tw $Path
+    if ($LASTEXITCODE -ne 0) {
+        throw "Public code-signing verification failed for $Path."
     }
     return $true
 }

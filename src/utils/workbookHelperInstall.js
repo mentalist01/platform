@@ -1,4 +1,6 @@
-const DEFAULT_WORKBOOK_HELPER_INSTALL_URL = '/downloads/IvanEgeWorkbookHelper.exe';
+export const WORKBOOK_HELPER_WINDOWS_ZIP_URL = '/downloads/IvanEgeWorkbookHelper.zip';
+export const WORKBOOK_HELPER_INFORMATION_URL = '/workbook-helper/';
+const DEFAULT_WORKBOOK_HELPER_INSTALL_URL = WORKBOOK_HELPER_WINDOWS_ZIP_URL;
 export const WORKBOOK_HELPER_MAC_INSTALL_URL = '/assets/IVAN100-WorkbookHelper-Mac-0.1.0.zip';
 
 export const resolveWorkbookHelperInstallUrl = (value) => {
@@ -17,11 +19,13 @@ const configuredInstallUrl = typeof import.meta !== 'undefined'
   ? import.meta.env?.VITE_WORKBOOK_HELPER_INSTALL_URL
   : undefined;
 
-export const WORKBOOK_HELPER_INSTALL_URL = resolveWorkbookHelperInstallUrl(
-  configuredInstallUrl === undefined ? DEFAULT_WORKBOOK_HELPER_INSTALL_URL : configuredInstallUrl
+export const resolveWorkbookHelperWindowsInstallUrl = (value) => resolveWorkbookHelperInstallUrl(
+  value === undefined || value === '/downloads/IvanEgeWorkbookHelper.exe' ? DEFAULT_WORKBOOK_HELPER_INSTALL_URL : value
 );
 
-export const WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD = /\.exe(?:$|[?#])/i.test(
+export const WORKBOOK_HELPER_INSTALL_URL = resolveWorkbookHelperWindowsInstallUrl(configuredInstallUrl);
+
+export const WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD = /\.(?:exe|zip)(?:$|[?#])/i.test(
   WORKBOOK_HELPER_INSTALL_URL
 );
 
@@ -55,11 +59,16 @@ export const getWorkbookHelperInstall = (device) => {
     supported: true,
     url: WORKBOOK_HELPER_INSTALL_URL,
     isDownload: WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD,
-    label: WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD ? 'Установить помощник' : 'Установить из Microsoft Store',
+    label: WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD
+      ? /\.zip(?:$|[?#])/i.test(WORKBOOK_HELPER_INSTALL_URL) ? 'Скачать помощник · ZIP' : 'Установить помощник'
+      : 'Установить из Microsoft Store',
     badge: 'Для Windows',
     saveShortcut: 'Ctrl+S',
+    informationUrl: WORKBOOK_HELPER_INFORMATION_URL,
     instructions: WORKBOOK_HELPER_INSTALL_IS_DOWNLOAD
-      ? 'Временная версия до публикации в Microsoft Store. Windows может показать предупреждение при первом запуске.'
+      ? /\.zip(?:$|[?#])/i.test(WORKBOOK_HELPER_INSTALL_URL)
+        ? 'Скачайте ZIP, нажмите «Извлечь всё» и запустите IvanEgeWorkbookHelper.exe. Перед обновлением сохраните таблицу и выберите «Выход» в значке старого помощника возле часов. Подробности установки и сведения о подписи — на странице помощника.'
+        : 'Запустите установщик помощника. Сведения об установке и подписи доступны на странице помощника.'
       : 'Установка и обновления выполняются через Microsoft Store.',
   };
   return { platform, supported: false, url: '', isDownload: false, label: '', badge: 'Скачать и открыть', saveShortcut: '', instructions: '' };

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getWorkbookHelperInstall, getWorkbookHelperPlatform, getWorkbookHelperUnsupportedMessage, isWorkbookHelperSupported, resolveWorkbookHelperInstallUrl } from './workbookHelperInstall.js';
+import { getWorkbookHelperInstall, getWorkbookHelperPlatform, getWorkbookHelperUnsupportedMessage, isWorkbookHelperSupported, resolveWorkbookHelperInstallUrl, resolveWorkbookHelperWindowsInstallUrl } from './workbookHelperInstall.js';
 
 test('Windows and macOS use their own helpers while iPad, mobile and Linux stay unsupported', () => {
   for (const device of [
@@ -37,11 +37,18 @@ test('Mac installs its experimental ZIP and never recommends the Windows exe', (
   for (const text of ['тестовую версию', 'На Mac', 'Скачать', 'Cmd+S', 'загрузить']) assert.ok(message.includes(text));
 });
 
-test('Windows install URL stays unchanged and unsupported devices get no installer URL', () => {
+test('Windows downloads the ZIP with extraction instructions and keeps configured Store links', () => {
   const installer = getWorkbookHelperInstall({ platform: 'Win32' });
-  assert.equal(installer.url, '/downloads/IvanEgeWorkbookHelper.exe');
+  assert.equal(installer.url, '/downloads/IvanEgeWorkbookHelper.zip');
   assert.equal(installer.isDownload, true);
   assert.equal(installer.saveShortcut, 'Ctrl+S');
+  assert.match(installer.instructions, /Извлечь всё/);
+  assert.match(installer.instructions, /IvanEgeWorkbookHelper\.exe/);
+  assert.equal(installer.informationUrl, '/workbook-helper/');
+  assert.equal(resolveWorkbookHelperWindowsInstallUrl('/downloads/IvanEgeWorkbookHelper.exe'), installer.url);
+  assert.equal(resolveWorkbookHelperWindowsInstallUrl('https://apps.microsoft.com/detail/9N268PMWDFR9'), 'https://apps.microsoft.com/detail/9N268PMWDFR9');
+  assert.equal(resolveWorkbookHelperWindowsInstallUrl(''), '');
+  assert.equal(resolveWorkbookHelperWindowsInstallUrl('http://example.test/helper.zip'), '');
   for (const device of [{ platform: 'MacIntel', maxTouchPoints: 5 }, { platform: 'iPhone' }, { platform: 'Linux x86_64' }, {}]) {
     assert.equal(getWorkbookHelperInstall(device).url, '');
     assert.equal(getWorkbookHelperInstall(device).supported, false);

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Официальная загрузка помощника таблиц Иван на сотку: установка, версия, контрольные суммы, сведения о подписи и обработке данных.">
+  <title>Помощник таблиц — Иван на сотку</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#262239;background:#f8f7fc;line-height:1.6;color-scheme:light}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0%,#eee5ff,transparent 48%),#f8f7fc}main{max-width:1040px;margin:auto;padding:40px 24px 64px}a{color:#7134d7;text-underline-offset:3px}.back{font-size:14px;text-decoration:none}.hero{padding:40px;margin-top:24px;background:#fff;border:1px solid #e6dff3;border-radius:28px;box-shadow:0 16px 60px #31205b08}.eyebrow{font-size:12px;font-weight:700;letter-spacing:.09em;color:#8751d7;text-transform:uppercase}h1{font-size:clamp(30px,5vw,46px);line-height:1.15;letter-spacing:-.04em;margin:12px 0 18px}h2{font-size:21px;line-height:1.3;margin:0 0 14px}p{margin:10px 0}.lead{max-width:700px;color:#686176;font-size:18px}.actions{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin:26px 0 12px}.download{display:inline-flex;padding:13px 22px;background:#8038df;border-radius:12px;color:white;text-decoration:none;font-weight:650;box-shadow:0 5px 16px #8038df20}.meta{font-size:13px;color:#777080}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}section.card{padding:28px;background:white;border:1px solid #e6dff3;border-radius:20px}ol,ul{margin:0;padding-left:22px}li+li{margin-top:9px}.wide{grid-column:1/-1}.notice{padding:14px 18px;margin-top:20px;border-radius:12px;background:#f5effe;color:#5f487d;font-size:14px}code{font-size:13px;background:#f5f2fa;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}.hash{display:block;white-space:normal;word-break:break-all;margin:8px 0;font-size:12px;padding:12px}.status{font-weight:650}.muted{color:#777080;font-size:14px}footer{margin-top:24px;font-size:13px;color:#777080}@media(max-width:680px){main{padding:24px 16px}.hero{padding:26px}.grid{grid-template-columns:1fr}section.card{padding:24px}}
+  </style>
+</head>
+<body><main>
+  <a class="back" href="/">← Иван на сотку</a>
+  <header class="hero">
+    <div class="eyebrow">Официальная загрузка · Windows 10/11 x64</div>
+    <h1>Помощник таблиц</h1>
+    <p class="lead">Открывайте учебные файлы в Excel или LibreOffice. Сохраняйте решение через Ctrl+S — оно появится на доске и в конспектах.</p>
+    <div class="actions"><a class="download" href="/downloads/IvanEgeWorkbookHelper.zip" download>Скачать помощник · ZIP</a><a href="/downloads/IvanEgeWorkbookHelper.exe" download>Отдельный EXE</a></div>
+    <p class="meta">Нужен установленный Excel или LibreOffice. .NET входит в программу. Права администратора не требуются.</p>
+    <p class="meta" id="version">Сведения о версии — в манифесте загрузки ниже.</p>
+  </header>
+  <div class="grid">
+    <section class="card"><h2>Установка за четыре шага</h2><ol>
+      <li>Скачайте ZIP. В Проводнике нажмите на архив правой кнопкой и выберите <strong>«Извлечь всё»</strong>.</li>
+      <li>Из распакованной папки запустите <code>IvanEgeWorkbookHelper.exe</code>.</li>
+      <li>Прочитайте окно установки и подтвердите её для своей учётной записи Windows.</li>
+      <li>Вернитесь на сайт и нажмите <strong>«Решать через помощник таблиц»</strong>.</li>
+    </ol><p class="muted">Для обновления сначала сохраните таблицу и выберите «Выход» в значке прежнего помощника возле часов.</p></section>
+    <section class="card"><h2>Что меняется на компьютере</h2><ul>
+      <li>Помощник устанавливается в <code>%LOCALAPPDATA%\IvanEge\WorkbookHelper</code>.</li>
+      <li>Регистрируется ссылка <code>ivan-ege:</code> для открытия учебных файлов с платформы.</li>
+      <li>Автозапуск Windows, расширения браузера и дополнительные программы не устанавливаются.</li>
+      <li>Настройки антивируса и проверки Windows не изменяются.</li>
+    </ul></section>
+    <section class="card wide"><h2>Версия, подпись и контрольные суммы</h2>
+      <p class="status" id="signature">Статус подписи можно проверить в свойствах скачанного EXE. ZIP не заменяет цифровую подпись.</p>
+      <p class="muted">Архив содержит ту же программу, что и отдельный EXE, инструкцию и SHA-256. Контрольная сумма подтверждает совпадение файла с опубликованной копией; она не является заключением антивируса.</p>
+      <div id="hashes"></div>
+      <p><a href="/downloads/workbook-helper-release.json">Манифест версии</a> · <a href="/downloads/IvanEgeWorkbookHelper.sha256">Скачать SHA-256</a></p>
+      <div class="notice">Chrome и Windows могут показывать предупреждения о неизвестном издателе или обнаруженной угрозе. Это разные виды сообщений. Если установка заблокирована, сообщите преподавателю точный текст предупреждения и версию файла — это позволит проверить конкретное срабатывание.</div>
+    </section>
+    <section class="card"><h2>Какие данные передаются</h2><p>Для выбранного задания помощник получает файл с платформы и отправляет сохранённое решение. В общей таблице передаются изменения ячеек, имя участника и выделенный диапазон.</p><p>Соединение с ivan100.ru защищено HTTPS. Помощник использует отдельный доступ к учебному файлу, не получает пароль или браузерную сессию аккаунта. Личные документы, открытые в других окнах Excel или LibreOffice, не подключаются.</p><p class="muted">Исходный файл и рабочая копия сохраняются на компьютере. Выделение другого участника показывается отдельно и не записывается в учебный файл.</p></section>
+    <section class="card"><h2>Как удалить</h2><ol><li>Сохраните таблицы и выберите «Выход» в значке помощника возле часов.</li><li>Удалите папку <code>%LOCALAPPDATA%\IvanEge\WorkbookHelper</code>.</li></ol><p>Сохранённые решения в папке «Иван на сотку» на рабочем столе удалять не нужно. После удаления кнопка сайта больше не сможет открыть помощник; для повторной работы установите его заново.</p><p class="muted">Если нужна помощь, отправьте преподавателю сообщение через чат платформы.</p></section>
+  </div>
+  <footer>Иван на сотку · Учебный помощник для платформы ivan100.ru</footer>
+</main>
+<script>
+fetch('/downloads/workbook-helper-release.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error();return r.json();}).then(m=>{
+  if(!/^\d+\.\d+\.\d+\.\d+$/.test(m.version)||!/^[a-f0-9]{64}$/.test(m.executableSha256)||!/^[a-f0-9]{64}$/.test(m.archiveSha256))return;
+  document.getElementById('version').textContent='Версия '+m.version+' · ZIP '+(m.archiveBytes/1024/1024).toFixed(1)+' МБ';
+  document.getElementById('signature').textContent=m.authenticode?.embeddedSignature?'В EXE есть цифровая подпись. Проверьте её действительность и имя издателя в свойствах файла.':'Текущая прямая сборка пока не подписана доверенной цифровой подписью издателя. ZIP не отменяет предупреждения защиты.';
+  for(const [label,value]of [['EXE · SHA-256',m.executableSha256],['ZIP · SHA-256',m.archiveSha256]]){const p=document.createElement('p');p.className='muted';p.textContent=label;const code=document.createElement('code');code.className='hash';code.textContent=value;document.getElementById('hashes').append(p,code);}
+}).catch(()=>{});
+</script>
+</body></html>

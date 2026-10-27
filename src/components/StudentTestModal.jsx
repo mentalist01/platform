@@ -5176,7 +5176,7 @@ const StudentTestModal = ({
                       >
                         {workbookHelperInstall.label}
                       </a>
-                      . {workbookHelperInstall.platform === 'mac' && <span>{workbookHelperInstall.badge}. {workbookHelperInstall.instructions}</span>}
+                      . <span>{workbookHelperInstall.badge}. {workbookHelperInstall.instructions}</span>
                     </div>
                   )}
               </div>

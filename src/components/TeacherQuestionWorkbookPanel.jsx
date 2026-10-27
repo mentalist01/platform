@@ -125,7 +125,7 @@ function WorkbookPanel({ studentId, taskNumber, levelId, questionId, attachments
         {workbookHelperState.message}
         {workbookHelperSupported && workbookHelperState.status === 'fallback' && workbookHelperInstall.url && <>
           <a href={workbookHelperInstall.url} download={workbookHelperInstall.isDownload || undefined}>{workbookHelperInstall.label}</a>
-          {workbookHelperInstall.platform === 'mac' && <span>{workbookHelperInstall.badge}. {workbookHelperInstall.instructions}</span>}
+          <span>{workbookHelperInstall.badge}. {workbookHelperInstall.instructions}</span>
         </>}
       </div>}
     </section>

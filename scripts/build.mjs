@@ -5,6 +5,7 @@ import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { recorderPackage, recorderRelease } from '../server/recorderPackage.js';
 import { MAC_PACKAGE_NAME, workbookHelperMacPackage } from '../tools/workbook-helper-mac/package.mjs';
+import {packageWorkbookHelperWindows} from '../tools/IvanEge.WorkbookHelper/package.mjs';
 import { checkTeacherUpdateNotes } from './check-teacher-update-notes.mjs';
 import { loadEnv } from 'vite';
 import { validateRtcBuildConfig, verifyRtcBuildBundle } from './rtc-build-config.mjs';
@@ -139,6 +140,8 @@ await fs.writeFile(recorderInstaller, recorderPackage());
 console.log(`[build] packaged Windows recorder ${recorderRelease().manifest.version}`);
 await fs.writeFile(path.join(outDir, 'assets', MAC_PACKAGE_NAME), workbookHelperMacPackage());
 console.log('[build] packaged macOS workbook helper');
+const windowsHelper=await packageWorkbookHelperWindows(path.join(outDir,'downloads'));
+console.log(`[build] packaged Windows workbook helper ${windowsHelper.version} (${windowsHelper.authenticode.verification})`);
 await verifyInitialBundle();
 await precompressDirectory(outDir);
 console.log(
