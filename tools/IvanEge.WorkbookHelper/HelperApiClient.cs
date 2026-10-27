@@ -28,7 +28,7 @@ internal sealed class HelperApiClient : IDisposable
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.4.0 (Windows)");
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.4.1 (Windows)");
         _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 

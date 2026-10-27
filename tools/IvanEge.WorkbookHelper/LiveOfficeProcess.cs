@@ -9,11 +9,17 @@ internal sealed class LiveOfficeProcess : IDisposable
     private readonly Process _process;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private int _sequence;
+    private bool _disconnected;
     private readonly string _directory;
+    private readonly Task<string> _diagnostics;
     public string LocalPath { get; private set; }
     public bool Closed { get; private set; }
     public LiveWorkbookBook Reader { get; } = new();
-    private LiveOfficeProcess(Process process, string directory, string localPath) { _process = process; _directory = directory; LocalPath = localPath; }
+    private LiveOfficeProcess(Process process, string directory, string localPath)
+    {
+        _process = process; _directory = directory; LocalPath = localPath;
+        _diagnostics = process.StandardError.ReadToEndAsync();
+    }
 
     public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token)
     {
@@ -40,7 +46,6 @@ internal sealed class LiveOfficeProcess : IDisposable
         start.ArgumentList.Add("--local"); start.ArgumentList.Add(local); if (hidden) start.ArgumentList.Add("--hidden");
         var process = Process.Start(start) ?? throw new InvalidOperationException("Не удалось запустить таблицу");
         var bridge = new LiveOfficeProcess(process, directory, local);
-        _ = process.StandardError.ReadToEndAsync(token);
         try
         {
             var line = await process.StandardOutput.ReadLineAsync(token).AsTask().WaitAsync(TimeSpan.FromSeconds(50), token);
@@ -48,7 +53,19 @@ internal sealed class LiveOfficeProcess : IDisposable
             if (result["ready"]?.GetValue<bool>() != true) throw new InvalidOperationException(result["startupError"]?.GetValue<string>() ?? "Офисное приложение не ответило");
             return bridge;
         }
-        catch { bridge.Dispose(); throw; }
+        catch (Exception error)
+        {
+            bridge.Closed = true;
+            await Task.WhenAny(bridge._diagnostics, Task.Delay(1500, CancellationToken.None));
+            if (bridge._diagnostics.IsCompletedSuccessfully && !string.IsNullOrWhiteSpace(bridge._diagnostics.Result))
+                AppLog.Info("Office bridge startup diagnostics: " + bridge._diagnostics.Result);
+            bridge.Dispose();
+            if (error is OperationCanceledException) throw;
+            string reason = error.Message.Contains("URP bridge", StringComparison.OrdinalIgnoreCase)
+                ? "LibreOffice прервал соединение во время открытия."
+                : error.Message;
+            throw new InvalidOperationException("Не удалось открыть общую таблицу в " + (engine == "excel" ? "Excel" : "LibreOffice") + ": " + reason, error);
+        }
     }
     public static string FindCalc()
     {
@@ -61,14 +78,27 @@ internal sealed class LiveOfficeProcess : IDisposable
         await _gate.WaitAsync(token);
         try
         {
+            if (Closed || _process.HasExited) { Closed = _disconnected = true; throw new LiveOfficeDisconnectedException(); }
             command["id"] = ++_sequence;
             await _process.StandardInput.WriteLineAsync(command.ToJsonString().AsMemory(), token); await _process.StandardInput.FlushAsync(token);
             var line = await _process.StandardOutput.ReadLineAsync(token).AsTask().WaitAsync(TimeSpan.FromSeconds(60), token);
-            var response = JsonNode.Parse(line ?? "{}")!;
+            if (line is null) { Closed = _disconnected = true; throw new LiveOfficeDisconnectedException(); }
+            var response = JsonNode.Parse(line)!;
+            if (response["disconnected"]?.GetValue<bool>() == true)
+            {
+                Closed = _disconnected = true;
+                AppLog.Info("Office connection was lost: " + response["error"]?.GetValue<string>());
+                throw new LiveOfficeDisconnectedException();
+            }
             if (response["closed"]?.GetValue<bool>() == true) { Closed = true; throw new LiveOfficeClosedException(); }
             if (response["error"] is not null) throw new InvalidOperationException(response["error"]!.GetValue<string>());
             if (response["id"]?.GetValue<int>() != _sequence) throw new InvalidOperationException("Мост таблицы вернул неверный номер команды");
             return response["result"]!.AsObject();
+        }
+        catch (Exception error) when ((error is IOException or TimeoutException) && error is not LiveOfficeClosedException && error is not LiveOfficeDisconnectedException)
+        {
+            Closed = _disconnected = true;
+            throw new LiveOfficeDisconnectedException(error);
         }
         finally { _gate.Release(); }
     }
@@ -77,6 +107,9 @@ internal sealed class LiveOfficeProcess : IDisposable
         string file = Path.Combine(_directory, "snapshot-" + Guid.NewGuid().ToString("N") + ".xlsx");
         try
         {
+            // A broken bridge is not proof that the user saved/closed the file.
+            // Never publish an older local file as if it were a fresh snapshot.
+            if (_disconnected) throw new LiveOfficeDisconnectedException();
             JsonObject result;
             try { result = Closed ? throw new LiveOfficeClosedException() : await CommandAsync(new() { ["type"] = "snapshot", ["path"] = file }, token); }
             catch (LiveOfficeClosedException) when (File.Exists(LocalPath))
@@ -99,6 +132,12 @@ internal sealed class LiveOfficeProcess : IDisposable
         }
         catch { }
     }
+}
+
+internal sealed class LiveOfficeDisconnectedException : IOException
+{
+    public LiveOfficeDisconnectedException(Exception? inner = null) : base(
+        "Связь с таблицей прервалась. Если окно таблицы открыто, сохраните изменения через Ctrl+S и закройте его. Затем нажмите «Решать» на доске ещё раз. Локальные файлы сохранены.", inner) { }
 }
 
 internal sealed class LiveOfficeClosedException : IOException

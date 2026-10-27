@@ -13,6 +13,7 @@ import shutil
 import sys
 import time
 import uuid
+import traceback
 
 sys.path.insert(0, str(Path(sys.executable).parent))
 _dll = os.add_dll_directory(str(Path(sys.executable).parent))
@@ -50,8 +51,10 @@ class Calc:
                     raise RuntimeError('Не удалось запустить отдельный профиль LibreOffice')
                 time.sleep(.1)
         self.desktop = remote.ServiceManager.createInstanceWithContext('com.sun.star.frame.Desktop', remote)
+        # Finish loading/converting before exposing a window, so closing or
+        # editing a half-open XLS cannot race the startup UNO calls.
         self.doc = self.desktop.loadComponentFromURL(Path(args.file).resolve().as_uri(), '_blank', 0,
-            (prop('Hidden', args.hidden), prop('MacroExecutionMode', 0), prop('UpdateDocMode', 0)))
+            (prop('Hidden', True), prop('MacroExecutionMode', 0), prop('UpdateDocMode', 0)))
         if not self.doc or not self.doc.supportsService('com.sun.star.sheet.SpreadsheetDocument'):
             raise RuntimeError('Файл не является таблицей LibreOffice')
         self.doc.storeAsURL(Path(args.local).resolve().as_uri(),
@@ -63,6 +66,8 @@ class Calc:
         # opcode map includes the proper argument separator on those versions.
         mapper = self.doc.createInstance('com.sun.star.sheet.FormulaOpCodeMapper')
         self.parser.OpCodeMap = mapper.getAvailableMappings(4, 0x7fffffff)
+        if not args.hidden:
+            self.doc.getCurrentController().getFrame().getContainerWindow().setVisible(True)
 
     def read(self, sheet, address):
         cell = sheet.getCellRangeByName(address)
@@ -228,8 +233,14 @@ def main():
                     calc.doc.getURL()
                 except Exception:
                     closed = True
-                print(json.dumps({'id': command['id'], 'error': str(error), 'closed': closed}), flush=True)
+                disconnected = 'URP bridge' in str(error) or 'ConnectionSetupException' in type(error).__name__
+                if disconnected:
+                    traceback.print_exc(file=sys.stderr)
+                print(json.dumps({'id': command['id'], 'error': str(error), 'closed': closed, 'disconnected': disconnected}), flush=True)
+                if disconnected:
+                    break
     except Exception as error:
+        traceback.print_exc(file=sys.stderr)
         print(json.dumps({'startupError': str(error)}), flush=True)
         sys.exit(1)
     finally:

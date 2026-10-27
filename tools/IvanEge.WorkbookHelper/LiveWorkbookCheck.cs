@@ -24,12 +24,13 @@ internal static class LiveWorkbookCheck
         using var teacherApi = new HelperApiClient(origin); using var pupilApi = new HelperApiClient(origin, faults);
         var teacherGrant = await teacherApi.ExchangeAsync(config["teacherTicket"]!.GetValue<string>(), token);
         var pupilGrant = await pupilApi.ExchangeAsync(config["pupilTicket"]!.GetValue<string>(), token);
-        string teacherFile = Path.Combine(directory, "teacher.ods"), pupilFile = Path.Combine(directory, "pupil.ods");
+        string teacherFile = Path.Combine(directory, "teacher" + Path.GetExtension(teacherGrant.FileName)), pupilFile = Path.Combine(directory, "pupil" + Path.GetExtension(pupilGrant.FileName));
         await teacherApi.DownloadAsync(teacherGrant, teacherFile, token); await pupilApi.DownloadAsync(pupilGrant, pupilFile, token);
         using var teacher = new LiveWorkbookClient(teacherApi, teacherGrant, Path.Combine(directory, "teacher"), Path.Combine(directory, "cache"));
         using var pupil = new LiveWorkbookClient(pupilApi, pupilGrant, Path.Combine(directory, "pupil"), Path.Combine(directory, "cache"));
         string teacherEngine = config["teacherEngine"]?.GetValue<string>() ?? "excel", pupilEngine = config["pupilEngine"]?.GetValue<string>() ?? "calc";
-        await teacher.InitializeAsync(teacherFile, teacherEngine, true, token); await pupil.InitializeAsync(pupilFile, pupilEngine, true, token);
+        bool hidden = config["hidden"]?.GetValue<bool>() ?? true;
+        await teacher.InitializeAsync(teacherFile, teacherEngine, hidden, token); await pupil.InitializeAsync(pupilFile, pupilEngine, hidden, token);
         string sheet = teacher.Office.Reader.SheetNames.Values.First();
         async Task Edit(LiveWorkbookClient client, string address, JsonObject content, int? fill = null)
         {
@@ -142,6 +143,28 @@ internal static class LiveWorkbookCheck
             var value = await large.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "R20000" }, token);
             Ensure(value["value"]!.GetValue<double>() == 20000, "Large dataset did not arrive");
             large.RequestSave(); await large.TickAsync(token);
+        });
+        await Check("A disconnected office bridge cannot publish a stale snapshot and can be reopened", async () =>
+        {
+            await teacher.Office.CommandAsync(new() { ["type"] = "save" }, token);
+            string local = teacher.Office.LocalPath;
+            try
+            {
+                // This closes only the isolated fixture's native office bridge.
+                await teacher.Office.CommandAsync(new() { ["type"] = "close" }, token);
+                throw new InvalidOperationException("Expected a closed bridge");
+            }
+            catch (LiveOfficeDisconnectedException) { }
+            Ensure(teacher.Office.Closed && File.Exists(local), "A disconnected bridge must be replaceable and keep its local file");
+            try
+            {
+                await teacher.Office.SnapshotAsync(token);
+                throw new InvalidOperationException("A stale local file must not masquerade as a current snapshot");
+            }
+            catch (LiveOfficeDisconnectedException) { }
+            using var reopened = await LiveOfficeProcess.OpenAsync(local, Path.Combine(directory, "reopened"), teacherEngine, hidden, token);
+            var value = await reopened.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "R20000" }, token);
+            Ensure(value["value"]!.GetValue<double>() == 20000, "Reopening lost the saved native workbook");
         });
     }
     private sealed class ConnectionFaults : DelegatingHandler

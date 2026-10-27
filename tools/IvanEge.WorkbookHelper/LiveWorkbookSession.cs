@@ -11,9 +11,10 @@ internal sealed class LiveWorkbookSession : IDisposable
     private readonly SynchronizationContext _ui;
     private readonly Task _worker;
     private bool _disposed;
+    private volatile bool _failed;
     public string LocalPath => _client.LocalPath;
     public bool IsPaused => _client.Paused;
-    public bool IsClosed => _client.Office?.Closed == true;
+    public bool IsClosed => _failed || _disposed || _client.Office?.Closed == true;
     public event EventHandler<WorkbookStatus>? Status;
 
     public LiveWorkbookSession(HelperApiClient api, WorkbookGrant grant, string source)
@@ -50,15 +51,31 @@ internal sealed class LiveWorkbookSession : IDisposable
                     var cycle = System.Diagnostics.Stopwatch.StartNew();
                     try { await _client.TickAsync(_lifetime.Token); failures = 0; }
                     catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { break; }
+                    catch (LiveOfficeDisconnectedException error)
+                    {
+                        AppLog.Error("Shared workbook office connection failed: " + error);
+                        _failed = true;
+                        Update(new(WorkbookStatusKind.Error, error.Message, true));
+                        break;
+                    }
                     catch (HelperApiException error) when (!error.IsTransient && error.StatusCode is System.Net.HttpStatusCode.Gone or System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
-                    { Update(new(WorkbookStatusKind.Warning, error.Message + " Локальная таблица сохранена.", true)); _client.Paused = true; }
+                    {
+                        _failed = true;
+                        Update(new(WorkbookStatusKind.Warning, error.Message + " Локальная таблица сохранена. Нажмите «Решать» на доске ещё раз.", true));
+                        break;
+                    }
                     catch (Exception error) { failures++; Update(new(WorkbookStatusKind.Warning, "Синхронизация приостановлена: " + error.Message + " Локальная копия сохранена.", failures == 1)); }
                     var delay = TimeSpan.FromMilliseconds(failures == 0 ? Math.Clamp(cycle.ElapsedMilliseconds, 900, 5000) : Math.Min(15000, 1500 * Math.Pow(2, Math.Min(failures, 4))));
                     await _wake.WaitAsync(delay, _lifetime.Token);
                 }
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-            catch (Exception error) { Update(new(WorkbookStatusKind.Error, error.Message + " Исходный файл остался на компьютере.", true)); }
+            catch (Exception error)
+            {
+                AppLog.Error("Shared workbook initialization failed: " + error);
+                _failed = true;
+                Update(new(WorkbookStatusKind.Error, error.Message + " Исходный файл остался на компьютере. Нажмите «Решать» на доске ещё раз.", true));
+            }
             finally { _client.Dispose(); }
         });
     }

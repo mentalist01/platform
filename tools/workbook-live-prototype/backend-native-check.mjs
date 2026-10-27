@@ -25,12 +25,12 @@ try{
   const set=await f.request('/api/lesson-task-sets',teacher,{name:'Нативная синхронизация',taskNumber:18,tasks:[{images:[image.id],answers:['1','2'],attachments:[{sourceFileId:source.id}]}]},'POST',201);
   const {run}=await f.request('/api/lesson-task-runs',teacher,{room:'board-teacher-a-student-d',setId:set.id,x:0,y:0},'POST',201);
   const target={cardId:run.cards[0].id,assetId:run.cards[0].attachments[0].assetId},route=`/api/lesson-task-runs/${run.id}/live`;
-  await f.request(route,teacher,{...target,enabled:true});
-  const teacherTicket=(await f.request(route+'/helper',teacher,target,'POST',201)).ticket,pupilTicket=(await f.request(route+'/helper',pupil,target,'POST',201)).ticket;
+  const teacherTicket=(await f.request(route+'/helper',teacher,{...target,start:true},'POST',201)).ticket,pupilTicket=(await f.request(route+'/helper',pupil,{...target,start:true},'POST',201)).ticket;
   const configFile=path.join(directory,'config.json'),report=path.join(directory,'report.json');
   const [teacherEngine,pupilEngine]=(process.argv[3]||'excel-calc').split('-');
   assert.ok(['excel','calc'].includes(teacherEngine)&&['excel','calc'].includes(pupilEngine));
-  fs.writeFileSync(configFile,JSON.stringify({origin:f.base,teacherTicket,pupilTicket,directory:path.join(directory,'work'),report,teacherEngine,pupilEngine}));
+  const hidden=process.env.WORKBOOK_NATIVE_CHECK_VISIBLE!=='1';
+  fs.writeFileSync(configFile,JSON.stringify({origin:f.base,teacherTicket,pupilTicket,directory:path.join(directory,'work'),report,teacherEngine,pupilEngine,hidden}));
   const helper=path.resolve(process.env.WORKBOOK_NATIVE_CHECK_EXE||'tools/IvanEge.WorkbookHelper/bin/Release/net9.0-windows/win-x64/IvanEgeWorkbookHelper.exe');
   let output='';const child=spawn(helper,['--live-check',configFile],{windowsHide:true,stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',bytes=>{output+=bytes;});child.stderr.on('data',bytes=>{output+=bytes;});

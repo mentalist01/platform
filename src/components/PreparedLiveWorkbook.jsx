@@ -11,7 +11,7 @@ export default function PreparedLiveWorkbook({asset,run,cardId,disabled,refresh,
   const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[previous,setPrevious]=useState(null);
   const target=useFullscreenPortalTarget(),install=getWorkbookHelperInstall(),active=asset.live?.enabled;
   const shared=active||install.platform==='windows'&&/\.(xlsx?|ods|fods|txt|csv|tsv)$/i.test(asset.name);
-  const installUrl=install.url&&/\.exe(?:[?#]|$)/i.test(install.url)?install.url+(install.url.includes('?')?'&':'?')+'v=1.4.0':install.url;
+  const installUrl=install.url&&/\.exe(?:[?#]|$)/i.test(install.url)?install.url+(install.url.includes('?')?'&':'?')+'v=1.4.1':install.url;
   const perform=async fn=>{if(busy||disabled)return;setBusy(true);setError('');try{await fn();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const finish=()=>perform(async()=>{await preparedRequest('/api/lesson-task-runs/'+run.id+'/live',{cardId,assetId:asset.assetId,enabled:false});await refresh();setOpen(false);});
   const launch=(closePrevious=false)=>perform(async()=>{
@@ -28,7 +28,7 @@ export default function PreparedLiveWorkbook({asset,run,cardId,disabled,refresh,
     {active&&<small>Изменения передаются автоматически · Ctrl+S сохраняет общую версию</small>}
     {error&&<small role="alert" className="prepared-error">{error}</small>}
     <details className="prepared-workbook-options"><summary>Другие действия</summary><div>
-      {shared&&<><p>Для совместной работы нужен помощник Windows 1.4 или новее. Оба участника нажимают одну кнопку выше. Передавать файл не нужно.</p>{install.platform==='windows'&&installUrl&&<a href={installUrl}>Скачать помощник 1.4</a>}<p>Синхронизируются значения, обычные формулы и сплошная заливка. Для диаграмм, макросов и другого оформления можно открыть файл отдельно.</p></>}
+      {shared&&<><p>Для совместной работы нужен помощник Windows 1.4 или новее. Оба участника нажимают одну кнопку выше. Передавать файл не нужно.</p>{install.platform==='windows'&&installUrl&&<a href={installUrl}>Скачать помощник 1.4.1</a>}<p>Синхронизируются значения, обычные формулы и сплошная заливка. Для диаграмм, макросов и другого оформления можно открыть файл отдельно.</p></>}
       {!active&&<>{shared&&<button type="button" disabled={busy||disabled} onClick={onOpenSeparate}>Открыть отдельно</button>}{extraActions}</>}
       {active&&run.canManage&&<button type="button" disabled={busy||disabled} onClick={()=>setOpen(true)}>Открывать файл по очереди</button>}
     </div></details>
