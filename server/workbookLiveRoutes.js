@@ -7,7 +7,7 @@ import {liveDigest,LIVE_WORKBOOK_LIMITS} from './workbookLiveState.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const teacher=auth=>['teacher','admin'].includes(auth?.role);
-const handler=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(error=>res.status(error.status||500).json({error:error.message}));
+const handler=fn=>(req,res,next)=>Promise.resolve(fn(req,res,next)).catch(error=>res.status(error.status||500).json({error:error.message,...(error.previous?{code:'PREVIOUS_TABLE_OPEN',previous:error.previous}:{})}));
 const uploads=multer({storage:multer.memoryStorage(),limits:{fileSize:64*1024*1024,files:1,fields:8}});
 const actor=auth=>`${auth.role}:${auth.id}`;
 const isText=asset=>/\.(txt|csv|tsv)$/i.test(asset.name);
@@ -68,7 +68,30 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     });res.json({run:result});
   }));
   app.post('/api/lesson-task-runs/:id/live/helper',handler(async(req,res)=>{
-    const {run,card,asset}=await authorize(req.auth,req.params.id,req.body.cardId,req.body.assetId),mode=card.liveWorkbooks?.[asset.id];
+    // The normal launch is one action for either individual participant. The
+    // lock makes two simultaneous first opens join the same workbook epoch.
+    const {run,card,asset,mode}=await store.lock(async()=>{
+      const context=await authorize(req.auth,req.params.id,req.body.cardId,req.body.assetId);
+      const {run,card,asset}=context;
+      let mode=card.liveWorkbooks?.[asset.id];
+      if(!mode?.enabled&&req.body.start===true){
+        if(!isWorkbookFileName(asset.name)&&!isText(asset))fail(415,'Этот формат не подходит для совместной таблицы');
+        const writer=card.bindings?.[asset.id];
+        if(writer?.until>store.now()){
+          const previous={generation:writer.generation,revision:card.solutions[asset.id]?.revision||0,name:writer.name,
+            savedAt:card.solutions[asset.id]?.updatedAt||null,canClose:teacher(req.auth)||writer.actor===actor(req.auth)};
+          if(req.body.closePrevious!==true||!previous.canClose||req.body.previousGeneration!==previous.generation)
+            throw Object.assign(Error('Этот файл открывали в прежнем режиме. Сохраните таблицу через Ctrl+S и закройте её, чтобы продолжить вместе.'),{status:409,previous});
+        }
+        const source=seed(store,card,asset),epoch=crypto.randomUUID();
+        card.liveWorkbooks||={};
+        mode={enabled:true,epoch,key:store.liveWorkbooks.key(run.id,card.id,asset.id+'-'+epoch),sourceHash:source.hash,createdAt:store.now()};
+        card.liveWorkbooks[asset.id]=mode;
+        if(card.bindings?.[asset.id]){card.bindings[asset.id].generation++;card.bindings[asset.id].until=0;delete card.bindings[asset.id].resumedGeneration;}
+        run.version++;store.save(run);await store.notify(run,'file',card.id);
+      }
+      return {...context,mode};
+    });
     if(!mode?.enabled)fail(409,'Преподаватель ещё не включил совместную таблицу');
     const now=store.now();for(const [key,entry]of tickets)if(entry.expires<now)tickets.delete(key);
     if(tickets.size>=1000)fail(429,'Слишком много запусков помощника');

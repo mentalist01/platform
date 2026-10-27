@@ -12,6 +12,8 @@ import {studySubjectGroup} from './utils/studySubjects.js';
 import {STUDY_CONTINUE_EVENT} from './services/studentStudyProgress.js';
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
+import StudentViewSession,{StudentViewClosed} from './components/StudentViewSession.jsx';
+import {isStudentViewTab,readStoredAuthUser,writeStoredAuthUser,removeStoredAuthUser} from './utils/authSessionStorage.js';
 import BoardMinimap from './components/BoardMinimap.jsx';
 import { BoardFileUpload, BoardFileDownloads } from './components/BoardFiles.jsx';
 import PreparedLessonBoard from './components/PreparedLessonBoard.jsx';
@@ -89,7 +91,6 @@ import CoinGuideIcon from './components/CoinGuideTooltip';
 import TurtleCanvas from './components/TurtleCanvas';
 import { Button, Card, ProgressBar } from './components/ui';
 import {
-  USER_SESSION_KEY,
   THEME_STORAGE_KEY,
   THEME_LIGHT,
   THEME_DARK,
@@ -3148,6 +3149,9 @@ const sanitizeAuthUserPayload = (value) => {
     safe.authToken = authToken;
   }
   if (role === 'student') {
+    if (value.studentView && authToken.startsWith('sv_')) safe.studentView = {
+      teacherName: String(value.studentView.teacherName || ''), expiresAt: String(value.studentView.expiresAt || ''),
+    };
     const teacherId = value.teacherId;
     safe.teacherId = teacherId ? String(teacherId) : null;
     const rawGrade = String(value.grade ?? '').trim().toLowerCase();
@@ -20860,6 +20864,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     useNativeAndroidPush,
   ]);
   const syncPushSubscriptionState = useCallback(async ({ silent = true } = {}) => {
+    if (isStudentViewTab()) { setPushSupported(false); setPushReady(true); return; }
     if (user.role !== 'student') return;
 
     setPushSyncing(true);
@@ -20936,6 +20941,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   }, [useNativeAndroidPush, user.role]);
   const handleEnablePush = useCallback(async () => {
+    if (isStudentViewTab()) return;
     if (user.role !== 'student') return;
 
     setPushBusy(true);
@@ -21044,6 +21050,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   }, [useNativeAndroidPush, user.role]);
   const handleDisablePush = useCallback(async () => {
+    if (isStudentViewTab()) return;
     if (user.role !== 'student') return;
     setPushBusy(true);
     setPushError('');
@@ -27494,15 +27501,14 @@ const MainApp = () => {
   const [user, setUser] = useState(() => {
     if (typeof localStorage === 'undefined') return null;
     try {
-      const savedUser = localStorage.getItem(USER_SESSION_KEY);
-      const parsed = savedUser ? JSON.parse(savedUser) : null;
+      const parsed = readStoredAuthUser();
       const normalized = sanitizeAuthUserPayload(parsed);
       if (!normalized || (isNativeAppRuntime() && !normalized.authToken)) {
-        localStorage.removeItem(USER_SESSION_KEY);
+        removeStoredAuthUser();
         return null;
       }
       if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
-        localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
+        writeStoredAuthUser(normalized);
       }
       return normalized;
     } catch {
@@ -27539,7 +27545,7 @@ const MainApp = () => {
     });
     setProgress({});
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
+      writeStoredAuthUser(normalized);
     }
     return normalized;
   }, []);
@@ -27569,7 +27575,7 @@ const MainApp = () => {
         return current;
       }
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(USER_SESSION_KEY, JSON.stringify(next));
+        writeStoredAuthUser(next);
       }
       return next;
     });
@@ -27773,7 +27779,7 @@ const MainApp = () => {
     if (!normalized) return null;
     setUser(normalized);
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
+      writeStoredAuthUser(normalized);
     }
     return normalized;
   }, []);
@@ -27790,6 +27796,7 @@ const MainApp = () => {
   };
 
   if (!user) {
+    if (isStudentViewTab()) return <StudentViewClosed/>;
     return (
       <>
         <React.Suspense fallback={<div className="app-loading-screen">Загружаем вход…</div>}>
@@ -27863,6 +27870,7 @@ const MainApp = () => {
 const LessonPaceFeedback = React.lazy(() => import('./components/LessonPaceFeedback.jsx'));
 
 const App = () => {
+  if (isStudentViewTab()) return <StudentViewSession><MainApp/></StudentViewSession>;
   if (isWorkbookHelperPrivacyRoute()) {
     return <WorkbookHelperPrivacyPolicy />;
   }

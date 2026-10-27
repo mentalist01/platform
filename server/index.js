@@ -84,6 +84,7 @@ import { recorderPythonCatalog, attachRecorderPythonTheory } from './recorderPyt
 import { monthlyReviewUrl, setMonthlyReviewVideo, monthlyReviewForStudent, recorderMockReviewCatalog, attachRecorderMockReview } from './monthlyMockReview.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
 import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallengeCookie, setTrustedBrowserCookie } from './accountSecurity.js';
+import {STUDENT_VIEW_TTL_MS,isStudentViewToken,normalizeStudentView,studentViewExpiry,canContinueStudentView,publicStudentView,registerStudentViewRoutes} from './studentViewSessions.js';
 import path from 'path';
 import fs from 'fs';
 import { createPythonCourseGiftStore, registerPythonCourseGiftRoutes } from './pythonCourseGift.js';
@@ -7743,6 +7744,7 @@ const writeWorkbookHelperSessionsDb = (sessions, options = {}) => {
 };
 
 const serializeAuthSessionForStorage = (session) => ({
+  ...(session.studentView ? { studentView: session.studentView } : {}),
   emailEnrollmentRequired: session.emailEnrollmentRequired === true,
   id: session.id,
   token: session.token,
@@ -7863,9 +7865,13 @@ const normalizeStoredAuthSession = (entry) => {
   const token = typeof entry.token === 'string' ? entry.token.trim() : '';
   const user = buildSessionUser(entry.user);
   const createdAtMs = Number(entry.createdAtMs);
-  const expiresAtMs = normalizeAuthSessionExpiry(entry);
+  const studentView = normalizeStudentView(entry.studentView);
+  if (isStudentViewToken(token) && (!studentView || user?.role !== 'student')) return null;
+  if (entry.studentView && (!isStudentViewToken(token) || !studentView)) return null;
+  const expiresAtMs = studentView ? studentViewExpiry(entry) : normalizeAuthSessionExpiry(entry);
   if (!token || !user || expiresAtMs === undefined) return null;
   return {
+    ...(studentView ? { studentView } : {}),
     id: String(entry.id || '').trim() || getAuthSessionId(token),
     emailEnrollmentRequired: entry.emailEnrollmentRequired === true,
     token,
@@ -8020,11 +8026,15 @@ const hydrateAuthSessions = () => {
 const deleteAuthSession = (token, securityOptions) => {
   if (!token) return false;
   if (authSessions.has(token)) {
+    const revoked = Array.from(authSessions.values())
+      .filter(session => session.token === token || session.studentView?.parentToken === token);
     // Persist first: a reported successful logout must survive a restart.
     writeAuthSessionsDb(Array.from(authSessions.values())
-      .filter((session) => session.token !== token).map(serializeAuthSessionForStorage));
-    authSessions.delete(token);
-    closeAuthConnections(token, securityOptions);
+      .filter((session) => !revoked.includes(session)).map(serializeAuthSessionForStorage));
+    for (const session of revoked) {
+      authSessions.delete(session.token);
+      closeAuthConnections(session.token, securityOptions);
+    }
     return true;
   }
   const deleted = deleteAuthSessionFromStorage(token);
@@ -8052,7 +8062,7 @@ if (typeof authSessionSweepTimer.unref === 'function') {
 
 const authConnectionSweepTimer = setInterval(() => {
   for (const token of authConnections.keys()) {
-    if (isAuthSessionExpired(authSessions.get(token))) {
+    if (isAuthSessionExpired(authSessions.get(token)) || (isStudentViewToken(token) && !getAuthSession(token))) {
       try { deleteAuthSession(token, { forgetBrowser: false }); }
       catch { closeAuthConnections(token, { forgetBrowser: false }); console.error('[auth] failed to persist expired session removal'); }
     }
@@ -8109,6 +8119,15 @@ const getAuthSession = (token, req = null) => {
     deleteAuthSession(normalizedToken);
     return null;
   }
+  if (session.studentView) {
+    const parent = getAuthSession(session.studentView.parentToken);
+    if (!canContinueStudentView(session, parent, user)
+      || parent.user.role === 'teacher' && !isTeacherSubscriptionAccessAllowed(parent.user)) {
+      deleteAuthSession(normalizedToken, { forgetBrowser: false });
+      return null;
+    }
+    user.studentView = publicStudentView(session);
+  }
   session.user = user;
   touchAuthSession(session, req);
   return session;
@@ -8154,7 +8173,7 @@ const appendSetCookie = (res, cookieValue) => {
 };
 
 const setAuthSessionCookie = (res, session) => {
-  if (!session?.token || isAuthSessionExpired(session)) return;
+  if (!session?.token || session.studentView || isAuthSessionExpired(session)) return;
   const maxAgeSec = AUTH_COOKIE_MAX_AGE_SECONDS;
   const cookieParts = [
     `${AUTH_COOKIE_NAME}=${encodeURIComponent(session.token)}`,
@@ -22142,7 +22161,7 @@ const handleUploadRequest = (req, res) => {
   const token = getAuthTokenFromRequest(req);
   const session = getAuthSession(token, req);
   if (!session) {
-    clearAuthSessionCookie(res);
+    if (!isStudentViewToken(token)) clearAuthSessionCookie(res);
     return res.status(401).send('Требуется авторизация');
   }
   req.auth = session.user;
@@ -22747,7 +22766,7 @@ app.post('/api/signup/login', (req, res) => {
 app.post('/api/logout', (req, res) => {
   const token = getAuthTokenFromRequest(req);
   if (token) deleteAuthSession(token, { forgetBrowser: false });
-  clearAuthSessionCookie(res);
+  if (!isStudentViewToken(token)) clearAuthSessionCookie(res);
   res.json({ ok: true });
 });
 
@@ -22974,11 +22993,15 @@ app.use('/api', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
   const session = getAuthSession(token, req);
   if (!session) {
-    clearAuthSessionCookie(res);
+    if (!isStudentViewToken(token)) clearAuthSessionCookie(res);
     return res.status(401).json({ error: 'Требуется авторизация' });
   }
   req.auth = session.user;
   req.authToken = session.token;
+  if (session.studentView && (req.path.startsWith('/auth/')
+    || req.path.startsWith('/push/') && req.method !== 'GET')) {
+    return res.status(403).json({ error: 'Безопасность аккаунта и уведомления устройства настраивает сам ученик.' });
+  }
   setAuthSessionCookie(res, session);
   if (session.emailEnrollmentRequired && accountSecurity.enrollmentRequired(req.auth)
     && req.path !== '/session' && req.path !== '/logout' && !req.path.startsWith('/auth/security')) {
@@ -23005,6 +23028,33 @@ app.use('/api', (req, res, next) => {
 
 registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: false });
 registerPythonCourseGiftRoutes(app, pythonCourseGiftOptions);
+
+registerStudentViewRoutes(app, {
+  findStudent: findStudentById,
+  revoke: token => deleteAuthSession(token, { forgetBrowser: false }),
+  create: (req, student) => {
+    const now = Date.now();
+    const session = {
+      token: 'sv_' + createAuthToken(),
+      user: resolveSessionUser({ role: 'student', id: student.id }),
+      studentView: { parentToken: req.authToken, teacherId: req.auth.id,
+        teacherRole: req.auth.role, teacherName: req.auth.name },
+      createdAtMs: now, lastSeenAtMs: now, expiresAtMs: now + STUDENT_VIEW_TTL_MS,
+      device: parseAuthSessionDevice(req), ipAddress: getRequestIpAddress(req),
+    };
+    if (!session.user) throw Error('Student unavailable');
+    session.id = getAuthSessionId(session.token);
+    fs.appendFileSync(path.join(dataDir, 'student-view-audit.jsonl'), JSON.stringify({
+      event: 'open', at: new Date(now).toISOString(), teacherId: req.auth.id,
+      teacherRole: req.auth.role, studentId: student.id, sessionId: session.id,
+    }) + '\n', { mode: 0o600 });
+    // Unlike the background session touch, opening an account must fail if
+    // persistence fails. Never return an untracked privileged delegation.
+    writeAuthSessionsDb([...authSessions.values(), session].map(serializeAuthSessionForStorage));
+    authSessions.set(session.token, session);
+    return { ...serializeAuthSession(session), studentView: publicStudentView(session) };
+  },
+});
 
 const lessonAlarmDismissals = registerLessonAlarmDismissals(app, {
   dataDir,

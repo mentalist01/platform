@@ -56,3 +56,36 @@ test('shared helper is scoped, requires an upgraded client, persists both author
     await request(`/api/lesson-task-runs/${group.run.id}/live/helper`,tokens['student-a'],{cardId:group.run.cards[0].id,assetId:group.run.cards[0].attachments[0].assetId},'POST',403);
   }finally{await f.stop();}
 });
+
+
+test('one-click first open joins the same epoch for both individual participants and preserves legacy writer locks',{timeout:90000},async()=>{
+  const f=await createGroupHomeworkFixture(undefined,(write,data)=>{const students=JSON.parse(fs.readFileSync(path.join(data,'students.json'),'utf8'));write('students',[...students,{id:'student-d',teacherId:'teacher-a',name:'Индивидуальный ученик',code:'student-d-code',grade:'11'}]);});
+  try{
+    const teacher=f.tokens['teacher-a'],pupil=(await f.request('/api/login','',{code:'student-d-code'})).token;
+    const upload=async(route,name,bytes,fields={})=>{const form=new FormData();form.append('file',new Blob([bytes]),name);for(const[k,v]of Object.entries(fields))form.append(k,v);const r=await fetch(f.base+route,{method:'POST',headers:{Authorization:'Bearer '+teacher},body:form});assert.ok(r.ok,await r.clone().text());return r.json();};
+    const image=await upload('/api/lesson-task-images','condition.png',await sharp({create:{width:600,height:120,channels:4,background:'white'}}).png().toBuffer());
+    const file=await upload('/api/files','book.ods',BLANK_WORKBOOK_ODS,{studentId:'student-d',taskNumber:'18',category:'class'});
+    const set=await f.request('/api/lesson-task-sets',teacher,{name:'Одна кнопка',taskNumber:18,tasks:[{images:[image.id],answers:['1','2'],attachments:[{sourceFileId:file.id}]}]},'POST',201);
+    const {run}=await f.request('/api/lesson-task-runs',teacher,{room:'board-teacher-a-student-d',setId:set.id,x:0,y:0},'POST',201);
+    const target={cardId:run.cards[0].id,assetId:run.cards[0].attachments[0].assetId},route='/api/lesson-task-runs/'+run.id;
+    await f.request(route+'/helper',teacher,target,'POST',201);
+    await f.request(route+'/live/helper',pupil,{...target,start:true},'POST',409);
+    await f.request(route+'/action',teacher,{...target,action:'release-file',allowWithoutSave:true});
+    const tickets=await Promise.all([teacher,pupil].map(token=>f.request(route+'/live/helper',token,{...target,start:true},'POST',201)));
+    const grants=await Promise.all(tickets.map(async({ticket})=>{const r=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.4.0 (Windows)'},body:JSON.stringify({ticket})});assert.equal(r.status,200);return r.json();}));
+    assert.equal(grants[0].live.epoch,grants[1].live.epoch);assert.equal(grants[0].workbookKey,grants[1].workbookKey);
+    assert.notEqual(grants[0].live.actorId,grants[1].live.actorId);
+    await f.request(route+'/live',teacher,{...target,enabled:false});
+    const legacy=await f.request(route+'/helper',teacher,target,'POST',201);
+    const blocked=await fetch(f.base+route+'/live/helper',{method:'POST',headers:{Authorization:'Bearer '+pupil,'Content-Type':'application/json'},body:JSON.stringify({...target,start:true})});
+    const transition=await blocked.json();assert.equal(blocked.status,409);assert.equal(transition.code,'PREVIOUS_TABLE_OPEN');assert.equal(transition.previous.canClose,false);
+    await f.request(route+'/live/helper',pupil,{...target,start:true,closePrevious:true,previousGeneration:transition.previous.generation},'POST',409);
+    await f.request(route+'/live/helper',teacher,{...target,start:true,closePrevious:true,previousGeneration:transition.previous.generation+1},'POST',409);
+    await f.request(route+'/live/helper',teacher,{...target,start:true,closePrevious:true,previousGeneration:transition.previous.generation},'POST',201);
+    const stale=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.4.0 (Windows)'},body:JSON.stringify({ticket:legacy.ticket})});assert.equal(stale.status,409,'old separate helper cannot overwrite the common workbook');
+
+    await f.request(route+'/live/helper',f.tokens['teacher-b'],{...target,start:true},'POST',403);
+    const group=await f.request('/api/lesson-task-runs',teacher,{room:'board-group-'+f.groupId,setId:set.id,x:0,y:0},'POST',201);
+    await f.request('/api/lesson-task-runs/'+group.run.id+'/live/helper',f.tokens['student-a'],{cardId:group.run.cards[0].id,assetId:group.run.cards[0].attachments[0].assetId,start:true},'POST',403);
+  }finally{await f.stop();}
+});

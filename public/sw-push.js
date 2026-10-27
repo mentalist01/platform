@@ -106,6 +106,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (url.pathname.startsWith('/api/')) return;
+  // A teacher's pupil tab must never receive an offline asset from another
+  // account's cache (whose historical lookup ignores the query token).
+  if (url.searchParams.get('_auth')?.startsWith('sv_')) return;
   // A production service worker can remain registered when the same origin is
   // later opened through Vite. Never let its cache serve stale ESM source files.
   if (isDevelopmentModulePath(url.pathname)) return;

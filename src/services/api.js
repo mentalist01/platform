@@ -2,16 +2,14 @@ import { recoverableFetch } from '../utils/recoverableFetch.js';
 import { clearStoredSession } from '../utils/theme.js';
 
 import { hasConfiguredApiBaseUrl, isNativeAppRuntime, resolveApiUrl, resolveUploadsUrl } from '../utils/runtimeUrls.js';
-import { USER_SESSION_KEY } from '../utils/theme.js';
+import { readStoredAuthUser } from '../utils/authSessionStorage.js';
 import { resolveBoardAssetTarget } from '../utils/boardAssetTarget.js';
 
 export const getStoredAuthToken = () => {
   if (typeof localStorage === 'undefined') return '';
   try {
-    const raw = localStorage.getItem(USER_SESSION_KEY);
-    if (!raw) return '';
-    const parsed = JSON.parse(raw);
-    return typeof parsed?.authToken === 'string' ? parsed.authToken.trim() : '';
+    const parsed = readStoredAuthUser();
+    return String(parsed?.authToken || parsed?.token || '').trim();
   } catch {
     return '';
   }

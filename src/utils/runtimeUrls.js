@@ -1,3 +1,5 @@
+import {withStudentViewAuth} from './authSessionStorage.js';
+
 const getEnvValue = (key) => {
   if (typeof import.meta === 'undefined') return '';
   const raw = import.meta.env?.[key];
@@ -149,19 +151,19 @@ const toWebSocketBase = (value) => {
 export const resolveApiUrl = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return raw;
-  if (isAbsoluteUrl(raw)) return raw;
+  if (isAbsoluteUrl(raw)) return withStudentViewAuth(raw);
   const apiBase = getConfiguredApiBaseUrl();
-  if (apiBase) return joinUrl(apiBase, raw);
-  return raw;
+  if (apiBase) return withStudentViewAuth(joinUrl(apiBase, raw));
+  return withStudentViewAuth(raw);
 };
 
 export const resolveUploadsUrl = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return raw;
-  if (isAbsoluteUrl(raw)) return raw;
+  if (isAbsoluteUrl(raw)) return withStudentViewAuth(raw);
   const uploadsBase = trimTrailingSlash(getEnvValue('VITE_UPLOADS_BASE_URL')) || getConfiguredApiBaseUrl();
-  if (uploadsBase) return joinUrl(uploadsBase, raw);
-  return raw;
+  if (uploadsBase) return withStudentViewAuth(joinUrl(uploadsBase, raw));
+  return withStudentViewAuth(raw);
 };
 
 export const getExternalApiOrigin = () => {

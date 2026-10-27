@@ -33,6 +33,7 @@ import StudentMonthlyReportModal from './StudentMonthlyReportModal';
 import StudentContactLinks from './StudentContactLinks';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import StudentGroupAccess from './StudentGroupAccess.jsx';
+import {OpenStudentSessionButton} from './StudentViewSession.jsx';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import {
   QUESTION_INSERT_MODE_CUSTOM,
@@ -3493,6 +3494,7 @@ const TeacherPanel = ({
                         {studentIsCurrent && activeStudentId === student.id && (
                           <span className="text-xs font-semibold text-purple-600">Активный</span>
                         )}
+                        <OpenStudentSessionButton student={student}/>
                         <label
                           className="teacher-student-card__report-status"
                           data-checked={monthlyReportSent ? 'true' : 'false'}
