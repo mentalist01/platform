@@ -28,7 +28,7 @@ internal sealed class HelperApiClient : IDisposable
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.5.0 (Windows)");
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd("IvanEgeWorkbookHelper/1.5.1 (Windows)");
         _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
@@ -99,7 +99,7 @@ internal sealed class HelperApiClient : IDisposable
             sourceTextFileName,
             sourceTextContentHash,
             TryGetObject(root, "live", out var live)
-                ? new LiveWorkbookGrant(live.GetProperty("protocol").GetInt32(), ReadString(live, "epoch") ?? "", ReadString(live, "actorId") ?? "") : null);
+                ? new LiveWorkbookGrant(live.GetProperty("protocol").GetInt32(), ReadString(live, "epoch") ?? "", ReadString(live, "actorId") ?? "", live.TryGetProperty("filtersSupported", out var filters) && filters.ValueKind == JsonValueKind.True) : null);
     }
 
     public async Task<DownloadReceipt> DownloadAsync(WorkbookGrant grant, string destinationPath, CancellationToken cancellationToken)

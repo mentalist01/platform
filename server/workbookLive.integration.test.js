@@ -24,7 +24,7 @@ test('shared helper is scoped, requires an upgraded client, persists both author
     ({run}=await request(route,a,{...target,enabled:true}));assert.equal(run.cards[0].attachments[0].live.enabled,true);
     await request(`/api/lesson-task-runs/${run.id}/helper`,a,target,'POST',409);
     const launch=async token=>(await request(route+'/helper',token,target,'POST',201)).ticket;
-    const exchange=async(ticket,version='1.4.0')=>{
+    const exchange=async(ticket,version='1.5.1')=>{
       const response=await fetch(base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/'+version},body:JSON.stringify({ticket})});return {response,data:await response.json()};
     };
     const ticket=await launch(a);assert.equal((await exchange(ticket,'1.3.3')).response.status,426);
@@ -83,7 +83,7 @@ test('one-click first open joins the same epoch for both individual participants
     await f.request(route+'/live/helper',pupil,{...target,start:true},'POST',409);
     await f.request(route+'/action',teacher,{...target,action:'release-file',allowWithoutSave:true});
     const tickets=await Promise.all([teacher,pupil].map(token=>f.request(route+'/live/helper',token,{...target,start:true},'POST',201)));
-    const grants=await Promise.all(tickets.map(async({ticket})=>{const r=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.4.0 (Windows)'},body:JSON.stringify({ticket})});assert.equal(r.status,200);return r.json();}));
+    const grants=await Promise.all(tickets.map(async({ticket})=>{const r=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.5.1 (Windows)'},body:JSON.stringify({ticket})});assert.equal(r.status,200);return r.json();}));
     assert.equal(grants[0].live.epoch,grants[1].live.epoch);assert.equal(grants[0].workbookKey,grants[1].workbookKey);
     assert.notEqual(grants[0].live.actorId,grants[1].live.actorId);
     await f.request(route+'/live',teacher,{...target,enabled:false});
@@ -93,7 +93,7 @@ test('one-click first open joins the same epoch for both individual participants
     await f.request(route+'/live/helper',pupil,{...target,start:true,closePrevious:true,previousGeneration:transition.previous.generation},'POST',409);
     await f.request(route+'/live/helper',teacher,{...target,start:true,closePrevious:true,previousGeneration:transition.previous.generation+1},'POST',409);
     await f.request(route+'/live/helper',teacher,{...target,start:true,closePrevious:true,previousGeneration:transition.previous.generation},'POST',201);
-    const stale=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.4.0 (Windows)'},body:JSON.stringify({ticket:legacy.ticket})});assert.equal(stale.status,409,'old separate helper cannot overwrite the common workbook');
+    const stale=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.5.1 (Windows)'},body:JSON.stringify({ticket:legacy.ticket})});assert.equal(stale.status,409,'old separate helper cannot overwrite the common workbook');
 
     await f.request(route+'/live/helper',f.tokens['teacher-b'],{...target,start:true},'POST',403);
     const group=await f.request('/api/lesson-task-runs',teacher,{room:'board-group-'+f.groupId,setId:set.id,x:0,y:0},'POST',201);

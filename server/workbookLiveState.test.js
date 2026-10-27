@@ -32,6 +32,43 @@ test('structural replacement requires a current revision and protects formerly e
   assert.equal(state.structureRevision,1);assert.ok(applyLiveBatch(state,'b',patch('late','A1',number(1))).conflict);
   assert.throws(()=>applyLiveBatch(state,'b',{id:'sort',type:'replace',baseRevision:0,book:book()}),{status:409});
 });
+
+test('filter criteria and compact hidden row ranges survive replacement, journal reload and cell edits; viewport is never shared',async()=>{
+  const source=book();source.sheets[0].filter={range:'A1:C10001',columns:[{column:2,and:false,tests:[{operator:'equal',value:'1'}]}],hiddenRows:[[2,1337],[1339,1714],[1716,1948],[1950,10001]]};
+  source.sheets[0].viewport={row:9000,zoom:140};
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'workbook-live-filter-')),key='f'.repeat(64);let store=new WorkbookLiveStore(directory);
+  await store.initialize(key,source,'source');
+  let state=store.response(key).book;
+  assert.deepEqual(state.sheets[0].filter,source.sheets[0].filter);assert.equal(state.sheets[0].viewport,undefined);
+  await store.submit(key,'teacher',patch('edit','B1',number(99)),0);
+  store=new WorkbookLiveStore(directory);assert.deepEqual(store.response(key).book.sheets[0].filter,source.sheets[0].filter);
+  state=store.response(key).book;delete state.sheets[0].filter;
+  await store.submit(key,'pupil',{id:'clear-filter',type:'replace',baseRevision:1,book:state},1);
+  assert.equal(store.response(key).book.sheets[0].filter,undefined);
+  assert.ok((await store.submit(key,'teacher',patch('stale','C1',number(1)),2)).receipt.status==='conflict');
+});
+
+test('invalid and unbounded filter metadata is rejected before mutating the common book',()=>{
+  const valid={range:'A1:C100',columns:[{column:1,and:false,tests:[{operator:'equal',value:'1'}]}],hiddenRows:[[2,50]]};
+  for(const invalid of [{...valid,range:'A0:C100'},{...valid,hiddenRows:[[2,1048577]]},{...valid,hiddenRows:[[4,9],[3,6]]},{...valid,columns:[{...valid.columns[0],column:-1}]},{...valid,columns:[{...valid.columns[0],tests:[{operator:'script',value:'x'}]}]}]){
+    const source=book();source.sheets[0].filter=invalid;assert.throws(()=>normalizeLiveBook(source));
+  }
+});
+
+test('a filter command journals only metadata, preserves cell contents, retries idempotently and reloads after restart',async()=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'workbook-live-filter-delta-')),key='e'.repeat(64);let store=new WorkbookLiveStore(directory);
+  await store.initialize(key,book(),'source');
+  const value={range:'A1:C10001',columns:[{column:2,and:false,tests:[{operator:'equal',value:'1'}]}],hiddenRows:[[2,1337]]};
+  const command={id:'filter',type:'filter',baseRevision:0,filters:[{sheetId:'sheet1',value}]};
+  const response=await store.submit(key,'teacher',command,0);
+  assert.deepEqual(response.events[0].filters,command.filters);assert.equal(response.events[0].book,undefined);assert.equal(response.events[0].changes,undefined);
+  assert.equal(store.response(key).book.sheets[0].cells.A1.content.value,10);
+  assert.equal((await store.submit(key,'teacher',command,1)).revision,1);
+  store=new WorkbookLiveStore(directory);assert.deepEqual(store.response(key).book.sheets[0].filter,value);
+  await assert.rejects(store.submit(key,'pupil',{...command,id:'stale'},1),{status:409});
+  await store.submit(key,'pupil',{id:'clear',type:'filter',baseRevision:1,filters:[{sheetId:'sheet1',value:null}]},1);
+  assert.equal(store.response(key).book.sheets[0].filter,undefined);
+});
 test('undo and redo never overwrite another participant changes',()=>{
   let state=applyLiveBatch(createLiveState(book(),'source'),'a',patch('one','A1',number(20))).state;
   state=applyLiveBatch(state,'a',{id:'undo',type:'undo',targetId:'one'}).state;assert.equal(state.book.sheets[0].cells.A1.content.value,10);

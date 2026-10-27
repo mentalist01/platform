@@ -24,6 +24,31 @@ export function normalizeLiveContent(value){
   return {kind:value.kind,value:value.value};
 }
 const normalizeFill=value=>{if(value!==null&&(!Number.isInteger(value)||value<0||value>0xffffff))fail('Некорректная заливка');return value;};
+function normalizeFilter(value){
+  if(!value||typeof value!=='object'||!Array.isArray(value.columns)||value.columns.length>LIVE_WORKBOOK_LIMITS.columns||!Array.isArray(value.hiddenRows)||value.hiddenRows.length>100000)fail('Некорректный фильтр таблицы');
+  const range=value.range??null,parts=typeof range==='string'?range.split(':'):[];
+  if(range!==null&&(parts.length!==2||!parts.every(address=>liveAddress(address)&&!address.includes('$'))))fail('Некорректный диапазон фильтра');
+  const at=address=>{const [,letters,row]=address.match(/^([A-Z]+)(\d+)$/);return {column:[...letters].reduce((n,char)=>n*26+char.charCodeAt(0)-64,0),row:Number(row)};};
+  const start=range?at(parts[0]):null,end=range?at(parts[1]):null;
+  if(start&&(start.row>end.row||start.column>end.column))fail('Некорректные границы фильтра');
+  const seen=new Set();
+  const columns=value.columns.map(field=>{
+    if(!Number.isInteger(field?.column)||field.column<0||field.column>=LIVE_WORKBOOK_LIMITS.columns||start&&field.column>end.column-start.column||seen.has(field.column)||typeof field.and!=='boolean'||!Array.isArray(field.tests)||!field.tests.length||field.tests.length>10000||field.and&&field.tests.length>2)fail('Некорректное условие фильтра');
+    seen.add(field.column);
+    const tests=field.tests.map(test=>{
+      if(!['equal','notEqual','lessThan','lessThanOrEqual','greaterThan','greaterThanOrEqual'].includes(test?.operator)||typeof test.value!=='string'||test.value.length>8192||test.value.includes('\0'))fail('Некорректное значение фильтра');
+      return {operator:test.operator,value:test.value};
+    });
+    return {column:field.column,and:field.and,tests};
+  });
+  let previous=0;
+  const hiddenRows=value.hiddenRows.map(pair=>{
+    if(!Array.isArray(pair)||pair.length!==2||!pair.every(Number.isInteger)||pair[0]<=previous||pair[1]<pair[0]||pair[1]>LIVE_WORKBOOK_LIMITS.rows)fail('Некорректные скрытые строки');
+    previous=pair[1];return [...pair];
+  });
+  if(range===null&&columns.length)fail('Для фильтра нужен диапазон');
+  return {range,columns,hiddenRows};
+}
 export function normalizeLiveBook(value){
   if(!value||!Array.isArray(value.sheets)||!value.sheets.length||value.sheets.length>LIVE_WORKBOOK_LIMITS.sheets)fail('В книге должно быть от 1 до 16 листов');
   let count=0;const ids=new Set(),names=new Set();
@@ -39,7 +64,7 @@ export function normalizeLiveBook(value){
       if(++count>LIVE_WORKBOOK_LIMITS.cells)fail('Для совместного режима слишком много заполненных ячеек',413);
       cells[address]=cell;
     }
-    return {id:sheet.id,name:sheet.name,cells};
+    return {id:sheet.id,name:sheet.name,cells,...(sheet.filter?{filter:normalizeFilter(sheet.filter)}:{})};
   });
   const result={sheets};if(Buffer.byteLength(JSON.stringify(result))>LIVE_WORKBOOK_LIMITS.bytes)fail('Книга слишком велика для совместного режима',413);
   return result;
@@ -60,14 +85,26 @@ export function liveResponse(state,since=-1){
 // reference or acknowledging the operation; partial batches are never visible.
 export function applyLiveBatch(state,actor,input,now=Date.now()){
   if(!state)fail('Сначала подключите исходную таблицу',409);
-  if(!id(input?.id)||!['patch','replace','undo','redo'].includes(input.type))fail('Некорректная команда таблицы');
+  if(!id(input?.id)||!['patch','replace','filter','undo','redo'].includes(input.type))fail('Некорректная команда таблицы');
   const receiptKey=liveDigest(`${actor}\0${input.id}`),fingerprint=liveDigest(input),prior=state.receipts[receiptKey];
   if(prior){if(prior.fingerprint!==fingerprint)fail('Команда с таким номером уже использована',409);return {state,receipt:clone(prior.receipt),duplicate:true};}
-  let changes=[],replacement=null,undoOf='';
+  let changes=[],replacement=null,filters=null,undoOf='';
   const sheets=new Map(state.book.sheets.map(sheet=>[sheet.id,sheet]));
   if(input.type==='replace'){
     if(input.baseRevision!==state.revision)fail('Таблицу успел изменить другой участник. Структурные изменения сохранены в вашей копии; сначала согласуйте версии.',409);
     replacement=normalizeLiveBook(input.book);
+  }else if(input.type==='filter'){
+    if(input.baseRevision!==state.revision)fail('Таблицу успел изменить другой участник. Сначала согласуйте фильтр и последние правки.',409);
+    if(!Array.isArray(input.filters)||!input.filters.length||input.filters.length>LIVE_WORKBOOK_LIMITS.sheets)fail('Некорректные фильтры листов');
+    const seen=new Set();filters=input.filters.map(item=>{
+      if(!sheets.has(item?.sheetId)||seen.has(item.sheetId))fail('Некорректный лист фильтра');seen.add(item.sheetId);
+      return {sheetId:item.sheetId,value:item.value===null?null:normalizeFilter(item.value)};
+    });
+    replacement={...state.book,sheets:state.book.sheets.map(sheet=>{
+      const update=filters.find(item=>item.sheetId===sheet.id);if(!update)return sheet;
+      const result={...sheet};if(update.value)result.filter=clone(update.value);else delete result.filter;return result;
+    })};
+    if(Buffer.byteLength(JSON.stringify(replacement))>LIVE_WORKBOOK_LIMITS.bytes)fail('Книга слишком велика для совместного режима',413);
   }else if(input.type==='undo'||input.type==='redo'){
     const target=state.history.find(entry=>entry.id===input.targetId&&entry.actor===actor);
     if(!target||!target.changes?.length)fail('Это изменение больше нельзя отменить. Локальная копия сохранена.',409);
@@ -113,7 +150,7 @@ export function applyLiveBatch(state,actor,input,now=Date.now()){
   for(const key of Object.keys(next.receipts).slice(0,Math.max(0,Object.keys(next.receipts).length-10000)))delete next.receipts[key];
   if(changed){
     next.revision=revision;
-    next.history.push({id:input.id,actor,revision,at:now,...(replacement?{book:clone(replacement)}:{changes:actual}),...(undoOf?{undoOf}:{})});
+    next.history.push({id:input.id,actor,revision,at:now,...(filters?{filters:clone(filters)}:replacement?{book:clone(replacement)}:{changes:actual}),...(undoOf?{undoOf}:{})});
     next.history=next.history.slice(-300);
     let bytes=0,start=next.history.length-1;for(;start>=0;start--){bytes+=Buffer.byteLength(JSON.stringify(next.history[start]));if(bytes>2*1024*1024)break;}
     if(start>=0)next.history=next.history.slice(start+1);

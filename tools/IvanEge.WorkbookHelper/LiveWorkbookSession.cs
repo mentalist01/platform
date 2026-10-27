@@ -70,7 +70,7 @@ internal sealed class LiveWorkbookSession : IDisposable
                         break;
                     }
                     catch (Exception error) { failures++; Update(new(WorkbookStatusKind.Warning, "Синхронизация приостановлена: " + error.Message + " Локальная копия сохранена.", failures == 1)); }
-                    var delay = TimeSpan.FromMilliseconds(failures == 0 ? Math.Max(40, 180 - cycle.ElapsedMilliseconds) : Math.Min(15000, 1500 * Math.Pow(2, Math.Min(failures, 4))));
+                    var delay = TimeSpan.FromMilliseconds(failures == 0 ? Math.Max(40, 120 - cycle.ElapsedMilliseconds) : Math.Min(15000, 1500 * Math.Pow(2, Math.Min(failures, 4))));
                     await _wake.WaitAsync(delay, _lifetime.Token);
                 }
             }

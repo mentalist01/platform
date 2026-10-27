@@ -44,12 +44,13 @@ internal static class LiveWorkbookCheck
             for (int round = 0; round < 3; round++) { await teacher.TickAsync(token); await pupil.TickAsync(token); }
             Ensure(!teacher.Conflicted && !pupil.Conflicted, "Unexpected conflict: " + teacher.ConflictDescription + " " + pupil.ConflictDescription);
             var a = await teacher.Office.SnapshotAsync(token); var b = await pupil.Office.SnapshotAsync(token);
-            try { Ensure(JsonNode.DeepEquals(a.Book, b.Book), "The native books did not converge"); }
+            try { Ensure(JsonNode.DeepEquals(a.Book, b.Book), "The native books did not converge. Filters: " + a.Book["sheets"]![0]!["filter"] + " / " + b.Book["sheets"]![0]!["filter"]); }
             finally { File.Delete(a.File); File.Delete(b.File); }
         }
         async Task Check(string name, Func<Task> action)
         {
             var clock = Stopwatch.StartNew(); await action(); checks.Add(new JsonObject { ["name"] = name, ["passed"] = true, ["ms"] = clock.ElapsedMilliseconds });
+            File.WriteAllText(config["report"]!.GetValue<string>() + ".progress.json", checks.ToJsonString());
         }
         await Check("Native cell and range presence reaches the peer without changing its own selection or workbook", async () =>
         {
@@ -201,6 +202,87 @@ internal static class LiveWorkbookCheck
             await Edit(teacher, "D3", Number(77)); await Settle(); await teacher.UndoAsync(false, token); await Settle();
             await teacher.UndoAsync(true, token); await Settle();
         });
+        await Check("Local scroll, zoom and selection survive idle snapshot exports", async () =>
+        {
+            foreach (var client in new[] { teacher, pupil })
+            {
+                await client.Office.CommandAsync(new() { ["type"] = "select", ["sheetName"] = sheet, ["ranges"] = new JsonArray(new JsonArray(0,0,0,0)) }, token);
+                await client.Office.CommandAsync(new() { ["type"] = "view", ["zoom"] = 130, ["row"] = 15000, ["column"] = 3 }, token);
+                var before = await client.Office.CommandAsync(new() { ["type"] = "viewport" }, token);
+                var selection = (await client.Office.CommandAsync(new() { ["type"] = "pulse" }, token))["selection"]!.DeepClone();
+                for (int i = 0; i < 4; i++) await client.TickAsync(token);
+                var after = await client.Office.CommandAsync(new() { ["type"] = "viewport" }, token);
+                Ensure(JsonNode.DeepEquals(before, after), "Snapshot scrolled the native window: " + before + " / " + after);
+                Ensure(JsonNode.DeepEquals(selection, (await client.Office.CommandAsync(new() { ["type"] = "pulse" }, token))["selection"]), "Snapshot changed the native selection");
+            }
+        });
+        await Check("Sorting ten thousand rows in either office engine preserves row pairs and each participant's own viewport", async () =>
+        {
+            await pupil.Office.CommandAsync(new() { ["type"] = "load-filter-data", ["sheetName"] = sheet, ["count"] = 10000 }, token); await Settle();
+            var before = await teacher.Office.CommandAsync(new() { ["type"] = "viewport" }, token);
+            await pupil.Office.CommandAsync(new() { ["type"] = "sort", ["sheetName"] = sheet, ["range"] = "AF1:AH10001", ["column"] = 0, ["ascending"] = true }, token);
+            await Settle();
+            Ensure((await teacher.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "AF2" }, token))["value"]!.GetValue<double>() == 1, "Pupil's sort did not reach the teacher");
+            Ensure((await teacher.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "AH2" }, token))["value"]!.GetValue<double>() == 10, "Sorting separated row pairs");
+            Ensure(JsonNode.DeepEquals(before, await teacher.Office.CommandAsync(new() { ["type"] = "viewport" }, token)), "Remote sort moved the teacher's viewport");
+            await teacher.Office.CommandAsync(new() { ["type"] = "sort", ["sheetName"] = sheet, ["range"] = "AF1:AH10001", ["column"] = 0, ["ascending"] = false }, token); await Settle();
+            Ensure((await pupil.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "AF2" }, token))["value"]!.GetValue<double>() == 10000, "Teacher's sort did not reach the pupil");
+        });
+        await Check("Filter values, numeric conditions and clearing filters synchronize without sharing scroll or zoom", async () =>
+        {
+            async Task Filter(LiveWorkbookClient client, int column, params (string Operator, string Value)[] tests)
+            {
+                var predicates = new JsonArray(tests.Select(test => (JsonNode)new JsonObject { ["operator"] = test.Operator, ["value"] = test.Value }).ToArray());
+                await client.Office.CommandAsync(new() { ["type"] = "filter", ["sheetName"] = sheet, ["filter"] = new JsonObject { ["range"] = "AF1:AH10001", ["columns"] = new JsonArray(new JsonObject { ["column"] = column, ["and"] = false, ["tests"] = predicates }), ["hiddenRows"] = new JsonArray() } }, token);
+            }
+            var before = await teacher.Office.CommandAsync(new() { ["type"] = "viewport" }, token);
+            await Filter(pupil, 0, ("greaterThanOrEqual", "9997")); await Settle();
+            var snapshot = await teacher.Office.SnapshotAsync(token);
+            try
+            {
+                var hidden = snapshot.Book["sheets"]![0]!["filter"]!["hiddenRows"]!.AsArray();
+                Ensure(hidden.Sum(pair => pair![1]!.GetValue<int>() - pair[0]!.GetValue<int>() + 1) == 9996, "Numeric filter did not leave exactly four data rows visible: " + hidden);
+            }
+            finally { File.Delete(snapshot.File); }
+            Ensure(JsonNode.DeepEquals(before, await teacher.Office.CommandAsync(new() { ["type"] = "viewport" }, token)), "Filter moved the local viewport");
+            await Filter(teacher, 1, ("equal", "1"), ("equal", "2")); await Settle();
+            snapshot = await pupil.Office.SnapshotAsync(token);
+            try { Ensure(snapshot.Book["sheets"]![0]!["filter"]!["hiddenRows"]!.AsArray().Sum(pair => pair![1]!.GetValue<int>() - pair[0]!.GetValue<int>() + 1) == 3334, "Multi-value filter did not retain both values"); }
+            finally { File.Delete(snapshot.File); }
+            await pupil.Office.CommandAsync(new() { ["type"] = "filter", ["sheetName"] = sheet, ["filter"] = new JsonObject
+            {
+                ["range"] = "AF1:AH10001", ["hiddenRows"] = new JsonArray(), ["columns"] = new JsonArray(
+                    new JsonObject { ["column"] = 0, ["and"] = true, ["tests"] = new JsonArray(new JsonObject { ["operator"] = "greaterThanOrEqual", ["value"] = "9997" }, new JsonObject { ["operator"] = "lessThanOrEqual", ["value"] = "9999" }) },
+                    new JsonObject { ["column"] = 1, ["and"] = false, ["tests"] = new JsonArray(new JsonObject { ["operator"] = "equal", ["value"] = "1" }, new JsonObject { ["operator"] = "equal", ["value"] = "2" }) })
+            } }, token); await Settle();
+            snapshot = await teacher.Office.SnapshotAsync(token);
+            try { Ensure(snapshot.Book["sheets"]![0]!["filter"]!["hiddenRows"]!.AsArray().Sum(pair => pair![1]!.GetValue<int>() - pair[0]!.GetValue<int>() + 1) == 9998, "Combined numeric AND / checklist OR filter did not leave exactly two rows"); }
+            finally { File.Delete(snapshot.File); }
+            await pupil.Office.CommandAsync(new() { ["type"] = "filter", ["sheetName"] = sheet, ["filter"] = null }, token); await Settle();
+            snapshot = await teacher.Office.SnapshotAsync(token);
+            try { Ensure(snapshot.Book["sheets"]![0]!["filter"] is null, "Clearing a filter did not restore all rows"); }
+            finally { File.Delete(snapshot.File); }
+        });
+        await Check("A single cell in a thirty-thousand-cell workbook arrives without a receiver-side full export", async () =>
+        {
+            for (int round = 0; round < 3; round++)
+            {
+                await teacher.Office.CommandAsync(new() { ["type"] = "select", ["sheetName"] = sheet, ["ranges"] = new JsonArray(new JsonArray(1,34,1,34)) }, token);
+                await teacher.PollAsync(token); await pupil.PollAsync(token);
+                long before = pupil.Office.SnapshotCount, senderBefore = teacher.Office.SnapshotCount; var timer = Stopwatch.StartNew();
+                await Edit(teacher, "AI2", Number(700 + round));
+                while (true)
+                {
+                    await Task.WhenAll(teacher.PollAsync(token), pupil.PollAsync(token));
+                    var value = await pupil.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "AI2" }, token);
+                    if (value["value"]?.GetValue<double>() == 700 + round) break;
+                    Ensure(timer.ElapsedMilliseconds < 4000, "A single native edit was too slow: " + timer.ElapsedMilliseconds + "ms");
+                    await Task.Delay(50, token);
+                }
+                Ensure(pupil.Office.SnapshotCount - before <= 1, "A remote cell edit repeatedly exported the full recipient workbook");
+                checks.Add(new JsonObject { ["name"] = "large-book-cell-latency", ["ms"] = timer.ElapsedMilliseconds, ["senderExports"] = teacher.Office.SnapshotCount - senderBefore, ["recipientExports"] = pupil.Office.SnapshotCount - before, ["passed"] = true });
+            }
+        });
         await Check("Ctrl-S equivalent stores the merged binary on the board and in notes", async () =>
         {
             teacher.RequestSave(); await teacher.TickAsync(token);
@@ -209,8 +291,10 @@ internal static class LiveWorkbookCheck
         });
         await Check("Pending changes recover after a helper restart", async () =>
         {
+            await pupil.Office.CommandAsync(new() { ["type"] = "select", ["sheetName"] = sheet, ["ranges"] = new JsonArray(new JsonArray(1,15,1,15)) }, token);
+            await pupil.PollAsync(token);
             await Edit(pupil, "P2", Number(12345)); faults.BeforeSync = true;
-            try { await pupil.TickAsync(token); throw new InvalidOperationException("Expected offline edit before restart"); }
+            try { await pupil.PollAsync(token); throw new InvalidOperationException("Expected offline edit before restart"); }
             catch (HelperApiException error) when (error.IsTransient) { }
             pupil.Dispose();
             using var recovered = new LiveWorkbookClient(pupilApi, pupilGrant, Path.Combine(directory, "recovered"), Path.Combine(directory, "cache"));

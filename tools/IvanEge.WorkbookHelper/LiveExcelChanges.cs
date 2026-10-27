@@ -10,7 +10,34 @@ internal sealed class LiveExcelChanges : IDisposable
     private readonly object _application;
     private readonly List<(Guid Source, int Id, Delegate Handler)> _hooks = [];
     private long _serial;
+    private long _full;
+    private readonly List<(long Serial, string Sheet, string Address)> _cells = [];
     public long Serial => Interlocked.Read(ref _serial);
+    public IEnumerable<(string Sheet, string Address)>? CellsSince(long serial)
+    {
+        if (serial < _full) return null;
+        var cells = _cells.Where(cell => cell.Serial > serial).Select(cell => (cell.Sheet, cell.Address)).Distinct().Take(65).ToArray();
+        return cells.Length <= 64 ? cells : null;
+    }
+    private void Changed(object sheet, object target)
+    {
+        long serial = Interlocked.Increment(ref _serial);
+        try
+        {
+            dynamic range = target; dynamic rows = range.Rows, columns = range.Columns;
+            int row, column, height, width;
+            try { row = (int)range.Row; column = (int)range.Column; height = (int)rows.Count; width = (int)columns.Count; }
+            finally { if (Marshal.IsComObject(rows)) Marshal.ReleaseComObject(rows); if (Marshal.IsComObject(columns)) Marshal.ReleaseComObject(columns); }
+            if ((long)height * width > 64 || _cells.Count > 128) { _cells.Clear(); _full = serial; return; }
+            string name = ((dynamic)sheet).Name;
+            for (int r = row; r < row + height; r++) for (int c = column; c < column + width; c++)
+            {
+                string letters = ""; for (int n = c; n > 0; n = (n - 1) / 26) letters = (char)('A' + (n - 1) % 26) + letters;
+                _cells.Add((serial, name, letters + r));
+            }
+        }
+        catch { _full = serial; }
+    }
     public bool Watching => _hooks.Count > 0;
     public LiveExcelChanges(object application)
     {
@@ -35,7 +62,7 @@ internal sealed class LiveExcelChanges : IDisposable
                         FUNCDESC method; try { method = Marshal.PtrToStructure<FUNCDESC>(description); } finally { source.ReleaseFuncDesc(description); }
                         source.GetDocumentation(method.memid, out string eventName, out _, out _, out _);
                         if (eventName is not "SheetChange" and not "WorkbookNewSheet") continue;
-                        Action<object, object> changed = (_, _) => Interlocked.Increment(ref _serial);
+                        Delegate changed = eventName == "SheetChange" ? new Action<object, object>(Changed) : new Action<object>(_ => _full = Interlocked.Increment(ref _serial));
                         ComEventsHelper.Combine(application, attributes.guid, method.memid, changed);
                         _hooks.Add((attributes.guid, method.memid, changed));
                     }

@@ -86,7 +86,10 @@ internal sealed class LiveWorkbookBook
                 if (++count > 250000) throw new FormatException("В совместном режиме допускается до 250 000 заполненных ячеек");
                 cells[address] = new JsonObject { ["content"] = content, ["fill"] = fill };
             }
-            output.Add(new JsonObject { ["id"] = id, ["name"] = name, ["cells"] = cells });
+            var result = new JsonObject { ["id"] = id, ["name"] = name, ["cells"] = cells };
+            var filter = LiveWorkbookFilter.Read(document);
+            if (filter is not null) result["filter"] = filter;
+            output.Add(result);
         }
         _names.Clear(); foreach (var item in currentNames) _names[item.Key] = item.Value;
         if (output.Count is < 1 or > 16) throw new FormatException("Для совместного режима нужна книга от 1 до 16 листов");
@@ -115,6 +118,8 @@ internal sealed class LiveWorkbookBook
     public static bool Structural(JsonObject before, JsonObject after, JsonArray changes)
     {
         if (!SameSheets(before, after)) return true;
+        var oldFilters = before["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!["filter"]);
+        if (after["sheets"]!.AsArray().Any(sheet => !JsonNode.DeepEquals(oldFilters[sheet!["id"]!.GetValue<string>()], sheet["filter"]))) return true;
         var sheets = before["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!["cells"]!.AsObject());
         var prior = new HashSet<string>(); var next = new HashSet<string>();
         foreach (var change in changes)
