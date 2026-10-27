@@ -1,5 +1,5 @@
-using System.Runtime.InteropServices;
-using System.Text;
+using System.Diagnostics;
+using Microsoft.Win32;
 
 namespace IvanEge.WorkbookHelper;
 
@@ -15,21 +15,41 @@ internal static class LiveOfficePreference
     {
         if (preference == "excel" && excel) return "excel";
         if (preference == "calc" && calc) return "calc";
-        if (associatedProgram?.Contains("excel", StringComparison.OrdinalIgnoreCase) == true && excel) return "excel";
-        if (associatedProgram?.Contains("soffice", StringComparison.OrdinalIgnoreCase) == true && calc) return "calc";
-        if (excel) return "excel";
         if (calc) return "calc";
+        if (excel) return "excel";
         throw new InvalidOperationException("Не найден Excel или LibreOffice. Установите одну из этих программ для решения таблицы.");
     }
     public static string Choose(string file, string? requested = null)
     {
         bool calc; try { LiveOfficeProcess.FindCalc(); calc = true; } catch { calc = false; }
-        var executable = new StringBuilder(2048); uint length = (uint)executable.Capacity;
-        string? associated = AssocQueryString(0, 2, Path.GetExtension(file), "open", executable, ref length) == 0 ? executable.ToString() : null;
         bool excel = Type.GetTypeFromProgID("Excel.Application") is not null;
         if (requested == "excel" && !excel || requested == "calc" && !calc) throw new InvalidOperationException("Выбранная программа не установлена на этом компьютере. Выберите Excel или LibreOffice рядом с кнопкой «Решать».");
-        return Resolve(requested ?? Preferred, associated, excel, calc);
+        return Resolve(requested ?? Preferred, null, excel, calc);
     }
-    [DllImport("Shlwapi.dll", CharSet = CharSet.Unicode, EntryPoint = "AssocQueryStringW")]
-    private static extern uint AssocQueryString(uint flags, uint kind, string association, string extra, StringBuilder output, ref uint length);
+
+    public static void OpenSeparateWorkbook(string file)
+    {
+        var engine = Choose(file);
+        if (engine == "calc")
+        {
+            var start = new ProcessStartInfo(LiveOfficeProcess.FindCalc()) { UseShellExecute = false };
+            start.ArgumentList.Add("--calc");
+            start.ArgumentList.Add(file);
+            Process.Start(start);
+            return;
+        }
+        foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
+        foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+        {
+            using var registry = RegistryKey.OpenBaseKey(hive, view);
+            using var key = registry.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\App Paths\excel.exe");
+            var executable = (key?.GetValue(null) as string)?.Trim('"');
+            if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable)) continue;
+            var start = new ProcessStartInfo(executable) { UseShellExecute = false };
+            start.ArgumentList.Add(file);
+            Process.Start(start);
+            return;
+        }
+        Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+    }
 }

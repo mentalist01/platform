@@ -81,6 +81,7 @@ internal sealed class WorkbookSession : IDisposable
     public bool IsPaused => _live?.IsPaused ?? _paused;
     public bool IsLive => _live is not null;
     public bool IsLiveClosed => _live?.IsClosed == true;
+    public bool ReadyForHelperUpdate => _live?.ReadyForHelperUpdate == true;
     public string? LiveEngine => _live?.Engine;
     public void ShowLiveControls() => _live?.ShowControls();
     public Task ActivateLiveOfficeAsync() => _live?.ActivateOfficeAsync() ?? Task.CompletedTask;

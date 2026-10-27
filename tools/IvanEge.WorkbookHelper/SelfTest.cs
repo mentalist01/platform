@@ -1,4 +1,5 @@
 using System.Net;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,6 +11,39 @@ namespace IvanEge.WorkbookHelper;
 internal static class SelfTest
 {
     public static string ReportPath => Path.Combine(Path.GetTempPath(), "IvanEgeWorkbookHelper-selftest.txt");
+
+    public static int CheckUpdateInstall(string manifest, string executable)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IvanEgeWorkbookHelper-update-check-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            var release = HelperUpdater.VerifyManifest(File.ReadAllBytes(manifest));
+            HelperUpdater.VerifyExecutable(executable, release);
+            var stage = Path.Combine(root, "stage"); Directory.CreateDirectory(stage);
+            File.Copy(executable, Path.Combine(stage, "package.exe"));
+            var target = Path.Combine(root, "installed-helper.exe");
+            File.WriteAllText(target, "previous-working-version");
+            File.WriteAllText(Path.Combine(root, "student-work.txt"), "untouched");
+            HelperUpdater.InstallVerified(stage, target, release);
+            HelperUpdater.VerifyExecutable(target, release);
+            Assert(File.ReadAllText(target + ".previous") == "previous-working-version", "Update lost the previous version");
+            Assert(File.ReadAllText(Path.Combine(root, "student-work.txt")) == "untouched", "Update touched an unrelated document");
+            return 0;
+        }
+        catch (Exception error) { File.WriteAllText(ReportPath, error.ToString()); return 1; }
+        finally
+        {
+            try
+            {
+                var temporaryRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (Path.GetFullPath(root).StartsWith(temporaryRoot, StringComparison.OrdinalIgnoreCase)
+                    && Path.GetFileName(root).StartsWith("IvanEgeWorkbookHelper-update-check-", StringComparison.Ordinal)
+                    && !new DirectoryInfo(root).Attributes.HasFlag(FileAttributes.ReparsePoint)) Directory.Delete(root, recursive: true);
+            }
+            catch { }
+        }
+    }
 
     public static int Run()
     {
@@ -33,6 +67,7 @@ internal static class SelfTest
             TestHashValidation();
             TestLiveWorkbookXml();
             TestOfficePreference();
+            TestUpdateAuthentication(temporaryDirectory);
             TryDelete(ReportPath);
             return 0;
         }
@@ -52,6 +87,47 @@ internal static class SelfTest
                 // Test cleanup is best effort.
             }
         }
+    }
+    private static void TestUpdateAuthentication(string directory)
+    {
+        using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var stranger = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var source = Environment.ProcessPath!;
+        var bytes = File.ReadAllBytes(source);
+        var version = FileVersionInfo.GetVersionInfo(source).FileVersion!;
+        var release = new HelperUpdateRelease(version, $"https://ivan100.ru/downloads/updates/IvanEgeWorkbookHelper-{version}.exe", Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), bytes.Length);
+        byte[] Envelope(HelperUpdateRelease value, string product = HelperUpdater.Product)
+        {
+            var payload = JsonSerializer.SerializeToUtf8Bytes(new { schema = 1, product, version = value.Version, url = value.Url, sha256 = value.Sha256, bytes = value.Bytes });
+            return JsonSerializer.SerializeToUtf8Bytes(new { payload = Convert.ToBase64String(payload), signature = Convert.ToBase64String(signer.SignData(payload, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence)) });
+        }
+        var envelope = Envelope(release);
+        var key = signer.ExportSubjectPublicKeyInfo();
+        Assert(HelperUpdater.VerifyManifest(envelope, key) == release, "Valid signed update was rejected");
+        AssertThrows<CryptographicException>(() => HelperUpdater.VerifyManifest(envelope, stranger.ExportSubjectPublicKeyInfo()));
+        AssertThrows<InvalidDataException>(() => HelperUpdater.VerifyManifest(new byte[HelperUpdater.MaxManifestBytes + 1], key));
+        AssertThrows<InvalidDataException>(() => HelperUpdater.VerifyManifest(Envelope(release, "other-app"), key));
+        foreach (var url in new[] { "http://ivan100.ru/downloads/update.exe", "https://evil.example/update.exe", "https://ivan100.ru@evil.example/update.exe", release.Url + "?redirect=1" })
+            AssertThrows<InvalidDataException>(() => HelperUpdater.VerifyManifest(Envelope(release with { Url = url }), key));
+        AssertThrows<InvalidDataException>(() => HelperUpdater.ValidateRelease(release with { Version = "../2.exe" }));
+        AssertThrows<InvalidDataException>(() => HelperUpdater.ValidateRelease(release with { Bytes = HelperUpdater.MaxExecutableBytes + 1 }));
+        HelperUpdater.VerifyExecutable(source, release);
+        AssertThrows<CryptographicException>(() => HelperUpdater.VerifyExecutable(source, release with { Sha256 = new string('0', 64) }));
+        using var bounded = new MemoryStream();
+        AssertThrows<InvalidDataException>(() => HelperUpdater.CopyBoundedAsync(new MemoryStream(new byte[256]), bounded, 128, CancellationToken.None).GetAwaiter().GetResult());
+        Assert(bounded.Length == 0, "Oversized update must not be written");
+        var stage = Path.Combine(directory, "update-stage"); Directory.CreateDirectory(stage);
+        File.WriteAllBytes(Path.Combine(stage, "package.exe"), bytes);
+        var target = Path.Combine(directory, "old-helper.exe");
+        File.WriteAllText(target, "previous helper");
+        HelperUpdater.InstallVerified(stage, target, release, runSelfTest: false);
+        Assert(File.ReadAllText(target + ".previous") == "previous helper", "Atomic update must preserve the old executable");
+        HelperUpdater.VerifyExecutable(target, release);
+        File.WriteAllText(Path.Combine(stage, "package.exe"), "truncated download");
+        AssertThrows<CryptographicException>(() => HelperUpdater.InstallVerified(stage, target, release, runSelfTest: false));
+        HelperUpdater.VerifyExecutable(target, release);
+        using var productionKey = ECDsa.Create(); productionKey.ImportSubjectPublicKeyInfo(HelperUpdater.PublicKey(), out _);
+        Assert(productionKey.KeySize == 256, "Update trust key must be P-256");
     }
 
     private static void TestProtocolParsing()
@@ -77,7 +153,9 @@ internal static class SelfTest
     private static void TestOfficePreference()
     {
         Assert(LiveOfficePreference.Resolve("auto", @"C:\Program Files\LibreOffice\program\soffice.exe", true, true) == "calc", "Windows LibreOffice association must be respected");
-        Assert(LiveOfficePreference.Resolve("auto", @"C:\Office\EXCEL.EXE", true, true) == "excel", "Windows Excel association must be respected");
+        Assert(LiveOfficePreference.Resolve("auto", @"C:\Office\EXCEL.EXE", true, true) == "calc", "Automatic mode must prefer LibreOffice even when Windows associates files with Excel");
+        Assert(LiveOfficePreference.Resolve("auto", null, true, false) == "excel", "Excel-only installations must open Excel");
+        Assert(LiveOfficePreference.Resolve("auto", null, false, true) == "calc", "LibreOffice-only installations must open Calc");
         Assert(LiveOfficePreference.Resolve("calc", "EXCEL.EXE", true, true) == "calc", "Explicit helper program preference must win");
         Assert(LiveOfficePreference.Resolve("excel", null, false, true) == "calc", "An uninstalled preferred program must fall back to the installed one");
         AssertThrows<InvalidOperationException>(() => LiveOfficePreference.Resolve("auto", null, false, false));

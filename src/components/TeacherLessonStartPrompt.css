@@ -1,0 +1,168 @@
+.lesson-start-prompt {
+  --prompt-border: #e3dcf4;
+  --prompt-accent: #7c3aed;
+  --prompt-accent-soft: #f4efff;
+  --prompt-positive: #047857;
+  --prompt-positive-soft: #ecfdf5;
+  --prompt-warning: #92400e;
+  --prompt-warning-soft: #fffbeb;
+  --prompt-error: #be123c;
+  --prompt-error-soft: #fff1f2;
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(15 23 42 / .24);
+  backdrop-filter: blur(5px);
+  color: rgb(var(--ink));
+}
+
+html[data-theme='dark'] .lesson-start-prompt {
+  --prompt-border: #3d3657;
+  --prompt-accent: #c4b5fd;
+  --prompt-accent-soft: #251b3d;
+  --prompt-positive: #6ee7b7;
+  --prompt-positive-soft: #102c29;
+  --prompt-warning: #fcd34d;
+  --prompt-warning-soft: #332912;
+  --prompt-error: #fda4af;
+  --prompt-error-soft: #381c29;
+  background: rgb(2 6 23 / .6);
+}
+
+.lesson-start-prompt__card {
+  display: flex;
+  flex-direction: column;
+  width: min(660px, 100%);
+  max-height: min(780px, calc(100dvh - 32px));
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--prompt-border);
+  border-radius: 24px;
+  background: rgb(var(--surface));
+  box-shadow: var(--shadow-lift);
+}
+
+.lesson-start-prompt__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  background: linear-gradient(120deg, var(--prompt-accent-soft), rgb(var(--surface)) 78%);
+  border-bottom: 1px solid var(--prompt-border);
+}
+.lesson-start-prompt__heading { min-width: 0; }
+.lesson-start-prompt__eyebrow {
+  display: block;
+  color: var(--prompt-accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.lesson-start-prompt__heading h2 {
+  overflow: hidden;
+  margin: 5px 0 7px;
+  color: rgb(var(--ink));
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lesson-start-prompt__heading p { margin: 0 0 6px; font-size: 12px; }
+.lesson-start-prompt__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 12px; font-size: 11px; }
+.lesson-start-prompt__meta > span { display: inline-flex; align-items: center; gap: 5px; }
+.lesson-start-prompt__countdown { padding: 4px 9px; border-radius: 20px; background: var(--prompt-positive-soft); color: var(--prompt-positive); font-weight: 800; }
+.lesson-start-prompt__muted { color: rgb(var(--ink-soft)); }
+.lesson-start-prompt__text { color: rgb(var(--ink)); }
+.lesson-start-prompt__accent { color: var(--prompt-accent); }
+.lesson-start-prompt__header-actions { display: flex; gap: 5px; flex-shrink: 0; }
+.lesson-start-prompt__icon-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--prompt-border);
+  border-radius: 10px;
+  background: rgb(var(--surface));
+  color: rgb(var(--ink-soft));
+  cursor: pointer;
+}
+.lesson-start-prompt__icon-button:hover { color: var(--prompt-accent); background: var(--prompt-accent-soft); }
+.lesson-start-prompt button:focus-visible, .lesson-start-prompt a:focus-visible { outline: 3px solid var(--prompt-accent); outline-offset: 3px; }
+.lesson-start-prompt__actions { display: grid; gap: 8px; padding: 14px 20px 0; flex-shrink: 0; }
+.lesson-start-prompt__primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 16px;
+  border: 0;
+  border-radius: 13px;
+  background: linear-gradient(110deg, #7c3aed, #9333ea);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 5px 14px rgb(124 58 237 / .18);
+  cursor: pointer;
+}
+.lesson-start-prompt__primary:hover { filter: brightness(1.07); }
+.lesson-start-prompt button:disabled { cursor: not-allowed; opacity: .55; }
+.lesson-start-prompt__secondary, .lesson-start-prompt__done {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid var(--prompt-border);
+  border-radius: 10px;
+  background: rgb(var(--surface));
+  color: var(--prompt-accent);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.lesson-start-prompt__secondary:hover, .lesson-start-prompt__done:hover { background: var(--prompt-accent-soft); }
+.lesson-start-prompt__body { min-height: 0; overflow-y: auto; padding: 14px 20px 16px; overscroll-behavior: contain; }
+.lesson-start-prompt__sections { display: grid; gap: 12px; }
+.lesson-start-prompt__section { min-width: 0; border: 1px solid var(--prompt-border); border-radius: 14px; background: rgb(var(--surface-soft)); padding: 12px; }
+.lesson-start-prompt__section-title { display: flex; align-items: center; gap: 7px; color: var(--prompt-accent); font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.lesson-start-prompt__goals { margin-top: 10px; padding: 9px 10px; border-radius: 10px; background: var(--prompt-accent-soft); }
+.lesson-start-prompt__file { display: block; padding: 9px 10px; border: 1px solid var(--prompt-border); border-radius: 10px; background: rgb(var(--surface)); text-decoration: none; }
+a.lesson-start-prompt__file:hover { border-color: var(--prompt-accent); background: var(--prompt-accent-soft); }
+.lesson-start-prompt__file strong { display: block; overflow: hidden; color: rgb(var(--ink)); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.lesson-start-prompt__file small { display: block; overflow: hidden; margin-top: 3px; color: rgb(var(--ink-soft)); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.lesson-start-prompt__warning, .lesson-start-prompt__error { border: 1px solid var(--prompt-border); border-radius: 10px; padding: 10px 12px; font-size: 12px; }
+.lesson-start-prompt__warning { background: var(--prompt-warning-soft); color: var(--prompt-warning); }
+.lesson-start-prompt__error { background: var(--prompt-error-soft); color: var(--prompt-error); }
+.lesson-start-prompt__participant { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border: 1px solid var(--prompt-border); border-radius: 10px; background: rgb(var(--surface)); }
+.lesson-start-prompt__payment { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; border-radius: 20px; padding: 3px 6px; background: var(--prompt-accent-soft); color: rgb(var(--ink-soft)); font-size: 10px; font-weight: 700; }
+.lesson-start-prompt__payment[data-status='paid'] { background: var(--prompt-positive-soft); color: var(--prompt-positive); }
+.lesson-start-prompt__payment[data-status='unpaid'] { background: var(--prompt-error-soft); color: var(--prompt-error); }
+.lesson-start-prompt__footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
+.lesson-start-prompt.is-collapsed { inset: auto 18px 18px auto; display: block; width: min(390px, calc(100vw - 36px)); padding: 0; background: transparent; backdrop-filter: none; }
+.lesson-start-prompt.is-collapsed .lesson-start-prompt__card { border-radius: 18px; }
+.lesson-start-prompt.is-collapsed .lesson-start-prompt__header { padding: 12px 14px 10px; gap: 8px; }
+.lesson-start-prompt.is-collapsed .lesson-start-prompt__heading h2 { font-size: 17px; margin: 3px 0 6px; }
+.lesson-start-prompt.is-collapsed .lesson-start-prompt__meta { gap: 5px; font-size: 10px; }
+.lesson-start-prompt.is-collapsed .lesson-start-prompt__countdown { padding: 3px 7px; }
+.lesson-start-prompt.is-collapsed .lesson-start-prompt__actions { padding: 10px 14px 12px; }
+.lesson-start-prompt.is-collapsed .lesson-start-prompt__primary { min-height: 38px; padding: 8px 12px; font-size: 12px; }
+@media (min-width: 620px) {
+  .lesson-start-prompt__sections { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 480px) {
+  .lesson-start-prompt { padding: 10px; }
+  .lesson-start-prompt__card { max-height: calc(100dvh - 20px); border-radius: 18px; }
+  .lesson-start-prompt__header { padding: 14px; }
+  .lesson-start-prompt__heading h2 { font-size: 20px; }
+  .lesson-start-prompt__actions { padding: 12px 14px 0; }
+  .lesson-start-prompt__body { padding: 12px 14px; }
+}

@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {deflateRawSync} from 'node:zlib';
+import {verifyHelperUpdate,HELPER_UPDATE_MANIFEST,helperUpdateFile} from './update.mjs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 export const WINDOWS_HELPER_ZIP='IvanEgeWorkbookHelper.zip';
@@ -47,6 +48,12 @@ export async function packageWorkbookHelperWindows(outputDirectory,{executablePa
   const release={product:'Иван на сотку — помощник таблиц',version,platform:'windows-x64',website:'https://ivan100.ru/workbook-helper/',executable:executableName,executableSha256,authenticode};
   const bytes=zip([[executableName,executable],['Прочитать.txt',Buffer.concat([Buffer.from([239,187,191]),instructions])],['SHA256SUMS.txt',Buffer.from(`${executableSha256}  ${executableName}\r\n`)]]);
   await fs.mkdir(outputDirectory,{recursive:true});
+  const updateEnvelope=await fs.readFile(path.join(root,'public/downloads',HELPER_UPDATE_MANIFEST));
+  await verifyHelperUpdate(updateEnvelope,{version,executable});
+  const updateExecutable=path.join(outputDirectory,helperUpdateFile(version));
+  await fs.mkdir(path.dirname(updateExecutable),{recursive:true});
+  await fs.writeFile(updateExecutable,executable);
+  await fs.writeFile(path.join(outputDirectory,HELPER_UPDATE_MANIFEST),updateEnvelope);
   await fs.writeFile(path.join(outputDirectory,WINDOWS_HELPER_ZIP),bytes);
   const manifest={...release,archive:WINDOWS_HELPER_ZIP,archiveSha256:sha(bytes),archiveBytes:bytes.length};
   await fs.writeFile(path.join(outputDirectory,'workbook-helper-release.json'),JSON.stringify(manifest,null,2)+'\n');

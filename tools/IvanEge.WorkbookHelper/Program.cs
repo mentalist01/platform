@@ -6,6 +6,9 @@ internal static class Program
     private static int Main(string[] arguments)
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        if (arguments.FirstOrDefault() == "--apply-update") return HelperUpdater.Apply(arguments);
+        if (arguments.Length == 3 && arguments[0] == "--verify-update-manifest") return HelperUpdater.VerifyPublished(arguments[1], arguments[2]);
+        if (arguments.Length == 3 && arguments[0] == "--update-install-check") return SelfTest.CheckUpdateInstall(arguments[1], arguments[2]);
         if (arguments.Contains("--live-excel-bridge")) return LiveExcelBridge.Run(arguments);
         var liveCheck = Array.IndexOf(arguments, "--live-check");
         if (liveCheck >= 0 && liveCheck + 1 < arguments.Length) return LiveWorkbookCheck.Run(arguments[liveCheck + 1]);
@@ -63,8 +66,14 @@ internal static class Program
                 return 0;
             }
 
+            if (HelperUpdater.Available && HelperUpdater.Enabled && HelperUpdater.Pending() is { } pending)
+            {
+                try { HelperUpdater.StartApply(pending, true, protocolRequests); return 0; }
+                catch (Exception error) { AppLog.Error("Deferred helper update could not start; opening the current version", error); }
+            }
+
             var notifyInstalled = arguments.Any(argument => string.Equals(argument, "--notify-installed", StringComparison.OrdinalIgnoreCase));
-            using var context = new TrayApplicationContext(singleInstance, protocolRequests, notifyInstalled);
+            using var context = new TrayApplicationContext(singleInstance, protocolRequests, notifyInstalled, arguments.Contains("--updated"));
             Application.Run(context);
             return 0;
         }

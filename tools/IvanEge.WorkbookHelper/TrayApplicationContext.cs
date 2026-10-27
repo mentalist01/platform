@@ -18,6 +18,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _retryItem;
     private readonly ToolStripMenuItem _stopItem;
     private readonly ToolStripMenuItem _controlsItem;
+    private readonly ToolStripMenuItem _updatesItem;
+    private readonly CancellationTokenSource _updateLifetime = new();
+    private StagedHelperUpdate? _pendingUpdate;
+    private bool _checkingUpdate;
+    private bool _manualUpdate;
+    private DateTime _nextUpdateCheck = DateTime.UtcNow.AddSeconds(5);
+    private DateTime _nextUpdateApply = DateTime.UtcNow.AddSeconds(15);
     private readonly System.Windows.Forms.Timer _queueTimer;
     private readonly Dictionary<string, WorkbookSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<WorkbookSession> _sessionOrder = [];
@@ -31,7 +38,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     public TrayApplicationContext(
         SingleInstance singleInstance,
         IEnumerable<string> initialRequests,
-        bool notifyInstalled)
+        bool notifyInstalled,
+        bool notifyUpdated = false)
     {
         _singleInstance = singleInstance;
         var requests = initialRequests.ToList();
@@ -44,8 +52,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _stopItem = new ToolStripMenuItem("Остановить слежение", null, (_, _) => StopSession()) { Enabled = false };
         _controlsItem = new ToolStripMenuItem("Состояние и отмена общих правок", null, (_, _) => _latestSession?.ShowLiveControls()) { Enabled = false };
         var helpItem = new ToolStripMenuItem("Как пользоваться", null, (_, _) => ShowUsageInstructions());
+        _updatesItem = new ToolStripMenuItem($"Проверить обновления · {HelperUpdater.CurrentVersion.ToString(3)}", null, (_, _) => _ = CheckUpdatesAsync(true)) { Enabled = HelperUpdater.Available };
+        var automaticUpdatesItem = new ToolStripMenuItem("Обновлять автоматически") { Checked = HelperUpdater.Enabled, CheckOnClick = true, Enabled = HelperUpdater.Available };
+        automaticUpdatesItem.CheckedChanged += (_, _) => HelperUpdater.Enabled = automaticUpdatesItem.Checked;
         var programItem = new ToolStripMenuItem("Программа для общей таблицы");
-        foreach (var (value, label) in new[] { ("auto", "По настройке Windows"), ("excel", "Microsoft Excel"), ("calc", "LibreOffice Calc") })
+        foreach (var (value, label) in new[] { ("auto", "Автоматически · сначала LibreOffice"), ("excel", "Microsoft Excel"), ("calc", "LibreOffice Calc") })
         {
             var option = new ToolStripMenuItem(label) { Checked = LiveOfficePreference.Preferred == value };
             option.Click += (_, _) =>
@@ -71,6 +82,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _controlsItem,
             new ToolStripSeparator(),
             programItem,
+            _updatesItem,
+            automaticUpdatesItem,
             helpItem,
             openPlatformItem,
             clearTrustItem,
@@ -99,6 +112,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 "Теперь кнопка «Решать» сможет открыть таблицу и сохранять её в конспекты.",
                 ToolTipIcon.Info));
         }
+        else if (notifyUpdated)
+        {
+            _uiActions.Enqueue(() => ShowNotification("Помощник обновлён", $"Установлена версия {HelperUpdater.CurrentVersion.ToString(3)}. Можно продолжать работу.", ToolTipIcon.Info));
+        }
         else if (requests.Count == 0)
         {
             _uiActions.Enqueue(ShowUsageInstructions);
@@ -119,6 +136,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
         }
 
+        if (HelperUpdater.Available && HelperUpdater.Enabled && !_checkingUpdate && DateTime.UtcNow >= _nextUpdateCheck)
+            _ = CheckUpdatesAsync(false);
+        if (_pendingUpdate is not null && (HelperUpdater.Enabled || _manualUpdate) && !_processingRequest
+            && _incoming.IsEmpty && DateTime.UtcNow >= _nextUpdateApply && _sessionOrder.All(session => session.ReadyForHelperUpdate))
+        {
+            ApplyPendingUpdate();
+            return;
+        }
+
         if (_processingRequest || !_incoming.TryDequeue(out var request)) return;
         if (string.Equals(request, ActivateMessage, StringComparison.Ordinal))
         {
@@ -126,7 +152,57 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
         _processingRequest = true;
+        _nextUpdateApply = DateTime.UtcNow.AddSeconds(15);
         _ = HandleProtocolRequestAsync(request);
+    }
+
+    private async Task CheckUpdatesAsync(bool manual)
+    {
+        if (_checkingUpdate || !HelperUpdater.Available) return;
+        _checkingUpdate = true;
+        _updatesItem.Enabled = false;
+        _nextUpdateCheck = DateTime.UtcNow.AddHours(8);
+        try
+        {
+            var update = await HelperUpdater.DownloadAsync(_updateLifetime.Token);
+            if (_updateLifetime.IsCancellationRequested) return;
+            _pendingUpdate = update;
+            _manualUpdate = manual;
+            _updatesItem.Text = update is null ? $"Проверить обновления · {HelperUpdater.CurrentVersion.ToString(3)}" : $"Готово обновление {update.Release.Version}";
+            if (update is not null)
+                ShowNotification("Обновление подготовлено", "Новая версия установится после закрытия общих таблиц или при следующем запуске помощника. Скачивать вручную не нужно.", ToolTipIcon.Info);
+            else if (manual) ShowNotification("Обновления проверены", "Установлена последняя доступная версия помощника.", ToolTipIcon.Info);
+        }
+        catch (OperationCanceledException) when (_updateLifetime.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            AppLog.Error("Helper update check failed; workbook sessions continue", error);
+            _nextUpdateCheck = DateTime.UtcNow.AddMinutes(30);
+            if (manual) ShowNotification("Обновление отложено", "Не удалось проверить или скачать обновление. Текущая версия продолжает работать; помощник попробует позже.", ToolTipIcon.Warning);
+        }
+        finally { _checkingUpdate = false; if (!_updateLifetime.IsCancellationRequested) _updatesItem.Enabled = true; }
+    }
+
+    private void ApplyPendingUpdate()
+    {
+        if (_pendingUpdate is null) return;
+        var requests = new List<string>();
+        try
+        {
+            // Finish every accepted pipe message before handing requests to the
+            // next process. New launches wait for its pipe rather than losing a click.
+            _singleInstance.StopServer();
+            while (_incoming.TryDequeue(out var request)) if (request != ActivateMessage) requests.Add(request);
+            HelperUpdater.StartApply(_pendingUpdate, true, requests);
+            ExitThread();
+        }
+        catch (Exception error)
+        {
+            AppLog.Error("Helper update could not start; sessions retained", error);
+            foreach (var request in requests) _incoming.Enqueue(request);
+            _singleInstance.StartServer(message => _incoming.Enqueue(message));
+            _nextUpdateApply = DateTime.UtcNow.AddMinutes(30);
+        }
     }
 
     private async Task HandleProtocolRequestAsync(string rawRequest)
@@ -243,7 +319,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             var workbookOpened = false;
             try
             {
-                if (currentGrant.Live is null) OpenPath(finalPath);
+                if (currentGrant.Live is null) LiveOfficePreference.OpenSeparateWorkbook(finalPath);
                 workbookOpened = true;
             }
             catch (Exception openError)
@@ -490,7 +566,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
         try
         {
-            OpenPath(_latestSession.LocalPath);
+            LiveOfficePreference.OpenSeparateWorkbook(_latestSession.LocalPath);
         }
         catch (Exception error)
         {
@@ -642,16 +718,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _ => "Произошла непредвиденная ошибка. Попробуйте нажать «Решать» ещё раз."
     };
 
-    private static void OpenPath(string path)
-    {
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = path,
-            UseShellExecute = true,
-            WorkingDirectory = Path.GetDirectoryName(path) ?? Environment.CurrentDirectory
-        });
-    }
-
     private static void OpenTextInNotepad(string path)
     {
         var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
@@ -717,6 +783,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        _updateLifetime.Cancel();
         _queueTimer.Stop();
         foreach (var session in _sessionOrder.ToArray()) RemoveSession(session, dispose: true);
         _notifyIcon.Visible = false;

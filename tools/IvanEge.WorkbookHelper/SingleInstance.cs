@@ -9,6 +9,7 @@ internal sealed class SingleInstance : IDisposable
     private readonly Mutex _mutex;
     private readonly string _pipeName;
     private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _serverLifetime;
     private Task? _serverTask;
     private bool _disposed;
 
@@ -34,9 +35,11 @@ internal sealed class SingleInstance : IDisposable
     public void StartServer(Action<string> receive)
     {
         if (!IsPrimary || _serverTask is not null) return;
+        _serverLifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var serverToken = _serverLifetime.Token;
         _serverTask = Task.Run(async () =>
         {
-            while (!_lifetime.IsCancellationRequested)
+            while (!serverToken.IsCancellationRequested)
             {
                 try
                 {
@@ -46,15 +49,15 @@ internal sealed class SingleInstance : IDisposable
                         1,
                         PipeTransmissionMode.Byte,
                         PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-                    await pipe.WaitForConnectionAsync(_lifetime.Token).ConfigureAwait(false);
+                    await pipe.WaitForConnectionAsync(serverToken).ConfigureAwait(false);
                     using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
-                    var message = await reader.ReadLineAsync().WaitAsync(_lifetime.Token).ConfigureAwait(false);
+                    var message = await reader.ReadLineAsync().WaitAsync(serverToken).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(message) && message.Length <= 4096)
                     {
                         receive(message);
                     }
                 }
-                catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+                catch (OperationCanceledException) when (serverToken.IsCancellationRequested)
                 {
                     break;
                 }
@@ -63,7 +66,7 @@ internal sealed class SingleInstance : IDisposable
                     AppLog.Error("Named pipe server failed", error);
                     try
                     {
-                        await Task.Delay(300, _lifetime.Token).ConfigureAwait(false);
+                        await Task.Delay(300, serverToken).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {
@@ -72,6 +75,15 @@ internal sealed class SingleInstance : IDisposable
                 }
             }
         });
+    }
+
+    public void StopServer()
+    {
+        _serverLifetime?.Cancel();
+        try { _serverTask?.GetAwaiter().GetResult(); } catch (OperationCanceledException) { }
+        _serverTask = null;
+        _serverLifetime?.Dispose();
+        _serverLifetime = null;
     }
 
     public async Task<bool> ForwardAsync(string message, CancellationToken cancellationToken = default)
@@ -85,7 +97,7 @@ internal sealed class SingleInstance : IDisposable
                 PipeDirection.Out,
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
             await pipe.ConnectAsync(timeout.Token).ConfigureAwait(false);
             await using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 1024, leaveOpen: true)
             {
@@ -106,6 +118,7 @@ internal sealed class SingleInstance : IDisposable
         if (_disposed) return;
         _disposed = true;
         _lifetime.Cancel();
+        StopServer();
         if (IsPrimary)
         {
             try

@@ -16,6 +16,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     public string LocalPath => _client.LocalPath;
     public bool IsPaused => _client.Paused;
     public bool IsClosed => _failed || _disposed || _client.Office?.Closed == true;
+    public bool ReadyForHelperUpdate => !_failed && !_disposed && _client.ReadyForHelperUpdate;
     public string Engine { get; }
     public event EventHandler<WorkbookStatus>? Status;
 

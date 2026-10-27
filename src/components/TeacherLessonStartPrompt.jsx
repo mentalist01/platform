@@ -7,14 +7,13 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  PhoneCall,
   Users,
   Video,
-  X,
 } from 'lucide-react';
 
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { normalizeTelemostUrl } from '../utils/telemost';
+import TeacherLessonStartPromptCard from './TeacherLessonStartPromptCard';
 
 const LESSON_PROMPT_LEAD_MS = 60 * 1000;
 const LESSON_PROMPT_AFTER_START_MS = 5 * 60 * 1000;
@@ -734,248 +733,105 @@ const TeacherLessonStartPrompt = ({
   const groupLessonReady = groupLessonWorkspaceReady && !groupLessonNotStarted;
 
   const promptOverlay = (
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm">
-      <div className="max-h-[92vh] min-h-[52vh] w-[min(760px,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-violet-400/70 bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.30),transparent_36%),linear-gradient(145deg,#08111f,#11172d_48%,#090d1a)] text-white shadow-[0_28px_90px_rgba(2,6,23,0.55)]">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
-          <div className="min-w-0">
-            <div className="text-[11px] font-black uppercase tracking-[0.18em] text-violet-200">
-              Перед уроком
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-emerald-300/30 bg-emerald-400/12 px-3 py-1 text-xs font-black text-emerald-100">
-                {leadLabel}
-              </span>
-              {subtitle && (
-                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-                  <Clock3 size={13} />
-                  {subtitle}
-                </span>
-              )}
-            </div>
-            <h2 className="mt-2 truncate text-2xl font-black text-white">
-              {isLearningGroupEvent ? activePrompt.groupName : activePrompt.studentName}
-            </h2>
-            {subject && subject !== (isLearningGroupEvent ? activePrompt.groupName : activePrompt.studentName) && (
-              <div className="mt-0.5 truncate text-sm font-semibold text-slate-400">{subject}</div>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={closePrompt}
-            className="inline-grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white"
-            aria-label="Закрыть напоминание"
-          >
-            <X size={16} />
+    <TeacherLessonStartPromptCard
+      key={`${teacherId}:${activePrompt.occurrenceKey}`}
+      title={isLearningGroupEvent ? activePrompt.groupName : activePrompt.studentName}
+      subject={subject}
+      subtitle={subtitle}
+      leadLabel={leadLabel}
+      isGroup={isLearningGroupEvent}
+      onClose={closePrompt}
+      onJoin={isLearningGroupEvent ? openLearningGroupLesson : joinCall}
+      joinDisabled={isLearningGroupEvent
+        ? !groupLessonWorkspaceReady || typeof onOpenLearningGroupLesson !== 'function'
+        : !activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'}
+      secondaryAction={isLearningGroupEvent ? (
+        groupLessonReady && activePrompt.telemostUrl ? (
+          <button type="button" onClick={openLearningGroupTelemost}
+            disabled={typeof onOpenLearningGroupTelemost !== 'function'} className="lesson-start-prompt__secondary">
+            <Video size={17} />Резервный звонок в Телемосте<ExternalLink size={14} />
           </button>
-        </div>
-
-        <div className="max-h-[calc(92vh-92px)] overflow-y-auto px-5 py-4">
-          {isLearningGroupEvent ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={openLearningGroupLesson}
-                disabled={!groupLessonWorkspaceReady || typeof onOpenLearningGroupLesson !== 'function'}
-                className="flex w-full items-center justify-center gap-3 rounded-2xl border border-cyan-200/50 bg-cyan-200 px-5 py-5 text-base font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition hover:-translate-y-0.5 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Users size={22} />
-                Открыть занятие группы
-              </button>
-              {groupLessonReady && activePrompt.telemostUrl ? (
-                <button
-                  type="button"
-                  onClick={openLearningGroupTelemost}
-                  disabled={typeof onOpenLearningGroupTelemost !== 'function'}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-300/45 bg-violet-300/12 px-5 py-5 text-base font-black text-violet-100 transition hover:-translate-y-0.5 hover:bg-violet-300/20"
-                >
-                  <Video size={21} />
-                  Резервный звонок в Телемосте
-                  <ExternalLink size={16} />
-                </button>
-              ) : (
-                <div className="flex items-center justify-center rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-center text-sm font-semibold text-amber-100">
-                  {groupLessonClosed
-                    ? 'Занятие группы завершено.'
-                    : groupLessonNotStarted
-                    ? 'Телемост откроется в момент начала занятия.'
-                    : groupLessonReady
-                    ? 'Голосовые каналы доступны по кнопке «Открыть занятие группы».'
-                    : 'Группа ещё не запущена. Для старта нужен хотя бы один ученик и статус «Занимается».'}
+        ) : (
+          <div className="lesson-start-prompt__warning">
+            {groupLessonClosed
+              ? 'Занятие группы завершено.'
+              : groupLessonNotStarted
+                ? 'Телемост откроется в момент начала занятия.'
+                : groupLessonReady
+                  ? 'Голосовые каналы доступны по кнопке «Открыть занятие группы».'
+                  : 'Группа ещё не запущена. Для старта нужен хотя бы один ученик и статус «Занимается».'}
+          </div>
+        )
+      ) : null}
+    >
+      {isLearningGroupEvent ? (
+        <section className="lesson-start-prompt__section">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="lesson-start-prompt__section-title"><Users size={15} />Участники группы</div>
+            <span className="lesson-start-prompt__muted text-[11px]">
+              {groupParticipantRows.length > 0 ? `${groupParticipantRows.length} уч.` : 'Список уточняется'}
+            </span>
+          </div>
+          {groupParticipantRows.length > 0 ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {groupParticipantRows.map((row) => (
+                <div key={row.id} className="lesson-start-prompt__participant">
+                  <span className="truncate text-sm font-bold">{row.name}</span>
+                  <span className="lesson-start-prompt__payment" data-status={row.paymentStatus}>
+                    {row.paymentStatus === 'paid' ? <CheckCircle size={11} /> : <Clock3 size={11} />}
+                    {row.paymentStatus === 'paid' ? 'Оплачено' : row.paymentStatus === 'not-required'
+                      ? 'Не участвует по расписанию' : row.paymentStatus === 'unpaid' ? 'Не оплачено' : 'Нет данных'}
+                  </span>
                 </div>
-              )}
+              ))}
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={joinCall}
-              disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-cyan-200/50 bg-cyan-200 px-5 py-5 text-lg font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition hover:-translate-y-0.5 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <PhoneCall size={24} />
-              Присоединиться к созвону
-            </button>
-          )}
-
-          {isLearningGroupEvent ? (
-            <section className="mt-4 rounded-2xl border border-violet-300/35 bg-violet-950/20 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-violet-200">
-                  <Users size={15} />
-                  Участники группы
-                </div>
-                <span className="text-[11px] font-semibold text-slate-400">
-                  {groupParticipantRows.length > 0 ? `${groupParticipantRows.length} уч.` : 'Список уточняется'}
-                </span>
-              </div>
-              {groupParticipantRows.length > 0 ? (
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {groupParticipantRows.map((row) => (
-                    <div
-                      key={row.id}
-                      className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5"
-                    >
-                      <span className="truncate text-sm font-black text-white">{row.name}</span>
-                      <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black ${
-                        row.paymentStatus === 'paid'
-                          ? 'border-emerald-300/30 bg-emerald-400/12 text-emerald-100'
-                          : row.paymentStatus === 'unpaid'
-                            ? 'border-rose-300/30 bg-rose-400/12 text-rose-100'
-                            : 'border-slate-300/20 bg-slate-300/10 text-slate-300'
-                      }`}
-                      >
-                        {row.paymentStatus === 'paid' ? <CheckCircle size={11} /> : <Clock3 size={11} />}
-                        {row.paymentStatus === 'paid'
-                          ? 'Оплачено'
-                          : (row.paymentStatus === 'not-required' ? 'Не участвует по расписанию' : (row.paymentStatus === 'unpaid' ? 'Не оплачено' : 'Нет данных'))}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-3 text-sm font-semibold text-slate-300">
-                  Участники появятся после обновления расписания.
-                </div>
-              )}
-            </section>
-          ) : (
-          <div className="mt-4 grid gap-3">
-            <section className="rounded-2xl border border-emerald-400/45 bg-emerald-950/18 p-4">
-              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-emerald-200">
-                <FileText size={15} />
-                Домашка
-              </div>
-              {homeworkLoading ? (
-                <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
-                  <Loader2 size={15} className="animate-spin" />
-                  Загружаем домашку...
-                </div>
-              ) : homework ? (
-                <>
-                  <div className="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-100">
-                    {homeworkText || 'Домашка без текста'}
+          ) : <div className="lesson-start-prompt__muted mt-3 text-sm">Участники появятся после обновления расписания.</div>}
+        </section>
+      ) : (
+        <div className="lesson-start-prompt__sections">
+          <section className="lesson-start-prompt__section">
+            <div className="lesson-start-prompt__section-title"><FileText size={15} />Домашка</div>
+            {homeworkLoading ? (
+              <div className="lesson-start-prompt__muted mt-3 flex items-center gap-2 text-sm"><Loader2 size={15} className="animate-spin" />Загружаем домашку...</div>
+            ) : homework ? (
+              <>
+                {homeworkText && <div className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">{homeworkText}</div>}
+                {goalCount > 0 ? (
+                  <div className="lesson-start-prompt__goals">
+                    <div className="lesson-start-prompt__section-title">Цели</div>
+                    {goalLabels.length > 0 ? (
+                      <div className="mt-1 max-h-40 space-y-1 overflow-y-auto text-xs leading-relaxed">
+                        {goalLabels.map((label, index) => <div key={`lesson-prompt-goal-${index}`}>{label}</div>)}
+                      </div>
+                    ) : <div className="lesson-start-prompt__muted mt-1 text-xs">{goalCount} цели</div>}
                   </div>
-                  {goalCount > 0 && (
-                    <div className="mt-3 rounded-xl border border-violet-300/25 bg-violet-400/15 px-3 py-2">
-                      <div className="text-[11px] font-black uppercase tracking-wide text-violet-200">
-                        Цели
-                      </div>
-                      {goalLabels.length > 0 ? (
-                        <div className="mt-1 space-y-1 text-sm text-slate-100">
-                          {goalLabels.map((label, index) => (
-                            <div key={`lesson-prompt-goal-${index}`}>{label}</div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-1 text-sm text-slate-300">{goalCount} цели</div>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="mt-3 text-sm font-semibold text-slate-300">Домашка пока не задана.</div>
-              )}
-            </section>
-
-            <section className="rounded-2xl border border-sky-400/40 bg-sky-950/18 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-sky-200">
-                  <BookOpen size={15} />
-                  Последние конспекты
-                </div>
-                <span className="text-[11px] font-semibold text-slate-400">3 последних</span>
+                ) : !homeworkText && <div className="lesson-start-prompt__muted mt-3 text-sm">Домашка без текста.</div>}
+              </>
+            ) : <div className="lesson-start-prompt__muted mt-3 text-sm">Домашка пока не задана.</div>}
+          </section>
+          <section className="lesson-start-prompt__section">
+            <div className="lesson-start-prompt__section-title"><BookOpen size={15} />Последние конспекты</div>
+            {filesLoading ? (
+              <div className="lesson-start-prompt__muted mt-3 flex items-center gap-2 text-sm"><Loader2 size={15} className="animate-spin" />Загружаем конспекты...</div>
+            ) : filesError ? <div className="lesson-start-prompt__error mt-3">{filesError}</div> : files.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {files.map((file, index) => {
+                  const href = getLessonInfoFileHref(file), meta = getLessonInfoFileMeta(file);
+                  const content = <><strong title={file?.name}>{file?.name || 'Файл из конспекта'}</strong>{meta && <small title={meta}>{meta}</small>}</>;
+                  return href
+                    ? <a key={`${href}-${index}`} href={href} target="_blank" rel="noreferrer" className="lesson-start-prompt__file">{content}</a>
+                    : <div key={`lesson-prompt-file-${index}`} className="lesson-start-prompt__file">{content}</div>;
+                })}
               </div>
-              {filesLoading ? (
-                <div className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-300">
-                  <Loader2 size={15} className="animate-spin" />
-                  Загружаем конспекты...
-                </div>
-              ) : filesError ? (
-                <div className="mt-3 rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100">
-                  {filesError}
-                </div>
-              ) : files.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {files.map((file, index) => {
-                    const href = getLessonInfoFileHref(file);
-                    const meta = getLessonInfoFileMeta(file);
-                    const content = (
-                      <>
-                        <div className="truncate text-sm font-black text-white">
-                          {file?.name || 'Файл из конспекта'}
-                        </div>
-                        {meta && <div className="mt-1 truncate text-xs font-semibold text-slate-400">{meta}</div>}
-                      </>
-                    );
-                    return href ? (
-                      <a
-                        key={`${href}-${index}`}
-                        href={href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 transition hover:border-sky-300/50 hover:bg-sky-300/10"
-                      >
-                        {content}
-                      </a>
-                    ) : (
-                      <div
-                        key={`lesson-prompt-file-${index}`}
-                        className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2"
-                      >
-                        {content}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="mt-3 text-sm font-semibold text-slate-300">Конспекты пока не найдены.</div>
-              )}
-            </section>
-          </div>
-          )}
-
-          <div className="mt-4 flex flex-wrap justify-end gap-2">
-            {!isLearningGroupEvent && (
-              <button
-                type="button"
-                onClick={openNotes}
-                disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'}
-                className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/40 bg-amber-300/12 px-4 py-2 text-sm font-black text-amber-100 transition hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <BookOpen size={15} />
-                Конспекты
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={closePrompt}
-              className="rounded-full border border-violet-300/45 bg-violet-300/12 px-4 py-2 text-sm font-black text-violet-100 transition hover:bg-violet-300/20"
-            >
-              Готово
-            </button>
-          </div>
+            ) : <div className="lesson-start-prompt__muted mt-3 text-sm">Конспекты пока не найдены.</div>}
+          </section>
         </div>
-      </div>
-    </div>
+      )}
+      <footer className="lesson-start-prompt__footer">
+        {!isLearningGroupEvent && <button type="button" onClick={openNotes} disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'} className="lesson-start-prompt__secondary"><BookOpen size={15} />Конспекты</button>}
+        <button type="button" onClick={closePrompt} className="lesson-start-prompt__done">Готово</button>
+      </footer>
+    </TeacherLessonStartPromptCard>
   );
 
   if (typeof document === 'undefined') return promptOverlay;

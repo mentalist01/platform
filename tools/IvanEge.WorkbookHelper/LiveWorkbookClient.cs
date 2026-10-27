@@ -26,6 +26,7 @@ internal sealed class LiveWorkbookClient : IDisposable
     public event Action<JsonObject, JsonArray>? Presence;
     public string? ConflictDescription { get; private set; }
     public bool Conflicted => _conflict;
+    public bool ReadyForHelperUpdate => Office?.Closed == true && Paused && _pending is null && !_saveRequested && !_conflict && _checkpoint >= _revision;
     public LiveOfficeProcess Office { get; private set; } = null!;
     public event EventHandler<WorkbookStatus>? Status;
     public string LocalPath => Office?.LocalPath ?? "";
