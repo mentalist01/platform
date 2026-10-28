@@ -8,7 +8,7 @@ import { getLearningGroupCalendarParticipants } from '../utils/groupCalendarPart
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
 import CalendarEventEditor from './CalendarEventEditor.jsx';
-import { snapCalendarDragStart } from '../utils/calendarDrag.js';
+import { snapCalendarDragStart, retainCalendarDragSource, createCalendarDragWeekPager } from '../utils/calendarDrag.js';
 import { applySavedCalendarEdit, createCalendarSnapshotGuard } from '../utils/calendarSnapshot.js';
 import { useLessonPaymentSenders } from '../hooks/useLessonPaymentSenders.js';
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -957,6 +957,8 @@ const TeacherCalendarSection = ({
   const [dragDropError, setDragDropError] = useState('');
   const [draggingEvent, setDraggingEvent] = useState(null);
   const [dragPreview, setDragPreview] = useState(null);
+  const [dragWeekDirection, setDragWeekDirection] = useState(0);
+  const dragWeekPagerRef = useRef(null);
   const [dragRecurringChoiceModal, setDragRecurringChoiceModal] = useState(null);
   const [currentTimeLineNow, setCurrentTimeLineNow] = useState(() => new Date());
   const [lessonPanelMarks, setLessonPanelMarks] = useState({});
@@ -3358,10 +3360,38 @@ const TeacherCalendarSection = ({
   }, [dragDropBusy, eventDeleteBusy, eventEditSaving, eventQuickActionBusy]);
 
   const handleEventDragEnd = useCallback(() => {
+    dragWeekPagerRef.current?.stop();
     setDraggingEvent(null);
     setDragPreview(null);
     quickCreateClickSuppressedUntilRef.current = Date.now() + 180;
   }, []);
+
+  useEffect(() => {
+    if (!draggingEvent || dragDropBusy) return;
+    const pager = createCalendarDragWeekPager({
+      onTurn: direction => { setDragPreview(null); setFocusDate(previous => addDays(previous, direction * 7)); },
+      onDirectionChange: setDragWeekDirection,
+    });
+    dragWeekPagerRef.current = pager;
+    window.addEventListener('dragend', handleEventDragEnd);
+    return () => { pager.stop(); dragWeekPagerRef.current = null; window.removeEventListener('dragend', handleEventDragEnd); };
+  }, [draggingEvent, dragDropBusy, handleEventDragEnd]);
+
+  const handleCalendarWeekDragOver = useCallback(event => {
+    if (!draggingEvent || dragDropBusy) return;
+    const arrow = event.target?.closest?.('[data-calendar-drag-week]');
+    let direction = arrow ? Number(arrow.dataset.calendarDragWeek) : 0;
+    if (!arrow) {
+      const view = timelineViewportRef.current?.getBoundingClientRect();
+      const firstDay = calendarGridRef.current?.querySelector('[data-calendar-day]')?.getBoundingClientRect();
+      if (view && firstDay && event.clientY >= view.top && event.clientY <= view.bottom) {
+        if (event.clientX >= firstDay.left && event.clientX < firstDay.left + 32) direction = -1;
+        else if (event.clientX <= view.right && event.clientX > view.right - 32) direction = 1;
+      }
+    }
+    dragWeekPagerRef.current?.update(direction);
+    if (direction) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'; }
+  }, [draggingEvent, dragDropBusy]);
 
   const handleCalendarColumnDragOver = useCallback((dragEvent, dayIndex) => {
     if (!draggingEvent || dragDropBusy) return;
@@ -3406,6 +3436,7 @@ const TeacherCalendarSection = ({
     if (!draggingEvent || dragDropBusy) return;
     dragEvent.preventDefault();
     dragEvent.stopPropagation();
+    dragWeekPagerRef.current?.stop();
     const dayDate = weekDays[dayIndex];
     if (!dayDate) {
       setDraggingEvent(null);
@@ -4383,7 +4414,10 @@ const TeacherCalendarSection = ({
           </aside>
 
           <div
-            className="teacher-calendar-shell__main flex min-h-0 min-w-0 flex-1 flex-col bg-white/80 backdrop-blur-[2px]"
+            className="teacher-calendar-shell__main relative flex min-h-0 min-w-0 flex-1 flex-col bg-white/80 backdrop-blur-[2px]"
+            onDragEnterCapture={handleCalendarWeekDragOver}
+            onDragOverCapture={handleCalendarWeekDragOver}
+            onDropCapture={() => dragWeekPagerRef.current?.stop()}
             style={availabilityShareMode ? { gridColumn: '1 / -1' } : undefined}
           >
             <div className="teacher-calendar-shell__toolbar shrink-0 border-b border-slate-200/80 bg-white/84 px-4 py-2 backdrop-blur-md">
@@ -4401,6 +4435,7 @@ const TeacherCalendarSection = ({
                     onClick={() => setFocusDate((prev) => addDays(prev, -7))}
                     className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/85 bg-white/90 text-slate-600 shadow-sm hover:bg-slate-50"
                     aria-label="Предыдущая неделя"
+                    data-calendar-drag-week="-1"
                   >
                     <ChevronLeft size={14} />
                   </button>
@@ -4409,6 +4444,7 @@ const TeacherCalendarSection = ({
                     onClick={() => setFocusDate((prev) => addDays(prev, 7))}
                     className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/85 bg-white/90 text-slate-600 shadow-sm hover:bg-slate-50"
                     aria-label="Следующая неделя"
+                    data-calendar-drag-week="1"
                   >
                     <ChevronRight size={14} />
                   </button>
@@ -4671,6 +4707,7 @@ const TeacherCalendarSection = ({
                   {dragDropError}
                 </div>
               )}
+              {draggingEvent && !dragDropBusy && <div className="teacher-calendar-drag-hint" role="status">Удерживайте занятие у края сетки или над стрелкой недели, затем отпустите в нужное время. Esc — отмена.</div>}
               {dragDropBusy && (
                 <div className="mt-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700">
                   Сохраняем перенос занятия...
@@ -4678,7 +4715,8 @@ const TeacherCalendarSection = ({
               )}
             </div>
 
-            <div className="teacher-calendar-shell__grid-wrap min-h-0 flex-1 overflow-hidden">
+            <div className="teacher-calendar-shell__grid-wrap relative min-h-0 flex-1 overflow-hidden">
+              {draggingEvent && !dragDropBusy && <div className="teacher-calendar-drag-edges" aria-hidden="true"><div className={`teacher-calendar-drag-edge teacher-calendar-drag-edge--previous ${dragWeekDirection === -1 ? 'is-active' : ''}`}><ChevronLeft size={24}/><span>Предыдущая неделя</span></div><div className={`teacher-calendar-drag-edge teacher-calendar-drag-edge--next ${dragWeekDirection === 1 ? 'is-active' : ''}`}><ChevronRight size={24}/><span>Следующая неделя</span></div></div>}
               <div className="flex h-full min-h-0 flex-col">
                 <div
                   className="teacher-calendar-shell__grid-header shrink-0 grid border-b border-slate-200/80 bg-white/88"
@@ -4718,7 +4756,7 @@ const TeacherCalendarSection = ({
                     </div>
                   ) : (
                     <>
-                      {(availabilityShareMode ? availabilityShareLessonsCount : visibleLessonsCount) === 0 && (
+                      {(availabilityShareMode ? availabilityShareLessonsCount : visibleLessonsCount) === 0 && !draggingEvent && (
                         <div className="border-b border-slate-200 px-3 py-2 text-xs text-slate-500">
                           {availabilityShareMode
                             ? 'На этой неделе нет занятых слотов.'
@@ -4751,10 +4789,11 @@ const TeacherCalendarSection = ({
                           const isToday = dayKey === todayKey;
                           const events = availabilityShareMode
                             ? (availabilityShareEventsByDayIndex[dayIndex] || [])
-                            : (displayEventsByDayIndex[dayIndex] || []);
+                            : retainCalendarDragSource(displayEventsByDayIndex[dayIndex] || [], draggingEvent, dayIndex);
                           return (
                             <div
-                              key={`day-column-${dayKey}`}
+                              key={`day-column-${dayIndex}`}
+                              data-calendar-day={dayKey}
                               className={`teacher-calendar-shell__day-col relative cursor-pointer border-r border-slate-200/80 transition-colors ${dayColumnIndex === visibleDayIndexes.length - 1 ? 'border-r-0' : ''} ${
                                 isToday ? 'teacher-calendar-shell__day-col--today bg-sky-50/70' : 'bg-white/75 hover:bg-slate-50/70'
                               } ${dragPreview?.dayKey === dayKey ? 'teacher-calendar-shell__day-col--drag bg-sky-100/70' : ''}`}
@@ -4910,6 +4949,8 @@ const TeacherCalendarSection = ({
                                     key={event.id || `${dayKey}-${event.time}-${event.studentId}-${index}`}
                                     aria-label={`${availabilityShareMode ? '' : (externalEvent ? 'Google Calendar • ' : '')}${cardPrimaryLabel}${cardShowSubject ? ` • ${subjectLabel}` : ''} • с ${startLabel} до ${endLabel}${availabilityShareMode ? '' : `${paymentStateLabel}${homeworkProgressLabel}`}`}
                                     title={availabilityShareMode ? undefined : (homeworkProgressPercent == null ? undefined : `Домашняя работа: ${homeworkProgressPercent}%`)}
+                                    aria-hidden={event.calendarDragPlaceholder || undefined}
+                                    data-calendar-drag-placeholder={event.calendarDragPlaceholder || undefined}
                                     data-homework-progress={availabilityShareMode ? undefined : (homeworkProgressPercent == null ? undefined : homeworkProgressPercent)}
                                     className={`teacher-calendar-shell__event-card absolute z-10 overflow-hidden rounded-md border px-2 py-1 text-white shadow-[0_8px_18px_rgba(15,23,42,0.16)] ${cancelled ? 'teacher-calendar-shell__event-card--cancelled' : ''} ${!availabilityShareMode && externalEvent && !paymentColorApplied ? 'ring-1 ring-sky-200/80 ring-offset-1 ring-offset-white' : ''} ${hasConflict ? 'ring-2 ring-rose-300 ring-offset-1 ring-offset-white' : ''}`}
                                     draggable={!cancelled && !availabilityShareMode && !dragDropBusy && !eventDeleteBusy && !eventEditSaving && !eventQuickActionBusy}
@@ -4925,7 +4966,8 @@ const TeacherCalendarSection = ({
                                       borderColor: mixHexColor(cardColor, '#020617', 0.14),
                                       boxShadow: `0 10px 22px ${hexToRgba(cardColor, 0.22)}, inset 0 1px 0 rgba(255, 255, 255, 0.2)`,
                                       cursor: availabilityShareMode ? 'default' : (cancelled ? 'pointer' : (dragDropBusy ? 'progress' : 'grab')),
-                                      opacity: draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : (cancelled ? 0.68 : 1),
+                                      opacity: event.calendarDragPlaceholder ? 0 : (draggingEvent?.eventId === String(event.id || '').trim() ? 0.65 : (cancelled ? 0.68 : 1)),
+                                      pointerEvents: event.calendarDragPlaceholder ? 'none' : undefined,
                                     }}
                                     onDragStart={(eventDrag) => handleEventDragStart(eventDrag, event, dayIndex, dayKey)}
                                     onDragEnd={handleEventDragEnd}
