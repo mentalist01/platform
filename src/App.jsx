@@ -20123,6 +20123,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const desktopFabNav = user.role === 'student'
     ? [...studentDesktopMainNav, ...studentDesktopToolNav]
     : desktopPrimaryNav;
+  const desktopTabSection = ({schedule:'Расписание',groups:'Группы',progress:'Задания',notes:'Конспекты',board:'Доска',collab:'Код',call:'Звонок',python:'Python',finance:'Финансы','teacher-calendar':'Календарь','teacher-students':'Ученики','teacher-settings':'Настройки','study-plan':'План подготовки',recording:'Запись уроков'})[view] || 'Кабинет';
+  const desktopTabStudent = ['progress','notes','board','collab','call'].includes(view)
+    ? String(activeHomeworkLessonBasketStudent?.nickname || activeHomeworkLessonBasketStudent?.name || '') : '';
+  const desktopTabTitle = desktopTabStudent ? `${desktopTabSection} · ${desktopTabStudent}` : desktopTabSection;
+  useEffect(() => {
+    if (typeof window.teacherDesktop?.setTabTitle === 'function')
+      void window.teacherDesktop.setTabTitle(desktopTabTitle).catch(() => {});
+  }, [desktopTabTitle]);
   const mobileNavLabels = {
     'nav-schedule': 'Расписание',
     'nav-students': 'Ученики',

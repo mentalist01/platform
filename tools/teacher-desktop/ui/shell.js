@@ -16,8 +16,29 @@ document.querySelectorAll('[data-action]').forEach(button => button.addEventList
   button.disabled = true;
   try { await window.teacherApp.action(button.dataset.action); } finally { button.disabled = false; if (latestState) render(latestState); }
 }));
+function renderTabs(state) {
+  const list=document.getElementById('platform-tabs');
+  const focusedId=document.activeElement?.closest?.('[role="tab"]')?.dataset.tabId;
+  list.replaceChildren();
+  for(const tab of state.tabs||[]) {
+    const item=document.createElement('div');item.className='platform-tab';item.role='tab';item.dataset.tabId=tab.id;
+    item.setAttribute('aria-selected',String(tab.id===state.activeTabId));item.tabIndex=tab.id===state.activeTabId?0:-1;item.title=tab.title;
+    const label=document.createElement('span');label.className='platform-tab__title';label.textContent=tab.title;item.append(label);
+    if(tab.audible){const audio=document.createElement('span');audio.className='platform-tab__audio';audio.textContent='♫';audio.title='Вкладка воспроизводит звук';item.append(audio);}
+    if(state.tabs.length>1){const close=document.createElement('button');close.className='platform-tab__close';close.textContent='×';close.title='Закрыть вкладку';close.setAttribute('aria-label','Закрыть вкладку «'+tab.title+'»');close.addEventListener('click',event=>{event.stopPropagation();void window.teacherApp.action('tab-close',tab.id);});item.append(close);}
+    item.addEventListener('click',()=>{void window.teacherApp.action('tab-select',tab.id);});
+    item.addEventListener('auxclick',event=>{if(event.button===1){event.preventDefault();void window.teacherApp.action('tab-close',tab.id);}});
+    item.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)){event.preventDefault();void window.teacherApp.action('tab-select',tab.id);}if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();void window.teacherApp.action(event.key==='ArrowRight'?'tab-next':'tab-previous');}});
+    list.append(item);
+  }
+  if(focusedId)list.querySelector('[data-tab-id="'+CSS.escape(state.activeTabId)+'"]')?.focus();
+  list.querySelector('[aria-selected=true]')?.scrollIntoView({block:'nearest',inline:'nearest'});
+  document.getElementById('tab-reload').classList.toggle('is-loading',state.page==='loading');
+  document.querySelector('[data-action="tab-new"]').disabled=(state.tabs?.length||0)>=12;
+}
 function render(state) {
   latestState = state;
+  renderTabs(state);
   document.getElementById('version').textContent = `Версия ${state.version}`;
   document.getElementById('recorder-dot').classList.toggle('ready', state.recorderReady);
   document.getElementById('download').textContent = state.download || (state.downloadCount ? `· ${state.downloadCount}` : '');

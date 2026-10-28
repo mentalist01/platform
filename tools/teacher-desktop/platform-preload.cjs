@@ -13,6 +13,8 @@ if (process.isMainFrame && location.origin === 'https://ivan100.ru') {
     isDesktop: true,
     version: appInfo.version || '',
     autoUpdates: appInfo.autoUpdates === true,
+    openStudentWindow: url => ipcRenderer.invoke('teacher:student-window', url),
+    setTabTitle: title => ipcRenderer.invoke('teacher:tab-title', title),
     setRecordingPrivacy: (reason, hidden) => ipcRenderer.invoke('teacher:recording-privacy', reason, hidden),
     rememberTeacherCode: (code, label, account) => ipcRenderer.invoke('teacher:remember', code, label, String(account)),
     showSavedLogins: () => ipcRenderer.invoke('teacher:chooser')

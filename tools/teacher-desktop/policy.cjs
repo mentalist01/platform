@@ -32,7 +32,9 @@ function isWorkbookHelper(value) {
   const url = parsed(value);
   if (!url || url.protocol !== 'ivan-ege:' || url.hostname !== 'workbook' || url.port || url.pathname !== '/open' || url.hash) return false;
   const keys = [...url.searchParams.keys()];
-  if (keys.length !== 2 || !keys.includes('origin') || !keys.includes('ticket')) return false;
+  if (![2,3].includes(keys.length) || new Set(keys).size!==keys.length || !keys.includes('origin') || !keys.includes('ticket')
+    || keys.some(key=>!['origin','ticket','engine'].includes(key))
+    || url.searchParams.has('engine')&&!['excel','calc'].includes(url.searchParams.get('engine'))) return false;
   const origin = parsed(url.searchParams.get('origin'));
   return Boolean(origin && isPlatform(origin.href) && origin.pathname === '/' && !origin.search && !origin.hash
     && /^[a-zA-Z0-9_.~-]{16,512}$/.test(url.searchParams.get('ticket') || ''));

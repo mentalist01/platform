@@ -40,6 +40,10 @@ test('workbook helper accepts only the platform open action with a single scoped
   const valid = 'ivan-ege://workbook/open?origin=https%3A%2F%2Fivan100.ru&ticket=0123456789abcdef';
   assert.equal(policy.isWorkbookHelper(valid), true);
   assert.equal(policy.classifyNavigation(valid), 'workbook-helper');
+  assert.equal(policy.isWorkbookHelper(valid+'&engine=calc'),true);
+  assert.equal(policy.isWorkbookHelper(valid+'&engine=excel'),true);
+  assert.equal(policy.isWorkbookHelper(valid+'&engine=cmd.exe'),false);
+  assert.equal(policy.isWorkbookHelper(valid+'&engine=calc&engine=excel'),false);
   for (const url of [valid.replace('workbook/open', 'workbook/delete'), valid.replace('ivan100.ru', 'evil.example'), valid.replace('ivan100.ru', 'ivan100.ru%2Fuploads%2Ffile'), valid.replace('0123456789abcdef', 'short'), valid + '&ticket=secondvalidticket', valid + '&origin=https%3A%2F%2Fivan100.ru', valid + '#x', valid.replace('://workbook', '://user@workbook'), valid.replace('0123456789abcdef', '%22%26start%20calc.exe')]) {
     assert.equal(policy.isWorkbookHelper(url), false, url); assert.equal(policy.classifyNavigation(url), 'blocked', url);
   }

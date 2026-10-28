@@ -3,12 +3,27 @@ import {ExternalLink,LogOut,UserRound} from 'lucide-react';
 import {apiFetch,parseApiError} from '../services/api.js';
 import {getStudentViewToken,readStoredAuthUser,removeStoredAuthUser,writeStoredAuthUser,STUDENT_VIEW_SESSION_KEY} from '../utils/authSessionStorage.js';
 import './StudentViewSession.css';
+import {bootstrapStudentViewHandoff,studentViewHandoffUrl} from '../utils/studentViewHandoff.js';
 
 export function OpenStudentSessionButton({student}) {
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   const open=async event=>{
     event.stopPropagation();
     if(busy)return;
+    const desktop=window.teacherDesktop;
+    if(desktop?.isDesktop){
+      setBusy(true);setError('');
+      try{
+        if(typeof desktop.openStudentWindow!=='function')throw Error('Обновите приложение преподавателя через кнопку «Обновления», чтобы открывать кабинет ученика в браузере.');
+        const response=await apiFetch('/api/students/'+encodeURIComponent(student.id)+'/open-session',{
+          method:'POST',headers:{'Content-Type':'application/json','X-Student-View':'1'},body:JSON.stringify({external:true}),
+        });
+        if(!response.ok)throw Error(await parseApiError(response));
+        const result=await response.json();
+        await desktop.openStudentWindow(studentViewHandoffUrl(window.location.origin,result.handoff));
+      }catch(e){setError(e.message||'Не удалось открыть окно браузера.');}finally{setBusy(false);}
+      return;
+    }
     // Open synchronously within the click, before waiting for the API, so
     // popup blocking never leaves a pupil credential without a destination.
     const tab=window.open('about:blank','_blank');
@@ -33,7 +48,7 @@ export function OpenStudentSessionButton({student}) {
       setError(e.message||'Не удалось открыть кабинет ученика.');
     }finally{setBusy(false);}
   };
-  return <span className="student-view-launch"><button type="button" className="student-view-launch__button" disabled={busy} onClick={open} title="Открыть кабинет ученика в новой вкладке"><ExternalLink size={14}/>{busy?'Открываем…':'Войти как ученик'}</button>{error&&<small role="alert">{error}</small>}</span>;
+  return <span className="student-view-launch"><button type="button" className="student-view-launch__button" disabled={busy} onClick={open} title={window.teacherDesktop?.isDesktop?'Открыть кабинет ученика в отдельном окне браузера':'Открыть кабинет ученика в новой вкладке'}><ExternalLink size={14}/>{busy?'Открываем…':'Войти как ученик'}</button>{error&&<small role="alert">{error}</small>}</span>;
 }
 
 export function StudentViewClosed(){
@@ -45,8 +60,10 @@ export default function StudentViewSession({children}){
   useEffect(()=>{
     let active=true;
     const check=async()=>{
-      if(!getStudentViewToken()){setState('closed');return;}
       try{
+        await bootstrapStudentViewHandoff();
+        if(!active)return;
+        if(!getStudentViewToken()){setState('closed');return;}
         const response=await apiFetch('/api/session');
         if(!response.ok)throw Object.assign(Error(await parseApiError(response)),{status:response.status});
         const user=await response.json();

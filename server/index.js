@@ -84,7 +84,7 @@ import { recorderPythonCatalog, attachRecorderPythonTheory } from './recorderPyt
 import { monthlyReviewUrl, setMonthlyReviewVideo, monthlyReviewForStudent, recorderMockReviewCatalog, attachRecorderMockReview } from './monthlyMockReview.js';
 import { legacyRecordingEnabled, legacyRecordingWriteGuard } from './legacyRecording.js';
 import { createAccountSecurity, registerAccountSecurityRoutes, setLoginChallengeCookie, setTrustedBrowserCookie } from './accountSecurity.js';
-import {STUDENT_VIEW_TTL_MS,isStudentViewToken,normalizeStudentView,studentViewExpiry,canContinueStudentView,publicStudentView,registerStudentViewRoutes} from './studentViewSessions.js';
+import {STUDENT_VIEW_TTL_MS,isStudentViewToken,normalizeStudentView,studentViewExpiry,canContinueStudentView,publicStudentView,registerStudentViewRoutes,createStudentViewHandoffs} from './studentViewSessions.js';
 import path from 'path';
 import fs from 'fs';
 import { createPythonCourseGiftStore, registerPythonCourseGiftRoutes } from './pythonCourseGift.js';
@@ -22989,6 +22989,35 @@ const pythonCourseGiftStore = createPythonCourseGiftStore({ filePath: path.join(
 const pythonCourseGiftOptions = { store: pythonCourseGiftStore, readTests: readTestsDbForTeacher, fallbackTasks: LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS, uploadsDir };
 registerPythonCourseGiftRoutes(app, { ...pythonCourseGiftOptions, publicRoutes: true });
 
+const studentViewRouteOptions = {
+  findStudent: findStudentById,
+  revoke: token => deleteAuthSession(token, { forgetBrowser: false }),
+  create: (req, student) => {
+    const now = Date.now();
+    const session = {
+      token: 'sv_' + createAuthToken(),
+      user: resolveSessionUser({ role: 'student', id: student.id }),
+      studentView: { parentToken: req.authToken, teacherId: req.auth.id,
+        teacherRole: req.auth.role, teacherName: req.auth.name },
+      createdAtMs: now, lastSeenAtMs: now, expiresAtMs: now + STUDENT_VIEW_TTL_MS,
+      device: parseAuthSessionDevice(req), ipAddress: getRequestIpAddress(req),
+    };
+    if (!session.user) throw Error('Student unavailable');
+    session.id = getAuthSessionId(session.token);
+    fs.appendFileSync(path.join(dataDir, 'student-view-audit.jsonl'), JSON.stringify({
+      event: 'open', at: new Date(now).toISOString(), teacherId: req.auth.id,
+      teacherRole: req.auth.role, studentId: student.id, sessionId: session.id,
+    }) + '\n', { mode: 0o600 });
+    // Unlike the background session touch, opening an account must fail if
+    // persistence fails. Never return an untracked privileged delegation.
+    writeAuthSessionsDb([...authSessions.values(), session].map(serializeAuthSessionForStorage));
+    authSessions.set(session.token, session);
+    return { ...serializeAuthSession(session), studentView: publicStudentView(session) };
+  },
+};
+const studentViewHandoffs = createStudentViewHandoffs();
+registerStudentViewRoutes(app, { ...studentViewRouteOptions, handoffs: studentViewHandoffs, resolveParent: getAuthSession, publicRoutes: true });
+
 app.use('/api', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
   const session = getAuthSession(token, req);
@@ -23029,32 +23058,7 @@ app.use('/api', (req, res, next) => {
 registerGuestMeetingRoutes(app, guestMeetings, { ...guestMeetingRouteOptions, publicRoutes: false });
 registerPythonCourseGiftRoutes(app, pythonCourseGiftOptions);
 
-registerStudentViewRoutes(app, {
-  findStudent: findStudentById,
-  revoke: token => deleteAuthSession(token, { forgetBrowser: false }),
-  create: (req, student) => {
-    const now = Date.now();
-    const session = {
-      token: 'sv_' + createAuthToken(),
-      user: resolveSessionUser({ role: 'student', id: student.id }),
-      studentView: { parentToken: req.authToken, teacherId: req.auth.id,
-        teacherRole: req.auth.role, teacherName: req.auth.name },
-      createdAtMs: now, lastSeenAtMs: now, expiresAtMs: now + STUDENT_VIEW_TTL_MS,
-      device: parseAuthSessionDevice(req), ipAddress: getRequestIpAddress(req),
-    };
-    if (!session.user) throw Error('Student unavailable');
-    session.id = getAuthSessionId(session.token);
-    fs.appendFileSync(path.join(dataDir, 'student-view-audit.jsonl'), JSON.stringify({
-      event: 'open', at: new Date(now).toISOString(), teacherId: req.auth.id,
-      teacherRole: req.auth.role, studentId: student.id, sessionId: session.id,
-    }) + '\n', { mode: 0o600 });
-    // Unlike the background session touch, opening an account must fail if
-    // persistence fails. Never return an untracked privileged delegation.
-    writeAuthSessionsDb([...authSessions.values(), session].map(serializeAuthSessionForStorage));
-    authSessions.set(session.token, session);
-    return { ...serializeAuthSession(session), studentView: publicStudentView(session) };
-  },
-});
+registerStudentViewRoutes(app, { ...studentViewRouteOptions, handoffs: studentViewHandoffs });
 
 const lessonAlarmDismissals = registerLessonAlarmDismissals(app, {
   dataDir,

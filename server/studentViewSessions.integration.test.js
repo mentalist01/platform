@@ -58,7 +58,7 @@ test('pupil tabs survive a server restart without extending their expiry; deleti
     fs.writeFileSync(file,JSON.stringify(sessions));
     restarted=spawn(process.execPath,['server/index.js'],{cwd:path.resolve(import.meta.dirname,'..'),windowsHide:true,stdio:'ignore',env:{...process.env,NODE_ENV:'test',PORT:new URL(f.base).port,PLATFORM_DATA_DIR:f.data,PLATFORM_UPLOADS_DIR:path.join(f.root,'uploads'),PLATFORM_JSON_BACKUPS_DIR:path.join(f.root,'json-backups'),COLLAB_PERSISTENCE:'0',DISABLE_STARTUP_XP_REBALANCE:'1',LEARNING_GROUPS_ENABLED:'1',LEARNING_GROUP_RTC_ENABLED:'1'}});
     const deadline=Date.now()+30000;
-    while(true){try{if((await fetch(f.base+'/api/availability')).ok)break;}catch{}if(Date.now()>deadline)throw Error('Restart timed out');await new Promise(r=>setTimeout(r,100));}
+    while(true){try{if((await fetch(f.base+'/api/availability')).ok)break;}catch{/* Wait until the restarted test server listens. */}if(Date.now()>deadline)throw Error('Restart timed out');await new Promise(r=>setTimeout(r,100));}
     assert.equal((await f.request('/api/session',view.token)).studentView.expiresAt,new Date(originalExpiry).toISOString());
     await f.request('/api/session',expired.token,null,'GET',401);
     await f.request('/api/students/student-a',teacher,null,'DELETE');
@@ -70,4 +70,25 @@ test('pupil tabs survive a server restart without extending their expiry; deleti
     if(f.child.exitCode===null&&f.child.signalCode===null)await f.stop();
     if(restarted&&restarted.exitCode===null&&restarted.signalCode===null){const ended=new Promise(r=>restarted.once('exit',r));restarted.kill();await ended;}
   }
+});
+
+
+test('desktop handoff creates a scoped pupil session only on redemption and never changes browser cookies',{timeout:90000},async()=>{
+  const f=await createGroupHomeworkFixture(),teacher=f.tokens['teacher-a'],pupil=f.tokens['student-a'];
+  const issue=async()=>{
+    const response=await fetch(f.base+'/api/students/student-a/open-session',{method:'POST',headers:{Authorization:'Bearer '+teacher,'Content-Type':'application/json','X-Student-View':'1'},body:JSON.stringify({external:true})});
+    assert.equal(response.status,201);const payload=await response.json();assert.ok(payload.handoff);assert.equal(payload.token,undefined);return payload.handoff;
+  };
+  const redeem=async(handoff,status=201)=>{
+    const response=await fetch(f.base+'/api/student-view/redeem',{method:'POST',headers:{'Content-Type':'application/json','X-Student-View':'1',Cookie:'ege_auth_token='+pupil},body:JSON.stringify({handoff})});
+    assert.equal(response.status,status);assert.equal(response.headers.get('set-cookie'),null);assert.match(response.headers.get('cache-control'),/no-store/);return response.json();
+  };
+  try{
+    const handoff=await issue();const view=await redeem(handoff);assert.equal(view.id,'student-a');assert.ok(view.token.startsWith('sv_'));assert.ok(view.studentView);
+    await redeem(handoff,410);await redeem('svh_'+'f'.repeat(64),410);
+    assert.equal((await f.request('/api/session',teacher)).role,'teacher');assert.equal((await f.request('/api/session',pupil)).id,'student-a');
+    assert.equal((await f.request('/api/session',view.token)).id,'student-a');
+    const revoked=await issue();await f.request('/api/logout',teacher,{},'POST');await redeem(revoked,410);
+    assert.equal((await f.request('/api/session',pupil)).id,'student-a');
+  }finally{await f.stop();}
 });

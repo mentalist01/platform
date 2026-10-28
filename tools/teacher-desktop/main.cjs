@@ -5,6 +5,8 @@ const path = require('node:path');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 const policy = require('./policy.cjs');
+const { PlatformTabs } = require('./platform-tabs.cjs');
+const { openStudentWindow } = require('./student-window.cjs');
 const { Downloads, NativeDownloadRequests } = require('./downloads.cjs');
 const { TeacherCredentials } = require('./credentials.cjs');
 const { imageContextMenu } = require('./image-context-menu.cjs');
@@ -29,7 +31,7 @@ const SHELL_PAGE = path.join(__dirname, 'ui/shell.html');
 const PICKER_PAGE = path.join(__dirname, 'ui/sharing.html');
 const PANEL_PAGE = path.join(__dirname, 'ui/panel.html');
 const icon = path.join(__dirname, 'assets/icon.png');
-let mainWindow, platformView, recorderWindow, platformSession, utilityWindow, downloads, credentials, updates;
+let mainWindow, platformView, platformTabs, recorderWindow, platformSession, utilityWindow, downloads, credentials, updates;
 let panelKind = 'downloads', panelOpen = false;
 let state = { version: app.getVersion(), page: 'loading', recorderReady: false, download: '' };
 let settings = {}, recorderOpening = null;
@@ -37,6 +39,7 @@ const pickers = new Map();
 const configuredSessions = new Set();
 const ownedWebContents = new Set();
 let workDisplay;
+let htmlFullscreenView;
 const nativeDownloads = new NativeDownloadRequests(ownedPlatform);
 function windowPlacement(width, height) {
   if (!workDisplay) return { width, height };
@@ -87,8 +90,8 @@ function showUpdateNotice() { return ['available', 'waiting', 'downloading', 're
 function updateBounds() {
   if (!mainWindow || !platformView) return;
   const [width, height] = mainWindow.getContentSize();
-  const offset = mainWindow.isFullScreen() ? 0 : 64 + (showUpdateNotice() ? 64 : 0);
-  platformView.setBounds({ x: 0, y: offset, width, height: Math.max(0, height - offset) });
+  const offset = mainWindow.isFullScreen() ? 0 : 80 + (showUpdateNotice() ? 64 : 0);
+  platformTabs?.setBounds({ x: 0, y: offset, width, height: Math.max(0, height - offset) });
   const content = mainWindow.getContentBounds();
   utilityWindow?.setBounds({ x: content.x + Math.max(0, width - 438), y: content.y + offset + 8, width: Math.min(430, width), height: Math.max(1, Math.min(610, height - offset - 16)) });
 }
@@ -99,9 +102,34 @@ function closePanel() { panelOpen = false; utilityWindow?.hide(); void recording
 function validPanel(event) { return utilityWindow && event.sender === utilityWindow.webContents && event.senderFrame === event.sender.mainFrame && policy.isLocalPage(event.senderFrame.url, PANEL_PAGE); }
 function validPlatformEvent(event) { return ownedPlatform(event.sender) && event.senderFrame === event.sender.mainFrame; }
 async function loadCabinet(url = policy.PLATFORM_URL) {
-  if (!platformView || platformView.webContents.isDestroyed()) return;
-  updateState({ page: 'loading' }); platformView.setVisible(false);
-  try { await recordingPrivacy.set('platform', true); await platformView.webContents.loadURL(url); } catch { updateState({ page: 'error' }); }
+  if (!platformTabs?.active) return;
+  return platformTabs.load(platformTabs.active, url);
+}
+function createPlatformView() {
+  const view = new WebContentsView({ webPreferences: { session: platformSession, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: true, backgroundThrottling: false, preload: path.join(__dirname, 'platform-preload.cjs') } });
+  const contents = view.webContents;
+  guardWebContents(contents, 'platform');
+  view.setBackgroundColor('#f7f7fd');
+  contents.on('enter-html-full-screen', () => { if (platformView === view) { htmlFullscreenView = view; mainWindow.setFullScreen(true); } });
+  contents.on('leave-html-full-screen', () => { if (htmlFullscreenView === view) { htmlFullscreenView = null; mainWindow.setFullScreen(false); } });
+  contents.on('will-prevent-unload', () => {
+    void dialog.showMessageBox(mainWindow, { title: 'Закрыть вкладку?', type: 'question', message: 'На вкладке могут оставаться несохранённые изменения.', buttons: ['Оставить открытой', 'Закрыть вкладку'], defaultId: 0, cancelId: 0, noLink: true }).then(result => {
+      if (result.response === 1 && !contents.isDestroyed()) contents.close({ waitForBeforeUnload: false });
+    });
+  });
+  if (!app.isPackaged) contents.on('console-message', event => { if (event.level === 'error') console.error('[cabinet]', event.message.slice(0, 300)); });
+  return view;
+}
+async function tabAction(action, value) {
+  try {
+    if (action === 'tab-new') return await platformTabs.add();
+    if (action === 'tab-new-url') return await platformTabs.add(value);
+    if (action === 'tab-select') return await platformTabs.activate(value);
+    if (action === 'tab-close') return platformTabs.close(value);
+    if (action === 'tab-next') return await platformTabs.step(1);
+    if (action === 'tab-previous') return await platformTabs.step(-1);
+    if (action === 'tab-reload') return await platformTabs.reload();
+  } catch (error) { await dialog.showMessageBox(mainWindow, { title: 'Вкладки платформы', message: error.message?.startsWith('Открыто 12') ? error.message : 'Не удалось переключить вкладку. Если идёт запись, проверьте подключение пульта к OBS; затем повторите.', buttons: ['ОК'] }); }
 }
 
 function guardWebContents(contents, kind) {
@@ -142,6 +170,7 @@ async function openLink(url) {
   if (type === 'workbook-helper') return shell.openExternal(url).catch(() => dialog.showMessageBox(mainWindow, { title: 'Excel / LibreOffice', message: 'Не удалось открыть помощник таблиц. Проверьте, что помощник Excel / LibreOffice установлен, и повторите.', buttons: ['ОК'] }));
   if (type === 'recorder') return openRecorder(new URL(url).pathname + new URL(url).hash).catch(() => dialog.showMessageBox(mainWindow, { title: 'Пульт записи', message: 'Не удалось открыть пульт. Проверьте, что помощник запущен, и повторите.', buttons: ['ОК'] }));
   if (type === 'platform') {
+    if (policy.isPlatform(url) && !policy.isPlatformBlob(url) && !policy.isUploadedFile(url)) return tabAction('tab-new-url', url);
     const child = new BrowserWindow({ title: TITLE, ...windowPlacement(1180, 820), icon, autoHideMenuBar: true, webPreferences: { session: platformSession, sandbox: true, contextIsolation: true, nodeIntegration: false } });
     await recordingPrivacy.set(`platform-child-${child.id}`, true);
     guardWebContents(child.webContents, 'platform');
@@ -284,15 +313,24 @@ ipcMain.handle('shell:action', async (event, action, value) => {
     catch { await dialog.showMessageBox(mainWindow, { title: 'Пульт записи', message: 'Не удалось открыть пульт. Проверьте, что помощник запущен, и повторите.', buttons: ['ОК'] }); return; }
   }
   if (action === 'recording-settings') return openLink('https://ivan100.ru/?desktop=teacher&view=recording');
-  if (action === 'retry') return loadCabinet();
+  if (action === 'retry') return platformTabs.reload();
+  if (typeof action === 'string' && action.startsWith('tab-')) return tabAction(action, value);
   if (action === 'downloads' || action === 'accounts') { if (panelOpen && panelKind === action) closePanel(); else { if (action === 'accounts') await recordingPrivacy.set('accounts', true); showPanel(action); } return; }
-  if (action === 'help-open') { closePanel(); platformView.setVisible(false); return; }
-  if (action === 'help-close') { platformView.setVisible(state.page === 'ready'); return; }
+  if (action === 'help-open') { closePanel(); platformTabs.setOverlay(true); return; }
+  if (action === 'help-close') { platformTabs.setOverlay(false); return; }
   if (action === 'check-updates') return updates?.check();
   if (action === 'apply-update') return updates?.apply();
 });
 ipcMain.on('teacher:app-info', event => {
-  event.returnValue = validPlatformEvent(event) ? { version: app.getVersion(), autoUpdates: true } : {};
+  event.returnValue = validPlatformEvent(event) ? { version: app.getVersion(), autoUpdates: true, platformTabs: true, studentBrowserWindow: true } : {};
+});
+ipcMain.handle('teacher:student-window', async (event, url) => {
+  if (!validPlatformEvent(event)) throw new Error('Недоступно');
+  return openStudentWindow(url, { app, shell });
+});
+ipcMain.handle('teacher:tab-title', (event, title) => {
+  if (!validPlatformEvent(event) || typeof title !== 'string' || title.length > 200) throw new Error('Недоступно');
+  platformTabs.setTitle(event.sender, title);
 });
 ipcMain.handle('teacher:remember', (event, code, label, account) => {
   if (!validPlatformEvent(event)) throw new Error('Недоступно');
@@ -309,7 +347,10 @@ ipcMain.handle('teacher:download', async (event, url, name, token) => {
 });
 ipcMain.handle('teacher:recording-privacy', async (event, reason, hidden) => {
   if (!validPlatformEvent(event) || !['platform', 'account', 'sessions'].includes(reason) || typeof hidden !== 'boolean') throw new Error('Недоступно');
-  try { return await recordingPrivacy.set(reason, hidden); }
+  try {
+    const tab = platformTabs?.forContents(event.sender);
+    return tab ? await platformTabs.setPrivacy(event.sender, reason, hidden) : await recordingPrivacy.set(reason, hidden);
+  }
   catch { throw new Error('Не удалось скрыть раздел в записи. Проверьте подключение пульта к OBS и повторите.'); }
 });
 ipcMain.handle('panel:state', event => { if (!validPanel(event)) throw new Error('Недоступно'); return panelState(); });
@@ -362,17 +403,31 @@ async function start() {
   mainWindow.on('minimize', () => utilityWindow?.hide());
   mainWindow.on('restore', () => { updateBounds(); if (panelOpen) utilityWindow?.showInactive(); });
   mainWindow.on('close', () => { if (!mainWindow.isMaximized()) settings.bounds = mainWindow.getBounds(); settings.maximized = mainWindow.isMaximized(); saveSettings(); });
-  mainWindow.on('closed', () => { if (platformView && !platformView.webContents.isDestroyed()) platformView.webContents.close(); utilityWindow?.destroy(); mainWindow = null; app.quit(); });
+  mainWindow.on('closed', () => { platformTabs?.destroy(); utilityWindow?.destroy(); mainWindow = null; app.quit(); });
   mainWindow.on('query-session-end', () => updates?.onSessionEnd());
   mainWindow.on('session-end', () => updates?.onSessionEnd());
-  platformView = new WebContentsView({ webPreferences: { session: platformSession, sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: true, preload: path.join(__dirname, 'platform-preload.cjs') } });
-  if (!app.isPackaged) {
-    platformView.webContents.on('console-message', event => { if (event.level === 'error') console.error('[cabinet]', event.message.slice(0, 300)); });
-    platformView.webContents.on('did-fail-load', (_event, code, description, _url, main) => { if (main) console.error('[cabinet load]', code, description); });
-  }
-  guardWebContents(platformView.webContents, 'platform');
-  platformView.setBackgroundColor('#f7f7fd'); platformView.setVisible(false);
-  mainWindow.contentView.addChildView(platformView); updateBounds();
+  platformTabs = new PlatformTabs({
+    createView: createPlatformView,
+    attach: view => mainWindow.contentView.addChildView(view),
+    detach: view => mainWindow?.contentView.removeChildView(view),
+    onState: changes => updateState(changes),
+    onActive: view => {
+      if (htmlFullscreenView && htmlFullscreenView !== view) {
+        const previous = htmlFullscreenView; htmlFullscreenView = null;
+        void previous.webContents.executeJavaScript('document.exitFullscreen?.()').catch(() => {});
+        mainWindow.setFullScreen(false);
+      }
+      platformView = view; updateBounds();
+    },
+    privacy: (reason, hidden) => recordingPrivacy.set(reason, hidden),
+    afterPaint: async contents => {
+      if (contents.isDestroyed()) return;
+      await Promise.race([
+        contents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Platform paint timed out')), 2500))
+      ]);
+    }
+  });
   // A native child window makes downloaded files ordinary OS drags into the cabinet
   // and other programs, without crossing Chromium's same-window frame boundary.
   utilityWindow = new BrowserWindow({ title: 'IVAN100 — Загрузки и входы', parent: mainWindow, show: false, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, skipTaskbar: true, resizable: false, minimizable: false, maximizable: false, fullscreenable: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'utilities', preload: path.join(__dirname, 'panel-preload.cjs') } });
@@ -383,11 +438,6 @@ async function start() {
   utilityWindow.on('closed', () => { utilityWindow = null; });
   updateBounds(); await utilityWindow.loadFile(PANEL_PAGE);
   updateState({ downloadCount: downloads.list().length });
-  platformView.webContents.on('did-finish-load', () => { platformView.setVisible(true); updateState({ page: 'ready' }); platformView.webContents.focus(); });
-  platformView.webContents.on('did-fail-load', (_event, code, _description, _url, isMainFrame) => { if (isMainFrame && code !== -3) { platformView.setVisible(false); updateState({ page: 'error' }); } });
-  platformView.webContents.on('render-process-gone', () => { platformView.setVisible(false); updateState({ page: 'error' }); });
-  platformView.webContents.on('enter-html-full-screen', () => { mainWindow.setFullScreen(true); });
-  platformView.webContents.on('leave-html-full-screen', () => { mainWindow.setFullScreen(false); });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Приложение', submenu: [
       { label: 'Открыть кабинет', accelerator: 'Ctrl+1', click: () => platformView.webContents.focus() },
@@ -403,7 +453,12 @@ async function start() {
       { type: 'separator' }, { role: 'quit', label: 'Выйти из приложения' }
     ] },
     { label: 'Правка', submenu: [{ role: 'undo', label: 'Отменить' }, { role: 'redo', label: 'Повторить' }, { type: 'separator' }, { role: 'cut', label: 'Вырезать' }, { role: 'copy', label: 'Копировать' }, { role: 'paste', label: 'Вставить' }, { role: 'selectAll', label: 'Выделить всё' }] },
-    { label: 'Вид', submenu: [{ label: 'Обновить кабинет', accelerator: 'Ctrl+R', click: () => void loadCabinet(platformView.webContents.getURL()) }, { role: 'resetZoom', label: 'Масштаб 100%' }, { role: 'zoomIn', label: 'Увеличить' }, { role: 'zoomOut', label: 'Уменьшить' }, { role: 'togglefullscreen', label: 'Полный экран' }, ...(!app.isPackaged ? [
+    { label: 'Вид', submenu: [{ label: 'Обновить текущую вкладку', accelerator: 'Ctrl+R', click: () => void tabAction('tab-reload') },
+      { label: 'Обновить вкладку', accelerator: 'F5', visible: false, click: () => void tabAction('tab-reload') },
+      { label: 'Новая вкладка', accelerator: 'Ctrl+T', click: () => void tabAction('tab-new') },
+      { label: 'Закрыть вкладку', accelerator: 'Ctrl+W', click: () => void tabAction('tab-close', platformTabs.activeId) },
+      { label: 'Следующая вкладка', accelerator: 'Ctrl+Tab', click: () => void tabAction('tab-next') },
+      { label: 'Предыдущая вкладка', accelerator: 'Ctrl+Shift+Tab', click: () => void tabAction('tab-previous') }, { role: 'resetZoom', label: 'Масштаб 100%' }, { role: 'zoomIn', label: 'Увеличить' }, { role: 'zoomOut', label: 'Уменьшить' }, { role: 'togglefullscreen', label: 'Полный экран' }, ...(!app.isPackaged ? [
       { label: 'Диагностика кабинета', accelerator: 'Ctrl+Shift+I', click: () => platformView.webContents.toggleDevTools() },
       { label: 'Проверить окно демонстрации', accelerator: 'Ctrl+Shift+D', click: () => void createSharingPicker({ frame: platformView.webContents.mainFrame, videoRequested: true, audioRequested: true }, () => {}).catch(() => {}) }
     ] : [])] },
@@ -411,7 +466,7 @@ async function start() {
   ]));
   await mainWindow.loadFile(SHELL_PAGE);
   if (settings.maximized) mainWindow.maximize();
-  void loadCabinet();
+  await platformTabs.add(policy.PLATFORM_URL);
   void recorderIsOnline().then(ready => updateState({ recorderReady: ready }));
   updates = new TeacherAppUpdates({ updater: require('electron-updater').autoUpdater, app,
     report: update => updateState({ update }),
