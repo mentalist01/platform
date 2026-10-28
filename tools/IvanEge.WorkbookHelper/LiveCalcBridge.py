@@ -133,6 +133,11 @@ class Calc:
         self._cell_watch = None
         self._accessible = None
         self._accessible_at = 0
+        self._draft_document = None
+        self._draft_input_parent = None
+        self._draft_scan_at = 0
+        self._draft_origin = None
+        self._draft_serial = -1
         self._shape_rectangles = {}
 
     def read(self, sheet, address):
@@ -319,6 +324,75 @@ class Calc:
             return {'loaded': True}
         raise ValueError('Неизвестная команда общей таблицы')
 
+    @staticmethod
+    def accessible_state(context, name):
+        state = context.getAccessibleStateSet()
+        flag = uno.getConstantByName('com.sun.star.accessibility.AccessibleStateType.' + name)
+        # LO 25.8 exposes a bitmask; earlier releases use XAccessibleStateSet.
+        return bool(state & flag) if isinstance(state, int) else state.contains(flag)
+
+    def draft(self, controller, selection):
+        if self.args.hidden:
+            return None
+        try:
+            if self._draft_document is None and time.monotonic() >= self._draft_scan_at:
+                self._draft_scan_at = time.monotonic() + 2
+                component = controller.getFrame().getComponentWindow()
+                try:
+                    root = component.getAccessibleContext()
+                except AttributeError:
+                    root = component.getProperty('XAccessible').getAccessibleContext()
+                pending, budget = [(root, 0)], 160
+                while pending and budget:
+                    context, depth = pending.pop(0); budget -= 1
+                    role = context.getAccessibleRole()
+                    if role == 84:  # DOCUMENT_SPREADSHEET: inspect only its direct editor child.
+                        self._draft_document = context
+                        continue
+                    if depth >= 11 or role in (35, 34, 58, 59):
+                        continue  # Never enumerate the cell grid, menus or unrelated documents.
+                    for index in range(min(context.getAccessibleChildCount(), 32)):
+                        child = context.getAccessibleChild(index).getAccessibleContext()
+                        if child.getAccessibleRole() == 61:  # TEXT, formula input line.
+                            self._draft_input_parent = (context, index)
+                        else:
+                            pending.append((child, depth + 1))
+            editors = []
+            if self._draft_document is not None:
+                for index in range(min(self._draft_document.getAccessibleChildCount(), 8)):
+                    context = self._draft_document.getAccessibleChild(index).getAccessibleContext()
+                    if context.getAccessibleRole() == 61:
+                        match = re.search(r'\b([A-Z]{1,3})([1-9][0-9]*)$', context.getAccessibleName())
+                        if match:
+                            column = 0
+                            for char in match[1]: column = column * 26 + ord(char) - 64
+                            editors.append((context, [int(match[2]) - 1, column - 1]))
+            if self._draft_input_parent:
+                parent, index = self._draft_input_parent
+                editors.append((parent.getAccessibleChild(index).getAccessibleContext(), None))
+            for context, address in editors:
+                if self.accessible_state(context, 'DEFUNC') or not self.accessible_state(context, 'SHOWING'):
+                    continue
+                paragraphs, focused = [], False
+                for index in range(min(context.getAccessibleChildCount(), 64)):
+                    paragraph = context.getAccessibleChild(index).getAccessibleContext()
+                    if paragraph.getAccessibleRole() == 41:
+                        focused = focused or self.accessible_state(paragraph, 'FOCUSED')
+                        paragraphs.append(paragraph.getText())
+                # A formula bar outside edit mode must not expose a saved value
+                # as a fresh draft. A native cell editor exists only during edit.
+                if not paragraphs or (address is None and not focused):
+                    continue
+                if self._draft_origin is None or self._draft_serial != self.changes.serial or (address is not None and address != self._draft_origin[1]):
+                    self._draft_origin = (selection['sheetName'], address or selection['activeCell'])
+                self._draft_serial = self.changes.serial
+                sheet, cell = self._draft_origin
+                return {'sheetName': sheet, 'cell': cell, 'text': '\n'.join(paragraphs)[:4096]}
+            self._draft_origin = None
+        except Exception:
+            self._draft_document = self._draft_input_parent = self._draft_origin = None
+        return None
+
     def pulse(self, peers):
         controller = self.doc.getCurrentController()
         sheet = controller.getActiveSheet()
@@ -343,6 +417,7 @@ class Calc:
         window = controller.getFrame().getContainerWindow()
         result = {'serial': self.changes.serial, 'watching': True, 'selection': selection,
                   'window': int(window.getWindowHandle((), 1)), 'marks': [], 'view': None}
+        result['draft'] = self.draft(controller, selection)
         if not peers or self.args.hidden:
             return result
         try:
@@ -434,6 +509,12 @@ class Calc:
                     other = peer['selection']
                     if other['sheetName'] != sheet.Name:
                         continue
+                    draft = peer.get('draft')
+                    if draft and draft['sheetName'] == sheet.Name:
+                        row, column = draft['cell']
+                        bounds = clipped(rect(table.getAccessibleCellAt(row, column).getAccessibleContext()), viewport)
+                        if bounds:
+                            result['marks'].append({'bounds': bounds, 'name': peer['name'], 'color': peer['color'], 'draft': draft['text']})
                     for r1, c1, r2, c2 in other['ranges'][:16]:
                         first = rect(table.getAccessibleCellAt(r1, c1).getAccessibleContext())
                         last = rect(table.getAccessibleCellAt(r2, c2).getAccessibleContext())

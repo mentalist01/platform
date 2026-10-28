@@ -23,6 +23,8 @@ internal sealed class LiveWorkbookClient : IDisposable
     private long _lastPresence, _lastSnapshot, _lastSerial = -1, _remoteHint = -1;
     private bool _presenceSupported = true;
     private bool _presenceWarningLogged;
+    private LiveWorkbookEvents? _events;
+    public event Action? WakeRequested;
     public event Action<JsonObject, JsonArray>? Presence;
     public string? ConflictDescription { get; private set; }
     public bool Conflicted => _conflict;
@@ -31,6 +33,8 @@ internal sealed class LiveWorkbookClient : IDisposable
     public event EventHandler<WorkbookStatus>? Status;
     public string LocalPath => Office?.LocalPath ?? "";
     public long Revision => _revision;
+    internal bool UsesPush => _events?.Connected == true;
+    internal void RestartPush() => _events?.Reconnect();
     public bool Paused { get; set; }
     public LiveWorkbookClient(HelperApiClient api, WorkbookGrant grant, string directory, string? cacheRoot = null)
     {
@@ -44,10 +48,13 @@ internal sealed class LiveWorkbookClient : IDisposable
     private static JsonObject Copy(JsonObject value) => (JsonObject)value.DeepClone();
     private async Task PersistAsync(JsonObject local, string? snapshotFile, CancellationToken token)
     {
-        var value = new JsonObject { ["epoch"] = _grant.Live!.Epoch, ["remote"] = Copy(_remote), ["observed"] = Copy(_observed),
-            ["versions"] = Copy(_versions), ["observedVersions"] = Copy(_observedVersions), ["revision"] = _revision, ["structure"] = _structure, ["observedStructure"] = _observedStructure,
-            ["pending"] = _pending?.DeepClone(), ["pendingLocal"] = _pendingLocal?.DeepClone(), ["conflicted"] = _conflict,
-            ["conflictDescription"] = ConflictDescription, ["saveRequested"] = _saveRequested, ["local"] = Copy(local) };
+        // The caller owns the serialized workbook gate. Stream these stable
+        // nodes directly instead of cloning every large book several times.
+        // The same complete recovery data is still flushed before sending.
+        var value = new { epoch = _grant.Live!.Epoch, remote = _remote, observed = _observed,
+            versions = _versions, observedVersions = _observedVersions, revision = _revision, structure = _structure, observedStructure = _observedStructure,
+            pending = _pending, pendingLocal = _pendingLocal, conflicted = _conflict,
+            conflictDescription = ConflictDescription, saveRequested = _saveRequested, local };
         if (snapshotFile is not null) File.Copy(snapshotFile, _cache + ".xlsx", true);
         string temporary = _cache + ".tmp";
         await using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.WriteThrough))
@@ -91,6 +98,11 @@ internal sealed class LiveWorkbookClient : IDisposable
     }
     public async Task InitializeAsync(string source, string engine, bool hidden, CancellationToken token)
     {
+        if (_grant.Live!.EventsSupported)
+        {
+            _events = new LiveWorkbookEvents(_grant);
+            _events.Changed += () => WakeRequested?.Invoke();
+        }
         if (!_grant.Live!.FiltersSupported) throw new InvalidOperationException("Сервер ещё не поддерживает передачу фильтров. Обновление платформы должно быть установлено перед запуском новой версии помощника.");
         var state = await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/state", null, token);
         JsonObject? recovery = File.Exists(_cache) ? JsonNode.Parse(await File.ReadAllTextAsync(_cache, token))?.AsObject() : null;
@@ -198,7 +210,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                 }
                 else if (structural) { _pending["baseRevision"] = _revision; _pending["book"] = snapshot.Book.DeepClone(); }
                 else _pending["changes"] = differences;
-                _pendingLocal = Copy(snapshot.Book);
+                _pendingLocal = snapshot.Book;
             }
             if (_pending is not null) await PersistAsync(snapshot.Book, snapshot.File, token);
             long previousRevision = _revision; bool hadPending = _pending is not null;
@@ -229,7 +241,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                 else if (type == "patch") { _undo.Push(id); _redo.Clear(); }
                 if (type is "patch" or "replace" or "filter")
                 {
-                    _observed = Copy(_pendingLocal!); if (type is "replace" or "filter") _observedStructure = _structure;
+                    _observed = _pendingLocal!; if (type is "replace" or "filter") _observedStructure = _structure;
                     foreach (var change in _pending["changes"]?.AsArray() ?? [])
                     { string key = $"{change!["sheetId"]}/{change["address"]}/{change["property"]}"; _observedVersions[key] = _versions[key]?.DeepClone() ?? JsonValue.Create(_structure); }
                 }
@@ -280,12 +292,18 @@ internal sealed class LiveWorkbookClient : IDisposable
         bool localChange = pulse["serial"]?.GetValue<long>() != _lastSerial;
         // A local edit must not wait behind an optional cursor round-trip.
         // The synchronization response already includes the latest revision.
-        if (_presenceSupported && !localChange && now - _lastPresence >= 250)
+        if (_events?.Connected == true)
+        {
+            await _events.SendPresenceAsync(pulse["selection"], pulse["draft"], token);
+            _peers = _events.Peers;
+            _remoteHint = Math.Max(_remoteHint, _events.Revision);
+        }
+        else if (_presenceSupported && !localChange && now - _lastPresence >= 250)
         {
             _lastPresence = now;
             try
             {
-                var reply = await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/presence", new() { ["selection"] = pulse["selection"]?.DeepClone() }, token, TimeSpan.FromSeconds(2));
+                var reply = await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/presence", new() { ["selection"] = pulse["selection"]?.DeepClone(), ["draft"] = pulse["draft"]?.DeepClone() }, token, TimeSpan.FromSeconds(2));
                 _peers = reply["peers"] is JsonArray peers ? (JsonArray)peers.DeepClone() : [];
                 _remoteHint = reply["revision"]?.GetValue<long>() ?? -1;
             }
@@ -295,12 +313,15 @@ internal sealed class LiveWorkbookClient : IDisposable
             { _peers = []; _lastPresence = Environment.TickCount64 + 1500; }
         }
         Presence?.Invoke(pulse, (JsonArray)_peers.DeepClone());
+        // Unconfirmed native input is only a transient preview. Never export a
+        // half-entered formula or apply remote writes through the active editor.
+        if (pulse["draft"] is JsonObject) return;
         if (Paused || _conflict) return;
         long serial = pulse["serial"]?.GetValue<long>() ?? -1;
         bool watching = pulse["watching"]?.GetValue<bool>() == true;
         bool nativeSaved = _lastWrite != 0 && File.GetLastWriteTimeUtc(Office.LocalPath).Ticks != _lastWrite;
         bool snapshotDue = now - _lastSnapshot >= (_presenceSupported && watching ? 5000 : 600);
-        if (_pending is null && !_saveRequested && !nativeSaved && serial == _lastSerial && !snapshotDue && _presenceSupported && _remoteHint > _revision)
+        if (_pending is null && !_saveRequested && !nativeSaved && serial == _lastSerial && !snapshotDue && _presenceSupported && (_remoteHint > _revision || _events?.CheckpointRevision > _checkpoint))
         {
             // Receive cell patches without first exporting the whole native
             // workbook. Conditional native writes preserve concurrent typing;
@@ -390,5 +411,5 @@ internal sealed class LiveWorkbookClient : IDisposable
         finally { _gate.Release(); }
         await TickAsync(token);
     }
-    public void Dispose() { Office?.Dispose(); }
+    public void Dispose() { _events?.Dispose(); Office?.Dispose(); }
 }

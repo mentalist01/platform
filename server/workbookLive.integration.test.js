@@ -4,12 +4,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
+import {WebSocket} from 'ws';
+import {once} from 'node:events';
 import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
 import {BLANK_WORKBOOK_ODS} from './blankWorkbook.js';
 
 test('shared helper is scoped, requires an upgraded client, persists both authors and checkpoints the common revision',{timeout:90000},async()=>{
   const f=await createGroupHomeworkFixture(undefined,(write,data)=>{const students=JSON.parse(fs.readFileSync(path.join(data,'students.json'),'utf8'));write('students',[...students,{id:'student-d',teacherId:'teacher-a',name:'Индивидуальный ученик',code:'student-d-code',grade:'11',createdAt:'2026-10-01T10:00:00Z'}]);}),{request,tokens,base}=f,a=tokens['teacher-a'];
   const p=(await request('/api/login','',{code:'student-d-code'})).token;
+  let pushed;
   try{
     const upload=async(route,name,bytes,fields={})=>{
       const form=new FormData();form.append('file',new Blob([bytes]),name);for(const [key,value]of Object.entries(fields))form.append(key,String(value));
@@ -37,10 +40,15 @@ test('shared helper is scoped, requires an upgraded client, persists both author
     const book={sheets:[{id:'sheet1',name:'Лист 1',cells:{}}]};
     await helper(teacher.token,'live/initialize',{sourceHash:'bad',book},409);
     await helper(teacher.token,'live/initialize',{sourceHash:teacher.contentHash,book});
+    const events=[];
+    pushed=new WebSocket(base.replace('http:','ws:')+'/workbook-helper/v1/live/events',{headers:{Authorization:'Workbook '+pupil.token}});
+    pushed.on('message',bytes=>events.push(JSON.parse(bytes)));await once(pushed,'open');
     const command=(id,address,value)=>({id,type:'patch',changes:[{sheetId:'sheet1',address,property:'content',value:{kind:'number',value},baseVersion:0}]});
     const results=await Promise.all([helper(teacher.token,'live/sync',{command:command('teacher1','A1',12),since:0}),helper(pupil.token,'live/sync',{command:command('pupil1','B1',30),since:0})]);
     assert.ok(results.every(result=>result.receipt.status==='accepted'));
     const state=await helper(pupil.token,'live/state');assert.equal(state.revision,2);assert.equal(state.book.sheets[0].cells.A1.content.value,12);assert.equal(state.book.sheets[0].cells.B1.content.value,30);
+    const until=Date.now()+1000;while(!events.some(frame=>frame.type==='changed'&&frame.revision===2)&&Date.now()<until)await new Promise(r=>setTimeout(r,5));
+    assert.ok(events.some(frame=>frame.type==='changed'&&frame.revision===2),'The real upgrade endpoint must push committed revisions');
     const selection={sheetName:'Лист 1',activeCell:[2,1],ranges:[[2,1,8,3]],objects:[]};
     assert.equal((await helper(teacher.token,'live/presence',{selection,name:'Forged',color:'red'})).peers.length,0);
     const visible=await helper(pupil.token,'live/presence',{selection});
@@ -65,7 +73,7 @@ test('shared helper is scoped, requires an upgraded client, persists both author
     await helper(pupil.token,'live/presence',{selection},410);
     const group=await request('/api/lesson-task-runs',a,{room:`board-group-${f.groupId}`,setId:set.id,x:0,y:0},'POST',201);
     await request(`/api/lesson-task-runs/${group.run.id}/live/helper`,tokens['student-a'],{cardId:group.run.cards[0].id,assetId:group.run.cards[0].attachments[0].assetId},'POST',403);
-  }finally{await f.stop();}
+  }finally{pushed?.terminate();await f.stop();}
 });
 
 

@@ -5,6 +5,7 @@ import {parseWorkbookHelperAuthorization,isWorkbookFileName} from './workbookHel
 import {BLANK_WORKBOOK_ODS} from './blankWorkbook.js';
 import {liveDigest,LIVE_WORKBOOK_LIMITS} from './workbookLiveState.js';
 import {WorkbookLivePresence} from './workbookLivePresence.js';
+import {createWorkbookLiveEvents} from './workbookLiveEvents.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const teacher=auth=>['teacher','admin'].includes(auth?.role);
@@ -49,6 +50,7 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     }else if(!allowContent(req))fail(429,'Слишком много запросов к таблице. Повторю позже.');
     req.liveWorkbook=await session(req);next();
   });
+  store.liveEvents=createWorkbookLiveEvents({session,presence,store});
   store.registerLiveBoardRoutes=()=>{
   app.post('/api/lesson-task-runs/:id/live',handler(async(req,res)=>{
     const result=await store.lock(async()=>{
@@ -116,7 +118,7 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     const source=seed(store,card,asset),token='wl_'+crypto.randomBytes(32).toString('base64url'),expires=store.now()+30*86400000;
     store.data.sessions[liveDigest(token)]={...entry,expires,filtersSupported:true};tickets.delete(hash);store.save();
     res.setHeader('Cache-Control','no-store');res.json({token,workbookKey:mode.key,fileName:source.name,solutionName:source.name,revision:source.revision||0,contentHash:source.hash,requiresName:false,expiresAt:new Date(expires).toISOString(),
-      live:{protocol:1,filtersSupported:true,epoch:mode.epoch,actorId:liveDigest(actor(entry.auth)),sessionId:liveDigest(token).slice(0,24),limits:LIVE_WORKBOOK_LIMITS},
+      live:{protocol:1,filtersSupported:true,eventsSupported:true,epoch:mode.epoch,actorId:liveDigest(actor(entry.auth)),sessionId:liveDigest(token).slice(0,24),limits:LIVE_WORKBOOK_LIMITS},
       sourceText:isText(asset)?{fileName:asset.name,contentHash:asset.hash,sizeBytes:asset.size}:null});
   }));
   app.get('/workbook-helper/v1/content',intercept,handler(async(req,res,next)=>{
@@ -136,7 +138,9 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     if(!req.liveWorkbook)fail(401,'Требуется доступ совместного помощника');
     const {mode,entry}=req.liveWorkbook,state=store.liveWorkbooks.read(mode.key).state;
     res.setHeader('Cache-Control','no-store');
-    res.json({...presence.exchange(mode.key,liveDigest(parseWorkbookHelperAuthorization(req.headers.authorization)),entry.auth,req.body.selection,store.now()),revision:state?.revision||0});
+    const reply=presence.exchange(mode.key,liveDigest(parseWorkbookHelperAuthorization(req.headers.authorization)),entry.auth,req.body.selection,store.now(),req.body.draft);
+    store.liveEvents.presenceChanged(mode.key);
+    res.json({...reply,revision:state?.revision||0});
   }));
   app.post('/workbook-helper/v1/live/initialize',intercept,handler(async(req,res)=>{
     if(!req.liveWorkbook)fail(401,'Требуется доступ совместного помощника');const {mode}=req.liveWorkbook;
@@ -145,11 +149,14 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
   }));
   app.post('/workbook-helper/v1/live/sync',intercept,handler(async(req,res)=>{
     if(!req.liveWorkbook)fail(401,'Требуется доступ совместного помощника');const {mode,entry}=req.liveWorkbook;
-    res.setHeader('Cache-Control','no-store');res.json({...await store.liveWorkbooks.submit(mode.key,actor(entry.auth),req.body.command,Number(req.body.since??-1),store.now()),fileRevision:req.liveWorkbook.card.solutions[req.liveWorkbook.asset.id]?.revision||0});
+    const result=await store.liveWorkbooks.submit(mode.key,actor(entry.auth),req.body.command,Number(req.body.since??-1),store.now());
+    store.liveEvents.changed(mode.key);
+    res.setHeader('Cache-Control','no-store');res.json({...result,fileRevision:req.liveWorkbook.card.solutions[req.liveWorkbook.asset.id]?.revision||0});
   }));
   app.post('/workbook-helper/v1/live/checkpoint',intercept,uploads.single('file'),handler(async(req,res)=>{
     if(!req.liveWorkbook||!req.file)fail(400,'Файл общей версии не получен');const {mode,entry,run,card}=req.liveWorkbook,revision=Number(req.body.liveRevision);
     const result=await store.liveWorkbooks.checkpoint(mode.key,revision,()=>store.lock(()=>store.saveSolution({auth:entry.auth,run,card,assetId:entry.assetId,buffer:req.file.buffer,name:req.file.originalname,revision:Number(req.body.revision),hash:req.body.contentHash,viaHelper:true,liveEpoch:mode.epoch})));
+    store.liveEvents.changed(mode.key);
     res.json({revision:result.revision,contentHash:result.hash,liveRevision:revision,fileName:result.name,solutionName:result.name});
   }));
 }

@@ -47,6 +47,19 @@ internal static class LiveWorkbookCheck
             try { Ensure(JsonNode.DeepEquals(a.Book, b.Book), "The native books did not converge. Filters: " + a.Book["sheets"]![0]!["filter"] + " / " + b.Book["sheets"]![0]!["filter"]); }
             finally { File.Delete(a.File); File.Delete(b.File); }
         }
+        if (teacherGrant.Live!.EventsSupported && pupilGrant.Live!.EventsSupported)
+        {
+            var started = Stopwatch.StartNew();
+            while (!teacher.UsesPush || !pupil.UsesPush)
+            { Ensure(started.ElapsedMilliseconds < 5000, "Native clients did not connect to the push channel"); await Task.Delay(25, token); }
+            checks.Add(new JsonObject { ["name"] = "authenticated-native-push-connected", ["passed"] = true });
+            teacher.RestartPush(); started.Restart();
+            while (teacher.UsesPush && started.ElapsedMilliseconds < 2000) await Task.Delay(10, token);
+            Ensure(!teacher.UsesPush, "A broken push socket was not detected");
+            while (!teacher.UsesPush)
+            { Ensure(started.ElapsedMilliseconds < 6000, "Push did not reconnect automatically"); await Task.Delay(25, token); }
+            checks.Add(new JsonObject { ["name"] = "native-push-reconnects-with-same-scoped-session", ["passed"] = true });
+        }
         async Task Check(string name, Func<Task> action)
         {
             var clock = Stopwatch.StartNew(); await action(); checks.Add(new JsonObject { ["name"] = name, ["passed"] = true, ["ms"] = clock.ElapsedMilliseconds });

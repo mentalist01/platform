@@ -28,6 +28,7 @@ internal sealed class LiveWorkbookSession : IDisposable
         string directory = Path.Combine(Path.GetDirectoryName(source)!, "Совместная работа " + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(directory);
         _client = new LiveWorkbookClient(api, grant, directory);
+        _client.WakeRequested += Wake;
         _window = new LiveWorkbookWindow();
         _presence = new LivePresenceOverlay();
         _client.Presence += (frame, peers) => _ui.Post(_ => { if (!_disposed) _presence.Present(frame, peers); }, null);

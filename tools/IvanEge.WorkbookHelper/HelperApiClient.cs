@@ -99,7 +99,7 @@ internal sealed class HelperApiClient : IDisposable
             sourceTextFileName,
             sourceTextContentHash,
             TryGetObject(root, "live", out var live)
-                ? new LiveWorkbookGrant(live.GetProperty("protocol").GetInt32(), ReadString(live, "epoch") ?? "", ReadString(live, "actorId") ?? "", live.TryGetProperty("filtersSupported", out var filters) && filters.ValueKind == JsonValueKind.True) : null);
+                ? new LiveWorkbookGrant(live.GetProperty("protocol").GetInt32(), ReadString(live, "epoch") ?? "", ReadString(live, "actorId") ?? "", live.TryGetProperty("filtersSupported", out var filters) && filters.ValueKind == JsonValueKind.True, live.TryGetProperty("eventsSupported", out var events) && events.ValueKind == JsonValueKind.True) : null);
     }
 
     public async Task<DownloadReceipt> DownloadAsync(WorkbookGrant grant, string destinationPath, CancellationToken cancellationToken)

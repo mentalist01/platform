@@ -1,7 +1,16 @@
 import test from'node:test';import assert from'node:assert/strict';
-import{WorkbookLivePresence,normalizeWorkbookPresence}from'./workbookLivePresence.js';
+import{WorkbookLivePresence,normalizeWorkbookPresence,normalizeWorkbookDraft}from'./workbookLivePresence.js';
 const teacher={id:'t',role:'teacher',name:'Учитель'},pupil={id:'p',role:'student',name:'Ученик'};
 const selected={sheetName:'Лист1',activeCell:[2,1],ranges:[[2,1,8,3]],objects:[]};
+test('draft typing is transient, bounded, cleared on commit and cannot supply another identity',()=>{
+  const p=new WorkbookLivePresence(),draft={sheetName:'Лист1',cell:[2,1],text:'=SUM(A1;\nB2)'};
+  p.exchange('a','t',teacher,selected,10,{...draft,actorId:'forged'});
+  assert.deepEqual(p.read('a',pupil,11).peers[0].draft,draft);
+  assert.equal(p.read('a',pupil,2011).peers[0].draft,undefined,'A stalled draft expires before the cursor');
+  p.exchange('a','t',teacher,selected,12,null);assert.equal(p.read('a',pupil,13).peers[0].draft,undefined);
+  p.exchange('a','t',teacher,selected,14,draft);assert.deepEqual(p.read('a',pupil,8015).peers,[]);
+  for(const bad of [{...draft,text:'x'.repeat(8193)},{...draft,text:'\0'},{...draft,cell:[-1,0]}])assert.throws(()=>normalizeWorkbookDraft(bad));
+});
 test('presence is scoped, transient, keeps multiple ranges and object selections, and expires',()=>{
   const p=new WorkbookLivePresence();
   assert.deepEqual(p.exchange('a','t-session',teacher,selected,100).peers,[]);

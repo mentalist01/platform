@@ -104,3 +104,11 @@ Windows-помощник для кнопки «Решать» на платфо�
 Ручная установка проверяет точное совпадение нового файла по SHA-256. Заблокированная старая копия не запускается как успешно обновлённая: установщик предлагает сохранить таблицы, завершить прежний помощник и повторить замену. Проверка на заблокированном файле входит в self-test. Версия запущенного процесса видна в меню возле часов и передаётся в User-Agent автоматически. Отдельные копии для LibreOffice запускаются через soffice.exe, а не через каталог program.
 
 Установщик снимает атрибут ReadOnly только с собственного заменяемого EXE, сохраняя остальные атрибуты и восстанавливая прежние при неудачной замене. Это проверено для ручной и автоматической установки; права доступа Windows, Mark-of-the-Web и антивирусные проверки сохраняются. Пользователям 1.5.0 требуется однократная ручная установка новой версии.
+
+## Live typing and push notifications · 1.5.4
+
+The authenticated WebSocket carries only transient cursor/draft frames and revision/checkpoint hints. Durable commands retain their idempotent HTTP journal and fsync-before-send local recovery. The channel reconnects with bounded backoff and falls back to polling; credentials stay in the Authorization header and never enter the URL. Server authorization is checked on every presence update and periodically on idle sockets.
+
+Calc reads the active cell editor or focused formula input through the scoped document's accessibility API. It never inspects unrelated windows or captures global keystrokes. Drafts are limited to 4096 characters, expire separately from cursors and are shown in the click-through presence overlay, never written into the book. No export or incoming native write is performed while the local Calc editor holds unconfirmed input. Excel receives previews; its own unconfirmed input is not yet captured.
+
+Large-book recovery serialization streams stable nodes under the existing workbook gate instead of cloning the full workbook repeatedly. The recovery schema and flush-before-send guarantee are unchanged.

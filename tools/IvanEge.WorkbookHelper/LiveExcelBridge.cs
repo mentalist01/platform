@@ -334,10 +334,15 @@ internal sealed class LiveExcelBridge : IDisposable
                         foreach (var peer in peers.Take(32))
                         {
                             if (peer!["selection"]!["sheetName"]!.GetValue<string>() != sheetName) continue;
-                            void Mark(dynamic native)
+                            void Mark(dynamic native, JsonNode? draft = null)
                             {
                                 Rectangle bounds = Rectangle.Intersect(clip, ScreenRectangle(pane, native));
-                                if (bounds.Width > 0 && bounds.Height > 0) result["marks"]!.AsArray().Add(new JsonObject { ["bounds"] = new JsonArray(bounds.X, bounds.Y, bounds.Width, bounds.Height), ["name"] = peer["name"]!.DeepClone(), ["color"] = peer["color"]!.DeepClone() });
+                                if (bounds.Width > 0 && bounds.Height > 0) result["marks"]!.AsArray().Add(new JsonObject { ["bounds"] = new JsonArray(bounds.X, bounds.Y, bounds.Width, bounds.Height), ["name"] = peer["name"]!.DeepClone(), ["color"] = peer["color"]!.DeepClone(), ["draft"] = draft?.DeepClone() });
+                            }
+                            if (peer["draft"] is JsonObject draft && draft["sheetName"]!.GetValue<string>() == sheetName)
+                            {
+                                var cell = draft["cell"]!.AsArray(); dynamic native = sheet.Range[CellAddress(cell[0]!.GetValue<int>(), cell[1]!.GetValue<int>())];
+                                try { Mark(native, draft["text"]); } finally { Release(native); }
                             }
                             foreach (var item in peer["selection"]!["ranges"]!.AsArray().Take(16))
                             {

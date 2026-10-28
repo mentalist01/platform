@@ -45232,6 +45232,10 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
   const pathname = getUpgradePathname(request?.url);
+  if (pathname === preparedLessonTasks.liveEvents?.path) {
+    void preparedLessonTasks.liveEvents.upgrade(request, socket, head);
+    return;
+  }
   const meetingToken = (() => {
     try { return new URL(request.url, 'http://localhost').searchParams.get('_meetingAuth'); } catch { return null; }
   })();
