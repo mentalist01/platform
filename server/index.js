@@ -43725,6 +43725,11 @@ app.post('/api/files/:id/memory-snapshot', upload.single('file'), (req, res) => 
 
 const setPlatformStaticCacheHeaders = (res, filePath) => {
   const fileName = path.basename(filePath).replace(/\.gz$/i, '');
+  // These names are reused for each helper release, unlike versioned update EXEs.
+  if (/^(?:IvanEgeWorkbookHelper\.(?:exe|zip|sha256)|workbook-helper-(?:release|update)\.json)$/i.test(fileName)) {
+    res.setHeader('Cache-Control', 'no-cache');
+    return;
+  }
   if (fileName === 'index.html' || fileName === 'sw-push.js') {
     res.setHeader('Cache-Control', 'no-cache');
     return;
