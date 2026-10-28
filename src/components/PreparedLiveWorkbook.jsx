@@ -16,8 +16,8 @@ export default function PreparedLiveWorkbook({asset,run,cardId,disabled,refresh,
   const perform=async fn=>{if(busy||disabled)return;setBusy(true);setError('');try{await fn();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const finish=()=>perform(async()=>{await preparedRequest('/api/lesson-task-runs/'+run.id+'/live',{cardId,assetId:asset.assetId,enabled:false});await refresh();setOpen(false);});
   const launch=(closePrevious=false,ordinary=false,retry=false)=>perform(async()=>{
-    if(retry)await preparedRequest('/api/lesson-task-runs/'+run.id+'/live',{cardId,assetId:asset.assetId,enabled:true,retry:true});
     if(install.platform!=='windows')throw Error('Совместное редактирование доступно в помощнике для Windows. Сохранённую версию можно скачать.');
+    if(retry)await preparedRequest('/api/lesson-task-runs/'+run.id+'/live',{cardId,assetId:asset.assetId,enabled:true,retry:true});
     const response=await apiFetch('/api/lesson-task-runs/'+run.id+'/live/helper',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cardId,assetId:asset.assetId,start:true,...(ordinary?{ordinary:true}:{}),...(closePrevious&&previous?{closePrevious:true,previousGeneration:previous.generation,previousRevision:previous.revision}:{})})});
     const result=await response.json();
     if(!response.ok){if(result.code==='PREVIOUS_TABLE_OPEN'){setPrevious(result.previous);return;}throw Error(result.error||'Не удалось открыть таблицу.');}
