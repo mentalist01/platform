@@ -268,6 +268,7 @@ internal static partial class HelperUpdater
         VerifyExecutable(Path.Combine(directory, "package.exe"), release);
         var next = installed + ".update-new.exe";
         File.Copy(Path.Combine(directory, "package.exe"), next, true);
+        Installer.MakeWritable(next);
         VerifyExecutable(next, release);
         // Preserve the Internet zone marker; update authentication never disables
         // Windows/Defender checks or changes trusted publishers/root stores.
@@ -282,11 +283,17 @@ internal static partial class HelperUpdater
         }
         var backup = installed + ".previous";
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (true)
+        var previousAttributes = Installer.MakeWritable(installed);
+        var replaced = false;
+        try
         {
-            try { File.Replace(next, installed, backup, true); return; }
-            catch (IOException) when (DateTime.UtcNow < deadline) { Thread.Sleep(300); }
+            while (true)
+            {
+                try { File.Replace(next, installed, backup, true); replaced = true; return; }
+                catch (IOException) when (DateTime.UtcNow < deadline) { Thread.Sleep(300); }
+            }
         }
+        finally { if (!replaced && File.Exists(installed)) File.SetAttributes(installed, previousAttributes); }
     }
 
     internal static int VerifyPublished(string manifest, string executable)

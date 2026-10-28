@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Diagnostics;
+using System.Security.Cryptography;
 
 namespace IvanEge.WorkbookHelper;
 
@@ -47,21 +48,21 @@ internal static class Installer
         }
 
         Directory.CreateDirectory(AppPaths.InstallDirectory);
-        var temporaryExecutable = installedExecutable + $".{Guid.NewGuid():N}.new";
-        try
+        while (true)
         {
-            File.Copy(currentExecutable, temporaryExecutable, true);
-            File.Move(temporaryExecutable, installedExecutable, true);
-        }
-        catch (Exception error) when (IsExistingInstallFallback(error, File.Exists(installedExecutable)))
-        {
-            // An older installed copy can be running. It is still safer to launch it than to fail installation.
-            TryDelete(temporaryExecutable);
-        }
-        catch
-        {
-            TryDelete(temporaryExecutable);
-            throw;
+            try { CopyForInstall(currentExecutable, installedExecutable); break; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                AppLog.Error("Manual helper update was not installed", error);
+                var installedVersion = File.Exists(installedExecutable)
+                    ? FileVersionInfo.GetVersionInfo(installedExecutable).FileVersion : "не установлена";
+                var retry = MessageBox.Show(
+                    $"Новая версия {HelperUpdater.CurrentVersion.ToString(3)} пока не установлена. Текущая версия: {installedVersion}.\n\n"
+                    + "Сохраните открытые таблицы через Ctrl+S. В значке прежнего помощника рядом с часами выберите «Выход», затем нажмите «Повторить».\n\n"
+                    + "Если ошибка повторится, проверьте доступ к папке установки и свободное место. Старую версию программа не будет выдавать за обновлённую.",
+                    "Не удалось обновить помощник", MessageBoxButtons.RetryCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+                if (retry != DialogResult.Retry) return new InstallOutcome(true, false);
+            }
         }
 
         Register(installedExecutable);
@@ -115,8 +116,39 @@ internal static class Installer
         }
     }
 
-    internal static bool IsExistingInstallFallback(Exception error, bool installedExecutableExists) =>
-        installedExecutableExists && error is IOException or UnauthorizedAccessException;
+    internal static void CopyForInstall(string source, string destination)
+    {
+        static byte[] Hash(string file) { using var stream = File.OpenRead(file); return SHA256.HashData(stream); }
+        var expected = Hash(source);
+        if (File.Exists(destination) && CryptographicOperations.FixedTimeEquals(expected, Hash(destination))) return;
+        var temporary = destination + $".{Guid.NewGuid():N}.new";
+        FileAttributes? previousAttributes = null;
+        var replaced = false;
+        try
+        {
+            File.Copy(source, temporary, true);
+            MakeWritable(temporary);
+            if (!CryptographicOperations.FixedTimeEquals(expected, Hash(temporary))) throw new IOException("Копия установщика повреждена.");
+            if (File.Exists(destination)) previousAttributes = MakeWritable(destination);
+            File.Move(temporary, destination, true);
+            replaced = true;
+            if (!CryptographicOperations.FixedTimeEquals(expected, Hash(destination))) throw new IOException("Установленная программа отличается от новой версии.");
+        }
+        finally
+        {
+            if (!replaced && previousAttributes is { } attributes && File.Exists(destination))
+                File.SetAttributes(destination, attributes);
+            TryDelete(temporary);
+        }
+    }
+
+    internal static FileAttributes MakeWritable(string path)
+    {
+        var attributes = File.GetAttributes(path);
+        if ((attributes & FileAttributes.ReadOnly) != 0)
+            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+        return attributes;
+    }
 
     private static void TryDelete(string path)
     {

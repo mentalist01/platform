@@ -112,6 +112,41 @@ globalThis.Date = class extends RealDate {
     assert.equal((await status(student)).publicationPending, false);
     assert.ok(!(await listed(student)).some(entry => entry.id === 'replacement'), 'removing monthly designation requires a homework assignment to start');
     assert.deepEqual(stored('progress').a.homeworks, previousProgress.a.homeworks);
+    // A future-month designation does not replace the current exam early.
+    await json(await request('/api/mock-exams/scheduled', teacher, 'PATCH', {
+      access: {all:true,mode:'classic'}, monthlyAssignment: {month:'2026-02',assigned:true,publicationDay:10},
+    }));
+    const next = await json(await request('/api/mock-exams/replacement', teacher, 'PATCH', {
+      access: {all:true,mode:'classic'}, monthlyAssignment: {month:'2026-03',assigned:true,publicationDay:15},
+    }));
+    assert.equal(next.monthlyPublicationDaysByMonth['2026-03'],15);
+    const begun = await json(await request('/api/mock-exams/attempt', student, 'PUT', {examId:'scheduled',mode:'classic',startOnly:true}));
+    assert.equal(begun.monthlyPolicy.month,'2026-02');
+    fs.writeFileSync(clock,String(Date.parse('2026-03-01T00:00:00+03:00')));
+    let pupil = await login('a-code');
+    let continued = await status(pupil);
+    assert.equal(continued.period.month,'2026-02');assert.equal(continued.rows[0].status,'in_progress');
+    assert.equal(continued.assignment.examId,'scheduled');assert.equal(continued.assignment.dueAt,'2026-03-14T20:59:59.999Z');
+    const afterRollover = await json(await request('/api/mock-exams/attempt?examId=scheduled',pupil));
+    assert.equal(afterRollover.attemptId,begun.attemptId);assert.equal(afterRollover.monthlyPolicy.usedAttempts,1);assert.equal(afterRollover.monthlyPolicy.archived,false);
+    assert.ok(!(await listed(pupil)).some(entry=>entry.id==='replacement'));
+    await json(await request('/api/mock-exams/attempt',pupil,'PUT',{examId:'scheduled',mode:'classic',finishAttempt:true,answers:{1:'1'}}));
+    continued=await status(pupil);assert.equal(continued.rows[0].status,'completed');assert.equal(continued.rows[0].attemptPolicy.month,'2026-02');
+    assert.equal(stored('progress').a.mockAttempts.scheduled.monthlyMockMonth,'2026-02');
+
+    fs.writeFileSync(clock,String(Date.parse('2026-03-14T20:59:59.999Z')));pupil=await login('a-code');
+    assert.equal((await status(pupil)).assignment.examId,'scheduled');
+    fs.writeFileSync(clock,String(Date.parse('2026-03-14T21:00:00Z')));
+    const released=await status(pupil);assert.equal(released.assignment.examId,'replacement');assert.equal(released.period.month,'2026-03');
+    assert.equal(released.assignment.dueAt,null);
+    assert.equal((await json(await request('/api/mock-exams/attempt?examId=scheduled',pupil))).readOnly,true);
+    await json(await request('/api/mock-exams/attempt',pupil,'PUT',{examId:'scheduled',startOnly:true}),403);
+    // With no later exam, the March assignment stays available indefinitely.
+    fs.writeFileSync(clock,String(Date.parse('2026-05-01T00:00:00+03:00')));pupil=await login('a-code');
+    const may=await status(pupil);assert.equal(may.period.month,'2026-03');assert.equal(may.assignment.examId,'replacement');assert.equal(may.assignment.dueAt,null);
+    const startedLate=await json(await request('/api/mock-exams/attempt',pupil,'PUT',{examId:'replacement',mode:'classic',startOnly:true}));
+    assert.equal(startedLate.monthlyPolicy.month,'2026-03');assert.equal(startedLate.monthlyPolicy.archived,false);
+    const independent=await status(await login('b-code'));assert.equal(independent.period.month,'2026-02');assert.equal(independent.assignment.examId,'scheduled');
   } finally {
     if (child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; }
     if (path.resolve(root).startsWith(`${path.resolve(os.tmpdir())}${path.sep}`)) fs.rmSync(root, { recursive: true, force: true });

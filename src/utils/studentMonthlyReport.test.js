@@ -56,6 +56,15 @@ test('reports use the best permitted monthly score and do not count retakes as e
   assert.doesNotMatch(report.parentText+report.studentText,/попыт|лучший результат/iu);
 });
 
+test('a monthly mock completed after month end stays in the report for its assigned month',()=>{
+  const mockEntries=[{id:'monthly',score:73,date:'2026-11-03T12:00:00Z',monthlyMockMonth:'2026-10'}];
+  const options={student:{name:'Андрей'},nowMs:Date.parse('2026-11-05T12:00:00Z'),mockEntries};
+  const october=buildStudentMonthlyReport({...options,month:'2026-10'});
+  assert.equal(october.metrics.mocks.count,1);assert.equal(october.metrics.mocks.latestScore,73);
+  assert.equal(buildStudentMonthlyReport({...options,month:'2026-11'}).metrics.mocks.count,0);
+  assert.equal(buildStudentMonthlyReport({...options,month:'2026-10',nowMs:Date.parse('2026-11-02T12:00:00Z')}).metrics.mocks.count,0);
+});
+
 test('reports keep the actual mock result without automatically promising a mock review in the conclusion', () => {
   for (let variant = 0; variant < 30; variant++) {
     const report = buildStudentMonthlyReport({

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {getActiveMonthlyMockAssignment,isMonthlyMockReleased} from './monthlyMockExam.js';
 import { buildMonthlyMockStatus, collectMonthlyMockCompletions, getMonthlyMockMonth, getMonthlyMockPeriod, normalizeMonthlyMockExemptions, prepareMonthlyMockHomeworkGoals, getAssignedMonthlyMockExam, updateMonthlyMockAssignment, getMonthlyMockPublication, isMonthlyMockPublished, normalizeMonthlyMockPublicationDay, normalizeMonthlyMockPublicationDays } from './monthlyMockExam.js';
 
 const period = getMonthlyMockPeriod('2026-09');
@@ -7,6 +8,23 @@ const now = Date.parse('2026-09-07T15:00:00Z');
 const exams = [{ id: 'exam', title: 'Сентябрьский пробник', tasks: { 1: {}, 2: {} } }];
 const status = (data, month = period) => buildMonthlyMockStatus(data, exams, month, now);
 const finished = { attemptId: 'first', status: 'finished', finishedAt: '2026-09-03T12:00:00Z', solved: { 1: false, 2: false } };
+
+test('the published assignment persists until the next actual release, independently for each teacher',()=>{
+  const list=[
+    {id:'october',tasks:{1:{}},access:{all:true},monthlyAssignments:{a:['2026-10'],b:['2026-10']},monthlyPublicationDays:{a:{'2026-10':15}}},
+    {id:'november',tasks:{1:{}},access:{all:true},monthlyAssignments:{a:['2026-11']},monthlyPublicationDays:{a:{'2026-11':15}}},
+  ];
+  const at=value=>getActiveMonthlyMockAssignment(list,'a',Date.parse(value));
+  assert.equal(at('2026-10-14T20:59:59.999Z'),null);
+  assert.equal(at('2026-10-14T21:00:00Z').month,'2026-10');
+  assert.equal(at('2026-11-14T20:59:59.999Z').exam.id,'october');
+  assert.equal(at('2026-11-14T20:59:59.999Z').endsAtMs,Date.parse('2026-11-14T21:00:00Z'));
+  assert.equal(at('2026-11-14T21:00:00Z').exam.id,'november');
+  assert.equal(at('2030-01-01T00:00:00Z').exam.id,'november');assert.equal(at('2030-01-01T00:00:00Z').endsAtMs,null);
+  assert.equal(getActiveMonthlyMockAssignment(list,'b',Date.parse('2027-01-01')).exam.id,'october');
+  assert.equal(isMonthlyMockReleased(list[1],'a',Date.parse('2026-10-20')),false);
+  for(const draft of [{...list[1],tasks:{}},{...list[1],access:{all:false}}])assert.equal(getActiveMonthlyMockAssignment([list[0],draft],'a',Date.parse('2027-01-01')).exam.id,'october');
+});
 
 test('Moscow calendar boundaries, December rollover and invalid input', () => {
   assert.equal(getMonthlyMockMonth('2026-08-31T21:00:00Z'), '2026-09');

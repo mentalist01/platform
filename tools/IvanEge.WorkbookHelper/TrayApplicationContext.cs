@@ -73,6 +73,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.AddRange(
         [
+            new ToolStripMenuItem($"Версия помощника {HelperUpdater.CurrentVersion.ToString(3)}") { Enabled = false },
             _statusItem,
             new ToolStripSeparator(),
             _openItem,

@@ -1,4 +1,4 @@
-import {getMonthlyMockMonth,normalizeMonthlyMockAssignments,getMonthlyMockPeriod} from './monthlyMockExam.js';
+import {getMonthlyMockMonth,normalizeMonthlyMockAssignments,getMonthlyMockPeriod,getActiveMonthlyMockAssignment} from './monthlyMockExam.js';
 import {getMockSecondaryScoreFromSolved,getMockSecondaryScoreFromPrimary} from './mockExamScore.js';
 import {isAssignedMockAttempt} from './mockExamAssignment.js';
 
@@ -61,7 +61,10 @@ export function getMonthlyMockAttemptPolicy({studentData={},exams=[],exam,teache
   const current=studentData.mockAttempts?.[exam.id];
   const active=Boolean(current&&records.includes(current)&&!finish(current)&&
     (current.attemptId||current.timerStartedAt||Object.keys(current.answers||{}).length));
-  const archived=month<getMonthlyMockMonth(now);
+  const activeAssignment=getActiveMonthlyMockAssignment(exams,teacherId,now);
+  const archived=activeAssignment
+    ? activeAssignment.exam.id!==exam.id||activeAssignment.month!==month
+    : month<getMonthlyMockMonth(now);
   const surrendered=normalizeMonthlyMockSurrenders(studentData.monthlyMockSurrenders).some(item=>
     item.teacherId===teacherId&&item.examId===exam.id&&item.month===month&&Date.parse(item.surrenderedAt)<=now);
   const exhausted=!active&&usedAttempts>=maxAttempts&&records.some(item=>

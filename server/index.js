@@ -131,8 +131,11 @@ import {
   getMonthlyMockMonth,
   getMonthlyMockPeriod,
   getAssignedMonthlyMockExam,
+  getActiveMonthlyMockAssignment,
+  isMonthlyMockReleased,
   normalizeMonthlyMockAssignments,
   normalizeMonthlyMockPublicationDay,
+  normalizeMonthlyMockPublicationDays,
   getMonthlyMockPublication,
   isMonthlyMockPublished,
   updateMonthlyMockAssignment,
@@ -7484,7 +7487,7 @@ const normalizeMockExamAccessForSave = (access) => {
 const isMockExamVisibleToStudent = (exam, studentId) => {
   if (!exam) return false;
   const teacherId = readStudentsDb().find(student => student.id === studentId)?.teacherId;
-  if (!isMonthlyMockPublished(exam, teacherId)) return false;
+  if (!isMonthlyMockReleased(exam, teacherId)) return false;
   const access = normalizeMockExamAccess(exam.access, true);
   if (access.all) return true;
   if (!studentId) return false;
@@ -15689,10 +15692,9 @@ const getStudentMockHomeworkMode = (studentData, examId, testsDb = null) => (
   getStudentMockHomeworkAssignment(studentData, examId, testsDb)?.mode || null
 );
 
-const getStudentMockLaunchAssignment = (exam, studentData, teacherId) => {
-  if (getAssignedMonthlyMockExam([exam], teacherId)?.id === exam.id
-    && isMonthlyMockPublished(exam, teacherId)) return 'monthly';
-  if (monthlyAssignedMonths(exam,teacherId).some(month => month < getMonthlyMockMonth() && getMonthlyAttemptRecords(studentData,exam,teacherId,month).length > 0)) return 'history';
+const getStudentMockLaunchAssignment = (exam, studentData, teacherId, exams = readMockExamsDb()) => {
+  if (getActiveMonthlyMockAssignment(exams, teacherId)?.exam.id === exam.id) return 'monthly';
+  if (monthlyAssignedMonths(exam,teacherId).some(month => month <= getMonthlyMockMonth() && getMonthlyAttemptRecords(studentData,exam,teacherId,month).length > 0)) return 'history';
   return getStudentMockHomeworkAssignment(studentData, exam.id) ? 'homework' : '';
 };
 
@@ -20059,7 +20061,7 @@ const sanitizeStudentDataForClient = (studentData, studentId = '', reportTeacher
   const exams = readMockExamsDb();
   const examById = new Map(exams.map(exam => [exam.id, exam]));
   const assigned = (examId, attempt) => isAssignedMockAttempt({ examId, exam: examById.get(examId), attempt, studentData, teacherId });
-  const unpublishedIds = new Set(studentId ? exams.filter(exam => !isMonthlyMockPublished(exam, teacherId)).map(exam => exam.id) : []);
+  const unpublishedIds = new Set(studentId ? exams.filter(exam => !isMonthlyMockReleased(exam, teacherId)).map(exam => exam.id) : []);
   const attempts = studentData.mockAttempts && typeof studentData.mockAttempts === 'object'
     && !Array.isArray(studentData.mockAttempts)
     ? studentData.mockAttempts
@@ -20117,9 +20119,12 @@ const serializeMockExamEntry = (exam, options = {}) => {
     if (context) safeExam.monthlyPolicy = context.policy;
     if (options.sanitizeForStudent) safeExam.readOnly = !context || context.policy.archived || context.policy.surrendered || context.policy.perfect;
   }
+  safeExam.monthlyPublicationDaysByMonth = { ...normalizeMonthlyMockPublicationDays(exam.monthlyPublicationDays)[options.monthlyTeacherId] };
   safeExam.monthlyPublicationDay = getMonthlyMockPublication(exam, options.monthlyTeacherId)?.day || 1;
+  const activeAssignment = getActiveMonthlyMockAssignment(options.exams || [exam], options.monthlyTeacherId);
+  safeExam.monthlyActiveMonth = activeAssignment?.exam.id === exam.id ? activeAssignment.month : '';
   if (options.studentData) safeExam.canStart = Boolean(getStudentMockLaunchAssignment(exam, options.studentData, options.monthlyTeacherId));
-  if (safeExam.monthlyAssignedMonths.includes(getMonthlyMockMonth()) && safeExam.access.all) {
+  if (safeExam.monthlyActiveMonth && safeExam.access.all) {
     safeExam.requiredTargetTaskKeys = [];
     safeExam.requiredMode = safeExam.access.mode;
   }
@@ -30334,11 +30339,6 @@ app.get('/api/monthly-mock-status', (req, res) => {
   if (!isTeacherRole(req.auth) && !isStudentRole(req.auth)) return forbid(res);
   const now = Date.now();
   const currentMonth = getMonthlyMockMonth(now);
-  const requestedMonth = req.query.month === undefined ? currentMonth : req.query.month;
-  const period = typeof requestedMonth === 'string' ? getMonthlyMockPeriod(requestedMonth) : null;
-  if (!period || period.month > currentMonth) {
-    return res.status(400).json({ error: 'Выберите текущий или прошедший месяц в формате ГГГГ-ММ.' });
-  }
   // Pupils always read their own row. Teachers may narrow their own roster.
   const targetStudentId = isTeacherRole(req.auth) && typeof req.query.studentId === 'string'
     ? req.query.studentId.trim() : '';
@@ -30350,6 +30350,11 @@ app.get('/api/monthly-mock-status', (req, res) => {
   ));
   const progressDb = readProgressDb();
   const exams = readMockExamsDb();
+  const activeAssignment = getActiveMonthlyMockAssignment(exams, students[0]?.teacherId, now);
+  const activeMonth = activeAssignment?.month || currentMonth;
+  const requestedMonth = req.query.month === undefined ? activeMonth : req.query.month;
+  const period = typeof requestedMonth === 'string' ? getMonthlyMockPeriod(requestedMonth) : null;
+  if (!period || period.month > currentMonth) return res.status(400).json({ error: 'Выберите текущий или прошедший месяц в формате ГГГГ-ММ.' });
   const assignedExam = getAssignedMonthlyMockExam(exams, students[0]?.teacherId, period.month);
   const publicationPending = isStudentRole(req.auth) && Boolean(assignedExam)
     && !isMonthlyMockPublished(assignedExam, students[0]?.teacherId, period.month, now);
@@ -30361,7 +30366,7 @@ app.get('/api/monthly-mock-status', (req, res) => {
     const best = context?.best;
     const completion = best ? {examId:assignedExam.id,attemptId:best.attempt.attemptId || '',finishedAt:best.attempt.finishedAt || best.attempt.timerFinishedAt,title:assignedExam.title} : status.completion;
     return { studentId: student.id, name: student.name, ...status,
-      ...(best ? {status:'completed',completion} : {}),
+      ...(best ? {status:'completed',completion,completedCount:Math.max(1,status.completedCount)} : context?.policy.active && status.status === 'pending' ? {status:'in_progress',activeExamId:assignedExam.id} : {}),
       ...(targetStudentId || isStudentRole(req.auth) ? {
         ...(status.status === 'completed' || best ? getMonthlyMockCompletionDetails(data,completion) : {score:null}),
         ...(best ? {score:best.score} : {}),
@@ -30371,13 +30376,16 @@ app.get('/api/monthly-mock-status', (req, res) => {
   });
   res.setHeader('Cache-Control', 'no-store');
   return res.json({
-    period, currentMonth, generatedAt: new Date(now).toISOString(), rows,
+    period, currentMonth, activeMonth, generatedAt: new Date(now).toISOString(), rows,
     ...(isStudentRole(req.auth) || targetStudentId ? { publicationPending, assignment: (() => {
       const exam = getAssignedMonthlyMockExam(exams, students[0]?.teacherId, period.month);
       return exam && students.length && !publicationPending ? {
         examId: exam.id, title: exam.title, taskCount: Object.keys(exam.tasks).length,
         mode: normalizeMockExamAccess(exam.access).mode,
-        dueAt: new Date(period.endMs - 1).toISOString(),
+        dueAt: activeAssignment?.exam.id === exam.id && activeAssignment.month === period.month
+          ? (activeAssignment.endsAtMs === null ? null : new Date(activeAssignment.endsAtMs - 1).toISOString())
+          : new Date(period.endMs - 1).toISOString(),
+        availableUntilNext: activeAssignment?.exam.id === exam.id && activeAssignment.month === period.month,
         ...(targetStudentId ? { publishesAt: new Date(getMonthlyMockPublication(exam, students[0].teacherId, period.month).publishesAtMs).toISOString() }
           : monthlyReviewForStudent(exam, students[0].teacherId, progressDb[students[0].id] || {}, period.month, now, {exams,studentCreatedAt:students[0].createdAt})),
       } : null;
@@ -32427,7 +32435,7 @@ app.get('/api/mock-exams/attempt', (req, res) => {
   }
   const data = getStudentData(student.id);
   if (isStudentRole(req.auth) && !getStudentMockLaunchAssignment(exam, data, student.teacherId)) return mockAssignmentRequired(res);
-  const monthlyExam = getAssignedMonthlyMockExam(list, student.teacherId)?.id === exam.id;
+  const monthlyExam = getActiveMonthlyMockAssignment(list, student.teacherId)?.exam.id === exam.id;
   const requiredMode = monthlyExam ? normalizeMockExamAccess(exam.access).mode : getRequiredMockExamModeForStudent(exam, data);
   const homeworkAssignment = monthlyExam ? null : getStudentMockHomeworkAssignment(data, exam.id);
   const attempts = data.mockAttempts && typeof data.mockAttempts === 'object' ? data.mockAttempts : {};
@@ -32918,7 +32926,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const examRewardsDisabled = exam?.rewardsDisabled === true || isPersonalRandomMockExam(exam);
   const data = getStudentData(student.id);
   if (isStudentRole(req.auth) && !getStudentMockLaunchAssignment(exam, data, student.teacherId)) return mockAssignmentRequired(res);
-  const monthlyExam = getAssignedMonthlyMockExam(list, student.teacherId)?.id === exam.id;
+  const monthlyExam = getActiveMonthlyMockAssignment(list, student.teacherId)?.exam.id === exam.id;
   const monthlyContext = monthlyAttemptContext(data,list,exam,student);
   if (isStudentRole(req.auth) && !monthlyExam) return res.status(403).json({code:'MOCK_HISTORY_READ_ONLY',error:'Решать можно только текущий пробник месяца в разделе «Домашка». Остальные пробники доступны для просмотра.'});
   const repeatFinish = !startOnly && !restartTimerExam && (finishAttempt === true || finishTimerExam === true) && Boolean(data.mockAttempts?.[exam.id]?.finishedAt);
@@ -32942,7 +32950,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     : null;
   const storedAttemptExam = resolveMockExamForAttempt(exam, storedAttempt, storedAttemptResult);
   const startsNewHomeworkAttempt = Boolean(
-    monthlyExam && Object.keys(storedAttempt).length > 0 && mockAttemptMonth(storedAttempt,exam,student.teacherId) !== getMonthlyMockMonth()
+    monthlyExam && Object.keys(storedAttempt).length > 0 && mockAttemptMonth(storedAttempt,exam,student.teacherId) !== monthlyContext.policy.month
     || homeworkAssignment && !isMockAttemptForHomework(storedAttempt, homeworkAssignment)
     || monthlyExam && Object.keys(storedAttempt).length > 0 && !isAssignedMockAttempt({ examId: exam.id, exam, attempt: storedAttempt, studentData: data, teacherId: student.teacherId })
     || monthlyExam && Array.isArray(storedAttempt.targetTaskKeys) && storedAttempt.targetTaskKeys.length > 0
@@ -33187,7 +33195,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     attemptId,
     taskDurationsMs: scopedTaskDurationsMs,
     rewardsDisabled: examRewardsDisabled,
-    ...(monthlyExam ? { homeworkId: '', homeworkIssuedAt: '', targetTaskKeys: [],monthlyMockMonth:getMonthlyMockMonth(),monthlyMockOrdinal:monthlyContext.policy.ordinal,assignmentSource:'monthly' } : {}),
+    ...(monthlyExam ? { homeworkId: '', homeworkIssuedAt: '', targetTaskKeys: [],monthlyMockMonth:monthlyContext.policy.month,monthlyMockOrdinal:monthlyContext.policy.ordinal,assignmentSource:'monthly' } : {}),
     ...(homeworkAssignment ? {
       homeworkId: homeworkAssignment.id,
       homeworkIssuedAt: homeworkAssignment.issuedAt,
@@ -33610,12 +33618,12 @@ app.patch('/api/mock-exams/:id', (req, res) => {
     if (!isTeacherRole(req.auth)) return forbid(res);
     const month = monthlyAssignment?.month;
     const assigned = monthlyAssignment?.assigned;
-    if (month !== getMonthlyMockMonth() || typeof assigned !== 'boolean') {
-      return res.status(400).json({ error: 'Отметить пробник можно только для текущего месяца. Обновите страницу.' });
+    if (typeof month !== 'string' || !getMonthlyMockPeriod(month) || month < getMonthlyMockMonth() || typeof assigned !== 'boolean') {
+      return res.status(400).json({ error: 'Выберите текущий или будущий месяц для назначения пробника.' });
     }
     const publicationDay = monthlyAssignment?.publicationDay;
     if (publicationDay !== undefined && normalizeMonthlyMockPublicationDay(publicationDay, month) === null) {
-      return res.status(400).json({ error: 'Выберите существующий день текущего месяца для публикации пробника.' });
+      return res.status(400).json({ error: 'Выберите существующий день выбранного месяца для публикации пробника.' });
     }
     if (assigned && (!normalizeMockExamAccess(next.access).all || !Object.keys(next.tasks).length || isPersonalRandomMockExam(next))) {
       return res.status(400).json({ error: 'Добавьте задания и откройте доступ всем ученикам, затем отметьте пробник месяца.' });

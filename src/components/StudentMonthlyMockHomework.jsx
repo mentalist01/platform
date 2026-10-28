@@ -16,11 +16,12 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
   const surrendered = row?.attemptPolicy?.surrendered;
   const perfect = row?.attemptPolicy?.perfect === true;
   const started = status === 'in_progress' && !surrendered;
-  const deadline = new Date(period.endMs - 1).toLocaleDateString('ru-RU', {
+  const deadlineMs = assignment?.availableUntilNext ? (assignment.dueAt ? Date.parse(assignment.dueAt) : null) : period.endMs - 1;
+  const deadline = deadlineMs === null ? 'До следующего пробника' : new Date(deadlineMs).toLocaleDateString('ru-RU', {
     timeZone: MONTHLY_MOCK_TIME_ZONE, day: 'numeric', month: 'long',
   });
-  const deadlineDay = new Intl.DateTimeFormat('ru-RU', { timeZone: MONTHLY_MOCK_TIME_ZONE, day: 'numeric' }).format(period.endMs - 1);
-  const deadlineMonth = new Intl.DateTimeFormat('ru-RU', { timeZone: MONTHLY_MOCK_TIME_ZONE, month: 'long' }).format(period.endMs - 1);
+  const deadlineDay = deadlineMs === null ? '∞' : new Intl.DateTimeFormat('ru-RU', { timeZone: MONTHLY_MOCK_TIME_ZONE, day: 'numeric' }).format(deadlineMs);
+  const deadlineMonth = deadlineMs === null ? '' : new Intl.DateTimeFormat('ru-RU', { timeZone: MONTHLY_MOCK_TIME_ZONE, month: 'long' }).format(deadlineMs);
   if (data?.publicationPending) return null;
   return <section className="student-monthly-mock" aria-label="Пробник месяца" data-status={status}>
     <header className="student-monthly-mock__header">
@@ -66,7 +67,7 @@ export function MonthlyMockHomeworkCard({ data, error, onOpen, onRefresh }) {
       <div className="student-monthly-mock__action-panel">
         {completed || surrendered ? <div className="student-monthly-mock__achievement"><span><CheckCircle2 size={25} aria-hidden="true" /></span><div><strong>{typeof row.score === 'number' ? `Лучший результат: ${row.score} из 100` : surrendered ? 'Разбор открыт' : 'Месяц — с результатом'}</strong><p>{completed ? 'Пробник пройден' : 'Оставшиеся попытки закрыты'}</p></div></div> : <div className="student-monthly-mock__deadline">
           <span className="student-monthly-mock__date" aria-hidden="true"><CalendarDays size={15} /><strong>{deadlineDay}</strong><small>{deadlineMonth}</small></span>
-          <div><span className="student-monthly-mock__deadline-label">{exempt ? 'Можно пройти до' : 'Решите весь пробник до'}</span><strong>{deadline}</strong><p>23:59 · по Москве</p></div>
+          <div><span className="student-monthly-mock__deadline-label">{deadlineMs === null ? 'Доступен для решения' : exempt ? 'Можно пройти до' : 'Решите весь пробник до'}</span><strong>{deadline}</strong><p>{deadlineMs === null ? 'Пока преподаватель не откроет следующий' : '23:59 · по Москве'}</p></div>
         </div>}
         <button className="student-monthly-mock__open" type="button" onClick={() => onOpen?.(assignment.examId, null, { mode: assignment.mode })}>
           <PlayCircle size={19} aria-hidden="true" /><span>{completed || row?.attemptPolicy?.surrendered ? 'Посмотреть пробник' : started ? 'Продолжить пробник' : 'Начать пробник'}</span><ArrowRight size={18} aria-hidden="true" />

@@ -60,7 +60,7 @@ test('monthly mock publication is scoped, replaces one month and launches a whol
     assert.equal((await mark('first', student)).status, 403);
     await json(await mark('private'), 400);
     await json(await mark('empty'), 400);
-    await json(await mark('first', teacher, { month: '2099-12', assigned: true }), 400);
+    await json(await mark('first', teacher, { month: '2099-13', assigned: true }), 400);
     assert.ok(storedExams().every(entry => !entry.monthlyAssignments));
     const reviewUrl = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Review_Secret';
     assert.equal((await request('/api/mock-exams/first', student, 'PATCH', { monthlyReviewVideoUrl: reviewUrl })).status, 403);

@@ -1,9 +1,11 @@
 import { getMonthlyMockMonth, getMonthlyMockPeriod } from '../utils/monthlyMockExam';
 
-export default function MonthlyMockAssignmentCheckbox({ checked, disabled, onChange, hint, publicationDay = 1, onPublicationDayChange }) {
-  const period = getMonthlyMockPeriod(getMonthlyMockMonth());
+export default function MonthlyMockAssignmentCheckbox({ checked, disabled, onChange, hint, publicationDay = 1, onPublicationDayChange, month = getMonthlyMockMonth(), onMonthChange }) {
+  const period = getMonthlyMockPeriod(month) || getMonthlyMockPeriod(getMonthlyMockMonth());
   const lastDay = Math.round((period.endMs - period.startMs) / 86_400_000);
   return <div className="monthly-mock-assignment">
+    {onMonthChange && <label className="monthly-mock-assignment__month">Месяц пробника <input type="month" aria-label="Месяц назначения пробника" min={getMonthlyMockMonth()} max="2100-12" value={period.month} disabled={disabled}
+      onChange={event => { if (getMonthlyMockPeriod(event.target.value)) onMonthChange(event.target.value); }} /></label>}
     <label>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)} />
       <span>Пробник месяца · {period.label}</span>
@@ -16,7 +18,7 @@ export default function MonthlyMockAssignmentCheckbox({ checked, disabled, onCha
           {Array.from({ length: lastDay }, (_, index) => index + 1).map(day => <option key={day} value={day}>{day} числа</option>)}
         </select>
       </label>
-      <small>С 00:00 по Москве. До этого дня пробник скрыт от ваших учеников и недоступен для решения.</small>
+      <small>С 00:00 по Москве. До открытия следующего пробника остаётся доступен предыдущий.</small>
     </div>}
     {hint && <small>{hint}</small>}
   </div>;

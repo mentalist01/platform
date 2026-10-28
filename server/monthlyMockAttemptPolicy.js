@@ -1,10 +1,11 @@
-import {getMonthlyMockMonth} from '../src/utils/monthlyMockExam.js';
+import {getMonthlyMockMonth,getActiveMonthlyMockAssignment} from '../src/utils/monthlyMockExam.js';
 import {monthlyAssignedMonths,getMonthlyMockAttemptPolicy,getBestMonthlyMockAttempt,getMonthlyAttemptRecords} from '../src/utils/monthlyMockAttemptPolicy.js';
 
 export function monthlyAttemptContext(data,exams,exam,student,requestedMonth=''){
   const now=Date.now(),currentMonth=getMonthlyMockMonth(now);
   const months=monthlyAssignedMonths(exam,student.teacherId);
-  const month=requestedMonth|| (months.includes(currentMonth)?currentMonth:[...months].filter(value=>value<currentMonth
+  const active=getActiveMonthlyMockAssignment(exams,student.teacherId,now);
+  const month=requestedMonth|| (active?.exam.id===exam.id?active.month:months.includes(currentMonth)?currentMonth:[...months].filter(value=>value<currentMonth
     &&getMonthlyAttemptRecords(data,exam,student.teacherId,value).length>0).sort().at(-1));
   if(!month)return null;
   const options={studentData:data,exams,exam,teacherId:student.teacherId,studentCreatedAt:student.createdAt,month,now};

@@ -63,6 +63,8 @@
 .monthly-mock-assignment label:has(input:disabled) { opacity: .6; cursor: default; }
 .monthly-mock-assignment small { display: block; margin-top: 4px; color: #64748b; font-size: 11px; line-height: 1.5; }
 .monthly-mock-assignment__publication { margin-top: 8px; }
+.monthly-mock-assignment__month { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:8px 0; font-size:12px; }
+.monthly-mock-assignment__month input { width:auto; height:auto; min-height:34px; padding:6px 10px; border:1px solid rgb(var(--ink) / .18); border-radius:9px; background:rgb(var(--surface)); color:inherit; font:inherit; }
 .monthly-mock-assignment__publication select { padding: 6px 10px; min-height: 34px; border: 1px solid rgb(var(--ink) / .18); border-radius: 9px; background: rgb(var(--surface)); color: inherit; font: inherit; }
 .monthly-mock-assignment__publication select:focus-visible { outline: 2px solid #8b5cf6; outline-offset: 3px; }
 

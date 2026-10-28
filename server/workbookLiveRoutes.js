@@ -106,7 +106,10 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
   app.post('/workbook-helper/v1/exchange',handler(async(req,res,next)=>{
     if(!String(req.body?.ticket||'').startsWith('wl_'))return next();
     if(!allowExchange(req))fail(429,'Слишком много запусков помощника');
-    if(!supportsFilters(req.headers['user-agent']))fail(426,'Для совместной таблицы на Windows обновите помощник у обоих участников до версии 1.5.1 или новее. Обычный режим работает в прежнем помощнике.');
+    if(!supportsFilters(req.headers['user-agent'])){
+      const detected=String(req.headers['user-agent']||'').match(/IvanEgeWorkbookHelper\/(\d+(?:\.\d+){2,3})/i)?.[1];
+      fail(426,`Запущенный помощник: ${detected || 'версия не определена'}. Обновите помощник до версии 1.5.1 или новее. Сохраните таблицы, выберите «Выход» в старом помощнике и повторно запустите новый установщик.`);
+    }
     const hash=liveDigest(req.body.ticket),entry=tickets.get(hash);if(!entry||entry.expires<store.now())fail(410,'Ссылка запуска истекла. Нажмите «Открыть общую таблицу» снова.');
     const {run,card,asset}=await authorize(entry.auth,entry.runId,entry.cardId,entry.assetId),mode=card.liveWorkbooks?.[entry.assetId];
     if(!mode?.enabled||mode.epoch!==entry.epoch)fail(410,'Совместный режим завершён');

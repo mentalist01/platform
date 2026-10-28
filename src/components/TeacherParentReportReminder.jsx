@@ -41,7 +41,8 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
   const [now, setNow] = useState(getNow), [open, setOpen] = useState(false), [selected, setSelected] = useState(null);
   const [dismissed, setDismissed] = useState(null), [busy, setBusy] = useState(''), [error, setError] = useState('');
   const period = parentReportPeriod(now);
-  const rows = useMemo(() => parentReportRecipients(students, contacts, period.month), [students, contacts, period.month]);
+  const reportMonth = typeof open === 'string' && open ? open : period.month;
+  const rows = useMemo(() => parentReportRecipients(students, contacts, reportMonth), [students, contacts, reportMonth]);
   const pending = rows.filter(row => !row.sent).length;
   const until = dismissed?.month === period.month ? dismissed.until : readParentReportSnooze(userId, period.month, deviceStorage());
   useEffect(() => {
@@ -53,16 +54,16 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
   }, [getNow]);
   useEffect(() => {
     if (!paused && !loading && !contactError && period.due && pending && until <= period.date && !open && !selected
-      && document.visibilityState !== 'hidden' && !document.querySelector('[aria-modal="true"], dialog[open]')) setOpen(true);
-  }, [paused, loading, contactError, period.due, period.date, pending, until, open, selected, now]);
+      && document.visibilityState !== 'hidden' && !document.querySelector('[aria-modal="true"], dialog[open]')) setOpen(period.month);
+  }, [paused, loading, contactError, period.due, period.date, period.month, pending, until, open, selected, now]);
   const dismiss = () => {
-    setDismissed({ month: period.month, until: snoozeParentReports(userId, getNow(), deviceStorage()) }); setOpen(false); setError('');
+    setDismissed({ month: reportMonth, until: snoozeParentReports(userId, getNow(), deviceStorage(), reportMonth) }); setOpen(false); setError('');
   };
   const markSent = async (student, sent) => {
     if (busy) return;
     setBusy(student.id); setError('');
     try {
-      const result = await api.updateStudentMonthlyReportStatus(student.id, period.month, sent);
+      const result = await api.updateStudentMonthlyReportStatus(student.id, reportMonth, sent);
       onStudentUpdated?.({ id: student.id, monthlyReportSentMonths: result.monthlyReportSentMonths });
     } catch (failure) { setError(failure.message || 'Не удалось сохранить отметку.'); }
     finally { setBusy(''); }
@@ -70,8 +71,8 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
   if (paused || (!rows.length && !contactError)) return null;
   const selectedStudent = selected && students.find(student => student.id === selected.id);
   return <>
-    {showEntry && <button type="button" className="parent-report-reminder__entry" onClick={() => { setOpen(true); setError(''); }}><FileText size={17} />Отчёты родителям{pending > 0 && <b>{pending}</b>}</button>}
-    {open && !selected && <ReportRecipientsDialog rows={rows} month={period.month} busy={busy} error={error || contactError} onOpen={student => setSelected({ id: student.id, month: period.month })} onSent={markSent} onClose={dismiss} />}
+    {showEntry && <button type="button" className="parent-report-reminder__entry" onClick={() => { setOpen(period.month); setError(''); }}><FileText size={17} />Отчёты родителям{pending > 0 && <b>{pending}</b>}</button>}
+    {open && !selected && <ReportRecipientsDialog rows={rows} month={reportMonth} busy={busy} error={error || contactError} onOpen={student => setSelected({ id: student.id, month: reportMonth })} onSent={markSent} onClose={dismiss} />}
     {selectedStudent && <StudentMonthlyReportModal key={selectedStudent.id} student={selectedStudent} initialMonth={selected.month} onStudentUpdated={onStudentUpdated} onClose={() => setSelected(null)} />}
   </>;
 }

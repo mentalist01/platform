@@ -205,6 +205,25 @@ export const getAssignedMonthlyMockExam = (exams, teacherId, month = getMonthlyM
   )) || null
 );
 
+// A designation belongs to a month, but its availability follows publication
+// dates. An empty/inaccessible draft cannot retire the last published exam.
+export const getActiveMonthlyMockAssignment = (exams, teacherId, now = Date.now()) => {
+  const publications = (Array.isArray(exams) ? exams : []).flatMap(exam => {
+    if (exam?.access?.all !== true || !Object.keys(record(exam.tasks) ? exam.tasks : {}).length) return [];
+    return (normalizeMonthlyMockAssignments(exam.monthlyAssignments)[text(teacherId)] || [])
+      .map(month => ({ exam, month, ...getMonthlyMockPublication(exam, teacherId, month) }));
+  }).sort((a, b) => a.publishesAtMs - b.publishesAtMs || a.month.localeCompare(b.month));
+  const active = publications.filter(item => item.publishesAtMs <= Number(now)).at(-1);
+  if (!active) return null;
+  const next = publications.find(item => item.publishesAtMs > active.publishesAtMs);
+  return { ...active, endsAtMs: next?.publishesAtMs ?? null };
+};
+
+export const isMonthlyMockReleased = (exam, teacherId, now = Date.now()) => {
+  const months = normalizeMonthlyMockAssignments(exam?.monthlyAssignments)[text(teacherId)] || [];
+  return !months.length || months.some(month => isMonthlyMockPublished(exam, teacherId, month, now));
+};
+
 // Replace only this teacher's designation for this month; keep earlier months.
 export const updateMonthlyMockAssignment = (exams, { examId, teacherId, month, assigned, publicationDay }) => exams.map(exam => {
   const assignments = normalizeMonthlyMockAssignments(exam.monthlyAssignments);

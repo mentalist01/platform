@@ -32,7 +32,7 @@ internal static class LiveOfficePreference
         var engine = Choose(file);
         if (engine == "calc")
         {
-            var start = new ProcessStartInfo(LiveOfficeProcess.FindCalc()) { UseShellExecute = false };
+            var start = new ProcessStartInfo(Path.Combine(LiveOfficeProcess.FindCalc(), "soffice.exe")) { UseShellExecute = false };
             start.ArgumentList.Add("--calc");
             start.ArgumentList.Add(file);
             Process.Start(start);

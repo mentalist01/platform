@@ -59,7 +59,7 @@ internal static class SelfTest
             TestBuiltInTrustPolicy();
             TestMarkOfTheWeb(temporaryDirectory);
             TestPackageIdentity();
-            TestInstallerFallback();
+            TestInstallerCopy(temporaryDirectory);
             TestSessionKeys();
             TestSolutionNamingContract();
             TestStableSnapshot(temporaryDirectory).GetAwaiter().GetResult();
@@ -120,6 +120,7 @@ internal static class SelfTest
         File.WriteAllBytes(Path.Combine(stage, "package.exe"), bytes);
         var target = Path.Combine(directory, "old-helper.exe");
         File.WriteAllText(target, "previous helper");
+        File.SetAttributes(target, FileAttributes.ReadOnly);
         HelperUpdater.InstallVerified(stage, target, release, runSelfTest: false);
         Assert(File.ReadAllText(target + ".previous") == "previous helper", "Atomic update must preserve the old executable");
         HelperUpdater.VerifyExecutable(target, release);
@@ -348,11 +349,27 @@ internal static class SelfTest
             "MOTW failure path was reported as successful");
     }
 
-    private static void TestInstallerFallback()
+    private static void TestInstallerCopy(string directory)
     {
-        Assert(Installer.IsExistingInstallFallback(new IOException(), true), "Locked install IOException fallback failed");
-        Assert(Installer.IsExistingInstallFallback(new UnauthorizedAccessException(), true), "Locked install access fallback failed");
-        Assert(!Installer.IsExistingInstallFallback(new UnauthorizedAccessException(), false), "Missing install must not be reused");
+        var source = Path.Combine(directory, "new-install.exe");
+        var target = Path.Combine(directory, "existing-install.exe");
+        File.WriteAllText(source, "new helper"); File.WriteAllText(target, "old helper");
+          File.SetAttributes(target, FileAttributes.ReadOnly);
+        using (var locked = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Exception? blocked = null;
+            try { Installer.CopyForInstall(source, target); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { blocked = error; }
+            Assert(blocked is not null, "A locked executable must prevent installation rather than silently reuse the old version");
+            Assert(File.ReadAllText(target) == "old helper", "A locked install must stay intact and cannot be reported as updated");
+            Assert(!Directory.EnumerateFiles(directory, "existing-install.exe.*.new").Any(), "Failed manual update left an incomplete executable");
+              Assert(File.GetAttributes(target).HasFlag(FileAttributes.ReadOnly), "A failed install must restore the previous file attributes");
+        }
+        Installer.CopyForInstall(source, target);
+        Assert(File.ReadAllText(target) == "new helper", "Retry after closing the old helper must install the new bytes");
+          Assert(!File.GetAttributes(target).HasFlag(FileAttributes.ReadOnly), "A read-only old executable must not block future updates");
+        using (var locked = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Installer.CopyForInstall(source, target); // The identical installed version needs no replacement.
     }
 
     private static void TestSessionKeys()

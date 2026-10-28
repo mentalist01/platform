@@ -5,6 +5,16 @@ import {getMonthlyMockAttemptPolicy,getBestMonthlyMockAttempt,mockAttemptMonth} 
 const tasks={1:{},4:{},10:{},11:{}};
 const exams=['06','07','08','09','10'].map((number,index)=>({id:`exam-${index+1}`,tasks,monthlyAssignments:{teacher:[`2026-${number}`]}}));
 const options={exams,exam:exams[4],teacherId:'teacher',month:'2026-10',now:Date.parse('2026-10-18T12:00Z')};
+test('calendar rollover preserves attempts until the next exam opens',()=>{
+  const exam={id:'oct',tasks,access:{all:true},monthlyAssignments:{teacher:['2026-10']}},next={id:'nov',tasks,access:{all:true},monthlyAssignments:{teacher:['2026-11']},monthlyPublicationDays:{teacher:{'2026-11':15}}};
+  const attempt={attemptId:'oct-first',attemptNumber:1,monthlyMockMonth:'2026-10',monthlyMockOrdinal:1,finishedAt:'2026-11-02T12:00Z',solved:{1:true}};
+  const data={mockAttempts:{oct:attempt}};
+  const policy=at=>getMonthlyMockAttemptPolicy({...options,exam,exams:[exam,next],studentData:data,now:Date.parse(at)});
+  assert.equal(policy('2026-11-14T20:59:59.999Z').archived,false);
+  assert.equal(policy('2026-11-14T20:59:59.999Z').canRestart,true);
+  assert.equal(policy('2026-11-14T20:59:59.999Z').usedAttempts,1);
+  assert.equal(policy('2026-11-14T21:00:00Z').archived,true);
+});
 test('the first four personal monthly exams allow three attempts, the fifth allows one',()=>{
   for(let i=0;i<5;i++)assert.equal(getMonthlyMockAttemptPolicy({...options,exam:exams[i],month:`2026-${String(i+6).padStart(2,'0')}`}).maxAttempts,i<4?3:1);
   const newcomer=getMonthlyMockAttemptPolicy({...options,studentCreatedAt:'2026-10-01T12:00Z'});

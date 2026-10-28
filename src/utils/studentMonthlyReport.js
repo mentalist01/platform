@@ -510,7 +510,7 @@ export const buildStudentMonthlyReport = ({
       return {
         ...entry,
         reportTimestamp: Number.isFinite(timestamp) ? timestamp : 0,
-        reportMonth: getMonthKeyFromTimestamp(timestamp || entry?.date),
+        reportMonth: normalizeStudentReportMonth(entry?.monthlyMockMonth) || getMonthKeyFromTimestamp(timestamp || entry?.date),
         reportScore: Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : null,
       };
     })

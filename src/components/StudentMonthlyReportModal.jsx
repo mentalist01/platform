@@ -19,7 +19,7 @@ import StudentParentContact from './StudentParentContact';
 import useStudentParentContacts from '../hooks/useStudentParentContacts';
 import { parentContactSnapshot } from '../services/studentParentContacts';
 import { copyParentMessage, normalizeStudentParentContact } from '../utils/studentParentContact';
-import { personalizeParentReport } from '../utils/parentReportReminder';
+import { personalizeParentReport, parentReportPeriod } from '../utils/parentReportReminder';
 import { composeParentReportFocus, REPORT_FOCUS_LABELS, updateUntouchedReportDrafts } from '../utils/studentReportFocus';
 
 const getCurrentMoscowMonth = () => {
@@ -290,7 +290,7 @@ const reportDrafts = (report, parentName, options) => ({
 
 const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUpdated }) => {
   const currentMonth = useMemo(getCurrentMoscowMonth, []);
-  const [month, setMonth] = useState(initialMonth || currentMonth);
+  const [month, setMonth] = useState(initialMonth || parentReportPeriod().month);
   const { contacts, error: contactError } = useStudentParentContacts(student?.id);
   const parentName = contacts[student?.id]?.name || '';
   let parentContact;

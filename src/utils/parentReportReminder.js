@@ -3,7 +3,11 @@ import { normalizeStudentParentContact } from './studentParentContact.js';
 export function parentReportPeriod(now = Date.now()) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit' })
     .formatToParts(new Date(now)).reduce((result, part) => { if (part.type !== 'literal') result[part.type] = part.value; return result; }, {});
-  return { month: `${parts.year}-${parts.month}`, date: `${parts.year}-${parts.month}-${parts.day}`, due: Number(parts.day) >= 25 };
+  const day = Number(parts.day);
+  const month = day <= 15
+    ? new Date(Date.UTC(Number(parts.year), Number(parts.month) - 2, 1)).toISOString().slice(0, 7)
+    : `${parts.year}-${parts.month}`;
+  return { month, date: `${parts.year}-${parts.month}-${parts.day}`, due: day >= 25 || day <= 15 };
 }
 
 export function parentReportRecipients(students = [], contacts = {}, month) {
@@ -20,9 +24,9 @@ export const parentReportSnoozeKey = (userId, month) => `ivan100:parent-report-r
 export function readParentReportSnooze(userId, month, storage) {
   try { return storage?.getItem(parentReportSnoozeKey(userId, month)) || ''; } catch { return ''; }
 }
-export function snoozeParentReports(userId, now, storage) {
+export function snoozeParentReports(userId, now, storage, month = parentReportPeriod(now).month) {
   const until = parentReportPeriod(Number(now) + 24 * 60 * 60_000).date;
-  try { storage?.setItem(parentReportSnoozeKey(userId, parentReportPeriod(now).month), until); } catch { /* The current tab can still dismiss. */ }
+  try { storage?.setItem(parentReportSnoozeKey(userId, month), until); } catch { /* The current tab can still dismiss. */ }
   return until;
 }
 

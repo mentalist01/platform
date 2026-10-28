@@ -72,7 +72,8 @@ export default function MonthlyMockExamStatus({ role, userId, activeStudentId, s
     const [year, month] = data.currentMonth.split('-').map(Number);
     return getMonthlyMockPeriod(new Date(Date.UTC(year, month - 1 - index, 1)).toISOString().slice(0, 7));
   }) : [];
-  const current = data?.period.month === data?.currentMonth;
+  if (data && !months.some(period => period.month === data.period.month)) months.push(data.period);
+  const current = data?.period.month === (data?.activeMonth || data?.currentMonth);
   const updateExemption = async (row) => {
     if (!data || updatingStudentId) return;
     const exempt = row.status !== 'exempt';
@@ -125,11 +126,11 @@ export default function MonthlyMockExamStatus({ role, userId, activeStudentId, s
     {error && <p className="monthly-mock__error" role="status">{data ? 'Показаны последние полученные данные. ' : ''}{error}</p>}
     {teacher && expanded && <div id="monthly-mock-roster" className="monthly-mock__roster">
       <div className="monthly-mock__filters">
-        <label>Месяц<select value={selectedMonth || data?.currentMonth || ''} onChange={(e) => setSelectedMonth(e.target.value === data?.currentMonth ? '' : e.target.value)}>{months.map((period) => <option key={period.month} value={period.month}>{period.label}</option>)}</select></label>
+        <label>Месяц<select value={selectedMonth || data?.period.month || ''} onChange={(e) => setSelectedMonth(e.target.value === (data?.activeMonth || data?.currentMonth) ? '' : e.target.value)}>{months.map((period) => <option key={period.month} value={period.month}>{period.label}</option>)}</select></label>
         <div className="monthly-mock__tabs" aria-label="Фильтр учеников">{[['pending', 'Не прошли'], ['completed', 'Прошли'], ['exempt', 'Не нужно'], ['all', 'Все']].map(([value, label]) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
         <input type="search" aria-label="Найти ученика по имени" placeholder="Найти ученика" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
-      <p className="monthly-mock__help">Один завершённый пробник за календарный месяц, с любым результатом. Часовой пояс — Москва. Отдельные задания из пробника не засчитываются.</p>
+      <p className="monthly-mock__help">Пробник остаётся доступен до открытия следующего. Результат сохраняется за месяц назначения. Часовой пояс — Москва. Отдельные задания из пробника не засчитываются.</p>
       <div className="monthly-mock__rows">{filteredRows.map((row) => <div key={row.studentId} className="monthly-mock__row" data-selected={row.studentId === activeStudentId}>
         <div className="monthly-mock__person"><strong>{names.get(row.studentId) || row.name}</strong>{row.completion && <small>{row.completion.title}</small>}</div>
         <Status row={row} />
