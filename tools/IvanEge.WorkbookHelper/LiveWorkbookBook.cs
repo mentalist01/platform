@@ -115,6 +115,21 @@ internal sealed class LiveWorkbookBook
         }
         return changes;
     }
+    public static JsonArray Differences(JsonObject before, JsonObject after, JsonObject versions, long structureRevision,
+        IReadOnlyCollection<(string Sheet, string Address, string Property)> touched)
+    {
+        var changes = new JsonArray();
+        var previous = before["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!);
+        var current = after["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!);
+        foreach (var (id, address, property) in touched)
+        {
+            if (!previous.TryGetValue(id, out var old) || !current.TryGetValue(id, out var sheet)) continue;
+            var value = (sheet["cells"]![address] ?? EmptyCell())[property]; var prior = (old["cells"]![address] ?? EmptyCell())[property];
+            if (JsonNode.DeepEquals(value, prior)) continue;
+            changes.Add(new JsonObject { ["sheetId"] = id, ["address"] = address, ["property"] = property, ["value"] = value?.DeepClone(), ["baseVersion"] = versions[$"{id}/{address}/{property}"]?.GetValue<long>() ?? structureRevision });
+        }
+        return changes;
+    }
     public static bool Structural(JsonObject before, JsonObject after, JsonArray changes)
     {
         if (!SameSheets(before, after)) return true;

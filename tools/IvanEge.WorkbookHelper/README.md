@@ -119,3 +119,10 @@ Large-book recovery serialization streams stable nodes under the existing workbo
 An unopened workbook request stays in the tray queue until the automatic update check finishes. A verified staged release takes priority over queued requests at a safe point, and the existing updater forwards those requests to the new process. Checks use a five-second manifest deadline; downloads are bounded to 90 seconds to keep the three-minute launch ticket valid. Network or update-launch failure opens the current version instead of trapping the request. Open or unsaved sessions still block replacement. The launch gate is covered by native self-tests, including concurrent checks, pending requests, disabled updates and retry backoff.
 
 Presence uses a distinct color per active participant (up to the existing 32-person limit), stable across cursor changes and same-actor reconnect. The native overlay draws only the border and a four-pixel corner marker. Names and color keys are in the tray menu, away from workbook contents; typing previews remain transient.
+
+
+## Sparse reconciliation and hover names · 1.5.6
+
+After complete convergence the client tracks touched cell properties and compares/applies only that set. A full snapshot, structural replacement, filter event or oversized set invalidates this shortcut. Conditional native writes still compare the expected value; skipped properties retain their original version until explicit conflict resolution or successful application. Local pending recovery is flushed before send using the unchanged schema. Native Calc/Excel checks cover a concurrent unsubmitted edit injected between receiving state and applying its delta.
+
+Presence is a click-through, non-topmost window owned by the spreadsheet's root window. It remains visible on uncovered cells after focus changes, follows the native z-order and hides for a hidden/minimized workbook or expired frame. Hover hit-testing is clipped to the sheet viewport and shows the peer's name beside the pointer; no label is drawn otherwise. Names never enter workbook contents or undo history.

@@ -66,6 +66,8 @@ internal static class SelfTest
             TestFlatWorkbookSnapshot(temporaryDirectory).GetAwaiter().GetResult();
             TestHashValidation();
             TestLiveWorkbookXml();
+            TestSparseWorkbookDifferences();
+            TestPresenceHover();
             TestOfficePreference();
             TestUpdateAuthentication(temporaryDirectory);
             TestUpdateLaunchOrder();
@@ -199,6 +201,36 @@ internal static class SelfTest
         var scheme = XElement.Parse("<clrScheme><accent1><srgbClr val='4472C4'/></accent1></clrScheme>");
         Assert(LiveWorkbookXml.Fill(solid, scheme, null) == 0xffffff, "Theme tint to white");
         color.SetAttributeValue("tint", -1); Assert(LiveWorkbookXml.Fill(solid, scheme, null) == 0, "Theme tint to black");
+    }
+
+    private static void TestSparseWorkbookDifferences()
+    {
+        var before = System.Text.Json.Nodes.JsonNode.Parse("""{"sheets":[{"id":"s1","name":"Лист1","cells":{"A1":{"content":{"kind":"number","value":12},"fill":null},"B2":{"content":{"kind":"empty"},"fill":123}}},{"id":"s2","name":"Лист2","cells":{"C3":{"content":{"kind":"text","value":"до"},"fill":null}}}]}""")!.AsObject();
+        var after = (System.Text.Json.Nodes.JsonObject)before.DeepClone();
+        after["sheets"]![0]!["cells"]!["A1"]!["content"] = System.Text.Json.Nodes.JsonNode.Parse("""{"kind":"formula","value":"=SUM(B1:B3)"}""");
+        after["sheets"]![0]!["cells"]!.AsObject().Remove("B2");
+        after["sheets"]![1]!["cells"]!["C3"]!["content"]!["value"] = "после";
+        after["sheets"]![1]!["cells"]!["D4"] = System.Text.Json.Nodes.JsonNode.Parse("""{"content":{"kind":"boolean","value":true},"fill":255}""");
+        var versions = System.Text.Json.Nodes.JsonNode.Parse("""{"s1/A1/content":7,"s2/C3/content":12}""")!.AsObject();
+        var touched = new HashSet<(string Sheet, string Address, string Property)>();
+        foreach (var (sheet, address) in new[] { ("s1", "A1"), ("s1", "B2"), ("s2", "C3"), ("s2", "D4"), ("s1", "Z9") })
+        { touched.Add((sheet, address, "content")); touched.Add((sheet, address, "fill")); }
+        var full = LiveWorkbookBook.Differences(before, after, versions, 3);
+        var sparse = LiveWorkbookBook.Differences(before, after, versions, 3, touched);
+        Assert(full.Count == sparse.Count, "Sparse sync dropped cell content, a deletion, a fill or another sheet");
+        foreach (var change in full)
+            Assert(sparse.Any(other => System.Text.Json.Nodes.JsonNode.DeepEquals(change, other)), "Sparse sync changed a value or its conflict version");
+        Assert(LiveWorkbookBook.Differences(after, after, versions, 3, touched).Count == 0, "Unchanged touched properties must not create edits");
+        Assert(LiveWorkbookBook.Structural(before, after, full) == LiveWorkbookBook.Structural(before, after, sparse), "Sparse sync must retain structural-change guards");
+    }
+
+    private static void TestPresenceHover()
+    {
+        var frame = System.Text.Json.Nodes.JsonNode.Parse("""{"view":[20,40,500,400],"marks":[{"bounds":[40,60,120,50],"name":"Учитель","color":"#8b5cf6"},{"bounds":[100,90,100,40],"name":"Ученик","color":"#0d9488"},{"bounds":[0,0,10,10],"name":"За пределами листа","color":"#2563eb"}]}""")!.AsObject();
+        Assert(LivePresenceOverlay.HitTest(frame, new System.Drawing.Point(45, 65))?["name"]!.GetValue<string>() == "Учитель", "Hover must identify a participant only inside the marked range");
+        Assert(LivePresenceOverlay.HitTest(frame, new System.Drawing.Point(110, 95))?["name"]!.GetValue<string>() == "Ученик", "Overlapping marks must identify the visible top range");
+        Assert(LivePresenceOverlay.HitTest(frame, new System.Drawing.Point(300, 300)) is null, "An unmarked cell must not show an old participant name");
+        Assert(LivePresenceOverlay.HitTest(frame, new System.Drawing.Point(5, 5)) is null, "Hover must stay within the workbook viewport");
     }
 
     private static void TestPackageIdentity()

@@ -8,7 +8,7 @@ param(
     [string]$PackageIdentityName = 'IvanNaSotku.WorkbookHelper.Dev',
     [string]$PackagePublisher = 'CN=Ivan na sotku',
     [string]$PublisherDisplayName = 'Иван на сотку',
-    [string]$PackageVersion = '1.5.5.0',
+    [string]$PackageVersion = '1.5.6.0',
 
     [string]$CertificateThumbprint = '',
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
@@ -107,7 +107,7 @@ function Invoke-CodeSigning {
     if (-not $certificate.HasPrivateKey -or $certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow -or $certificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow) {
         throw 'The code-signing certificate must be current and have access to its private key.'
     }
-    $codeSigningUsage = $certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' } | ForEach-Object { $_.EnhancedKeyUsages } | Where-Object { $_.Value -eq '1.3.6.1.5.5.7.3.3' }
+    $codeSigningUsage = $certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' } | ForEach-Object { $_.EnhancedKeyUsages } | Where-Object { $_.Value -eq '1.3.6.1.5.6.7.3.3' }
     if ($certificate.Subject -eq $certificate.Issuer -or -not $codeSigningUsage) {
         throw 'Public downloads require an issued Code Signing certificate. A self-signed or TLS certificate is not sufficient.'
     }

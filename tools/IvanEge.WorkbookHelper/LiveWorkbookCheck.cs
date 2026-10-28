@@ -171,6 +171,21 @@ internal static class LiveWorkbookCheck
             var peer = await pupil.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "E1" }, token);
             Ensure(peer["value"]!.GetValue<double>() == 55, "Conflict resolution overwrote unrelated peer changes");
         });
+        await Check("A native edit made during a remote delta is retained and becomes an explicit conflict", async () =>
+        {
+            bool injected = false;
+            faults.AfterState = async () => { injected = true; await Edit(pupil, "W2", Number(999)); };
+            await Edit(teacher, "W2", Number(111)); await teacher.TickAsync(token);
+            for (int round = 0; round < 12 && !injected; round++) { await pupil.PollAsync(token); await Task.Delay(30, token); }
+            Ensure(injected, "The remote-delta race was not exercised");
+            var local = await pupil.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "W2" }, token);
+            Ensure(local["value"]!.GetValue<double>() == 999, "A remote delta overwrote a concurrent unsubmitted native edit");
+            for (int round = 0; round < 3 && !pupil.Conflicted; round++) await pupil.TickAsync(token);
+            Ensure(pupil.Conflicted, "A skipped remote property lost its original conflict version");
+            await pupil.ResolveAsync(true, token); await Settle();
+            local = await teacher.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "W2" }, token);
+            Ensure(local["value"]!.GetValue<double>() == 999, "Explicit resolution did not converge after a skipped delta");
+        });
         await Check("Boolean values, theme fill and native Excel fill-down round-trip", async () =>
         {
             await Edit(teacher, "H1", new() { ["kind"] = "boolean", ["value"] = true });
@@ -283,6 +298,9 @@ internal static class LiveWorkbookCheck
                 await teacher.Office.CommandAsync(new() { ["type"] = "select", ["sheetName"] = sheet, ["ranges"] = new JsonArray(new JsonArray(1,34,1,34)) }, token);
                 await teacher.PollAsync(token); await pupil.PollAsync(token);
                 long before = pupil.Office.SnapshotCount, senderBefore = teacher.Office.SnapshotCount; var timer = Stopwatch.StartNew();
+                var timings = new System.Collections.Concurrent.ConcurrentDictionary<string, double>();
+                teacher.Timing = (stage, ms) => timings.AddOrUpdate("sender/" + stage, ms, (_, prior) => prior + ms);
+                pupil.Timing = (stage, ms) => timings.AddOrUpdate("recipient/" + stage, ms, (_, prior) => prior + ms);
                 await Edit(teacher, "AI2", Number(700 + round));
                 while (true)
                 {
@@ -293,7 +311,8 @@ internal static class LiveWorkbookCheck
                     await Task.Delay(50, token);
                 }
                 Ensure(pupil.Office.SnapshotCount - before <= 1, "A remote cell edit repeatedly exported the full recipient workbook");
-                checks.Add(new JsonObject { ["name"] = "large-book-cell-latency", ["ms"] = timer.ElapsedMilliseconds, ["senderExports"] = teacher.Office.SnapshotCount - senderBefore, ["recipientExports"] = pupil.Office.SnapshotCount - before, ["passed"] = true });
+                teacher.Timing = pupil.Timing = null;
+                checks.Add(new JsonObject { ["name"] = "large-book-cell-latency", ["ms"] = timer.ElapsedMilliseconds, ["senderExports"] = teacher.Office.SnapshotCount - senderBefore, ["recipientExports"] = pupil.Office.SnapshotCount - before, ["timings"] = System.Text.Json.JsonSerializer.SerializeToNode(timings.ToDictionary(entry => entry.Key, entry => Math.Round(entry.Value, 2))), ["passed"] = true });
             }
         });
         await Check("Ctrl-S equivalent stores the merged binary on the board and in notes", async () =>
@@ -355,12 +374,15 @@ internal static class LiveWorkbookCheck
     private sealed class ConnectionFaults : DelegatingHandler
     {
         public bool BeforeSync, AfterSync;
+        public Func<Task>? AfterState;
         public ConnectionFaults() : base(new HttpClientHandler { AllowAutoRedirect = false }) { }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             bool sync = request.RequestUri!.AbsolutePath.EndsWith("/live/sync", StringComparison.Ordinal);
             if (sync && BeforeSync) { BeforeSync = false; throw new HttpRequestException("Injected offline connection"); }
             var response = await base.SendAsync(request, token);
+            if (request.RequestUri.AbsolutePath.EndsWith("/live/state", StringComparison.Ordinal) && AfterState is { } callback)
+            { AfterState = null; await callback(); }
             if (sync && AfterSync) { AfterSync = false; response.Dispose(); throw new HttpRequestException("Injected lost receipt"); }
             return response;
         }
