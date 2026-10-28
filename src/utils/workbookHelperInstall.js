@@ -1,4 +1,4 @@
-export const WORKBOOK_HELPER_WINDOWS_ZIP_URL = '/downloads/IvanEgeWorkbookHelper.zip?v=1.5.6.0';
+export const WORKBOOK_HELPER_WINDOWS_ZIP_URL = '/downloads/IvanEgeWorkbookHelper.zip?v=1.5.7.0';
 export const WORKBOOK_HELPER_INFORMATION_URL = '/workbook-helper/';
 const DEFAULT_WORKBOOK_HELPER_INSTALL_URL = WORKBOOK_HELPER_WINDOWS_ZIP_URL;
 export const WORKBOOK_HELPER_MAC_INSTALL_URL = '/assets/IVAN100-WorkbookHelper-Mac-0.1.0.zip';

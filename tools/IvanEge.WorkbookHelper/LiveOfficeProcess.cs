@@ -62,7 +62,9 @@ internal sealed class LiveOfficeProcess : IDisposable
                 AppLog.Info("Office bridge startup diagnostics: " + bridge._diagnostics.Result);
             bridge.Dispose();
             if (error is OperationCanceledException) throw;
-            string reason = error.Message.Contains("URP bridge", StringComparison.OrdinalIgnoreCase)
+            string reason = error is TimeoutException
+                ? "Программа не завершила открытие за 50 секунд. Проверьте, не ждёт ли окно Excel или LibreOffice подтверждения, активации или восстановления файла. Затем нажмите «Решать» ещё раз."
+                : error.Message.Contains("URP bridge", StringComparison.OrdinalIgnoreCase)
                 ? "LibreOffice прервал соединение во время открытия."
                 : error.Message;
             throw new InvalidOperationException("Не удалось открыть общую таблицу в " + (engine == "excel" ? "Excel" : "LibreOffice") + ": " + reason, error);

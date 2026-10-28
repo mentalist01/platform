@@ -6,6 +6,7 @@ import {BLANK_WORKBOOK_ODS} from './blankWorkbook.js';
 import {liveDigest,LIVE_WORKBOOK_LIMITS} from './workbookLiveState.js';
 import {WorkbookLivePresence} from './workbookLivePresence.js';
 import {createWorkbookLiveEvents} from './workbookLiveEvents.js';
+import {workbookFallbackDiagnostic} from './workbookFallback.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const teacher=auth=>['teacher','admin'].includes(auth?.role);
@@ -20,7 +21,7 @@ const seed=(store,card,asset)=>card.solutions[asset.id]||{...asset,...(isText(as
 export function workbookLiveView(store,run,card,assetId){
   const mode=card.liveWorkbooks?.[assetId];if(!mode?.enabled)return null;
   const state=store.liveWorkbooks.read(mode.key).state;
-  return {enabled:true,initialized:Boolean(state),revision:state?.revision||0,checkpointRevision:state?.checkpointRevision||0,minimumHelper,windowsOnly:true};
+  return {enabled:true,initialized:Boolean(state),revision:state?.revision||0,checkpointRevision:state?.checkpointRevision||0,minimumHelper,windowsOnly:true,ordinaryFallback:mode.ordinaryFallback===true};
 }
 
 export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,allowContent=()=>true}={}){
@@ -51,7 +52,17 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     req.liveWorkbook=await session(req);next();
   });
   store.liveEvents=createWorkbookLiveEvents({session,presence,store});
+  const fallback=async({run,card,asset,mode},input)=>{
+    mode.ordinaryFallback=true;
+    mode.launchFailures=[...(mode.launchFailures||[]),workbookFallbackDiagnostic(input,store.now())].slice(-20);
+    run.version++;store.save(run);await store.notify(run,'file',card.id);
+  };
   store.registerLiveBoardRoutes=()=>{
+  app.get('/api/lesson-task-runs/:id/live/diagnostics',handler(async(req,res)=>{
+    const {run,card,asset}=await authorize(req.auth,req.params.id,req.query.cardId,req.query.assetId);
+    if(!teacher(req.auth)||run.teacherId!==req.auth.id)fail(403,'Диагностика доступна преподавателю доски');
+    res.setHeader('Cache-Control','no-store');res.json({events:card.liveWorkbooks?.[asset.id]?.launchFailures||[]});
+  }));
   app.post('/api/lesson-task-runs/:id/live',handler(async(req,res)=>{
     const result=await store.lock(async()=>{
       const {run,card,asset}=await authorize(req.auth,req.params.id,req.body.cardId,req.body.assetId);
@@ -96,12 +107,13 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
         if(card.bindings?.[asset.id]){card.bindings[asset.id].generation++;card.bindings[asset.id].until=0;delete card.bindings[asset.id].resumedGeneration;}
         run.version++;store.save(run);await store.notify(run,'file',card.id);
       }
+      if(req.body.ordinary===true&&mode?.enabled)await fallback({...context,mode},{kind:'ManualOrdinaryOpen',engine:'auto'});
       return {...context,mode};
     });
     if(!mode?.enabled)fail(409,'Преподаватель ещё не включил совместную таблицу');
     const now=store.now();for(const [key,entry]of tickets)if(entry.expires<now)tickets.delete(key);
     if(tickets.size>=1000)fail(429,'Слишком много запусков помощника');
-    const ticket='wl_'+crypto.randomBytes(32).toString('base64url');tickets.set(liveDigest(ticket),{runId:run.id,cardId:card.id,assetId:asset.id,epoch:mode.epoch,auth:{id:req.auth.id,role:req.auth.role,name:req.auth.name},expires:now+180000,live:true});
+    const ticket='wl_'+crypto.randomBytes(32).toString('base64url');tickets.set(liveDigest(ticket),{runId:run.id,cardId:card.id,assetId:asset.id,epoch:mode.epoch,auth:{id:req.auth.id,role:req.auth.role,name:req.auth.name},expires:now+180000,live:true,fallback:mode.ordinaryFallback===true});
     res.status(201).json({ticket,minimumHelper});
   }));
   };
@@ -118,7 +130,7 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     const source=seed(store,card,asset),token='wl_'+crypto.randomBytes(32).toString('base64url'),expires=store.now()+30*86400000;
     store.data.sessions[liveDigest(token)]={...entry,expires,filtersSupported:true};tickets.delete(hash);store.save();
     res.setHeader('Cache-Control','no-store');res.json({token,workbookKey:mode.key,fileName:source.name,solutionName:source.name,revision:source.revision||0,contentHash:source.hash,requiresName:false,expiresAt:new Date(expires).toISOString(),
-      live:{protocol:1,filtersSupported:true,eventsSupported:true,epoch:mode.epoch,actorId:liveDigest(actor(entry.auth)),sessionId:liveDigest(token).slice(0,24),limits:LIVE_WORKBOOK_LIMITS},
+      live:entry.fallback?null:{protocol:1,filtersSupported:true,eventsSupported:true,epoch:mode.epoch,actorId:liveDigest(actor(entry.auth)),sessionId:liveDigest(token).slice(0,24),limits:LIVE_WORKBOOK_LIMITS},
       sourceText:isText(asset)?{fileName:asset.name,contentHash:asset.hash,sizeBytes:asset.size}:null});
   }));
   app.get('/workbook-helper/v1/content',intercept,handler(async(req,res,next)=>{
@@ -130,7 +142,18 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     if(!req.liveWorkbook)return next();const {asset}=req.liveWorkbook;if(!isText(asset)||asset.size>16*1024*1024)fail(404,'Исходный текст недоступен');
     res.setHeader('Cache-Control','no-store');res.setHeader('X-Source-Text-Content-Hash',asset.hash);res.attachment(asset.name);res.sendFile(store.assetFile(asset));
   }));
-  app.put('/workbook-helper/v1/content',intercept,handler(async(req,res,next)=>{if(!req.liveWorkbook)return next();fail(409,'В совместном режиме сохраняется общая версия таблицы, а не отдельная копия.');}));
+  app.put('/workbook-helper/v1/content',intercept,(req,res,next)=>req.liveWorkbook?.entry.fallback?uploads.single('file')(req,res,next):next(),handler(async(req,res,next)=>{
+    if(!req.liveWorkbook)return next();const {entry,mode,run,card,asset}=req.liveWorkbook;
+    if(!entry.fallback)fail(409,'В совместном режиме сохраняется общая версия таблицы, а не отдельная копия.');
+    if(!req.file)fail(400,'Файл не получен');
+    const result=await store.lock(()=>store.saveSolution({auth:entry.auth,run,card,assetId:asset.id,buffer:req.file.buffer,name:req.file.originalname,revision:card.solutions[asset.id]?.revision||0,hash:req.body.contentHash,viaHelper:true,liveEpoch:mode.epoch,ordinaryFallback:true}));
+    res.json({ok:true,revision:result.revision,contentHash:result.hash,fileName:result.name,solutionName:result.name,requiresName:false});
+  }));
+  app.post('/workbook-helper/v1/live/fallback',intercept,handler(async(req,res)=>{
+    if(!req.liveWorkbook)fail(401,'Требуется доступ помощника');
+    await store.lock(async()=>{await fallback(req.liveWorkbook,req.body);req.liveWorkbook.entry.fallback=true;store.save();});
+    res.json({ok:true,ordinaryFallback:true});
+  }));
   app.get('/workbook-helper/v1/live/state',intercept,handler(async(req,res)=>{
     if(!req.liveWorkbook)fail(401,'Требуется доступ совместного помощника');res.setHeader('Cache-Control','no-store');res.json({...store.liveWorkbooks.response(req.liveWorkbook.mode.key,Number(req.query.since??-1)),fileRevision:req.liveWorkbook.card.solutions[req.liveWorkbook.asset.id]?.revision||0});
   }));

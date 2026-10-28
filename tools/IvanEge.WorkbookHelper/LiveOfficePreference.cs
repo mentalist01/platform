@@ -29,7 +29,9 @@ internal static class LiveOfficePreference
 
     public static void OpenSeparateWorkbook(string file)
     {
-        var engine = Choose(file);
+        string engine;
+        try { engine = Choose(file); }
+        catch (InvalidOperationException) { WorkbookFallback.Open(file); return; }
         if (engine == "calc")
         {
             var start = new ProcessStartInfo(Path.Combine(LiveOfficeProcess.FindCalc(), "soffice.exe")) { UseShellExecute = false };

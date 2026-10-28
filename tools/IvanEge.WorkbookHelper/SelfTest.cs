@@ -71,6 +71,8 @@ internal static class SelfTest
             TestOfficePreference();
             TestUpdateAuthentication(temporaryDirectory);
             TestUpdateLaunchOrder();
+            TestWorkbookOpenFailure();
+            TestWorkbookFallback(temporaryDirectory);
             TryDelete(ReportPath);
             return 0;
         }
@@ -90,6 +92,24 @@ internal static class SelfTest
                 // Test cleanup is best effort.
             }
         }
+    }
+    private static void TestWorkbookOpenFailure()
+    {
+        var error = new System.Runtime.InteropServices.COMException("Class not registered", unchecked((int)0x80040154));
+        var message = WorkbookOpenFailure.AtStage("Excel", "запуск приложения", error);
+        Assert(message.Contains("запуск приложения") && message.Contains("Class not registered") && message.Contains("0x80040154"), "A startup failure must preserve the stage, native reason and HRESULT");
+        Assert(WorkbookOpenFailure.Details(message).Contains(HelperUpdater.CurrentVersion.ToString(3)), "Copied launch diagnostics must identify the running helper version");
+    }
+    private static void TestWorkbookFallback(string directory)
+    {
+        var source = Path.Combine(directory, "book.xlsx");
+        File.WriteAllText(source, "saved checkpoint");
+        var copy = WorkbookFallback.CreateCopy(source, new Uri("https://ivan100.ru"));
+        Assert(copy != source && File.ReadAllText(copy) == "saved checkpoint", "Fallback must open a distinct copy of the downloaded checkpoint");
+        File.WriteAllText(copy, "student local edit");
+        var second = WorkbookFallback.CreateCopy(source, new Uri("https://ivan100.ru"));
+        Assert(second != copy && File.ReadAllText(copy) == "student local edit" && File.ReadAllText(source) == "saved checkpoint", "A fallback retry must not overwrite the source or an edited ordinary copy");
+        Assert(WorkbookFallback.Explanation.Contains("автоматически сохраняет") && WorkbookFallback.Explanation.Contains("последнее сохранение"), "Fallback must explain automatic whole-file saving without claiming cell synchronization");
     }
     private static void TestUpdateLaunchOrder()
     {

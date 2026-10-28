@@ -126,3 +126,10 @@ Presence uses a distinct color per active participant (up to the existing 32-per
 After complete convergence the client tracks touched cell properties and compares/applies only that set. A full snapshot, structural replacement, filter event or oversized set invalidates this shortcut. Conditional native writes still compare the expected value; skipped properties retain their original version until explicit conflict resolution or successful application. Local pending recovery is flushed before send using the unchanged schema. Native Calc/Excel checks cover a concurrent unsubmitted edit injected between receiving state and applying its delta.
 
 Presence is a click-through, non-topmost window owned by the spreadsheet's root window. It remains visible on uncovered cells after focus changes, follows the native z-order and hides for a hidden/minimized workbook or expired frame. Hover hit-testing is clipped to the sheet viewport and shows the peer's name beside the pointer; no label is drawn otherwise. Names never enter workbook contents or undo history.
+
+
+## Ordinary opening after startup failure · 1.5.7
+
+If no native workbook was attached, a failed live startup requests a scoped ordinary grant before opening a distinct, protected copy through the system association. The existing file watcher uploads Ctrl+S saves to the board and notes. These explicit fallback sessions use last-save-wins for full files; ordinary tokens from the previous locked mode remain protected. Future opens of this asset use ordinary grants until its live mode is restarted. Existing native clients retain their own cell sessions; file saves follow the latest board version. A bounded server journal contains only version, engine, startup stage, HRESULT, error type and a redacted startup summary. Only the owning teacher can read the diagnostics API. No cell data or raw local log is uploaded.
+
+Excel is shown before importing/converting a workbook; fatal startup errors also have a persistent copyable window when Windows balloons are disabled. A failed startup with no attached office document does not indefinitely block a safe helper update.

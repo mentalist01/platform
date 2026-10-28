@@ -33,6 +33,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ConcurrentDictionary<string, byte> _handledSaveAsCandidates = new(StringComparer.OrdinalIgnoreCase);
     private WorkbookSession? _latestSession;
     private bool _processingRequest;
+    private WorkbookOpenFailureWindow? _openFailure;
     private string _statusText = "Ожидание задания с платформы";
     private string _lastNotification = string.Empty;
     private DateTime _lastNotificationAt = DateTime.MinValue;
@@ -262,7 +263,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             {
                 var existing = _sessionOrder.FirstOrDefault(session => session.IsLive && session.Grant.WorkbookKey == grant.WorkbookKey &&
                     session.Grant.Origin == grant.Origin);
-                if (existing is not null && !existing.IsLiveClosed)
+                if (existing is not null && (!existing.IsLiveClosed || existing.HasSeparateFallback))
                 {
                     if (request.Engine is "excel" or "calc" && request.Engine != existing.LiveEngine)
                         ShowNotification("Сначала закройте открытую таблицу", "Сохраните её через Ctrl+S, дождитесь сохранения на доске и закройте файл. Затем нажмите «Решать» с выбранной программой.", ToolTipIcon.Info);
@@ -397,7 +398,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             AppLog.Error("Protocol request failed", error);
             SetStatus("Не удалось открыть таблицу");
-            ShowNotification("Не удалось открыть таблицу", GetFriendlyError(error), ToolTipIcon.Error);
+            var message = GetFriendlyError(error);
+            ShowNotification("Не удалось открыть таблицу", message, ToolTipIcon.Error);
+            ShowOpenFailure(message);
         }
         finally
         {
@@ -415,6 +418,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
             if (sender is not WorkbookSession session || !ContainsSession(session)) return;
             SetStatus($"{session.FileName} · {status.Message}");
             UpdateSessionMenu();
+            if (session.HasSeparateFallback && status.Notify)
+                ShowOpenFailure(status.Message, ordinaryCopy: true);
+            if (status.Kind == WorkbookStatusKind.Error && session.IsLive && session.IsLiveClosed)
+                ShowOpenFailure(status.Message);
             if (status.Notify)
             {
                 ShowNotification(
@@ -751,10 +758,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _notifyIcon.ShowBalloonTip(4500, title, normalizedMessage.Length > 240 ? normalizedMessage[..237] + "…" : normalizedMessage, icon);
     }
 
+    private void ShowOpenFailure(string message, bool ordinaryCopy = false)
+    {
+        if (_openFailure is null || _openFailure.IsDisposed) _openFailure = new WorkbookOpenFailureWindow();
+        _openFailure.Present(message, ordinaryCopy);
+    }
+
     private static string GetFriendlyError(Exception error) => error switch
     {
         FormatException => error.Message,
         HelperApiException => error.Message,
+        InvalidOperationException => error.Message,
         UnauthorizedAccessException => "Windows не дал доступ к папке с решениями.",
         IOException => "Не удалось сохранить рабочую копию. Проверьте свободное место на диске.",
         _ => "Произошла непредвиденная ошибка. Попробуйте нажать «Решать» ещё раз."
@@ -827,6 +841,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         _updateLifetime.Cancel();
         _queueTimer.Stop();
+        _openFailure?.Dispose();
         foreach (var session in _sessionOrder.ToArray()) RemoveSession(session, dispose: true);
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();

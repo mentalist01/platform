@@ -39,7 +39,7 @@ test('Mac installs its experimental ZIP and never recommends the Windows exe', (
 
 test('Windows downloads the ZIP with extraction instructions and keeps configured Store links', () => {
   const installer = getWorkbookHelperInstall({ platform: 'Win32' });
-  assert.equal(installer.url, '/downloads/IvanEgeWorkbookHelper.zip?v=1.5.6.0');
+  assert.equal(installer.url, '/downloads/IvanEgeWorkbookHelper.zip?v=1.5.7.0');
   assert.equal(installer.isDownload, true);
   assert.equal(installer.saveShortcut, 'Ctrl+S');
   assert.match(installer.instructions, /Извлечь всё/);

@@ -7,7 +7,7 @@ namespace IvanEge.WorkbookHelper;
 
 internal sealed class LiveExcelBridge : IDisposable
 {
-    private readonly dynamic _app;
+    private readonly dynamic _app = null!;
     private readonly dynamic _book = null!;
     private readonly string _localPath;
     private readonly bool _hidden;
@@ -17,21 +17,38 @@ internal sealed class LiveExcelBridge : IDisposable
     public LiveExcelBridge(string source, string localPath, bool hidden)
     {
         _localPath = localPath; _hidden = hidden;
-        var type = Type.GetTypeFromProgID("Excel.Application") ?? throw new InvalidOperationException("Excel не установлен");
-        _app = Activator.CreateInstance(type)!;
+        string stage = "запуск приложения";
         try
         {
+            var type = Type.GetTypeFromProgID("Excel.Application") ?? throw new InvalidOperationException("Excel не установлен или не зарегистрирован для совместной работы. Можно использовать LibreOffice.");
+            _app = Activator.CreateInstance(type)!;
+            // Make first-run/activation dialogs visible before opening/importing
+            // a book. Hiding Excel until SaveAs can make startup look like no-op.
+            stage = "показ окна приложения";
+            _app.Visible = !hidden;
+            stage = "настройка безопасного открытия";
             _app.DisplayAlerts = false; _app.AutomationSecurity = 3; _app.AskToUpdateLinks = false;
+            stage = "открытие исходного файла";
             _book = _app.Workbooks.Open(Path.GetFullPath(source), UpdateLinks: 0, ReadOnly: false);
             // Excel imports a minimal ODS with zero named styles, then writes
             // an invalid empty cellStyles element on SaveAs. A named style is
             // required by OOXML even when no cell explicitly uses it.
+            stage = "подготовка формата общей таблицы";
             if ((int)_book.Styles.Count == 0) _book.Styles.Add("IVAN100");
+            stage = "сохранение рабочей копии XLSX";
             _book.SaveAs(localPath, 51); // Common file format, no macros.
-            _app.Visible = !hidden;
+            stage = "подключение изменений";
             _changes = new LiveExcelChanges(_app);
         }
-        catch { try { _app.Quit(); } finally { Release(_book); Release(_app); } throw; }
+        catch (Exception error)
+        {
+            var message = WorkbookOpenFailure.AtStage("Excel", stage, error);
+            AppLog.Error(message, error);
+            try { if (_app is not null) _app.Quit(); }
+            catch (Exception cleanup) { AppLog.Error("Could not close failed Excel startup", cleanup); }
+            finally { Release(_book); Release(_app); }
+            throw new InvalidOperationException(message, error);
+        }
     }
 
     private dynamic Sheet(string name) => _book.Worksheets[name];
