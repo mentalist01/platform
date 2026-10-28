@@ -39,7 +39,7 @@ function useRequests(includeWeekly = false) {
 }
 
 export function StudentLessonReschedule({onClose}) {
-  const [week,setWeek]=useState(()=>rescheduleWeek());const [key,setKey]=useState('');const [data,setData]=useState(null);
+  const [week,setWeek]=useState(()=>rescheduleWeek(0));const [key,setKey]=useState('');const [data,setData]=useState(null);
   const [target,setTarget]=useState(null);const [comment,setComment]=useState('');const [period,setPeriod]=useState('evening');const [day,setDay]=useState(0);
   const [loading,setLoading]=useState(true);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [sent,setSent]=useState(null);
   const {rows,reload}=useRequests();const [retry,setRetry]=useState(0);
@@ -54,7 +54,7 @@ export function StudentLessonReschedule({onClose}) {
     <div className="lr-footer-selection"><div><small>ПЕРЕНОСИМ · {lessonDateLabel(source.date)} · {source.time}</small><strong>{lessonDateLabel(target.date)} · {lessonTimeLabel(target)}</strong><span>Новое время · {source.durationMinutes} минут · после подтверждения учителем</span></div><button className="lr-primary" disabled={busy} onClick={submit}>{busy?<Loader2 className="animate-spin" size={17}/>:<Send size={17}/>}Запросить перенос</button></div>
     <details className="lr-comment"><summary>Добавить комментарий учителю</summary><label className="lr-field">Комментарий учителю<textarea maxLength={400} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Например, в этот день школьное мероприятие"/></label></details>
   </>}><div className="lr-body">
-    {error&&<div role="alert" className="lr-error">{error}<button onClick={()=>{setKey('');setWeek(rescheduleWeek());setRetry(n=>n+1);}}>Выбрать занятие заново</button></div>}
+    {error&&<div role="alert" className="lr-error">{error}<button onClick={()=>{setKey('');setWeek(rescheduleWeek(0));setRetry(n=>n+1);}}>Выбрать занятие заново</button></div>}
     {sent?<div className="lr-sent"><span className="lr-success-icon"><Check size={30}/></span><h3>Запрос отправлен учителю</h3><p>До подтверждения действует прежнее расписание. Ответ можно посмотреть в истории запросов в этом окне.</p><MoveSummary source={sent.source} target={sent.target}/><button className="lr-primary" onClick={onClose}>Понятно</button></div>:<>
       <p className="lr-intro">Выберите предстоящее или пропущенное занятие и новое время. Прошедшие занятия доступны за последние {RESCHEDULE_LOOKBACK_DAYS} дней. Остальные занятия останутся в расписании.</p>
       <SourceLessonPicker lessons={data?.lessons} selectedKey={key||data?.selectedKey} loading={loading} disabled={busy||loading} onChange={value=>{setTarget(null);setKey(value);}}/>
