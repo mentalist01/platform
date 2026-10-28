@@ -73,6 +73,7 @@ internal static class SelfTest
             TestUpdateLaunchOrder();
             TestWorkbookOpenFailure();
             TestWorkbookFallback(temporaryDirectory);
+            TestOfficeCompatibility(temporaryDirectory);
             TryDelete(ReportPath);
             return 0;
         }
@@ -110,6 +111,23 @@ internal static class SelfTest
         var second = WorkbookFallback.CreateCopy(source, new Uri("https://ivan100.ru"));
         Assert(second != copy && File.ReadAllText(copy) == "student local edit" && File.ReadAllText(source) == "saved checkpoint", "A fallback retry must not overwrite the source or an edited ordinary copy");
         Assert(WorkbookFallback.Explanation.Contains("автоматически сохраняет") && WorkbookFallback.Explanation.Contains("последнее сохранение"), "Fallback must explain automatic whole-file saving without claiming cell synchronization");
+    }
+    private static void TestOfficeCompatibility(string directory)
+    {
+        Assert(!OfficeCompatibility.NativeDirectorySuitable(Path.Combine(directory,new string('x',200))), "A native snapshot path must stay below Excel's 218-character limit");
+        Assert(!OfficeCompatibility.NativeDirectorySuitable(Path.Combine(directory,"task [1]")), "An Excel workspace must avoid unsupported brackets in its parents");
+        string workspace = OfficeCompatibility.WorkspacePath(directory, "compatibility");
+        Directory.CreateDirectory(workspace);
+        string source = Path.Combine(directory, "Условие [задания].xlsx");
+        File.WriteAllText(source, "original workbook");
+        var first = OfficeCompatibility.PrepareExcelSource(source, workspace, new Uri("https://ivan100.ru"));
+        File.WriteAllText(first, "previous working copy");
+        var second = OfficeCompatibility.PrepareExcelSource(source, workspace, new Uri("https://ivan100.ru"));
+        Assert(Path.GetFileName(second).StartsWith("input") && !Path.GetFileName(second).Contains('['), "Native Excel source must have a short compatible filename");
+        Assert(first != second && File.ReadAllText(first) == "previous working copy" && File.ReadAllText(source) == "original workbook", "Reopening must preserve previous working and original copies");
+        var info = OfficeCompatibility.ProgramInfo(source);
+        Assert(!info["programExecutable"]!.GetValue<string>().Contains(Path.DirectorySeparatorChar), "Editor diagnostics must not contain an executable directory");
+        Assert(!info.ToJsonString().Contains(directory), "Editor diagnostics must not contain the source path");
     }
     private static void TestUpdateLaunchOrder()
     {

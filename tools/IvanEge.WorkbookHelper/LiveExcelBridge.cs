@@ -27,14 +27,17 @@ internal sealed class LiveExcelBridge : IDisposable
             stage = "показ окна приложения";
             _app.Visible = !hidden;
             stage = "настройка безопасного открытия";
-            _app.DisplayAlerts = false; _app.AutomationSecurity = 3; _app.AskToUpdateLinks = false;
+            _app.DisplayAlerts = false; _app.AutomationSecurity = 3;
+            try { _app.AskToUpdateLinks = false; }
+            catch (Exception optional) when (optional is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException || optional.HResult is unchecked((int)0x80020003) or unchecked((int)0x8002802B))
+            { AppLog.Info("Excel does not expose AskToUpdateLinks; Workbooks.Open still disables link updates."); }
             stage = "открытие исходного файла";
-            _book = _app.Workbooks.Open(Path.GetFullPath(source), UpdateLinks: 0, ReadOnly: false);
+            _book = _app.Workbooks.Open(Path.GetFullPath(source), 0, false);
             // Excel imports a minimal ODS with zero named styles, then writes
             // an invalid empty cellStyles element on SaveAs. A named style is
             // required by OOXML even when no cell explicitly uses it.
             stage = "подготовка формата общей таблицы";
-            if ((int)_book.Styles.Count == 0) _book.Styles.Add("IVAN100");
+            if (Path.GetExtension(source).ToLowerInvariant() is ".ods" or ".fods" && (int)_book.Styles.Count == 0) _book.Styles.Add("IVAN100");
             stage = "сохранение рабочей копии XLSX";
             _book.SaveAs(localPath, 51); // Common file format, no macros.
             stage = "подключение изменений";

@@ -4,7 +4,7 @@ namespace IvanEge.WorkbookHelper;
 
 internal static class WorkbookOpenFailure
 {
-    public static System.Text.Json.Nodes.JsonObject Diagnostic(Exception error, string engine)
+    public static System.Text.Json.Nodes.JsonObject Diagnostic(Exception error, string engine, string? source = null)
     {
         string message = error.Message;
         var code = System.Text.RegularExpressions.Regex.Match(message, @"0x[\da-fA-F]{8}").Value;
@@ -13,8 +13,10 @@ internal static class WorkbookOpenFailure
         // Send startup metadata only. Raw native messages and local paths stay local.
         stage = System.Text.RegularExpressions.Regex.Replace(stage, @"(?:[A-Za-z]:\\|https?://|ticket=|token=).*", "[redacted]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         string summary = System.Text.RegularExpressions.Regex.Replace(message, @"(?:[A-Za-z]:\\|https?://|ticket=|token=)[^\r\n]*", "[redacted]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        return new() { ["version"] = HelperUpdater.CurrentVersion.ToString(3), ["engine"] = engine, ["code"] = code,
+        var result = new System.Text.Json.Nodes.JsonObject { ["version"] = HelperUpdater.CurrentVersion.ToString(3), ["engine"] = engine, ["code"] = code,
             ["stage"] = stage[..Math.Min(stage.Length, 100)], ["kind"] = error.GetType().Name, ["summary"] = summary[..Math.Min(summary.Length, 500)] };
+        if (source is not null) foreach (var item in OfficeCompatibility.ProgramInfo(source)) result[item.Key] = item.Value?.DeepClone();
+        return result;
     }
     public static string AtStage(string program, string stage, Exception error) =>
         $"{program}: {stage}.\n{error.Message}\nКод ошибки: 0x{unchecked((uint)error.HResult):X8}";

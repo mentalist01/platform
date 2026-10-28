@@ -47,6 +47,23 @@ internal sealed class HelperApiClient : IDisposable
         return ParseExchangeResponse(_origin, document.RootElement);
     }
 
+    public async Task ReportEditorAsync(WorkbookGrant grant, string engine)
+    {
+        if (!grant.Token.StartsWith("wl_", StringComparison.Ordinal)) return;
+        try
+        {
+            var data = await Task.Run(() => OfficeCompatibility.ProgramInfo(grant.FileName)).WaitAsync(TimeSpan.FromSeconds(2));
+            data["version"] = HelperUpdater.CurrentVersion.ToString(3);
+            data["engine"] = engine;
+            data["kind"] = "EditorDetected";
+            using var request = CreateAuthorizedRequest(HttpMethod.Post, grant, "/workbook-helper/v1/program");
+            request.Content = new StringContent(data.ToJsonString(), Encoding.UTF8, "application/json");
+            using var response = await SendAsync(request, HttpCompletionOption.ResponseContentRead, TimeSpan.FromSeconds(5), CancellationToken.None);
+            await EnsureSuccessAsync(response, CancellationToken.None);
+        }
+        catch (Exception error) { AppLog.Error("Could not report editor metadata; opening continues", error); }
+    }
+
     internal static WorkbookGrant ParseExchangeResponse(Uri origin, JsonElement root)
     {
         var workbook = TryGetObject(root, "workbook", out var nested) ? nested : root;

@@ -6,6 +6,7 @@ internal static class Program
     private static int Main(string[] arguments)
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        if (arguments.Length == 2 && arguments[0] == "--editor-info") { Console.WriteLine(OfficeCompatibility.ProgramInfo(arguments[1]).ToJsonString()); return 0; }
         if (arguments.FirstOrDefault() == "--apply-update") return HelperUpdater.Apply(arguments);
         if (arguments.Length == 3 && arguments[0] == "--verify-update-manifest") return HelperUpdater.VerifyPublished(arguments[1], arguments[2]);
         if (arguments.Length == 3 && arguments[0] == "--update-install-check") return SelfTest.CheckUpdateInstall(arguments[1], arguments[2]);

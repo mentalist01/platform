@@ -27,8 +27,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     public LiveWorkbookSession(HelperApiClient api, WorkbookGrant grant, string source, string? requestedEngine = null)
     {
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-        string directory = Path.Combine(Path.GetDirectoryName(source)!, "Совместная работа " + Guid.NewGuid().ToString("N")[..8]);
-        Directory.CreateDirectory(directory);
+        string directory = OfficeCompatibility.CreateWorkspace();
         _client = new LiveWorkbookClient(api, grant, directory);
         _client.WakeRequested += Wake;
         _window = new LiveWorkbookWindow();
@@ -92,7 +91,7 @@ internal sealed class LiveWorkbookSession : IDisposable
                 {
                     try
                     {
-                        await api.LiveRequestAsync(grant, "/workbook-helper/v1/live/fallback", WorkbookOpenFailure.Diagnostic(error, Engine), _lifetime.Token);
+                        await api.LiveRequestAsync(grant, "/workbook-helper/v1/live/fallback", WorkbookOpenFailure.Diagnostic(error, Engine, source), _lifetime.Token);
                         var copy = WorkbookFallback.CreateCopy(source, grant.Origin);
                         _ordinary = new WorkbookSession(api, grant with { Live = null }, copy, grant.ContentHash,
                             (_, _) => Task.FromResult<string?>(null));
@@ -116,6 +115,8 @@ internal sealed class LiveWorkbookSession : IDisposable
                         return;
                     }
                 }
+                try { await api.LiveRequestAsync(grant, "/workbook-helper/v1/live/diagnostics", WorkbookOpenFailure.Diagnostic(error, Engine, source), _lifetime.Token); }
+                catch (Exception diagnosticError) { AppLog.Error("Could not send office startup diagnostics", diagnosticError); }
                 Update(new(WorkbookStatusKind.Error, error.Message + " Исходный файл остался на компьютере. Нажмите «Решать» на доске ещё раз.", true));
             }
             finally { _client.Dispose(); _ui.Post(_ => { if (!_disposed) _presence.Hide(); }, null); }

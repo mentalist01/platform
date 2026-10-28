@@ -127,7 +127,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             // two hashes; never open that long recovery filename natively.
             Directory.CreateDirectory(_directory); openSource = Path.Combine(_directory, "recovery.xlsx"); File.Copy(_cache + ".xlsx", openSource, true);
         }
-        Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token);
+        Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin);
         if (state["book"] is JsonObject serverBook) Office.Reader.UseNames(serverBook);
         var snapshot = await Office.SnapshotAsync(token);
         try

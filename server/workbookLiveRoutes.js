@@ -69,12 +69,14 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
       if(!teacher(req.auth)||run.teacherId!==req.auth.id)fail(403,'Режим таблицы меняет преподаватель этой доски');
       if(!isWorkbookFileName(asset.name)&&!isText(asset))fail(415,'Этот формат не подходит для совместной таблицы');
       card.liveWorkbooks||={};const old=card.liveWorkbooks[asset.id],enabled=req.body.enabled===true;
-      if(Boolean(old?.enabled)===enabled)return store.publicRun(run,{auth:req.auth,readOnly:false});
+      const retry=enabled&&old?.enabled&&old.ordinaryFallback&&req.body.retry===true;
+      if(Boolean(old?.enabled)===enabled&&!retry)return store.publicRun(run,{auth:req.auth,readOnly:false});
       if(enabled){
+        if(retry){const state=store.liveWorkbooks.read(old.key).state;if(state&&state.revision!==state.checkpointRevision)fail(409,'Сначала сохраните открытую общую таблицу через Ctrl+S и закройте её.');}
         const writer=card.bindings?.[asset.id];
         if(writer?.until>store.now())fail(409,'Сначала сохраните и закройте открытую таблицу, затем нажмите «Передать файл». После этого можно включить совместный режим.');
         const source=seed(store,card,asset),epoch=crypto.randomUUID();
-        card.liveWorkbooks[asset.id]={enabled:true,epoch,key:store.liveWorkbooks.key(run.id,card.id,asset.id+'-'+epoch),sourceHash:source.hash,createdAt:store.now()};
+        card.liveWorkbooks[asset.id]={enabled:true,epoch,key:store.liveWorkbooks.key(run.id,card.id,asset.id+'-'+epoch),sourceHash:source.hash,createdAt:store.now(),...(old?.launchFailures?{launchFailures:old.launchFailures}:{})};
       }else{
         const state=store.liveWorkbooks.read(old.key).state;
         if(state&&state.revision!==state.checkpointRevision)fail(409,'Есть несохранённые общие изменения. Нажмите Ctrl+S в помощнике и дождитесь сохранения на доске.');
@@ -153,6 +155,20 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     if(!req.liveWorkbook)fail(401,'Требуется доступ помощника');
     await store.lock(async()=>{await fallback(req.liveWorkbook,req.body);req.liveWorkbook.entry.fallback=true;store.save();});
     res.json({ok:true,ordinaryFallback:true});
+  }));
+  app.post('/workbook-helper/v1/live/diagnostics',intercept,handler(async(req,res)=>{
+    if(!req.liveWorkbook)fail(401,'Требуется доступ помощника');
+    await store.lock(()=>{const {mode,run}=req.liveWorkbook;mode.launchFailures=[...(mode.launchFailures||[]),workbookFallbackDiagnostic(req.body,store.now())].slice(-20);store.save(run);});
+    res.json({ok:true});
+  }));
+  app.post('/workbook-helper/v1/program',intercept,handler(async(req,res)=>{
+    if(!req.liveWorkbook)fail(401,'Требуется доступ помощника');
+    await store.lock(()=>{
+      const {mode,run}=req.liveWorkbook,record=workbookFallbackDiagnostic({...req.body,kind:'EditorDetected'},store.now()),previous=mode.launchFailures?.at(-1);
+      if(previous?.kind==='EditorDetected'&&['version','engine','programName','programProduct','programVersion','programExecutable'].every(key=>previous[key]===record[key]))return;
+      mode.launchFailures=[...(mode.launchFailures||[]),record].slice(-20);store.save(run);
+    });
+    res.json({ok:true});
   }));
   app.get('/workbook-helper/v1/live/state',intercept,handler(async(req,res)=>{
     if(!req.liveWorkbook)fail(401,'Требуется доступ совместного помощника');res.setHeader('Cache-Control','no-store');res.json({...store.liveWorkbooks.response(req.liveWorkbook.mode.key,Number(req.query.since??-1)),fileRevision:req.liveWorkbook.card.solutions[req.liveWorkbook.asset.id]?.revision||0});

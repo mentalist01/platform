@@ -13,9 +13,9 @@
     <Description>Безопасно открывает учебные таблицы с ivan100.ru в Excel или LibreOffice и синхронизирует сохранения.</Description>
     <Copyright>Иван на сотку</Copyright>
     <NeutralLanguage>ru-RU</NeutralLanguage>
-    <Version>1.5.7</Version>
-    <FileVersion>1.5.7.0</FileVersion>
-    <AssemblyVersion>1.5.7.0</AssemblyVersion>
+    <Version>1.5.8</Version>
+    <FileVersion>1.5.8.0</FileVersion>
+    <AssemblyVersion>1.5.8.0</AssemblyVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>

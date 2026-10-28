@@ -259,6 +259,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             SetStatus("Подключаюсь к платформе…");
             api = new HelperApiClient(request.Origin);
             var grant = await api.ExchangeAsync(request.Ticket, CancellationToken.None);
+            _ = api.ReportEditorAsync(grant, request.Engine ?? LiveOfficePreference.Preferred);
             if (grant.Live is not null)
             {
                 var existing = _sessionOrder.FirstOrDefault(session => session.IsLive && session.Grant.WorkbookKey == grant.WorkbookKey &&

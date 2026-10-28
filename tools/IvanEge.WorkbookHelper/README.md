@@ -133,3 +133,10 @@ Presence is a click-through, non-topmost window owned by the spreadsheet's root 
 If no native workbook was attached, a failed live startup requests a scoped ordinary grant before opening a distinct, protected copy through the system association. The existing file watcher uploads Ctrl+S saves to the board and notes. These explicit fallback sessions use last-save-wins for full files; ordinary tokens from the previous locked mode remain protected. Future opens of this asset use ordinary grants until its live mode is restarted. Existing native clients retain their own cell sessions; file saves follow the latest board version. A bounded server journal contains only version, engine, startup stage, HRESULT, error type and a redacted startup summary. Only the owning teacher can read the diagnostics API. No cell data or raw local log is uploaded.
 
 Excel is shown before importing/converting a workbook; fatal startup errors also have a persistent copyable window when Windows balloons are disabled. A failed startup with no attached office document does not indefinitely block a safe helper update.
+
+
+## Excel path compatibility and editor identification · 1.5.8
+
+Shared sessions keep native working copies under a short per-user private workspace. Excel receives a distinct protected input file without task-name brackets; snapshots stay below its native path limit. Existing task downloads and recovery copies are retained. Optional AskToUpdateLinks is tolerated only when the member is absent; macros stay disabled and Workbooks.Open explicitly disables external link updates. The ODS-only named-style repair no longer probes Styles for unrelated formats.
+
+An association lookup reads the normal editor name, product, version and executable basename through AssocQueryStringW and file version metadata. No local executable path, document contents or hardware identifiers are transmitted. Metadata reporting is bounded, best effort and does not block opening. It also works for ordinary grants. Teachers can restart live mode after fallback from the newest saved binary with a new epoch; old grants cannot write into the new session.

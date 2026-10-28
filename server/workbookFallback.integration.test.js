@@ -10,6 +10,10 @@ test('startup logs redact paths, tokens and unknown metadata',()=>{
   const d=workbookFallbackDiagnostic({version:'1.5.7',engine:'excel',code:'0x80040154',stage:'Excel C:\\Users\\private',summary:'failed token=secret',kind:'COMException'},0);
   assert.equal(d.code,'0X80040154');assert.equal(d.version,'1.5.7');
   assert.ok(!JSON.stringify(d).includes('private'));assert.ok(!JSON.stringify(d).includes('secret'));
+  const editor=workbookFallbackDiagnostic({programName:'Excel',programProduct:'Microsoft Office',programVersion:'14.0.1',programExecutable:'EXCEL.EXE'});
+  assert.equal(editor.programName,'Excel');assert.equal(editor.programVersion,'14.0.1');assert.equal(editor.programExecutable,'EXCEL.EXE');
+  assert.equal(workbookFallbackDiagnostic({programExecutable:'C:\\Users\\private\\EXCEL.EXE',programName:'C:\\private'}).programExecutable,'');
+  assert.equal(workbookFallbackDiagnostic({programName:'C:\\private'}).programName,'');
 });
 
 test('ordinary fallback saves XLS with last-save-wins, persists diagnostics and keeps authorization',{timeout:90000},async()=>{
@@ -27,6 +31,8 @@ test('ordinary fallback saves XLS with last-save-wins, persists diagnostics and 
     const target={cardId:run.cards[0].id,assetId:run.cards[0].attachments[0].assetId},route='/api/lesson-task-runs/'+run.id+'/live';
     const open=async(auth,ordinary=false)=>{const {ticket}=await f.request(route+'/helper',auth,{...target,start:true,ordinary},'POST',201);const r=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.5.7'},body:JSON.stringify({ticket})});assert.equal(r.status,200);return r.json();};
     const student=await open(pupil);assert.equal(student.live.protocol,1);
+    const report=await fetch(f.base+'/workbook-helper/v1/program',{method:'POST',headers:{Authorization:'Workbook '+student.token,'Content-Type':'application/json'},body:JSON.stringify({version:'1.5.8',engine:'auto',programName:'Excel',programVersion:'14.0',programExecutable:'EXCEL.EXE'})});
+    assert.equal(report.status,200);assert.equal((await open(teacher)).live.protocol,1,'Reporting an editor must not turn off cell synchronization');
     const fallback=await fetch(f.base+'/workbook-helper/v1/live/fallback',{method:'POST',headers:{Authorization:'Workbook '+student.token,'Content-Type':'application/json'},body:JSON.stringify({version:'1.5.7',engine:'excel',code:'0x80040154',stage:'startup',summary:'C:\\Users\\private'})});
     assert.equal(fallback.status,200);
     const adult=await open(teacher);assert.equal(adult.live,null);
@@ -36,11 +42,15 @@ test('ordinary fallback saves XLS with last-save-wins, persists diagnostics and 
     assert.equal((await save(student.token,'student last','0')).revision,3);
     const r=await fetch(f.base+'/workbook-helper/v1/content',{headers:{Authorization:'Workbook '+adult.token}});assert.equal(await r.text(),'student last');
     const params=new URLSearchParams(target);
-    const log=await f.request(route+'/diagnostics?'+params,teacher);assert.equal(log.events.length,1);assert.equal(log.events[0].code,'0X80040154');assert.ok(!JSON.stringify(log).includes('private'));
+    const log=await f.request(route+'/diagnostics?'+params,teacher);assert.equal(log.events.length,2);assert.equal(log.events[0].programVersion,'14.0');assert.equal(log.events[1].code,'0X80040154');assert.ok(!JSON.stringify(log).includes('private'));
     await f.request(route+'/diagnostics?'+params,pupil,undefined,'GET',403);
     await f.request(route+'/helper',f.tokens['student-a'],{...target,start:true,ordinary:true},'POST',403);
     const board=(await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),teacher)).run;
     assert.equal(board.cards[0].attachments[0].solution.name,'22_04.xls');
     assert.equal(board.cards[0].attachments[0].live.ordinaryFallback,true);
+    await f.request(route,teacher,{...target,enabled:true,retry:true});
+    const retried=await open(teacher);assert.equal(retried.live.protocol,1);assert.notEqual(retried.live.epoch,student.live.epoch);
+    const fresh=await fetch(f.base+'/workbook-helper/v1/content',{headers:{Authorization:'Workbook '+retried.token}});assert.equal(await fresh.text(),'student last','A retried shared session must start from the most recent ordinary save');
+    const expired=await fetch(f.base+'/workbook-helper/v1/content',{headers:{Authorization:'Workbook '+student.token}});assert.equal(expired.status,410,'An old ordinary editor cannot overwrite a newly retried shared session');
   }finally{await f.stop();}
 });

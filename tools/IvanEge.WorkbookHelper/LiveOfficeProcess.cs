@@ -22,14 +22,16 @@ internal sealed class LiveOfficeProcess : IDisposable
         _diagnostics = process.StandardError.ReadToEndAsync();
     }
 
-    public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token)
+    public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token, Uri? origin = null)
     {
+        if (engine == "excel" && !OfficeCompatibility.NativeDirectorySuitable(directory)) directory = OfficeCompatibility.CreateWorkspace();
         Directory.CreateDirectory(directory);
         string local = Path.Combine(directory, "Общая таблица.xlsx");
         if (File.Exists(local)) local = Path.Combine(directory, "Общая таблица " + Guid.NewGuid().ToString("N")[..8] + ".xlsx");
         var start = new ProcessStartInfo { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, StandardInputEncoding = new UTF8Encoding(false), StandardOutputEncoding = Encoding.UTF8 };
         if (engine == "excel")
         {
+            source = OfficeCompatibility.PrepareExcelSource(source, directory, origin);
             start.FileName = Environment.ProcessPath!;
             start.ArgumentList.Add("--live-excel-bridge");
         }
