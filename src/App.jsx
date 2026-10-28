@@ -26524,7 +26524,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             />
           )}
           {user.role === 'student' && <StudentAchievements key={user.id} user={user} onXpGain={handleXpGain} open={view === 'achievements'} onOpen={() => navigateToView('achievements')} />}
-          {['teacher','student'].includes(user.role) && <PendingWorkbookParts key={`workbook-parts-${user.id}`} user={user}/>}
+          {user.role === 'teacher' && <PendingWorkbookParts key={`workbook-parts-${user.id}`} user={user}/>}
           {view === 'rating' && (
             <StudentLeaderboardSection
               role={user.role}
