@@ -10,6 +10,7 @@ import { PYTHON_RUNNER_SCRIPT } from './pythonRunnerSource.js';
 import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
+import {RtcAudioDiagnostics} from './rtcAudioDiagnostics.js';
 import { normalizeBoardFileName } from '../src/utils/boardFile.js';
 import { registerGroupHomeworkReview } from './groupHomeworkReview.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -704,6 +705,8 @@ const dataDir = resolveStoragePath(
   defaultDataDir
 );
 recoverGroupTransferTransaction(dataDir);
+const rtcAudioDiagnostics=new RtcAudioDiagnostics({file:path.join(dataDir,'rtc-audio-diagnostics.json'),onError:()=>console.warn('[rtc-audio] diagnostic journal unavailable')});
+process.once('exit',()=>rtcAudioDiagnostics.flush());
 const uploadsDir = resolveStoragePath(
   process.env.PLATFORM_UPLOADS_DIR || process.env.APP_UPLOADS_DIR || process.env.UPLOADS_DIR,
   defaultUploadsDir
@@ -44926,7 +44929,7 @@ const handleRtcMessage = (client, rawData, isBinary) => {
   client.lastHeartbeatAt = Date.now();
   const requestedRtcTarget = parseRtcRoomId(payload?.roomId || client.roomId);
   const listener = isGroupLibraryListener(client.auth, requestedRtcTarget);
-  if ((client.listenOnly || listener) && !['join', 'leave', 'watch-presence', 'unwatch-presence', 'signal', 'presence-state', 'ping'].includes(type)) {
+  if ((client.listenOnly || listener) && !['join', 'leave', 'watch-presence', 'unwatch-presence', 'signal', 'presence-state', 'audio-diagnostic', 'ping'].includes(type)) {
     sendRtcPayload(client.ws, { type: 'error', error: 'В режиме слушателя это действие недоступно' });
     return;
   }
@@ -44937,13 +44940,19 @@ const handleRtcMessage = (client, rawData, isBinary) => {
       cleanupRtcClient(client, { closeSocket: true, closeCode: 1008, closeReason: 'Meeting access expired' });
       return;
     }
-    if (!['join', 'leave', 'watch-presence', 'unwatch-presence', 'signal', 'presence-state', 'ping'].includes(type)) {
+    if (!['join', 'leave', 'watch-presence', 'unwatch-presence', 'signal', 'presence-state', 'audio-diagnostic', 'ping'].includes(type)) {
       sendRtcPayload(client.ws, { type: 'error', error: 'Действие недоступно гостю' });
       return;
     }
   }
   if (['code-sync', 'watch-code-sync'].includes(type) && parseMeetingRoomId(payload?.roomId)) {
     sendRtcPayload(client.ws, { type: 'error', error: 'Во встрече нет совместного кода' });
+    return;
+  }
+
+  if(type==='audio-diagnostic'){
+    const room=rtcRooms.get(client.roomId),peer=room?.get(payload.peerId);
+    if(room&&peer&&!getRtcRoomAccessError(client.auth,parseRtcRoomId(client.roomId)))rtcAudioDiagnostics.record({client,peer,event:payload});
     return;
   }
 

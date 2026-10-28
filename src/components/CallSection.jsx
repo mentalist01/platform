@@ -19,6 +19,8 @@ import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../ut
 import { clearCallResume, saveCallResume } from '../utils/callResume.js';
 import { shouldEndRecordingOnCallExit } from '../utils/callExitIntent.js';
 import { createPeerRecovery, getRtcPeerConnectionState, reconcileRtcPeer } from '../utils/peerRecovery.js';
+import {createAudioReceiveWatchdog,createAudioRecoveryBudget,createRemoteAudioPlayback} from '../utils/callAudioHealth.js';
+import CallAudioRecoveryNotice from './CallAudioRecoveryNotice.jsx';
 import './CallSection.css';
 import './CallWorkspace.css';
 import './CallMiniPanel.css';
@@ -822,7 +824,7 @@ const exitDocumentFullscreen = async () => {
   }
 };
 
-export const CallGameVoiceOverlay = ({ participants = [], className = '', onReturn }) => {
+export const CallGameVoiceOverlay = ({ participants = [], className = '', onReturn, onRecoverAudio }) => {
   const largeGroup = participants.length > 3;
   const [expansion, setExpansion] = useState({ largeGroup, expanded: false });
   if (expansion.largeGroup !== largeGroup) setExpansion({ largeGroup, expanded: false });
@@ -874,6 +876,7 @@ export const CallGameVoiceOverlay = ({ participants = [], className = '', onRetu
                 disabled={participant.micDisabled} aria-label={micLabel} aria-pressed={participant.isMuted} title={micLabel}>
                 {micVisual}
               </button> : micVisual}
+              {!participant.isSelf&&onRecoverAudio&&<button type="button" className="call-mini-panel__return" onClick={()=>onRecoverAudio(participant.id)} onDoubleClick={e=>e.stopPropagation()} aria-label={`Восстановить звук: ${participant.title}`} title={`Восстановить звук: ${participant.title}`}><Volume2 size={13}/></button>}
               {!participant.isMuted && participant.isScreenSharing && (
                 <span className="call-game-overlay__icon" aria-label="Показывает экран">
                   <MonitorUp size={13} />
@@ -1201,35 +1204,30 @@ export const MediaTile = ({
   );
 };
 
-const RemoteAudioPlayer = ({
+export const RemoteAudioPlayer = ({
   peerId,
   stream,
   onSpeakingChange,
   volume = DEFAULT_PEER_VOLUME,
-  onPlaybackBlocked,
+  onPlaybackState,
   registerPlayback,
 }) => {
-  const audioRef = useRef(null);
+  const audioRef = useRef(null),playbackRef=useRef(null);
   const [audioTrackVersion, setAudioTrackVersion] = useState(0);
   const effectiveVolume = normalizePeerVolume(volume);
 
   useEffect(() => {
-    registerPlayback?.(peerId, audioRef.current);
+    registerPlayback?.(peerId, {node:audioRef.current,retry:options=>playbackRef.current?.retry(options)});
     return () => registerPlayback?.(peerId, null);
   }, [peerId, registerPlayback]);
 
   useEffect(() => {
     const audioNode = audioRef.current;
     if (!audioNode) return undefined;
-    audioNode.srcObject = stream || null;
-    audioNode.play?.().catch((error) => {
-      if (error?.name === 'NotAllowedError' && stream?.getAudioTracks?.().length) onPlaybackBlocked?.();
-    });
-
-    return () => {
-      audioNode.srcObject = null;
-    };
-  }, [onPlaybackBlocked, stream]);
+    const playback=createRemoteAudioPlayback({node:audioNode,stream,onState:value=>onPlaybackState?.(peerId,{...value,volume:audioNode.volume})});
+    playbackRef.current=playback;
+    return () => {playback.dispose();if(playbackRef.current===playback)playbackRef.current=null;};
+  }, [onPlaybackState, peerId, stream]);
 
   useEffect(() => {
     const bumpVersion = () => {
@@ -1295,19 +1293,11 @@ const RemoteAudioPlayer = ({
 
   useEffect(() => {
     const audioNode = audioRef.current;
-    if (!audioNode || !stream) return;
-    audioNode.play?.().catch((error) => {
-      if (error?.name === 'NotAllowedError' && stream?.getAudioTracks?.().length) onPlaybackBlocked?.();
-    });
-  }, [audioTrackVersion, onPlaybackBlocked, stream]);
-
-  useEffect(() => {
-    const audioNode = audioRef.current;
     if (!audioNode) return;
     audioNode.volume = effectiveVolume;
   }, [effectiveVolume]);
 
-  return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
+  return <audio ref={audioRef} data-peer-id={peerId} autoPlay playsInline className="hidden" />;
 };
 
 const CallSection = ({
@@ -1402,7 +1392,7 @@ const CallSection = ({
   const [micEnabled, setMicEnabled] = useState(false);
   const [lessonReplayLocalAudioTrackVersion, setLessonReplayLocalAudioTrackVersion] = useState(0);
   const [micBusy, setMicBusy] = useState(false);
-  const [meetingAudioBlocked, setMeetingAudioBlocked] = useState(false);
+  const [audioHealth,setAudioHealth]=useState({});
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraBusy, setCameraBusy] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
@@ -1525,17 +1515,31 @@ const CallSection = ({
   const wsReconnectTimerRef = useRef(null);
   const wsReconnectAttemptRef = useRef(0);
   const startCallRef = useRef(null);
-  const meetingAudioPlayersRef = useRef(new Map());
-  const registerMeetingAudio = useCallback((id, node) => {
-    if (node) meetingAudioPlayersRef.current.set(id, node);
-    else meetingAudioPlayersRef.current.delete(id);
-  }, []);
-  const reportMeetingAudioBlocked = useCallback(() => setMeetingAudioBlocked(true), []);
-  const enableMeetingAudio = useCallback(() => {
-    const players = [...meetingAudioPlayersRef.current.values()].filter((node) => node.srcObject?.getAudioTracks?.().length);
-    Promise.all(players.map((node) => node.play()))
-      .then(() => setMeetingAudioBlocked(false)).catch(() => setMeetingAudioBlocked(true));
-  }, []);
+  const remoteAudioPlayersRef=useRef(new Map()),audioHealthRef=useRef({});
+  const audioRecoveryBudgetRef=useRef(createAudioRecoveryBudget()),recoverPeerRef=useRef(null),audioDiagnosticTimesRef=useRef(new Map());
+  const registerRemoteAudio=useCallback((id,player)=>{if(player)remoteAudioPlayersRef.current.set(id,player);else remoteAudioPlayersRef.current.delete(id);},[]);
+  const recordAudioDiagnostic=useCallback((peerId,event)=>{
+    const ws=wsRef.current,roomId=activeRoomRef.current;if(!roomId||!ws||ws.readyState!==WebSocket.OPEN)return;
+    const key=peerId+':'+event.event+':'+(event.reason||''),now=Date.now();
+    if(now-(audioDiagnosticTimesRef.current.get(key)||0)<5000)return;
+    audioDiagnosticTimesRef.current.set(key,now);
+    try{ws.send(JSON.stringify({type:'audio-diagnostic',roomId,peerId,...event}));}catch{/* A call must not depend on its diagnostic journal. */}
+  },[]);
+  const setPeerAudioState=useCallback((id,value)=>{
+    if(audioHealthRef.current[id]?.status===value.status)return;
+    audioHealthRef.current={...audioHealthRef.current,[id]:{...value,at:Date.now()}};setAudioHealth(audioHealthRef.current);
+    recordAudioDiagnostic(id,{event:value.status,code:value.code,reason:value.reason,volume:value.volume,packets:value.packets});
+  },[recordAudioDiagnostic]);
+  const reportAudioPlayback=useCallback((id,value)=>{
+    // Resolving play() alone cannot prove that a repaired network receives RTP.
+    if(value.status==='playing'&&['receive-stalled','recovering','recovery-exhausted'].includes(audioHealthRef.current[id]?.status))return;
+    setPeerAudioState(id,value);
+  },[setPeerAudioState]);
+  useEffect(()=>{
+    const resume=()=>{for(const [id,value]of Object.entries(audioHealthRef.current))if(value.status==='blocked')void remoteAudioPlayersRef.current.get(id)?.retry();};
+    window.addEventListener('pointerdown',resume,true);window.addEventListener('keydown',resume,true);
+    return()=>{window.removeEventListener('pointerdown',resume,true);window.removeEventListener('keydown',resume,true);};
+  },[]);
   const makeOfferRef = useRef(null);
   const callJoinedRef = useRef(false);
   const handledAutoStartTokenRef = useRef(0);
@@ -2823,7 +2827,30 @@ const CallSection = ({
       } catch {
         continue;
       }
-      if (!statsReport) continue;
+      if (!statsReport||peersRef.current.get(peerId)!==peerState) continue;
+      const now=Date.now();let audioPackets=0,sentPackets=0;
+      statsReport.forEach(report=>{
+        if(report.type==='inbound-rtp'&&(report.kind||report.mediaType)==='audio'&&!report.isRemote)audioPackets+=Number(report.packetsReceived)||0;
+        if(report.type==='outbound-rtp'&&(report.kind||report.mediaType)==='audio'&&!report.isRemote)sentPackets+=Number(report.packetsSent)||0;
+      });
+      const player=remoteAudioPlayersRef.current.get(peerId),health=audioHealthRef.current[peerId];
+      const issue=peerState.audioWatchdog.sample({now,connected:getRtcPeerConnectionState(pc)==='connected',packets:audioPackets,time:player?.node?.currentTime,volume:player?.node?.volume??1,blocked:health?.status==='blocked'});
+      if(audioPackets>(peerState.lastAudioPackets||0)&&['receive-stalled','recovering','recovery-exhausted'].includes(health?.status))setPeerAudioState(peerId,{status:'playing'});
+      if(health?.status==='recovering'&&now-health.at>15000)setPeerAudioState(peerId,{status:'recovery-exhausted'});
+      peerState.lastAudioPackets=audioPackets;
+      if(issue&&!['recovering','recovery-exhausted'].includes(health?.status)){
+        setPeerAudioState(peerId,{status:issue,packets:audioPackets,volume:player?.node?.volume});
+        if(issue==='playback-stalled'){
+          if(peerState.playbackRepairTried)recoverPeerRef.current?.(peerId,{reason:issue});
+          else{peerState.playbackRepairTried=true;void Promise.resolve(player?.retry({rebind:true})).then(ok=>{if(!ok&&peersRef.current.get(peerId)===peerState&&audioHealthRef.current[peerId]?.status!=='blocked')recoverPeerRef.current?.(peerId,{reason:issue});});}
+        }
+        else recoverPeerRef.current?.(peerId,{reason:issue});
+      }
+      if(!listenOnly&&now-(peerState.lastAudioProgressSent||0)>=5000){
+        peerState.lastAudioProgressSent=now;
+        const track=peerState.audioSender?.track;
+        sendWs({type:'signal',roomId:activeRoomRef.current,targetId:peerId,signal:{audioProgress:{epoch:peerState.audioEpoch,packets:sentPackets,enabled:Boolean(track?.enabled&&track?.readyState==='live')}}});
+      }
 
       const outboundAudioById = new Map();
       statsReport.forEach((report) => {
@@ -2925,7 +2952,7 @@ const CallSection = ({
       outboundMeasured,
       route: routeLabels[0] || 'Проверяется',
     });
-  }, [retuneAllPeerSenders]);
+  }, [retuneAllPeerSenders,listenOnly,sendWs,setPeerAudioState]);
 
   const startConnectionStatsPolling = useCallback(() => {
     if (statsTimerRef.current) return;
@@ -2953,6 +2980,7 @@ const CallSection = ({
     peersRef.current.clear();
     peerMetaRef.current.clear();
     remoteStreamsRef.current.clear();
+    audioHealthRef.current={};setAudioHealth({});audioRecoveryBudgetRef.current.clear();audioDiagnosticTimesRef.current.clear();
     lastInboundAudioRef.current.clear();
     lastRemoteInboundAudioRef.current.clear();
     videoTrackStreamsRef.current.clear();
@@ -3001,7 +3029,7 @@ const CallSection = ({
     const normalizedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
     if (!normalizedPeerId) return;
 
-    const { closeConnection = true } = options;
+    const { closeConnection = true, preserveAudio = false } = options;
     const peerState = peersRef.current.get(normalizedPeerId);
 
     peerState?.recovery?.dispose();
@@ -3030,8 +3058,11 @@ const CallSection = ({
       delete next[normalizedPeerId];
       return next;
     });
+    if(!preserveAudio){
+      const next={...audioHealthRef.current};delete next[normalizedPeerId];audioHealthRef.current=next;setAudioHealth(next);
+    }
     setVolumeByPeer((prev) => {
-      if (!Object.prototype.hasOwnProperty.call(prev, normalizedPeerId)) return prev;
+      if (preserveAudio || !Object.prototype.hasOwnProperty.call(prev, normalizedPeerId)) return prev;
       const next = { ...prev };
       delete next[normalizedPeerId];
       return next;
@@ -3702,6 +3733,8 @@ const CallSection = ({
       screenSender: null,
       cameraSender: null,
       disconnectTimer: null,
+      audioEpoch:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10),
+      audioWatchdog:createAudioReceiveWatchdog(),
     };
     if (meetingId && typeof pc.createDataChannel === 'function') {
       // Two guests can join with every device off. Keep an active SDP section
@@ -3805,13 +3838,14 @@ const CallSection = ({
           detachPeer(normalizedPeerId, { closeConnection: true });
           return;
         }
-        const ws = wsRef.current;
-        if (ws) retireWebSocket(ws, 'Media recovery timeout');
+        recoverPeerRef.current?.(normalizedPeerId,{reason:'connection-timeout'});
       },
     });
     const handlePeerConnectionStateChange = () => {
       if (peersRef.current.get(normalizedPeerId) !== peerState) return;
       peerState.recovery.update();
+      const state=getRtcPeerConnectionState(pc);
+      if(peerState.lastDiagnosticState!==state){peerState.lastDiagnosticState=state;recordAudioDiagnostic(normalizedPeerId,{event:'connection-state',reason:state});}
       if (getRtcPeerConnectionState(pc) === 'closed') {
         detachPeer(normalizedPeerId, { closeConnection: false });
         return;
@@ -3824,7 +3858,7 @@ const CallSection = ({
     syncLocalTracksToPeer(peerState);
     refreshPeerConnectionSummary();
     return peerState;
-  }, [detachPeer, meetingId, refreshPeerConnectionSummary, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers, userId, role, listenOnly]);
+  }, [detachPeer, meetingId, refreshPeerConnectionSummary, rtcIceServers, rtcPeerConnectionCtor, sendWs, syncLocalTracksToPeer, syncRemotePeers, userId, role, listenOnly,recordAudioDiagnostic]);
 
   const makeOfferToPeer = useCallback(async (peerId, { iceRestart = false } = {}) => {
     const peerState = peersRef.current.get(peerId);
@@ -3913,6 +3947,31 @@ const CallSection = ({
     });
   }, [makeOfferToPeer]);
 
+  const recoverPeerAudio=useCallback((peerId,{manual=false,reason='manual'}={})=>{
+    const previous=peersRef.current.get(peerId),meta=peerMetaRef.current.get(peerId);
+    if(!previous||!meta||manualCloseRef.current||wsRef.current?.readyState!==WebSocket.OPEN)return false;
+    if(!audioRecoveryBudgetRef.current.take(peerId,Date.now(),manual)){
+      if(!manual&&audioHealthRef.current[peerId]?.status!=='recovering')setPeerAudioState(peerId,{status:'recovery-exhausted'});
+      return false;
+    }
+    setPeerAudioState(peerId,{status:'recovering',reason});
+    // Keep local devices, other peers, signalling membership and recording alive.
+    sendWs({type:'signal',roomId:activeRoomRef.current,targetId:peerId,signal:{control:{restartConnection:true,preferredIceTransportPolicy:'relay'}}});
+    detachPeer(peerId,{closeConnection:true,preserveAudio:true});
+    const next=createPeerState(peerId,meta);if(!next)return false;
+    requestPeerNegotiation(peerId,{retryDelayMs:250});return true;
+  },[createPeerState,detachPeer,requestPeerNegotiation,sendWs,setPeerAudioState]);
+  useEffect(()=>{recoverPeerRef.current=recoverPeerAudio;return()=>{if(recoverPeerRef.current===recoverPeerAudio)recoverPeerRef.current=null;};},[recoverPeerAudio]);
+  const restorePeerSound=useCallback(peerId=>{
+    const health=audioHealthRef.current[peerId]?.status,player=remoteAudioPlayersRef.current.get(peerId);
+    // play() must run in this user gesture to satisfy browser audio policy.
+    const retry=player?.retry({rebind:health!=='blocked'});
+    if(['blocked','playback-error','playback-stalled'].includes(health)){
+      void Promise.resolve(retry).then(ok=>{if(!ok&&health!=='blocked'&&audioHealthRef.current[peerId]?.status!=='blocked')recoverPeerRef.current?.(peerId,{manual:true});});return;
+    }
+    recoverPeerRef.current?.(peerId,{manual:true});
+  },[]);
+
   const removePeer = useCallback((peerId) => {
     detachPeer(peerId, { closeConnection: true });
   }, [detachPeer]);
@@ -3937,7 +3996,7 @@ const CallSection = ({
         effectiveIceTransportPolicyRef.current = 'relay';
       }
       if (control?.restartConnection) {
-        detachPeer(fromId, { closeConnection: true });
+        detachPeer(fromId, { closeConnection: true, preserveAudio:true });
         const recreatedPeerState = createPeerState(fromId, payload?.peer || {});
         if (!recreatedPeerState) return;
         peerState = recreatedPeerState;
@@ -3946,6 +4005,8 @@ const CallSection = ({
       }
     }
 
+    const progress=signal.audioProgress;
+    if(progress&&typeof progress.epoch==='string'&&/^[a-z0-9-]{1,80}$/i.test(progress.epoch)&&typeof progress.enabled==='boolean')peerState.audioWatchdog.remote(progress);
     const mediaState = signal.mediaState && typeof signal.mediaState === 'object'
       ? signal.mediaState
       : null;
@@ -6267,7 +6328,7 @@ const CallSection = ({
         title="Перетащите панель. Двойной клик по имени или аватару откроет звонок."
       >
         <CallGameVoiceOverlay participants={floatingCameraParticipants} className={collapsedCardClass}
-          onReturn={() => collapsedOpenHandler?.()} />
+          onReturn={() => collapsedOpenHandler?.()} onRecoverAudio={restorePeerSound} />
       </div>
     );
     const collapsedPanelPortal = typeof document !== 'undefined'
@@ -6282,9 +6343,11 @@ const CallSection = ({
             stream={peer.stream || null}
             onSpeakingChange={handlePeerSpeakingChange}
             volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
+            registerPlayback={registerRemoteAudio} onPlaybackState={reportAudioPlayback}
           />
         ))}
         {collapsedPanelPortal}
+        {isConnected&&createPortal(<CallAudioRecoveryNotice peers={remotePeers} states={audioHealth} onRecover={restorePeerSound} dark={isDarkTheme} compact/>,fullscreenPortalTarget||document.body)}
       </>
     );
   }
@@ -6499,13 +6562,7 @@ const CallSection = ({
             </div>
           )}
 
-          {(meetingId || listenOnly) && meetingAudioBlocked && (
-            <div className={errorBoxClass} role="status">
-              <Volume2 size={16} className="mt-0.5 shrink-0" />
-              <p>Браузер ждёт разрешения на звук.</p>
-              <button type="button" onClick={enableMeetingAudio} className="shrink-0 underline underline-offset-2">Включить звук</button>
-            </div>
-          )}
+          {isConnected&&<CallAudioRecoveryNotice peers={remotePeers} states={audioHealth} onRecover={restorePeerSound} dark={isDarkTheme}/>}
 
           <div className={callLayoutClass}>
             <div className={callMainColumnClass}>
@@ -6516,8 +6573,8 @@ const CallSection = ({
                   stream={peer.stream || null}
                   onSpeakingChange={handlePeerSpeakingChange}
                   volume={normalizePeerVolume(volumeByPeer[peer.peerId])}
-                  registerPlayback={meetingId || listenOnly ? registerMeetingAudio : undefined}
-                  onPlaybackBlocked={meetingId || listenOnly ? reportMeetingAudioBlocked : undefined}
+                  registerPlayback={registerRemoteAudio}
+                  onPlaybackState={reportAudioPlayback}
                 />
               ))}
               <div className="call-workspace-body" tabIndex={0} aria-label={isConnected ? 'Видео и дополнительные параметры звонка' : 'Подготовка к уроку'}>
@@ -6690,6 +6747,7 @@ const CallSection = ({
                 </section>
               ) : (
                 <section className={mediaSectionClass} data-video-count={voiceCallParticipants.filter((peer) => peer.hasVideo).length}>
+                  {remotePeers.length>0&&<details className="call-audio-repair-list"><summary><Volume2 size={15}/>Не слышно участника?</summary>{remotePeers.map(peer=><div key={peer.peerId}><span>{peer.title}</span><button type="button" disabled={audioHealth[peer.peerId]?.status==='recovering'} onClick={()=>restorePeerSound(peer.peerId)}>Восстановить звук</button></div>)}</details>}
                 <div className="call-workspace-ambient" aria-hidden="true">
                   <span /><span /><span />
                 </div>
@@ -7160,6 +7218,7 @@ const CallSection = ({
                 style={{ left: `${volumePopup.x}px`, top: `${volumePopup.y}px` }}
               >
                 <p className={popupTitleClass}>{volumePopup.title}</p>
+                <button type="button" className="call-peer-audio-restore" onClick={()=>{restorePeerSound(volumePopup.peerId);closeVolumePopup();}}><Volume2 size={15}/>Восстановить звук</button>
                 <p className={popupHintClass}>Громкость</p>
                 <div className="mt-2 flex items-center gap-2">
                   <button
