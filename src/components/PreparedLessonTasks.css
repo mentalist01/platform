@@ -32,6 +32,7 @@
 .prepared-card{position:absolute;transform-origin:0 0;background:var(--pt-panel);border:1px solid var(--pt-line);border-radius:12px;color:var(--pt-text);box-shadow:0 3px 14px #20172a0d;pointer-events:none;overflow:hidden}
 .prepared-card>header,.prepared-card-controls>header{display:flex;align-items:center;gap:10px;padding:9px 16px;font-size:11px;color:var(--pt-muted);border-bottom:1px solid var(--pt-line)}
 .prepared-card .prepared-task-name{font-size:15px;color:var(--pt-text);overflow-wrap:anywhere}.prepared-card .prepared-task-status{margin-left:auto;color:var(--pt-green);font-size:11px;white-space:nowrap}
+.prepared-card-homework{pointer-events:auto}
 .prepared-card-interactive{pointer-events:auto;padding:10px 16px 0}.prepared-card-body{padding:10px 18px 14px}.prepared-card-body>img{width:600px;object-fit:contain;background:white;display:block;max-width:100%;margin:0 auto 6px}.prepared-card-body>img:last-child{margin-bottom:0}
 .prepared-card-answer>label{display:block;font-size:11px;font-weight:600;color:var(--pt-muted);margin-bottom:5px}.prepared-card-answer>div{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .prepared-card-answer input{flex:1;min-width:70px;width:100px;padding:8px 10px;border:1px solid var(--pt-line);border-radius:8px;background:var(--pt-panel);color:var(--pt-text);font:inherit;font-size:14px}
