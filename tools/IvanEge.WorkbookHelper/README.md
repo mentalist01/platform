@@ -112,3 +112,10 @@ The authenticated WebSocket carries only transient cursor/draft frames and revis
 Calc reads the active cell editor or focused formula input through the scoped document's accessibility API. It never inspects unrelated windows or captures global keystrokes. Drafts are limited to 4096 characters, expire separately from cursors and are shown in the click-through presence overlay, never written into the book. No export or incoming native write is performed while the local Calc editor holds unconfirmed input. Excel receives previews; its own unconfirmed input is not yet captured.
 
 Large-book recovery serialization streams stable nodes under the existing workbook gate instead of cloning the full workbook repeatedly. The recovery schema and flush-before-send guarantee are unchanged.
+
+
+## Update before opening and compact presence · 1.5.5
+
+An unopened workbook request stays in the tray queue until the automatic update check finishes. A verified staged release takes priority over queued requests at a safe point, and the existing updater forwards those requests to the new process. Checks use a five-second manifest deadline; downloads are bounded to 90 seconds to keep the three-minute launch ticket valid. Network or update-launch failure opens the current version instead of trapping the request. Open or unsaved sessions still block replacement. The launch gate is covered by native self-tests, including concurrent checks, pending requests, disabled updates and retry backoff.
+
+Presence uses a distinct color per active participant (up to the existing 32-person limit), stable across cursor changes and same-actor reconnect. The native overlay draws only the border and a four-pixel corner marker. Names and color keys are in the tray menu, away from workbook contents; typing previews remain transient.

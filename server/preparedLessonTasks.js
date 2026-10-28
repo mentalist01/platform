@@ -329,9 +329,19 @@ export class PreparedLessonTasks {
         if(!entry||!Number.isFinite(height)||height<80||height>15000)fail(400,'Неверная высота карточки');
         const conditionTop=value.conditionTop===undefined?undefined:Math.ceil(Number(value.conditionTop));
         if(conditionTop!==undefined&&(!Number.isFinite(conditionTop)||conditionTop<40||conditionTop>=height))fail(400,'Неверное положение условия');
-        return {entry,height,conditionTop};
+        return {entry,height,conditionTop,reflow:value.reflowControls===true};
       });
-      doc.transact(()=>{for(const {entry,height,conditionTop} of updates){
+      doc.transact(()=>{for(const {entry,height,conditionTop,reflow} of updates){
+        if(reflow&&Number.isFinite(entry.conditionTop)&&conditionTop!==undefined&&!isPreparedTheory(run.tasks[entry.index])){
+          const index=items.toArray().findIndex(item=>item.id===entry.anchorId),anchor=index>=0?items.get(index):null;
+          const delta=entry.conditionTop-conditionTop;
+          if(anchor&&(Math.abs(delta)>=2||Math.abs(entry.height-height)>=2)){
+            const scale=anchor.width/entry.width,next={...anchor,y:anchor.y+delta*scale,height:height*scale};
+            items.delete(index,1);items.insert(index,[next]);
+            entry.conditionTop=conditionTop;entry.height=height;entry.layoutVersion=4;changed=true;
+          }
+          continue;
+        }
         if(!Number.isFinite(entry.conditionTop)&&conditionTop!==undefined&&!isPreparedTheory(run.tasks[entry.index])){
           entry.conditionTop=conditionTop;entry.layoutVersion=3;changed=true;
         }

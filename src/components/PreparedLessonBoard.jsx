@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {Check,ChevronRight,FileSpreadsheet,Download,ExternalLink,SkipForward,LocateFixed,Upload,RefreshCcw,Home} from 'lucide-react';
 import {usePreparedLesson} from '../hooks/usePreparedLesson.js';
@@ -24,8 +24,20 @@ import {preparedAnswerLayout} from '../utils/preparedAnswerTable.js';
 
 export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showReferenceAnswers,worldAnchor}){
   const element=useRef(null);
+  const [controlOverflow,setControlOverflow]=useState(0);
   const [homeworkQueued,setHomeworkQueued]=useState(false);
-  useEffect(()=>{if(!element.current||!onMeasure)return;const node=element.current,report=()=>{if(node.isConnected)onMeasure(card.id,node.offsetHeight,node.querySelector('.prepared-card-body')?.offsetTop);},observer=new ResizeObserver(report);observer.observe(node);report();return()=>observer.disconnect();},[card.id,card.conditionTop,onMeasure]);
+  useLayoutEffect(()=>{
+    if(!element.current||!onMeasure)return;
+    const node=element.current,controls=node.querySelector('.prepared-card-controls'),interactive=node.querySelector('.prepared-card-interactive'),header=controls?.querySelector('header');
+    const report=()=>{
+      if(!node.isConnected)return;
+      const actualTop=node.querySelector('.prepared-card-body')?.offsetTop,naturalTop=(header?.offsetHeight||0)+(interactive?.offsetHeight||0);
+      const desiredTop=run.canManage?naturalTop:Math.max(card.conditionTop||0,naturalTop);
+      setControlOverflow(Number.isFinite(card.conditionTop)?Math.max(0,actualTop-card.conditionTop):0);
+      onMeasure(card.id,node.offsetHeight+desiredTop-actualTop,desiredTop);
+    };
+    const observer=new ResizeObserver(report);observer.observe(node);if(interactive)observer.observe(interactive);if(header)observer.observe(header);report();return()=>observer.disconnect();
+  },[card.id,card.conditionTop,run.canManage,onMeasure]);
   const [message,setMessage]=useState(''),[busy,setBusy]=useState(false),[checkingField,setCheckingField]=useState(null),upload=useRef(null);
   const action=input=>context.action(run.id,{cardId:card.id,...input});
   const {answers,draftConflict,change:changeAnswers,flush,restoreDraft,discardDraft}=usePreparedAnswerInput({card,runId:run.id,runVersion:run.version,auth,readOnly,action:context.action,onError:setMessage});
@@ -42,8 +54,8 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   const wrongQuestions=independent?Array.from({length:card.answerCount},(_,i)=>i).filter(i=>answers[i]===card.answers[i]&&card.fieldResults?.[i]==='wrong'):[];
   const feedbackReference=reference&&(wrongFeedback||wrongQuestions.length)?getPreparedAnswerPasteOrder(card.answerCount,0,card.answerMode,card.answerTable).filter(i=>!independent||wrongQuestions.includes(i)).map(i=>({index:i,value:reference[i],label:independent?`Вопрос ${i+1}`:`Ответ ${i+1}`})):[];
   const answerInput=i=><input key={i} aria-label={independent?`Ответ на вопрос ${i+1} задачи ${card.index+1}`:`Ответ задачи ${card.index+1}${card.answerCount>1?`, поле ${i+1}`:''}`} value={answers[i]||''} aria-invalid={(independent?wrongQuestions.includes(i):wrongFeedback)||undefined} placeholder={reference?.[i]||(independent?'Ваш ответ':card.answerCount>1?`Ответ ${i+1}`:'')} maxLength={500} readOnly={readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct'} onChange={e=>change(i,e.target.value)} onPaste={e=>{if(readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct')return;const values=splitPastedAnswerValues(e.clipboardData.getData('text'));if(values.length>1){e.preventDefault();change(i,'',values);}}} onKeyDown={e=>{if(readOnly)return;if(e.key==='Enter'){if(independent){void check(false,i);return;}const nodes=Array.from(e.currentTarget.parentElement.querySelectorAll('input')),next=nodes[nodes.indexOf(e.currentTarget)+1];if(next)next.focus();else void check(false);}}}/>;
-  return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--${card.status}`} style={style} aria-label={`Подготовленная задача ${card.index+1}`}>
-    <div className={`prepared-card-controls${Number.isFinite(card.conditionTop)?' is-pinned':''}`} style={Number.isFinite(card.conditionTop)?{height:card.conditionTop}:undefined}>
+  return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--${card.status}`} style={controlOverflow?{...style,transform:`${style?.transform||''} translateY(${-controlOverflow}px)`}:style} aria-label={`Подготовленная задача ${card.index+1}`}>
+    <div className={`prepared-card-controls${Number.isFinite(card.conditionTop)?' is-pinned':''}`} style={Number.isFinite(card.conditionTop)?{minHeight:card.conditionTop}:undefined}>
     <header><strong className="prepared-task-name">{title}</strong><span>ЕГЭ №{card.taskNumber||run.taskNumber}</span>{run.sources?.length>1&&<span className="prepared-card-source" title={card.setName}>{card.setName}</span>}{card.difficult&&<span className="prepared-hard-badge">Сложная</span>}<strong className="prepared-task-status">{card.status==='solved'?'Решено':card.status==='skipped'?'Пропущено':'Решаем'}</strong>{run.canManage&&!run.homework&&!readOnly&&<button type="button" className={`prepared-card-homework${homeworkQueued?' is-queued':''}`} disabled={busy} title="Добавить задачу в подготовку домашки" onPointerDown={e=>e.stopPropagation()} onClick={()=>void queueHomework()}><Home size={12}/>{homeworkQueued?'В черновике ДЗ':'На дом'}</button>}</header>
     <div className="prepared-card-interactive" onPointerDown={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>
       {draftConflict&&<div className="prepared-draft-conflict"><p>Поля или общий ответ изменились с сохранения черновика. Какой ответ оставить?</p><button type="button" onClick={restoreDraft}>Восстановить мой черновик</button><button type="button" onClick={discardDraft}>Оставить общий ответ</button></div>}
@@ -87,8 +99,8 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
       const current=latest.current.run;if(!current?.canManage||readOnly)return;
       const cards=current.cards.flatMap(card=>{
         const size=heights.current.get(card.id);if(!size)return [];
-        const pin=card.kind!=='theory'&&!Number.isFinite(card.conditionTop)&&Number.isFinite(size.conditionTop);
-        return Math.abs(size.height-card.height)>=2||pin?[{id:card.id,height:size.height,...(pin?{conditionTop:size.conditionTop}:{})}]:[];
+        const pin=card.kind!=='theory'&&Number.isFinite(size.conditionTop)&&(!Number.isFinite(card.conditionTop)||Math.abs(size.conditionTop-card.conditionTop)>=2);
+        return Math.abs(size.height-card.height)>=2||pin?[{id:card.id,height:size.height,...(pin?{conditionTop:size.conditionTop,reflowControls:true}:{})}]:[];
       });
       if(cards.length)void layoutAction(current.id,{action:'layout',cards}).catch(e=>setError(e.message));
     },140);

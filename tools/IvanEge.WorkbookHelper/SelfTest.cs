@@ -68,6 +68,7 @@ internal static class SelfTest
             TestLiveWorkbookXml();
             TestOfficePreference();
             TestUpdateAuthentication(temporaryDirectory);
+            TestUpdateLaunchOrder();
             TryDelete(ReportPath);
             return 0;
         }
@@ -88,6 +89,30 @@ internal static class SelfTest
             }
         }
     }
+    private static void TestUpdateLaunchOrder()
+    {
+        var gate = new HelperUpdateLaunchGate();
+        HelperUpdateLaunchAction Next(bool checking = false, bool pending = false, bool safe = true,
+            bool busy = false, bool automatic = true, bool manual = false, bool request = true, bool applyAllowed = true)
+            => gate.Next(automatic, manual, safe, busy, request, checking, pending, applyAllowed);
+
+        Assert(Next() == HelperUpdateLaunchAction.Check, "A workbook must wait for an update check before opening");
+        Assert(Next(checking: true) == HelperUpdateLaunchAction.Wait, "Downloading an update must not open the workbook early");
+        Assert(Next(pending: true) == HelperUpdateLaunchAction.Apply, "A queued workbook must not prevent a prepared update");
+        gate.RequestStarted();
+        Assert(Next(checking: true) == HelperUpdateLaunchAction.Wait, "An existing background check must be reused before opening");
+        Assert(Next() == HelperUpdateLaunchAction.Continue, "No update or a failed check must allow the original request to open");
+        gate.RequestStarted();
+        Assert(Next(safe: false, pending: true) == HelperUpdateLaunchAction.Continue, "An open or unsaved workbook must never be interrupted for an update");
+        Assert(Next(busy: true, pending: true) == HelperUpdateLaunchAction.Wait, "An accepted workbook request must finish before handoff");
+        Assert(Next(pending: true, request: false) == HelperUpdateLaunchAction.Apply, "Closing the last saved workbook must allow an idle update");
+        Assert(Next(automatic: false, pending: true) == HelperUpdateLaunchAction.Continue, "Disabled automatic updates must be respected");
+        Assert(Next(automatic: false, manual: true, pending: true) == HelperUpdateLaunchAction.Apply, "A manual update may apply at a safe point");
+        gate.RequestStarted();
+        Assert(Next(pending: true, applyAllowed: false) == HelperUpdateLaunchAction.Check, "A failed update launch must not prevent checking or opening");
+        Assert(Next(pending: true, applyAllowed: false) == HelperUpdateLaunchAction.Continue, "Update retry backoff must not trap the queued workbook");
+    }
+
     private static void TestUpdateAuthentication(string directory)
     {
         using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);

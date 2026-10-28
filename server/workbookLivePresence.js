@@ -4,6 +4,7 @@ const fail=message=>{throw Object.assign(Error(message),{status:400});};
 const text=(value,limit)=>typeof value==='string'&&value.length>0&&value.length<=limit&&!/[\u0000-\u001f]/.test(value);
 const cell=value=>Array.isArray(value)&&value.length===2&&value.every(Number.isInteger)&&value[0]>=0&&value[0]<LIVE_WORKBOOK_LIMITS.rows&&value[1]>=0&&value[1]<LIVE_WORKBOOK_LIMITS.columns;
 const range=value=>Array.isArray(value)&&value.length===4&&cell(value.slice(0,2))&&cell(value.slice(2))&&value[0]<=value[2]&&value[1]<=value[3];
+const participantColors=['#8b5cf6','#0d9488','#2563eb','#d97706','#db2777','#dc2626','#0891b2','#65a30d','#9333ea','#c2410c','#4f46e5','#059669','#a21caf','#0369a1','#b45309','#be123c','#475569','#15803d','#7c3aed','#0e7490','#a16207','#9f1239','#1d4ed8','#166534','#86198f','#9a3412','#4338ca','#115e59','#854d0e','#991b1b','#334155','#5b21b6'];
 export function normalizeWorkbookDraft(value){
   if(value===null||value===undefined)return null;
   if(!value||!text(value.sheetName,31)||!cell(value.cell)||typeof value.text!=='string'||value.text.length>8192||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value.text))fail('Некорректный черновик ячейки');
@@ -32,7 +33,9 @@ export class WorkbookLivePresence{
       if(!room.has(actorId)&&room.size>=32)throw Object.assign(Error('Слишком много участников таблицы'),{status:429});
       const isTeacher=['teacher','admin'].includes(auth.role);
       const name=String(auth.name|| (isTeacher?'Преподаватель':'Ученик')).replace(/[\u0000-\u001f]/g,'').slice(0,80);
-      room.set(actorId,{actorId,session,name,color:isTeacher?'#8b5cf6':'#0d9488',selection,...(preview?{draft:preview,draftExpires:now+2000}:{}),expires:now+this.ttl});
+      const used=new Set([...room.values()].map(entry=>entry.color)),start=isTeacher?0:1;
+      const color=room.get(actorId)?.color||Array.from({length:participantColors.length},(_,i)=>participantColors[(start+i)%participantColors.length]).find(color=>!used.has(color));
+      room.set(actorId,{actorId,session,name,color,selection,...(preview?{draft:preview,draftExpires:now+2000}:{}),expires:now+this.ttl});
     }else if(room?.get(actorId)?.session===session)room.delete(actorId);
     return this.read(key,auth,now);
   }

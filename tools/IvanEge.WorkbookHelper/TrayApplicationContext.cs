@@ -18,13 +18,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _retryItem;
     private readonly ToolStripMenuItem _stopItem;
     private readonly ToolStripMenuItem _controlsItem;
+    private readonly ToolStripMenuItem _participantsItem;
     private readonly ToolStripMenuItem _updatesItem;
     private readonly CancellationTokenSource _updateLifetime = new();
     private StagedHelperUpdate? _pendingUpdate;
     private bool _checkingUpdate;
     private bool _manualUpdate;
+    private readonly HelperUpdateLaunchGate _updateLaunch = new();
     private DateTime _nextUpdateCheck = DateTime.UtcNow.AddSeconds(5);
-    private DateTime _nextUpdateApply = DateTime.UtcNow.AddSeconds(15);
+    private DateTime _nextUpdateApply = DateTime.MinValue;
     private readonly System.Windows.Forms.Timer _queueTimer;
     private readonly Dictionary<string, WorkbookSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<WorkbookSession> _sessionOrder = [];
@@ -51,6 +53,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _retryItem = new ToolStripMenuItem("Проверить и отправить сейчас", null, (_, _) => _latestSession?.RetryNow()) { Enabled = false };
         _stopItem = new ToolStripMenuItem("Остановить слежение", null, (_, _) => StopSession()) { Enabled = false };
         _controlsItem = new ToolStripMenuItem("Состояние и отмена общих правок", null, (_, _) => _latestSession?.ShowLiveControls()) { Enabled = false };
+        _participantsItem = new ToolStripMenuItem("Цвета участников") { Visible = false };
         var helpItem = new ToolStripMenuItem("Как пользоваться", null, (_, _) => ShowUsageInstructions());
         _updatesItem = new ToolStripMenuItem($"Проверить обновления · {HelperUpdater.CurrentVersion.ToString(3)}", null, (_, _) => _ = CheckUpdatesAsync(true)) { Enabled = HelperUpdater.Available };
         var automaticUpdatesItem = new ToolStripMenuItem("Обновлять автоматически") { Checked = HelperUpdater.Enabled, CheckOnClick = true, Enabled = HelperUpdater.Available };
@@ -81,6 +84,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _retryItem,
             _stopItem,
             _controlsItem,
+            _participantsItem,
             new ToolStripSeparator(),
             programItem,
             _updatesItem,
@@ -90,6 +94,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             clearTrustItem,
             exitItem
         ]);
+        menu.Opening += (_, _) => UpdateParticipantsMenu();
 
         _notifyIcon = new NotifyIcon
         {
@@ -137,14 +142,30 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
         }
 
-        if (HelperUpdater.Available && HelperUpdater.Enabled && !_checkingUpdate && DateTime.UtcNow >= _nextUpdateCheck)
-            _ = CheckUpdatesAsync(false);
-        if (_pendingUpdate is not null && (HelperUpdater.Enabled || _manualUpdate) && !_processingRequest
-            && _incoming.IsEmpty && DateTime.UtcNow >= _nextUpdateApply && _sessionOrder.All(session => session.ReadyForHelperUpdate))
+        var updateAction = _updateLaunch.Next(
+            automatic: HelperUpdater.Available && HelperUpdater.Enabled,
+            manual: HelperUpdater.Available && _manualUpdate,
+            safe: _sessionOrder.All(session => session.ReadyForHelperUpdate),
+            busy: _processingRequest,
+            hasWorkbookRequest: _incoming.TryPeek(out var nextRequest) && nextRequest != ActivateMessage,
+            checking: _checkingUpdate,
+            pending: _pendingUpdate is not null,
+            applyAllowed: DateTime.UtcNow >= _nextUpdateApply);
+        if (updateAction == HelperUpdateLaunchAction.Apply)
         {
             ApplyPendingUpdate();
             return;
         }
+        if (updateAction == HelperUpdateLaunchAction.Check)
+        {
+            SetStatus("Проверяю обновления перед открытием таблицы…");
+            _ = CheckUpdatesAsync(false);
+            return;
+        }
+        if (updateAction == HelperUpdateLaunchAction.Wait) return;
+
+        if (HelperUpdater.Available && HelperUpdater.Enabled && !_checkingUpdate && DateTime.UtcNow >= _nextUpdateCheck)
+            _ = CheckUpdatesAsync(false);
 
         if (_processingRequest || !_incoming.TryDequeue(out var request)) return;
         if (string.Equals(request, ActivateMessage, StringComparison.Ordinal))
@@ -152,8 +173,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             ShowNotification("Помощник уже запущен", _statusText, ToolTipIcon.Info);
             return;
         }
+        _updateLaunch.RequestStarted();
         _processingRequest = true;
-        _nextUpdateApply = DateTime.UtcNow.AddSeconds(15);
         _ = HandleProtocolRequestAsync(request);
     }
 
@@ -165,13 +186,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _nextUpdateCheck = DateTime.UtcNow.AddHours(8);
         try
         {
-            var update = await HelperUpdater.DownloadAsync(_updateLifetime.Token);
+            var update = await HelperUpdater.DownloadAsync(_updateLifetime.Token, version => _uiActions.Enqueue(() =>
+            {
+                SetStatus($"Скачиваю обновление {version}…");
+                ShowNotification("Обновление помощника", "Загружаю новую версию. Выбранная таблица откроется автоматически после обновления.", ToolTipIcon.Info);
+            }));
             if (_updateLifetime.IsCancellationRequested) return;
             _pendingUpdate = update;
             _manualUpdate = manual;
             _updatesItem.Text = update is null ? $"Проверить обновления · {HelperUpdater.CurrentVersion.ToString(3)}" : $"Готово обновление {update.Release.Version}";
             if (update is not null)
-                ShowNotification("Обновление подготовлено", "Новая версия установится после закрытия общих таблиц или при следующем запуске помощника. Скачивать вручную не нужно.", ToolTipIcon.Info);
+                ShowNotification("Обновление подготовлено", "Если таблицы ещё не открыты, помощник обновится и сам откроет выбранный файл. Во время работы обновление дождётся закрытия общих таблиц.", ToolTipIcon.Info);
             else if (manual) ShowNotification("Обновления проверены", "Установлена последняя доступная версия помощника.", ToolTipIcon.Info);
         }
         catch (OperationCanceledException) when (_updateLifetime.IsCancellationRequested) { }
@@ -631,10 +656,26 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _pauseItem.Enabled = active;
         _retryItem.Enabled = active;
         _controlsItem.Enabled = active && _latestSession?.IsLive == true;
+        _participantsItem.Visible = active && _latestSession?.IsLive == true;
         _stopItem.Enabled = active;
         _pauseItem.Text = _latestSession?.IsPaused == true
             ? "Продолжить автосохранение"
             : "Приостановить автосохранение";
+    }
+
+    private void UpdateParticipantsMenu()
+    {
+        foreach (var item in _participantsItem.DropDownItems.Cast<ToolStripItem>().ToArray()) item.Dispose();
+        _participantsItem.DropDownItems.Clear();
+        var peers = _latestSession?.LiveParticipants;
+        if (peers is null || peers.Count == 0)
+        {
+            _participantsItem.DropDownItems.Add(new ToolStripLabel("Другие участники не подключены"));
+            return;
+        }
+        foreach (var peer in peers.Take(32))
+            _participantsItem.DropDownItems.Add(new ToolStripLabel("● " + peer!["name"]!.GetValue<string>())
+                { ForeColor = ColorTranslator.FromHtml(peer["color"]!.GetValue<string>()) });
     }
 
     private void RegisterSession(WorkbookGrant grant, WorkbookSession session)

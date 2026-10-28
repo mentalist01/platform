@@ -83,6 +83,7 @@ internal sealed class WorkbookSession : IDisposable
     public bool IsLiveClosed => _live?.IsClosed == true;
     public bool ReadyForHelperUpdate => _live?.ReadyForHelperUpdate == true;
     public string? LiveEngine => _live?.Engine;
+    public System.Text.Json.Nodes.JsonArray LiveParticipants => _live?.Participants ?? [];
     public void ShowLiveControls() => _live?.ShowControls();
     public Task ActivateLiveOfficeAsync() => _live?.ActivateOfficeAsync() ?? Task.CompletedTask;
     public bool RequiresManualMacroOpen { get; }

@@ -53,58 +53,40 @@ internal sealed class LivePresenceOverlay : Form
         var graphics = args.Graphics; graphics.SmoothingMode = SmoothingMode.None;
         if (_frame["view"] is not JsonArray view) return;
         var viewport = LocalRect(view); graphics.SetClip(viewport);
-        var labeled = new HashSet<string>();
+        var marked = new HashSet<string>();
         foreach (var mark in (_frame["marks"] as JsonArray ?? []).Take(64))
         {
             if (mark?["bounds"] is not JsonArray values) continue;
             var bounds = LocalRect(values); if (bounds.Width <= 0 || bounds.Height <= 0) continue;
-            string name = mark["name"]!.GetValue<string>(); var color = ColorTranslator.FromHtml(mark["color"]!.GetValue<string>());
+            string colorText = mark["color"]!.GetValue<string>(); var color = ColorTranslator.FromHtml(colorText);
             using var pen = new Pen(color, 2); graphics.DrawRectangle(pen, bounds.X + 1, bounds.Y + 1, Math.Max(0, bounds.Width - 2), Math.Max(0, bounds.Height - 2));
-            if (labeled.Add(name)) Label(graphics, name, color, Math.Clamp(bounds.X, viewport.Left, Math.Max(viewport.Left, viewport.Right - 150)), Math.Max(viewport.Top, bounds.Y - 23));
-            if (mark["draft"] is JsonValue draft) Preview(graphics, name, draft.GetValue<string>(), color, bounds, viewport);
+            using var marker = new SolidBrush(color); graphics.FillRectangle(marker, bounds.X, bounds.Y, Math.Min(4, bounds.Width), Math.Min(4, bounds.Height));
+            marked.Add(colorText);
+            if (mark["draft"] is JsonValue draft) Preview(graphics, draft.GetValue<string>(), color, bounds, viewport);
         }
         int chipY = viewport.Top + 6;
         foreach (var peer in _peers.Take(8))
         {
-            string name = peer!["name"]!.GetValue<string>();
-            if (labeled.Contains(name)) continue;
-            var selection = peer["selection"]!;
-            string text = name + " · " + selection["sheetName"]!.GetValue<string>();
-            if (selection["objects"] is JsonArray objects && objects.Count > 0) text += " · " + objects[0]!["name"]!.GetValue<string>();
-            else if (selection["ranges"] is JsonArray ranges && ranges.Count > 0) text += " · " + RangeText(ranges[0]!.AsArray());
-            Label(graphics, text, ColorTranslator.FromHtml(peer["color"]!.GetValue<string>()), Math.Max(viewport.Left + 5, viewport.Right - 270), chipY); chipY += 25;
+            if (marked.Contains(peer!["color"]!.GetValue<string>())) continue;
             if (peer["draft"] is JsonObject draft)
             {
-                Preview(graphics, name, draft["text"]!.GetValue<string>(), ColorTranslator.FromHtml(peer["color"]!.GetValue<string>()), new Rectangle(viewport.Right - 320, chipY, 300, 0), viewport);
+                Preview(graphics, draft["text"]!.GetValue<string>(), ColorTranslator.FromHtml(peer["color"]!.GetValue<string>()), new Rectangle(viewport.Right - 320, chipY, 300, 0), viewport);
                 chipY += 92;
             }
         }
     }
-    private static void Preview(Graphics graphics, string name, string text, Color color, Rectangle cell, Rectangle viewport)
+    private static void Preview(Graphics graphics, string text, Color color, Rectangle cell, Rectangle viewport)
     {
         if (text.Length > 240) text = text[..237] + "…";
         int width = Math.Min(340, Math.Max(80, viewport.Width - 12));
         using var font = new Font("Segoe UI", 10);
-        string label = name + " печатает…\n" + (text.Length == 0 ? "Пустой черновик" : text);
+        string label = "Ввод…\n" + (text.Length == 0 ? "Пустой черновик" : text);
         int height = Math.Min(88, Math.Max(47, (int)graphics.MeasureString(label, font, width - 20).Height + 16));
         int x = Math.Clamp(cell.Left, viewport.Left + 4, Math.Max(viewport.Left + 4, viewport.Right - width - 4));
         int y = cell.Bottom + height + 5 <= viewport.Bottom ? cell.Bottom + 5 : Math.Max(viewport.Top + 4, cell.Top - height - 5);
         using var fill = new SolidBrush(Color.FromArgb(248, 247, 255)); using var border = new Pen(color, 2); using var ink = new SolidBrush(Color.FromArgb(42, 36, 65));
         graphics.FillRectangle(fill, x, y, width, height); graphics.DrawRectangle(border, x, y, width, height);
         graphics.DrawString(label, font, ink, new RectangleF(x + 10, y + 7, width - 20, height - 10));
-    }
-    private static string RangeText(JsonArray range)
-    {
-        static string Cell(int row, int column) { string letters = ""; for (int n = column + 1; n > 0; n = (n - 1) / 26) letters = (char)('A' + (n - 1) % 26) + letters; return letters + (row + 1); }
-        string first = Cell(range[0]!.GetValue<int>(), range[1]!.GetValue<int>()), last = Cell(range[2]!.GetValue<int>(), range[3]!.GetValue<int>());
-        return first == last ? first : first + ":" + last;
-    }
-    private void Label(Graphics graphics, string text, Color color, int x, int y)
-    {
-        using var font = new Font("Segoe UI", 9, FontStyle.Bold);
-        if (text.Length > 48) text = text[..45] + "…";
-        var size = graphics.MeasureString(text, font); var rect = new RectangleF(x, y, size.Width + 14, 22);
-        using var brush = new SolidBrush(color); graphics.FillRectangle(brush, rect); graphics.DrawString(text, font, Brushes.White, x + 7, y + 3);
     }
     protected override void Dispose(bool disposing) { if (disposing) _timer.Dispose(); base.Dispose(disposing); }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }

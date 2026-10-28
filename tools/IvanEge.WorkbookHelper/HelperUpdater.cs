@@ -96,22 +96,30 @@ internal static partial class HelperUpdater
         catch (Exception error) { AppLog.Error("Pending update validation failed", error); return null; }
     }
 
-    internal static async Task<StagedHelperUpdate?> DownloadAsync(CancellationToken token)
+    internal static async Task<StagedHelperUpdate?> DownloadAsync(CancellationToken token, Action<string>? downloading = null)
     {
         CleanupStalePackages();
         using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, Credentials = null };
-        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(5) };
+        // An unopened platform ticket lasts three minutes. Leave enough time for
+        // verified installation and replay even on a stalled update connection.
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        lifetime.CancelAfter(TimeSpan.FromSeconds(90));
+        token = lifetime.Token;
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(90) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd($"IvanEgeWorkbookHelper/{CurrentVersion}");
-        using var response = await client.GetAsync(ManifestUrl, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+        using var manifestDeadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        manifestDeadline.CancelAfter(TimeSpan.FromSeconds(5));
+        using var response = await client.GetAsync(ManifestUrl, HttpCompletionOption.ResponseHeadersRead, manifestDeadline.Token).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
         using var memory = new MemoryStream();
-        await CopyBoundedAsync(await response.Content.ReadAsStreamAsync(token), memory, MaxManifestBytes, token).ConfigureAwait(false);
+        await CopyBoundedAsync(await response.Content.ReadAsStreamAsync(manifestDeadline.Token), memory, MaxManifestBytes, manifestDeadline.Token).ConfigureAwait(false);
         var envelope = memory.ToArray();
         var release = VerifyManifest(envelope);
         if (Version.Parse(release.Version) <= CurrentVersion) return null;
         var previous = Pending();
         if (previous is not null && Version.Parse(previous.Release.Version) >= Version.Parse(release.Version)) return previous;
+        downloading?.Invoke(release.Version);
         var id = Guid.NewGuid().ToString("N");
         var directory = StageDirectory(id);
         Directory.CreateDirectory(directory);
@@ -182,7 +190,9 @@ internal static partial class HelperUpdater
         var start = new ProcessStartInfo(host) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = update.Directory };
         foreach (var argument in new[] { "--apply-update", update.Id, Environment.ProcessId.ToString(), Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks.ToString(), restart ? "restart" : "exit" })
             start.ArgumentList.Add(argument);
-        foreach (var request in requests ?? []) { ProtocolRequestParser.Parse(request); start.ArgumentList.Add("--uri"); start.ArgumentList.Add(request); }
+        var queued = (requests ?? []).ToList();
+        if (queued.Count > 8) throw new IOException("Открывается несколько таблиц. Обновление дождётся следующего запуска.");
+        foreach (var request in queued) { ProtocolRequestParser.Parse(request); start.ArgumentList.Add("--uri"); start.ArgumentList.Add(request); }
         _ = Process.Start(start) ?? throw new IOException("Не удалось запустить установку обновления.");
     }
 

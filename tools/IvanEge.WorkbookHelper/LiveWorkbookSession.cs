@@ -18,6 +18,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     public bool IsClosed => _failed || _disposed || _client.Office?.Closed == true;
     public bool ReadyForHelperUpdate => !_failed && !_disposed && _client.ReadyForHelperUpdate;
     public string Engine { get; }
+    public System.Text.Json.Nodes.JsonArray Participants { get; private set; } = [];
     public event EventHandler<WorkbookStatus>? Status;
 
     public LiveWorkbookSession(HelperApiClient api, WorkbookGrant grant, string source, string? requestedEngine = null)
@@ -31,7 +32,7 @@ internal sealed class LiveWorkbookSession : IDisposable
         _client.WakeRequested += Wake;
         _window = new LiveWorkbookWindow();
         _presence = new LivePresenceOverlay();
-        _client.Presence += (frame, peers) => _ui.Post(_ => { if (!_disposed) _presence.Present(frame, peers); }, null);
+        _client.Presence += (frame, peers) => _ui.Post(_ => { if (!_disposed) { Participants = peers; _presence.Present(frame, peers); } }, null);
         _window.SaveRequested += () => { _client.RequestSave(); Wake(); };
         _window.UndoRequested += redo => voidUndo(redo);
         _window.ResolveRequested += async () =>

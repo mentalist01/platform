@@ -2,6 +2,16 @@ import test from'node:test';import assert from'node:assert/strict';
 import{WorkbookLivePresence,normalizeWorkbookPresence,normalizeWorkbookDraft}from'./workbookLivePresence.js';
 const teacher={id:'t',role:'teacher',name:'Учитель'},pupil={id:'p',role:'student',name:'Ученик'};
 const selected={sheetName:'Лист1',activeCell:[2,1],ranges:[[2,1,8,3]],objects:[]};
+test('all active participants have distinct stable colors even when their names match',()=>{
+  const p=new WorkbookLivePresence();
+  p.exchange('colors','t',teacher,selected,100);
+  for(let i=0;i<31;i++)p.exchange('colors','s'+i,{...pupil,id:'student-'+i,name:'Александр'},selected,101+i);
+  const peers=p.read('colors',teacher,140).peers,colors=peers.map(peer=>peer.color);
+  assert.equal(new Set(colors.concat('#8b5cf6')).size,32);
+  p.exchange('colors','new-session',{...pupil,id:'student-2',name:'Александр'},{...selected,activeCell:[9,4]},141);
+  assert.equal(p.read('colors',teacher,142).peers.find(peer=>peer.actorId===peers[2].actorId).color,colors[2]);
+  assert.throws(()=>p.exchange('colors','too-many',{...pupil,id:'extra'},selected,143),{status:429});
+});
 test('draft typing is transient, bounded, cleared on commit and cannot supply another identity',()=>{
   const p=new WorkbookLivePresence(),draft={sheetName:'Лист1',cell:[2,1],text:'=SUM(A1;\nB2)'};
   p.exchange('a','t',teacher,selected,10,{...draft,actorId:'forged'});
