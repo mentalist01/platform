@@ -33,10 +33,10 @@ test('receiver counter reset, reconnection and a changed sender epoch start a fr
   assert.equal(w.sample({now:40500,connected:true,packets:0}),null);
 });
 
-test('packets reaching an already running but frozen player detect playback failure; blocked or zero volume are respected',()=>{
+test('a stopped player plus a frozen clock detect playback failure; blocked or zero volume are respected',()=>{
   for(const options of [{blocked:false,volume:1},{blocked:true,volume:1},{blocked:false,volume:0}]){
     const w=createAudioReceiveWatchdog();let issue;
-    for(let i=1;i<=9;i++)issue=w.sample({now:i*2500,connected:true,packets:i*20,time:Math.min(i,2),...options});
+    for(let i=1;i<=9;i++)issue=w.sample({now:i*2500,connected:true,packets:i*20,time:Math.min(i,2),paused:true,...options});
     assert.equal(issue,!options.blocked&&options.volume?'playback-stalled':null);
   }
 });
@@ -50,10 +50,18 @@ test('automatic retries are limited separately for each participant and manual r
   b.clear();assert.equal(b.take('a',100001),true);
 });
 
-test('a first play() that never starts is detected only while audio packets keep arriving',()=>{
+test('a first play() without playable data is detected only while audio packets keep arriving',()=>{
   const w=createAudioReceiveWatchdog();let issue;
-  for(let i=1;i<=7;i++)issue=w.sample({now:i*2500,connected:true,packets:i*20,time:0});
+  for(let i=1;i<=7;i++)issue=w.sample({now:i*2500,connected:true,packets:i*20,time:0,readyState:0});
   assert.equal(issue,'playback-stalled');
+});
+
+test('a healthy MediaStream whose clock stops does not display a warning or trigger repair',()=>{
+  const w=createAudioReceiveWatchdog();
+  for(let i=1;i<=30;i++){
+    const now=i*2500;w.remote({epoch:'sender',packets:i*30,enabled:true},now);
+    assert.equal(w.sample({now,connected:true,packets:i*30,time:Math.min(i,2),paused:false,ended:false,readyState:4}),null);
+  }
 });
 
 function playerFixture(){
@@ -77,6 +85,13 @@ test('paused audio restarts automatically and stream rebinding does not stop sha
   t.mock.timers.tick(3000);await Promise.resolve();assert.equal(calls,2);
   await p.retry({rebind:true});assert.equal(f.node.srcObject,f.stream);assert.equal(f.track.readyState,'live');
   p.dispose();assert.equal(f.node.srcObject,null);t.mock.timers.tick(30000);assert.equal(calls,3);
+});
+
+test('a successful rebind clears an independently raised warning even when the player was already playing',async t=>{
+  t.mock.timers.enable({apis:['setInterval']});const f=playerFixture(),states=[];
+  const p=createRemoteAudioPlayback({...f,onState:value=>states.push(value.status)});await Promise.resolve();
+  assert.deepEqual(states,['playing']);await p.retry({rebind:true});
+  assert.deepEqual(states,['playing','playing'],'The second confirmation must reach the call warning state');p.dispose();
 });
 
 test('late errors after leaving a channel are ignored; removing one player leaves other participants running',async()=>{

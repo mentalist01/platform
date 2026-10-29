@@ -2834,9 +2834,10 @@ const CallSection = ({
         if(report.type==='outbound-rtp'&&(report.kind||report.mediaType)==='audio'&&!report.isRemote)sentPackets+=Number(report.packetsSent)||0;
       });
       const player=remoteAudioPlayersRef.current.get(peerId),health=audioHealthRef.current[peerId];
-      const issue=peerState.audioWatchdog.sample({now,connected:getRtcPeerConnectionState(pc)==='connected',packets:audioPackets,time:player?.node?.currentTime,volume:player?.node?.volume??1,blocked:health?.status==='blocked'});
-      if(audioPackets>(peerState.lastAudioPackets||0)&&['receive-stalled','recovering','recovery-exhausted'].includes(health?.status))setPeerAudioState(peerId,{status:'playing'});
-      if(health?.status==='recovering'&&now-health.at>15000)setPeerAudioState(peerId,{status:'recovery-exhausted'});
+      const node=player?.node,playbackUsable=Boolean(node&&!node.paused&&!node.ended&&!node.error&&node.readyState>=2);
+      const issue=peerState.audioWatchdog.sample({now,connected:getRtcPeerConnectionState(pc)==='connected',packets:audioPackets,time:node?.currentTime,volume:node?.volume??1,blocked:health?.status==='blocked',paused:node?.paused,ended:node?.ended,readyState:node?.readyState,playbackError:Boolean(node?.error)});
+      if(audioPackets>(peerState.lastAudioPackets||0)&&(['receive-stalled','recovering','recovery-exhausted'].includes(health?.status)||playbackUsable&&!issue&&['playback-stalled','playback-error'].includes(health?.status)))setPeerAudioState(peerId,{status:'playing'});
+      else if(health?.status==='recovering'&&now-health.at>15000)setPeerAudioState(peerId,{status:'recovery-exhausted'});
       peerState.lastAudioPackets=audioPackets;
       if(issue&&!['recovering','recovery-exhausted'].includes(health?.status)){
         setPeerAudioState(peerId,{status:issue,packets:audioPackets,volume:player?.node?.volume});

@@ -14,15 +14,17 @@ export function createAudioReceiveWatchdog({staleMs=12000}={}) {
       }
       remote={...sample,at:now};
     },
-    sample({now=Date.now(),connected,packets=0,time=null,volume=1,blocked=false}) {
+    sample({now=Date.now(),connected,packets=0,time=null,volume=1,blocked=false,paused=false,ended=false,playbackError=false,readyState=null}) {
       if(!connected){previous=null;receivedAt=now;playedAt=now;return null;}
       if(!previous||packets<previous.packets){receivedAt=now;playedAt=now;}
       if(previous&&packets>previous.packets)receivedAt=now;
       if(Number.isFinite(time)&&previous&&Number.isFinite(previous.time)&&time<previous.time)playedAt=now;
       if(Number.isFinite(time)&&previous&&time>previous.time)playedAt=now;
       previous={packets,time:Number.isFinite(time)?time:null};
-      // Includes a first play() which never starts despite incoming RTP.
-      if(!blocked&&volume>0&&Number.isFinite(time)&&now-receivedAt<5000&&now-playedAt>=staleMs)return 'playback-stalled';
+      // A MediaStream element's clock can freeze while audio is still audible.
+      // Require a second playback failure signal before disrupting a call.
+      const playbackFault=paused===true||ended===true||playbackError===true||(Number.isFinite(readyState)&&readyState<2);
+      if(playbackFault&&!blocked&&volume>0&&Number.isFinite(time)&&now-receivedAt<5000&&now-playedAt>=staleMs)return 'playback-stalled';
       if(!remote?.enabled||now-remote.at>staleMs||!remoteProgressAt||now-remoteProgressAt>staleMs)return null;
       if(remoteProgressStart&&now-remoteProgressStart>=staleMs&&now-receivedAt>=staleMs)return 'receive-stalled';
       return null;
@@ -35,7 +37,7 @@ export function createAudioReceiveWatchdog({staleMs=12000}={}) {
 export function createRemoteAudioPlayback({node,stream,onState=()=>{},retryMs=3000}) {
   let disposed=false,pending=false,blocked=false,state='',version=0;
   const tracks=new Map();
-  const report=(next,code='')=>{if(!disposed&&next!==state){state=next;onState({status:next,code});}};
+  const report=(next,code='',force=false)=>{if(!disposed&&(force||next!==state)){state=next;onState({status:next,code});}};
   const live=()=>stream?.getAudioTracks?.().some(track=>track.readyState==='live');
   const retry=async({rebind=false}={})=>{
     if(disposed||!live())return false;
@@ -46,7 +48,9 @@ export function createRemoteAudioPlayback({node,stream,onState=()=>{},retryMs=30
       if(node.srcObject!==stream){node.srcObject=stream;}
       await node.play();
       if(disposed||generation!==version)return false;
-      blocked=false;report('playing');return true;
+      // The transport watchdog can mark an error independently of this local
+      // state. A successful explicit rebind must acknowledge recovery again.
+      blocked=false;report('playing','',rebind);return true;
     }catch(error){
       if(disposed||generation!==version)return false;
       if(error?.name==='AbortError')return false;
