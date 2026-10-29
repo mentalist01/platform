@@ -7,6 +7,7 @@ import {liveDigest,LIVE_WORKBOOK_LIMITS} from './workbookLiveState.js';
 import {WorkbookLivePresence} from './workbookLivePresence.js';
 import {createWorkbookLiveEvents} from './workbookLiveEvents.js';
 import {workbookFallbackDiagnostic} from './workbookFallback.js';
+import {currentWorkbookSolution} from './preparedWorkbookHistory.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const teacher=auth=>['teacher','admin'].includes(auth?.role);
@@ -16,7 +17,7 @@ const actor=auth=>`${auth.role}:${auth.id}`;
 const isText=asset=>/\.(txt|csv|tsv)$/i.test(asset.name);
 const minimumHelper='1.5.1';
 const supportsFilters=agent=>{const version=String(agent||'').match(/IvanEgeWorkbookHelper\/(\d+)\.(\d+)\.(\d+)/i);return Boolean(version&&!/macOS/i.test(agent)&&(Number(version[1])>1||Number(version[1])===1&&(Number(version[2])>5||Number(version[2])===5&&Number(version[3])>=1)));};
-const seed=(store,card,asset)=>card.solutions[asset.id]||{...asset,...(isText(asset)?{name:asset.name.replace(/\.[^.]+$/,'')+' — решение.ods',hash:liveDigest(BLANK_WORKBOOK_ODS),blank:true}:{})};
+const seed=(store,card,asset)=>currentWorkbookSolution(card,asset.id)||{...asset,revision:card.solutions[asset.id]?.revision||0,...(isText(asset)?{name:asset.name.replace(/\.[^.]+$/,'')+' — решение.ods',hash:liveDigest(BLANK_WORKBOOK_ODS),blank:true}:{})};
 
 export function workbookLiveView(store,run,card,assetId){
   const mode=card.liveWorkbooks?.[assetId];if(!mode?.enabled)return null;

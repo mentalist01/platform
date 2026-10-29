@@ -100,7 +100,7 @@ export class PreparedHomework {
     if(!run){
       const runId=crypto.randomUUID(),cardId=crypto.randomUUID(),task=clone(snapshot.task);
       const card={id:cardId,index:0,anchorId:'prepared-'+crypto.randomUUID(),codeId:'prepared-'+crypto.randomUUID(),x:0,y:0,width:640,height:300,status:'active',answers:clone(snapshot.initialAnswers||task.answers.map(()=>'')),fieldResults:clone(snapshot.initialFieldResults||[]),answerRevision:0,code:{text:snapshot.code.code,input:snapshot.code.input,output:'',revision:0},solutions:{}};
-      for(const [assetId,source]of Object.entries(snapshot.solutions)){card.solutions[assetId]={...clone(source),id:crypto.randomUUID(),revision:0};}
+      for(const [assetId,source]of Object.entries(snapshot.solutions)){card.solutions[assetId]={...clone(source),id:crypto.randomUUID(),revision:0,attemptId:'',attemptNumber:1};}
       run={id:runId,room:'prepared-homework-'+runId,teacherId:snapshot.teacherId,studentId,groupId:'',participantIds:[],name:snapshot.task.title,taskNumber:snapshot.taskNumber,partNumber:snapshot.partNumber,setId:'',tasks:[task],cards:[card],version:1,mode:'prepared',auto:false,createdAt:new Date(this.now()).toISOString(),homework:{snapshotId:id,studentId,homeworkId:homework.id}};
       entry={runId,snapshotId:id,studentId};this.prepared.data.runs[runId]=run;this.data.workspaces[runId]=entry;this.links.set(`${studentId}:${id}`,entry);
       this.prepared.save(run);this.prepared.data.active[run.room]=runId;this.prepared.save();this.save();
