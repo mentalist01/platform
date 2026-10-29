@@ -1,0 +1,11 @@
+[Unit]
+Description=IVAN100 nightly storage maintenance
+
+[Timer]
+OnCalendar=*-*-* 04:20:00 Europe/Moscow
+RandomizedDelaySec=10m
+Persistent=true
+Unit=ivan100-storage-maintenance.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=IVAN100 verified archives to S3 and generated release cache cleanup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/app
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/node /root/app/.maintenance/archive-maintenance-to-s3.mjs --apply
+ExecStart=/usr/bin/node /root/app/.maintenance/clean-generated-release-stages.mjs --apply
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=50%
+MemoryMax=512M
+TimeoutStartSec=3h
+NoNewPrivileges=yes
