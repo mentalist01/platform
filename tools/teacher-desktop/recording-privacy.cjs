@@ -51,6 +51,7 @@ class RecordingPrivacy {
     this.reasons.delete(reason);
     if (!this.reasons.size) { clearInterval(this.timer); this.timer = null; }
     if (this.reasons.size) return { hidden: true };
+    this.watchPublic();
     // OBS persists filters across restarts; the new desktop process has no
     // in-memory mask ownership. A confirmed public view must reconcile them.
     let obs;
@@ -86,7 +87,25 @@ class RecordingPrivacy {
     }, 500);
     this.timer.unref?.();
   }
-  stop() { clearInterval(this.timer); this.timer = null; }
+  watchPublic() {
+    if (this.publicTimer) return;
+    // A public lesson can be painted before OBS starts. Reconcile once that
+    // connection returns; do not enumerate captures while it stays connected.
+    this.publicTimer = setInterval(() => { void this.checkPublicConnection().catch(() => {}); }, 5000);
+    this.publicTimer.unref?.();
+  }
+  checkPublicConnection() {
+    if (this.publicCheck || this.reasons.size) return this.publicCheck || Promise.resolve();
+    const action = this.queue.catch(() => {}).then(async () => {
+      if (this.reasons.size) return;
+      const obs = await this.getObs();
+      if (!obs.connected) await this.change('confirmed-public-reconnect', false);
+    });
+    this.queue = action;
+    this.publicCheck = action.finally(() => { this.publicCheck = null; });
+    return this.publicCheck;
+  }
+  stop() { clearInterval(this.timer); clearInterval(this.publicTimer); this.timer = this.publicTimer = null; }
   async maskCaptures(obs) {
     const { inputs } = await obs.call('GetInputList');
     for (const sourceName of CAPTURES.filter(name => inputs.some(input => input.inputName === name))) {

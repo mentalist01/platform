@@ -110,3 +110,26 @@ test('fresh public-view reconciliation remains harmless without configured OBS, 
   f.setRecording(true);
   await assert.rejects(f.privacy.set('platform', false), /not configured/);
 });
+
+test('a public lesson opened before OBS starts clears stale filters on connection recovery', async () => {
+  const f=fixture();f.setRecording(false);const getObs=f.privacy.getObs;
+  f.privacy.getObs=async()=>{throw Error('OBS not running');};
+  await f.privacy.set('platform',false);
+  f.filters.set('IVAN100: платформа',[{filterName:'IVAN100: скрыть личные разделы',filterEnabled:true}]);
+  f.privacy.getObs=getObs;f.obs.connected=false;
+  await f.privacy.checkPublicConnection();
+  assert.equal(f.filters.get('IVAN100: платформа')[0].filterEnabled,false);
+  f.obs.connected=true;f.calls.length=0;
+  await f.privacy.checkPublicConnection();
+  assert.equal(f.calls.length,0);
+  f.privacy.stop();
+});
+
+test('a reconnect check cannot reveal an open private panel', async () => {
+  const f=fixture();f.obs.connected=false;
+  await f.privacy.set('platform',false);
+  await f.privacy.set('account',true);f.calls.length=0;
+  await f.privacy.checkPublicConnection();
+  assert.equal(f.calls.length,0);assert.equal(f.scene(),SCENE);
+  f.privacy.stop();
+});

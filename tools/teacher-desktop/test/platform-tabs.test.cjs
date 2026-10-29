@@ -42,3 +42,28 @@ test('the title and audio indicator belong to their own tab',async()=>{
   const f=fixture();await f.add();await f.add();f.tabs.setTitle(f.views[0].webContents,'Доска · Данил');f.views[0].webContents.audible=true;f.views[0].webContents.emit('media-started-playing');
   const snapshot=f.states.at(-1);assert.equal(snapshot.tabs[0].title,'Доска · Данил');assert.equal(snapshot.tabs[0].audible,true);assert.equal(snapshot.tabs[1].audible,false);
 });
+
+test('a fresh public tab reconciles a persisted OBS mask even without in-memory ownership',async()=>{
+  const f=fixture();let masked=true;
+  f.tabs.privacy=async(reason,hidden)=>{masked=hidden;f.events.push(['privacy',reason,hidden]);};
+  const id=await f.add();
+  // The OBS process can restart after the loading mask was applied. Its filter
+  // survives, while the desktop no longer has a matching appliedPrivacy key.
+  f.tabs.appliedPrivacy.clear();masked=true;f.events.length=0;
+  await f.tabs.setPrivacy(f.views[0].webContents,'platform',false);
+  assert.equal(masked,false);
+  assert.ok(f.events.some(event=>event[0]==='privacy'&&event[1]===`platform-tab-${id}-platform`&&!event[2]));
+});
+
+test('public reconciliation waits for a ready active tab and never clears private panels',async()=>{
+  const f=fixture(),one=await f.add(),two=await f.add();await f.tabs.activate(one);
+  f.events.length=0;
+  await f.tabs.setPrivacy(f.views[1].webContents,'platform',false);
+  assert.deepEqual(f.events,[]);
+  f.tabs.active.page='loading';await f.tabs.setPrivacy(f.views[0].webContents,'platform',false);
+  assert.ok(!f.events.some(event=>event[0]==='privacy'&&!event[2]));
+  f.tabs.active.page='ready';await f.tabs.setPrivacy(f.views[0].webContents,'account',true);f.events.length=0;
+  await f.tabs.setPrivacy(f.views[0].webContents,'platform',false);
+  assert.ok(!f.events.some(event=>event[0]==='privacy'&&!event[2]));
+  assert.equal(f.tabs.activeId,one);assert.notEqual(one,two);
+});

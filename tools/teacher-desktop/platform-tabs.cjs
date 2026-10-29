@@ -40,6 +40,10 @@ class PlatformTabs {
   async clearOtherPrivacy(tab) {
     const desired=new Set([...tab.privateReasons].map(reason=>this.scope(tab,reason)));
     for(const key of [...this.appliedPrivacy])if(!desired.has(key)){await this.privacy(key,false);this.appliedPrivacy.delete(key);}
+    // OBS persists capture filters independently of this process. Even when no
+    // local key remains to clear, confirm the painted public tab to reconcile
+    // stale masks. Other privacy owners (such as the accounts panel) still win.
+    if(this.active===tab&&tab.page==='ready'&&!tab.privateReasons.size&&!this.overlay)await this.privacy(this.scope(tab,'platform'),false);
   }
   async syncPrivacy(tab){await this.addPrivacy(tab);await this.clearOtherPrivacy(tab);}
   activate(id) {
