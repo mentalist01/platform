@@ -47,6 +47,23 @@ export function assertRestored(directory,expected){
  if(JSON.stringify(content(inventory(directory)))!==JSON.stringify(content(expected)))throw Error('Restored directory differs');
 }
 export function recoveryRecord(rows,name){return rows.findLast(row=>row.directory===name&&row.verified&&Array.isArray(row.inventory));}
+export async function storeRecoveryRecord(row,client){
+ const body=Buffer.from(JSON.stringify(row)),hash=sha(body),key=row.key+'.inventory.json';
+ await client.send(new PutObjectCommand({Bucket:row.bucket,Key:key,Body:body,ACL:'private',ContentType:'application/json',ContentMD5:crypto.createHash('md5').update(body).digest('base64'),Metadata:{sha256:hash}}));
+ const r=await client.send(new GetObjectCommand({Bucket:row.bucket,Key:key}));
+ if(await digest(r.Body)!==hash)throw Error('Remote recovery inventory checksum mismatch');
+}
+async function remoteRecoveryRecord(name,client,bucket){
+ const found=[];let continuation;
+ do{
+  const page=await client.send(new ListObjectsV2Command({Bucket:bucket,Prefix:'maintenance-archives/verified-v1/',ContinuationToken:continuation}));
+  for(const o of page.Contents||[])if(o.Key?.includes('/release-directory__'+name+'__')&&o.Key.endsWith('.tar.gz.inventory.json'))found.push(o);
+  continuation=page.IsTruncated?page.NextContinuationToken:undefined;
+ }while(continuation);
+ found.sort((a,b)=>Number(b.LastModified)-Number(a.LastModified));
+ for(const o of found){const r=await client.send(new GetObjectCommand({Bucket:bucket,Key:o.Key})),body=await r.Body.transformToByteArray();if(sha(body)!==r.Metadata?.sha256)throw Error('Recovery inventory checksum mismatch');const row=JSON.parse(Buffer.from(body));if(row.directory===name&&row.verified&&Array.isArray(row.inventory))return row;}
+ return null;
+}
 function runtimeUses(directory){
  for(const name of fs.readdirSync('/proc')){
   if(!/^\d+$/.test(name))continue;
@@ -101,9 +118,16 @@ async function main(){
  if(process.platform!=='linux')throw Error('Production Linux server only');
  const config=configuration(),client=new S3Client({...config,credentials:{accessKeyId:config.accessKeyId,secretAccessKey:config.secretAccessKey},requestChecksumCalculation:'WHEN_REQUIRED',responseChecksumValidation:'WHEN_REQUIRED'});
  const args=process.argv.slice(2);
+ if(args.includes('--sync-index')){
+  const rows=fs.readFileSync(JOURNAL,'utf8').trim().split('\n').filter(Boolean).map(x=>JSON.parse(x)),latest=new Map();
+  for(const row of rows)if(row.verified&&Array.isArray(row.inventory))latest.set(row.directory,row);
+  let count=0;for(const row of latest.values()){await storeRecoveryRecord(row,client);count++;}
+  console.log(JSON.stringify({recoveryInventoriesStored:count,verified:true}));client.destroy();return;
+ }
  if(args.includes('--restore')){
   const name=args[args.indexOf('--restore')+1];if(!releaseKind(name))throw Error('Invalid release name');
-  const row=recoveryRecord(fs.readFileSync(JOURNAL,'utf8').trim().split('\n').map(x=>JSON.parse(x)),name);
+  const rows=fs.existsSync(JOURNAL)?fs.readFileSync(JOURNAL,'utf8').trim().split('\n').filter(Boolean).map(x=>JSON.parse(x)):[];
+  const row=(!args.includes('--remote-index')&&recoveryRecord(rows,name))||await remoteRecoveryRecord(name,client,config.bucket);
   if(!row)throw Error('No recovery record');
   const destination='/root/ivan100-release-restore/'+name;await restore(row,client,destination);console.log(JSON.stringify({restored:destination,verified:true}));return;
  }
@@ -133,6 +157,7 @@ async function main(){
    }else{await run('tar',['-dzf',archive,'-C',ROOT]);assertUnchanged(directory,before);}
    const uploaded=await verifiedTransfer({file:archive,client,bucket:config.bucket,journal:path.join(ARCHIVES,'s3-verified-transfers.jsonl'),keepLocal:true,minimumAgeMs:0});
    const row={...uploaded,directory:name,sourceBytes:bytes,inventory:before,verified:true};
+   await storeRecoveryRecord(row,client);
    // Exercise an actual download and extraction before relying on S3 alone.
    const recovery='/root/ivan100-release-restore/check-'+crypto.randomUUID();await restore(row,client,recovery);
    assertRestored(recovery,before);fs.rmSync(recovery,{recursive:true});

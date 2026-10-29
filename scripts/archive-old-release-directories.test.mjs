@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {releaseKind,chooseDirectories,inventory,assertUnchanged,assertRestored,recoveryRecord} from './archive-old-release-directories.mjs';
+import {Readable} from 'node:stream';
+import {releaseKind,chooseDirectories,inventory,assertUnchanged,assertRestored,recoveryRecord,storeRecoveryRecord} from './archive-old-release-directories.mjs';
 import {eligible} from './archive-maintenance-to-s3.mjs';
 const DAY=86400000;
 test('only recognizable release directories are eligible',()=>{
@@ -46,4 +47,12 @@ test('nightly transfer still excludes fresh files; newly closed archive needs ex
  assert.equal(eligible('old.tar.gz',stat,now),false);
  assert.equal(eligible('old.tar.gz',stat,now,0),true);
  assert.equal(eligible('old.tar.gz',stat,now,-1),false);
+});
+test('recovery inventory is private and its complete readback must match before deletion',async()=>{
+ const row={directory:'old-stage',bucket:'ivan100-lesson-recordings',key:'maintenance-archives/verified-v1/hash/file.tar.gz',inventory:[{name:'file',sha256:'abc'}]},calls=[];let body;
+ const client={send:async command=>{calls.push(command.input);if(command.constructor.name==='PutObjectCommand'){assert.equal(command.input.ACL,'private');body=command.input.Body;return {};}return {Body:Readable.from([body])};}};
+ await storeRecoveryRecord(row,client);
+ assert.equal(calls[0].Key,row.key+'.inventory.json');assert.equal(calls[1].Key,calls[0].Key);
+ const corrupt={send:async command=>command.constructor.name==='PutObjectCommand'?{}:{Body:Readable.from([Buffer.from('corrupt')])}};
+ await assert.rejects(storeRecoveryRecord(row,corrupt),/checksum mismatch/);
 });
