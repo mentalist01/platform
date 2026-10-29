@@ -664,6 +664,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _pauseItem.Enabled = active;
         _retryItem.Enabled = active;
         _controlsItem.Enabled = active && _latestSession?.IsLive == true;
+        _controlsItem.Text = _latestSession?.HasLiveConflict == true ? "Синхронизация приостановлена — согласовать правки" : "Состояние и отмена общих правок";
         _participantsItem.Visible = active && _latestSession?.IsLive == true;
         _stopItem.Enabled = active;
         _pauseItem.Text = _latestSession?.IsPaused == true

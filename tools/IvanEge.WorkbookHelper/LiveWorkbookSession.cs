@@ -17,6 +17,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     private WorkbookSession? _ordinary;
     public string LocalPath => _fallbackPath ?? _client.LocalPath;
     public bool HasSeparateFallback => _fallbackPath is not null;
+    public bool HasConflict => _client.Conflicted;
     public bool IsPaused => _ordinary?.IsPaused ?? _client.Paused;
     public bool IsClosed => _failed || _disposed || _client.Office?.Closed == true;
     public bool ReadyForHelperUpdate => !_disposed && _ordinary is null && (_failed && _worker.IsCompleted && _client.Office is null || !_failed && _client.ReadyForHelperUpdate);
@@ -211,6 +212,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     public void ShowControls() => _ui.Post(_ => { if (!_disposed) { _window.Show(); _window.Activate(); } }, null);
     public async Task ActivateOfficeAsync()
     {
+        if (_client.Conflicted) { ShowControls(); return; }
         if (_client.Office is not null) await _client.Office.CommandAsync(new() { ["type"] = "activate" }, _lifetime.Token);
         else if (_fallbackPath is not null) WorkbookFallback.Open(_fallbackPath);
     }

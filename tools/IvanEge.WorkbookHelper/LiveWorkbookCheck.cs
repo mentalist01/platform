@@ -164,6 +164,40 @@ internal static class LiveWorkbookCheck
             var result = await pupil.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "C1" }, token);
             Ensure(result["value"]!.GetValue<double>() == 42, "Formula did not calculate in Calc");
         });
+        await Check("Concurrent fills converge without a blocking conflict and later edits still arrive", async () =>
+        {
+            await Edit(teacher, "D2", Number(7)); await Settle();
+            async Task Fill(LiveWorkbookClient client, int color) => await client.Office.CommandAsync(new() { ["type"] = "edit", ["changes"] = new JsonArray(new JsonObject { ["sheetName"] = sheet, ["address"] = "D2", ["property"] = "fill", ["value"] = color }) }, token);
+            await Fill(teacher, 0xff0000); await Fill(pupil, 0x00ff00);
+            await teacher.TickAsync(token); await pupil.TickAsync(token); await Settle();
+            var left = await teacher.Office.SnapshotAsync(token); var right = await pupil.Office.SnapshotAsync(token);
+            try { Ensure(JsonNode.DeepEquals(left.Book, right.Book), "Concurrent fill left the editors different"); }
+            finally { File.Delete(left.File); File.Delete(right.File); }
+            await Edit(teacher, "G8", Number(888)); await Edit(pupil, "H8", Number(777)); await Settle();
+            var teacherValue = await teacher.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "H8" }, token);
+            var pupilValue = await pupil.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "G8" }, token);
+            Ensure(teacherValue["value"]!.GetValue<double>() == 777 && pupilValue["value"]!.GetValue<double>() == 888, "Synchronization did not resume after colors collided");
+        });
+        await Check("A persisted color conflict from an older helper recovers after reopening", async () =>
+        {
+            var state = await teacherApi.LiveRequestAsync(teacherGrant, "/workbook-helper/v1/live/state", null, token);
+            var remote = state["book"]!.AsObject(); var local = (JsonObject)remote.DeepClone();
+            var target = local["sheets"]!.AsArray().First(s => s!["name"]!.GetValue<string>() == sheet)!;
+            string sheetId = target["id"]!.GetValue<string>(); target["cells"]!["D2"]!["fill"] = 0x0000ff;
+            string cacheRoot = Path.Combine(directory, "old-color-conflict"); Directory.CreateDirectory(cacheRoot);
+            string cache = Path.Combine(cacheRoot, pupilGrant.WorkbookKey + "-" + pupilGrant.Live!.ActorId + ".json");
+            var pending = new JsonObject { ["id"] = Guid.NewGuid().ToString("N"), ["type"] = "patch", ["changes"] = new JsonArray(new JsonObject { ["sheetId"] = sheetId, ["address"] = "D2", ["property"] = "fill", ["value"] = 0x0000ff, ["baseVersion"] = 0 }) };
+            File.WriteAllText(cache, new JsonObject { ["epoch"] = pupilGrant.Live.Epoch, ["remote"] = remote.DeepClone(), ["observed"] = remote.DeepClone(), ["versions"] = state["versions"]!.DeepClone(), ["observedVersions"] = state["versions"]!.DeepClone(), ["revision"] = state["revision"]!.DeepClone(), ["structure"] = state["structureRevision"]!.DeepClone(), ["observedStructure"] = state["structureRevision"]!.DeepClone(), ["pending"] = pending, ["pendingLocal"] = local.DeepClone(), ["conflicted"] = true, ["local"] = local }.ToJsonString());
+            string fullFile = await teacher.Office.ExportFileAsync(token); File.Move(fullFile, cache + ".xlsx");
+            using var reopened = new LiveWorkbookClient(pupilApi, pupilGrant with { Live = pupilGrant.Live with { EventsSupported = false } }, Path.Combine(directory, "reopened-color-native"), cacheRoot);
+            await reopened.InitializeAsync(pupilFile, pupilEngine, true, token);
+            Ensure(!reopened.Conflicted, "The saved color conflict was restored as a permanent lock");
+            await Edit(reopened, "H9", Number(999)); await reopened.TickAsync(token); await teacher.TickAsync(token);
+            var value = await teacher.Office.CommandAsync(new() { ["type"] = "evaluate", ["sheetName"] = sheet, ["address"] = "H9" }, token);
+            Ensure(value["value"]!.GetValue<double>() == 999, "Reopened participant's edits did not reach the teacher");
+            Ensure(Directory.GetFiles(cacheRoot, "*.color-conflict-*.xlsx").Length == 1, "Pre-resolution local copy was not retained");
+            await Settle();
+        });
         await Check("Conflicting native edits preserve both versions and explicit resolution converges", async () =>
         {
             await Edit(teacher, "A1", Number(20)); await Edit(teacher, "E1", Number(55)); await Edit(pupil, "A1", Number(21));

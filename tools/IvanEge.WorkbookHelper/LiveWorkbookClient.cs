@@ -150,6 +150,11 @@ internal sealed class LiveWorkbookClient : IDisposable
                     _saveRequested = saved["saveRequested"]?.GetValue<bool>() == true;
                     await Office.CommandAsync(new() { ["type"] = "replace", ["book"] = saved["local"]!.DeepClone(), ["previous"] = snapshot.Book.DeepClone() }, token);
                     Office.Reader.UseNames(saved["local"]!.AsObject());
+                    if (_conflict)
+                    {
+                        Consume(await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/state", null, token));
+                        if (await AcceptConcurrentFillAsync(saved["local"]!.AsObject(), null, token)) return;
+                    }
                     Publish(WorkbookStatusKind.Warning, "Восстанавливаю неотправленные изменения из локальной копии", true);
                     return;
                 }
@@ -222,6 +227,24 @@ internal sealed class LiveWorkbookClient : IDisposable
         var applied = await Office.CommandAsync(new() { ["type"] = "apply", ["changes"] = native }, token);
         return applied["skipped"]?.GetValue<bool>() != true;
     }
+    private async Task<bool> AcceptConcurrentFillAsync(JsonObject local, string? snapshotFile, CancellationToken token)
+    {
+        // A concurrent color choice does not justify stopping a lesson. Accept
+        // the latest committed shared fill, but retain the complete local copy.
+        // Contents/structural conflicts still require an explicit user choice.
+        if (_pending?["type"]?.GetValue<string>() != "patch" || _pending["changes"] is not JsonArray changes || changes.Count == 0 ||
+            changes.Any(change => change?["property"]?.GetValue<string>() != "fill") || _observedStructure != _structure ||
+            !LiveWorkbookBook.SameSheets(_observed, _remote)) return false;
+        string recoveryFile = snapshotFile ?? await Office.ExportFileAsync(token);
+        try { File.Copy(recoveryFile, _cache + ".color-conflict-" + Guid.NewGuid().ToString("N") + ".xlsx", false); }
+        finally { if (snapshotFile is null) File.Delete(recoveryFile); }
+        _observed = Copy(_pendingLocal ?? local); _observedVersions = Copy(_versions); _observedStructure = _structure;
+        _pending = null; _pendingLocal = null; _conflict = false; ConflictDescription = null; _remoteChanges = null;
+        await ReconcileAsync(token);
+        await PersistAsync(_observed, snapshotFile, token);
+        Publish(WorkbookStatusKind.Watching, "Цвет ячейки синхронизирован; работа продолжается");
+        return true;
+    }
     public async Task TickAsync(CancellationToken token, JsonObject? incrementalBook = null, IReadOnlyCollection<(string Sheet, string Address, string Property)>? touched = null)
     {
         if (Paused || _conflict || !await _gate.WaitAsync(0, token)) return;
@@ -266,6 +289,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             catch (HelperApiException error) when (error.StatusCode == HttpStatusCode.Conflict && _pending is not null)
             {
                 Consume(await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/state", null, token));
+                if (await AcceptConcurrentFillAsync(snapshot.Book, snapshot.File, token)) return;
                 _conflict = true; ConflictDescription = error.Message; await PersistAsync(snapshot.Book, snapshot.File, token);
                 Publish(WorkbookStatusKind.Warning, "Нужно согласовать изменения таблицы", true); return;
             }
@@ -273,6 +297,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             Phase("network-and-consume");
             if (response["receipt"]?["status"]?.GetValue<string>() == "conflict")
             {
+                if (await AcceptConcurrentFillAsync(snapshot.Book, snapshot.File, token)) return;
                 _conflict = true; ConflictDescription = "Вы изменили те же ячейки, что и другой участник. Обе версии сохранены. Выберите, какие изменения оставить.";
                 await PersistAsync(snapshot.Book, snapshot.File, token); Publish(WorkbookStatusKind.Warning, "Совпали изменения в одной ячейке", true); return;
             }

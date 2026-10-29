@@ -82,6 +82,7 @@ internal sealed class WorkbookSession : IDisposable
     public bool IsLive => _live is not null;
     public bool IsLiveClosed => _live?.IsClosed == true;
     public bool HasSeparateFallback => _live?.HasSeparateFallback == true;
+    public bool HasLiveConflict => _live?.HasConflict == true;
     public bool ReadyForHelperUpdate => _live?.ReadyForHelperUpdate == true;
     public string? LiveEngine => _live?.Engine;
     public System.Text.Json.Nodes.JsonArray LiveParticipants => _live?.Participants ?? [];
