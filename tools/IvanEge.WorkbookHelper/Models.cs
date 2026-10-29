@@ -18,7 +18,7 @@ internal sealed record WorkbookGrant(
     string? SourceTextContentHash = null,
     LiveWorkbookGrant? Live = null);
 
-internal sealed record LiveWorkbookGrant(int Protocol, string Epoch, string ActorId, bool FiltersSupported = false, bool EventsSupported = false);
+internal sealed record LiveWorkbookGrant(int Protocol, string Epoch, string ActorId, bool FiltersSupported = false, bool EventsSupported = false, bool BordersSupported = false);
 
 internal sealed record DownloadReceipt(
     string LocalContentHash,

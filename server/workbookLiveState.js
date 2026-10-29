@@ -24,6 +24,18 @@ export function normalizeLiveContent(value){
   return {kind:value.kind,value:value.value};
 }
 const normalizeFill=value=>{if(value!==null&&(!Number.isInteger(value)||value<0||value>0xffffff))fail('Некорректная заливка');return value;};
+const borderStyles=new Set(['thin','medium','thick','hair','dashed','mediumDashed','dotted','double','dashDot','mediumDashDot','dashDotDot','mediumDashDotDot','slantDashDot']);
+export function normalizeLiveBorders(value){
+  if(value==null)return null;
+  if(typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['left','right','top','bottom'].includes(key)))fail('Некорректные границы ячейки');
+  const result={};
+  for(const edge of ['left','right','top','bottom'])if(value[edge]!=null){
+    const line=value[edge];if(!borderStyles.has(line?.style)||!Number.isInteger(line.color)||line.color<0||line.color>0xffffff)fail('Некорректная линия границы');
+    result[edge]={style:line.style,color:line.color};
+  }
+  return Object.keys(result).length?result:null;
+}
+const emptyCell=cell=>cell.content.kind==='empty'&&cell.fill===null&&!cell.borders;
 function normalizeFilter(value){
   if(!value||typeof value!=='object'||!Array.isArray(value.columns)||value.columns.length>LIVE_WORKBOOK_LIMITS.columns||!Array.isArray(value.hiddenRows)||value.hiddenRows.length>100000)fail('Некорректный фильтр таблицы');
   const range=value.range??null,parts=typeof range==='string'?range.split(':'):[];
@@ -60,7 +72,8 @@ export function normalizeLiveBook(value){
     for(const address of Object.keys(sheet.cells).sort()){
       if(!liveAddress(address)||address.includes('$'))fail('Некорректный адрес ячейки');
       const source=sheet.cells[address],cell={content:normalizeLiveContent(source?.content),fill:normalizeFill(source?.fill??null)};
-      if(cell.content.kind==='empty'&&cell.fill===null)continue;
+      const borders=normalizeLiveBorders(source?.borders);if(borders)cell.borders=borders;
+      if(emptyCell(cell))continue;
       if(++count>LIVE_WORKBOOK_LIMITS.cells)fail('Для совместного режима слишком много заполненных ячеек',413);
       cells[address]=cell;
     }
@@ -114,15 +127,15 @@ export function applyLiveBatch(state,actor,input,now=Date.now()){
     if(!Array.isArray(input.changes)||!input.changes.length||input.changes.length>LIVE_WORKBOOK_LIMITS.changes)fail('Некорректный диапазон изменений');
     const seen=new Set();
     changes=input.changes.map(change=>{
-      if(!sheets.has(change?.sheetId)||!liveAddress(change.address)||change.address.includes('$')||!['content','fill'].includes(change.property)||!Number.isSafeInteger(change.baseVersion)||change.baseVersion<0)fail('Некорректная правка ячейки');
+      if(!sheets.has(change?.sheetId)||!liveAddress(change.address)||change.address.includes('$')||!['content','fill','borders'].includes(change.property)||!Number.isSafeInteger(change.baseVersion)||change.baseVersion<0)fail('Некорректная правка ячейки');
       const key=liveCellKey(change.sheetId,change.address,change.property);if(seen.has(key))fail('Ячейка повторяется в команде');seen.add(key);
-      return {...change,value:change.property==='content'?normalizeLiveContent(change.value):normalizeFill(change.value)};
+      return {...change,value:change.property==='content'?normalizeLiveContent(change.value):change.property==='borders'?normalizeLiveBorders(change.value):normalizeFill(change.value)};
     });
   }
   const conflicts=[];
   for(const change of changes){
     const sheet=sheets.get(change.sheetId);if(!sheet)fail('Лист уже изменён',409);
-    const current=(sheet.cells[change.address]||liveEmpty())[change.property],key=liveCellKey(change.sheetId,change.address,change.property);
+    const current=(sheet.cells[change.address]||liveEmpty())[change.property]??null,key=liveCellKey(change.sheetId,change.address,change.property);
     if(!equal(current,change.value)&&(state.versions[key]||state.structureRevision||0)!==change.baseVersion)conflicts.push({sheetId:change.sheetId,address:change.address,property:change.property,local:change.value,remote:current,version:state.versions[key]||state.structureRevision||0});
   }
   if(conflicts.length)return {state,receipt:{id:input.id,status:'conflict',revision:state.revision,conflicts},conflict:true};
@@ -133,10 +146,10 @@ export function applyLiveBatch(state,actor,input,now=Date.now()){
     const touched=new Set(changes.map(change=>change.sheetId));for(const sheet of next.book.sheets)if(touched.has(sheet.id))sheet.cells={...sheet.cells};
     const targetSheets=new Map(next.book.sheets.map(sheet=>[sheet.id,sheet]));
     for(const change of changes){
-      const sheet=targetSheets.get(change.sheetId),before=clone((sheet.cells[change.address]||liveEmpty())[change.property]);
+      const sheet=targetSheets.get(change.sheetId),before=clone((sheet.cells[change.address]||liveEmpty())[change.property]??null);
       if(equal(before,change.value))continue;
-      const cell={...(sheet.cells[change.address]||liveEmpty())};cell[change.property]=clone(change.value);
-      if(cell.content.kind==='empty'&&cell.fill===null)delete sheet.cells[change.address];else sheet.cells[change.address]=cell;
+      const cell={...(sheet.cells[change.address]||liveEmpty())};if(change.property==='borders'&&change.value===null)delete cell.borders;else cell[change.property]=clone(change.value);
+      if(emptyCell(cell))delete sheet.cells[change.address];else sheet.cells[change.address]=cell;
       next.versions[liveCellKey(change.sheetId,change.address,change.property)]=revision;
       actual.push({...change,before});
     }

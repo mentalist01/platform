@@ -45,7 +45,7 @@ internal static class LiveWorkbookCheck
             for (int round = 0; round < 3; round++) { await teacher.TickAsync(token); await pupil.TickAsync(token); }
             Ensure(!teacher.Conflicted && !pupil.Conflicted, "Unexpected conflict: " + teacher.ConflictDescription + " " + pupil.ConflictDescription);
             var a = await teacher.Office.SnapshotAsync(token); var b = await pupil.Office.SnapshotAsync(token);
-            try { Ensure(JsonNode.DeepEquals(a.Book, b.Book), "The native books did not converge. Filters: " + a.Book["sheets"]![0]!["filter"] + " / " + b.Book["sheets"]![0]!["filter"]); }
+            try { if (!JsonNode.DeepEquals(a.Book, b.Book)) { File.WriteAllText(Path.Combine(directory,"teacher-diverged.json"),a.Book.ToJsonString()); File.WriteAllText(Path.Combine(directory,"pupil-diverged.json"),b.Book.ToJsonString()); } Ensure(JsonNode.DeepEquals(a.Book, b.Book), "The native books did not converge. Filters: " + a.Book["sheets"]![0]!["filter"] + " / " + b.Book["sheets"]![0]!["filter"]); }
             finally { File.Delete(a.File); File.Delete(b.File); }
         }
         if (teacherGrant.Live!.EventsSupported && pupilGrant.Live!.EventsSupported)
@@ -154,6 +154,43 @@ internal static class LiveWorkbookCheck
             await Edit(teacher, "Z1", new() { ["kind"] = "empty" }); await Settle();
         });
         if (config["presenceOnly"]?.GetValue<bool>() == true) return;
+        if (teacherGrant.Live!.BordersSupported && pupilGrant.Live!.BordersSupported)
+        {
+            await Check("Border thickness, style, color and deletion converge between native editors", async () =>
+            {
+                JsonObject Line(string style,int color) => new(){["style"]=style,["color"]=color};
+                async Task Borders(LiveWorkbookClient client,string address,JsonObject? value) => await client.Office.CommandAsync(new(){["type"]="edit",["changes"]=new JsonArray(new JsonObject{["sheetName"]=sheet,["address"]=address,["property"]="borders",["value"]=value})},token);
+                await Borders(teacher,"C4",new(){["right"]=Line("thin",0),["bottom"]=Line("medium",0x229944)});
+                await Borders(teacher,"A1",new(){["left"]=Line("thick",0),["top"]=Line("dashed",0x2255cc)});
+                await Settle();
+                var first=await pupil.Office.SnapshotAsync(token);
+                try { Ensure(first.Book["sheets"]![0]!["cells"]!["C4"]?["borders"]?["bottom"]?["color"]?.GetValue<int>()==0x229944,"Colored bottom border was lost"); Ensure(first.Book["sheets"]![0]!["cells"]!["A1"]?["borders"]?["left"]?["style"]?.GetValue<string>()=="thick" && first.Book["sheets"]![0]!["cells"]!["A1"]?["borders"]?["top"]?["style"]?.GetValue<string>()=="dashed", "Thickness or dash style was lost"); }
+                finally { File.Delete(first.File); }
+                await Borders(pupil,"C4",new(){["right"]=Line("double",0x993344),["bottom"]=Line("dotted",0)});await Settle();
+                var diagnostic=await pupil.Office.CommandAsync(new(){["type"]="read-cell",["sheetName"]=sheet,["address"]="A1"},token);
+                File.WriteAllText(Path.Combine(directory,"borders-native-diagnostic.json"),diagnostic.ToJsonString());
+                await Borders(pupil,"C4",null);await Borders(teacher,"A1",null);await Settle();
+                string[] styles=["hair","thin","medium","thick","dashed","mediumDashed","dotted","double","dashDot","mediumDashDot","dashDotDot","mediumDashDotDot","slantDashDot"];
+                for(int i=0;i<styles.Length;i++)
+                {
+                    var writer=i%2==0?teacher:pupil;string style=styles[i];int color=0x123456+i;
+                    await Borders(writer,"H8",new(){["bottom"]=Line(style,color)});await Settle();
+                    var read=await teacher.Office.SnapshotAsync(token);
+                    try { Ensure(read.Book["sheets"]![0]!["cells"]!["H8"]?["borders"]?["bottom"]?["style"]?.GetValue<string>()==style,"Border style changed during round trip: "+style); }
+                    finally { File.Delete(read.File); }
+                    foreach(var client in new[]{teacher,pupil})
+                    {
+                        var native=await client.Office.CommandAsync(new(){["type"]="read-cell",["sheetName"]=sheet,["address"]="H8"},token);
+                        Ensure(native["cell"]?["borders"]?["bottom"]?["style"]?.GetValue<string>()==style,"Native border differed from exported border: "+style);
+                    }
+                }
+                await Borders(teacher,"H8",null);await Settle();
+                var cleared=await teacher.Office.SnapshotAsync(token);
+                try { Ensure(cleared.Book["sheets"]![0]!["cells"]!["C4"] is null,"Border-only empty cell survived clearing"); }
+                finally { File.Delete(cleared.File); }
+            });
+        }
+        if (config["bordersOnly"]?.GetValue<bool>() == true) return;
         await Check("Real Excel and Calc clients publish different cells through scoped production endpoints", async () =>
         {
             await Edit(teacher, "A1", Number(12)); await Edit(pupil, "B1", Number(30), 0x72dca0); await Settle();

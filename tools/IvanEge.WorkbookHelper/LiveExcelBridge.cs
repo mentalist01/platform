@@ -11,12 +11,13 @@ internal sealed class LiveExcelBridge : IDisposable
     private readonly dynamic _book = null!;
     private readonly string _localPath;
     private readonly bool _hidden;
+    private readonly bool _borders;
     private readonly LiveExcelChanges _changes = null!;
     private static void Release(object? value) { if (value is not null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value); }
 
-    public LiveExcelBridge(string source, string localPath, bool hidden)
+    public LiveExcelBridge(string source, string localPath, bool hidden, bool borders = false)
     {
-        _localPath = localPath; _hidden = hidden;
+        _localPath = localPath; _hidden = hidden; _borders = borders;
         string stage = "запуск приложения";
         try
         {
@@ -71,7 +72,8 @@ internal sealed class LiveExcelBridge : IDisposable
             {
                 var color = Convert.ToInt32(interior.Color); fill = (color & 255) << 16 | color & 0x00ff00 | color >> 16 & 255;
             }
-            return new JsonObject { ["content"] = content, ["fill"] = fill };
+            var result = new JsonObject { ["content"] = content, ["fill"] = fill };
+            var borders = _borders ? LiveWorkbookBorders.ReadExcel(sheet, address) : null; if (borders is not null) result["borders"] = borders; return result;
         }
         finally { Release(interior); Release(cell); }
     }
@@ -80,7 +82,8 @@ internal sealed class LiveExcelBridge : IDisposable
         dynamic cell = sheet.Range[address];
         try
         {
-            if (property == "fill")
+            if (property == "borders") LiveWorkbookBorders.WriteExcel(sheet, address, value);
+            else if (property == "fill")
             {
                 dynamic interior = cell.Interior;
                 try
@@ -154,13 +157,15 @@ internal sealed class LiveExcelBridge : IDisposable
     {
         switch (command["type"]!.GetValue<string>())
         {
+            case "read-cell":
+                dynamic readSheet=Sheet(command["sheetName"]!.GetValue<string>()); try { return new { cell=ReadCell(readSheet,command["address"]!.GetValue<string>()) }; } finally { Release(readSheet); }
             case "pulse":
                 var pulse = Pulse(command["peers"] as JsonArray ?? []);
                 var edits = _changes.CellsSince(command["sinceSerial"]?.GetValue<long>() ?? -1)?.ToArray();
                 if (edits is { Length: > 0 })
                 {
                     var cells = new JsonArray();
-                    foreach (var edit in edits)
+                    foreach (var edit in (_borders ? edits.SelectMany(edit => { var (col,row)=LiveWorkbookBorders.Position(edit.Address); return new (string Sheet,string Address)[]{edit,(edit.Sheet,LiveWorkbookBorders.Address(Math.Max(1,col-1),row)),(edit.Sheet,LiveWorkbookBorders.Address(col,Math.Max(1,row-1)))}; }).Distinct() : edits))
                     { dynamic sheet = Sheet(edit.Sheet); try { cells.Add(new JsonObject { ["sheetName"] = edit.Sheet, ["address"] = edit.Address, ["value"] = ReadCell(sheet, edit.Address) }); } finally { Release(sheet); } }
                     pulse["cells"] = cells;
                 }
@@ -428,6 +433,7 @@ internal sealed class LiveExcelBridge : IDisposable
                             finally { Release(populated); }
                         }
                         var priorSheet = previous?["sheets"]?.AsArray().ElementAtOrDefault(index);
+                        foreach (var oldBorder in priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["borders"] is not null) ?? []) WriteCell(sheet, oldBorder.Key, "borders", null);
                         foreach (var oldCell in priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["fill"] is not null) ?? []) WriteCell(sheet, oldCell.Key, "fill", null);
                     }
                     finally { Release(used); }
@@ -456,6 +462,7 @@ internal sealed class LiveExcelBridge : IDisposable
                     else foreach (var entry in cells) WriteCell(sheet, entry.Key, "content", entry.Value!["content"]);
                     foreach (var group in cells.Where(cell => cell.Value!["fill"] is not null).GroupBy(cell => cell.Value!["fill"]!.GetValue<int>()))
                         foreach (var batch in group.Select(cell => cell.Key).Chunk(100)) WriteCell(sheet, string.Join(',', batch), "fill", JsonValue.Create(group.Key));
+                    foreach (var entry in cells.Where(cell => cell.Value!["borders"] is not null)) WriteCell(sheet, entry.Key, "borders", entry.Value!["borders"]);
                     ApplyFilter(sheet, source["filter"] as JsonObject);
                 }
                 finally { Release(sheet); }
@@ -530,7 +537,7 @@ internal sealed class LiveExcelBridge : IDisposable
         string Argument(string name) { var index = Array.IndexOf(args, name); if (index < 0 || index + 1 >= args.Length) throw new FormatException("Missing bridge argument"); return args[index + 1]; }
         try
         {
-            using var bridge = new LiveExcelBridge(Argument("--file"), Argument("--local"), args.Contains("--hidden"));
+            using var bridge = new LiveExcelBridge(Argument("--file"), Argument("--local"), args.Contains("--hidden"), args.Contains("--borders"));
             Console.WriteLine("{\"ready\":true}"); string? line;
             while (true)
             {

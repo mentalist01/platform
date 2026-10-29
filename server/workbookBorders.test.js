@@ -1,0 +1,57 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import sharp from 'sharp';
+import {WebSocket} from 'ws';
+import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
+import {BLANK_WORKBOOK_ODS} from './blankWorkbook.js';
+import {createLiveState,applyLiveBatch,normalizeLiveBook} from './workbookLiveState.js';
+const line={style:'medium',color:0x223344},borders={bottom:line};
+const source={sheets:[{id:'sheet1',name:'Sheet1',cells:{}}]};
+const patch=(id,value,baseVersion=0)=>({id,type:'patch',changes:[{sheetId:'sheet1',address:'C4',property:'borders',value,baseVersion}]});
+test('borders are sparse independent properties, conflict safely, undo, redo and clear',()=>{
+ let state=createLiveState(source,'source');state=applyLiveBatch(state,'a',patch('one',borders)).state;
+ assert.deepEqual(state.book.sheets[0].cells.C4.borders,borders);
+ assert.equal(state.book.sheets[0].cells.C4.content.kind,'empty');
+ assert.ok(applyLiveBatch(state,'b',patch('stale',{right:{style:'thin',color:0}})).conflict);
+ state=applyLiveBatch(state,'a',{id:'undo',type:'undo',targetId:'one'}).state;
+ assert.equal(state.book.sheets[0].cells.C4,undefined);
+ state=applyLiveBatch(state,'a',{id:'redo',type:'redo',targetId:'undo'}).state;
+ assert.deepEqual(state.book.sheets[0].cells.C4.borders,borders);
+ state=applyLiveBatch(state,'a',patch('clear',null,3)).state;assert.equal(state.book.sheets[0].cells.C4,undefined);
+ for(const value of [{unknown:line},{bottom:{style:'script',color:0}},{bottom:{style:'thin',color:-1}},{bottom:{style:'thin',color:'red'}}])assert.throws(()=>applyLiveBatch(state,'a',patch('bad',value,4)));
+ assert.deepEqual(normalizeLiveBook(source),source);
+});
+test('format upgrade waits for disconnected and checkpointed clients, then fences old helpers',{timeout:90000},async()=>{
+ const f=await createGroupHomeworkFixture(undefined,(write,data)=>{const students=JSON.parse(fs.readFileSync(path.join(data,'students.json')));write('students',[...students,{id:'student-d',teacherId:'teacher-a',name:'Test',code:'student-d-code',grade:'11'}]);});
+ let ws;
+ try{
+  const teacher=f.tokens['teacher-a'];
+  const upload=async(route,name,bytes,fields={})=>{const form=new FormData();form.append('file',new Blob([bytes]),name);for(const[k,v]of Object.entries(fields))form.append(k,v);const r=await fetch(f.base+route,{method:'POST',headers:{Authorization:'Bearer '+teacher},body:form});assert.ok(r.ok,await r.clone().text());return r.json();};
+  const image=await upload('/api/lesson-task-images','condition.png',await sharp({create:{width:600,height:100,channels:4,background:'white'}}).png().toBuffer());
+  const file=await upload('/api/files','book.ods',BLANK_WORKBOOK_ODS,{studentId:'student-d',taskNumber:'18',category:'class'});
+  const set=await f.request('/api/lesson-task-sets',teacher,{name:'Borders',taskNumber:18,tasks:[{images:[image.id],answers:['1','2'],attachments:[{sourceFileId:file.id}]}]},'POST',201);
+  const {run}=await f.request('/api/lesson-task-runs',teacher,{room:'board-teacher-a-student-d',setId:set.id,x:0,y:0},'POST',201);
+  const target={cardId:run.cards[0].id,assetId:run.cards[0].attachments[0].assetId},route='/api/lesson-task-runs/'+run.id+'/live';
+  const open=async(version='1.5.10',status=200)=>{const {ticket}=await f.request(route+'/helper',teacher,{...target,start:true},'POST',201);const r=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/'+version},body:JSON.stringify({ticket})});assert.equal(r.status,status,await r.clone().text());return r.json();};
+  const call=async(grant,route,body,status=200)=>{const r=await fetch(f.base+'/workbook-helper/v1/live/'+route,{method:body?'POST':'GET',headers:{Authorization:'Workbook '+grant.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});assert.equal(r.status,status,await r.clone().text());return r.json();};
+  const legacy=await open('1.5.9');assert.equal(legacy.live.bordersSupported,false);
+  await call(legacy,'initialize',{book:source,sourceHash:legacy.contentHash});
+  ws=new WebSocket(f.base.replace('http','ws')+'/workbook-helper/v1/live/events',{headers:{Authorization:'Workbook '+legacy.token}});await new Promise((resolve,reject)=>{ws.once('message',resolve);ws.once('error',reject);});
+  assert.equal((await open()).live.bordersSupported,false,'An active legacy lesson is not interrupted');
+  await call(legacy,'sync',{command:{id:'edit',type:'patch',changes:[{sheetId:'sheet1',address:'A1',property:'content',value:{kind:'number',value:7},baseVersion:0}]}});
+  ws.close();await new Promise(resolve=>ws.once('close',resolve));
+  await new Promise(resolve=>setTimeout(resolve,15500));
+  assert.equal((await open()).live.bordersSupported,false,'Uncheckpointed cell edits prevent epoch replacement');
+  const form=new FormData();form.append('file',new Blob([BLANK_WORKBOOK_ODS]),'book.ods');form.append('liveRevision','1');form.append('revision','0');
+  const saved=await fetch(f.base+'/workbook-helper/v1/live/checkpoint',{method:'POST',headers:{Authorization:'Workbook '+legacy.token},body:form});assert.equal(saved.status,200,await saved.clone().text());
+  await new Promise(resolve=>setTimeout(resolve,15500));
+  const upgraded=await open();assert.equal(upgraded.live.bordersSupported,true);assert.notEqual(upgraded.live.epoch,legacy.live.epoch);
+  await call(legacy,'state',null,410);await open('1.5.9',426);
+  const pupil=(await f.request('/api/login','',{code:'student-d-code'})).token;
+  const nextTicket=(await f.request(route+'/helper',pupil,{...target,start:true},'POST',201)).ticket;
+  const joined=await fetch(f.base+'/workbook-helper/v1/exchange',{method:'POST',headers:{'Content-Type':'application/json','User-Agent':'IvanEgeWorkbookHelper/1.5.10'},body:JSON.stringify({ticket:nextTicket})});
+  assert.equal(joined.status,200);assert.equal((await joined.json()).live.epoch,upgraded.live.epoch);
+ }finally{ws?.terminate();await f.stop();}
+});

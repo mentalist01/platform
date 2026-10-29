@@ -99,8 +99,8 @@ internal sealed class LiveWorkbookClient : IDisposable
                 }
                 var sheet = _remote["sheets"]!.AsArray().First(sheet => sheet!["id"]!.GetValue<string>() == change!["sheetId"]!.GetValue<string>())!;
                 var cells = sheet["cells"]!.AsObject(); string address = change!["address"]!.GetValue<string>(), property = change["property"]!.GetValue<string>();
-                var cell = cells[address]?.AsObject() ?? LiveWorkbookBook.EmptyCell(); cell[property] = change["value"]?.DeepClone();
-                if (cell["content"]!["kind"]!.GetValue<string>() == "empty" && cell["fill"] is null) cells.Remove(address);
+                var cell = cells[address]?.AsObject() ?? LiveWorkbookBook.EmptyCell(); LiveWorkbookBook.Set(cell, property, change["value"]);
+                if (LiveWorkbookBook.IsEmpty(cell)) cells.Remove(address);
                 else if (cells[address] is null) cells[address] = cell;
                 _versions[$"{sheet["id"]}/{address}/{property}"] = revision;
             }
@@ -127,7 +127,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             // two hashes; never open that long recovery filename natively.
             Directory.CreateDirectory(_directory); openSource = Path.Combine(_directory, "recovery.xlsx"); File.Copy(_cache + ".xlsx", openSource, true);
         }
-        Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin);
+        Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin, _grant.Live.BordersSupported);
         if (state["book"] is JsonObject serverBook) Office.Reader.UseNames(serverBook);
         var snapshot = await Office.SnapshotAsync(token);
         try
@@ -153,7 +153,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                     if (_conflict)
                     {
                         Consume(await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/state", null, token));
-                        if (await AcceptConcurrentFillAsync(saved["local"]!.AsObject(), null, token)) return;
+                        if (await AcceptConcurrentFormattingAsync(saved["local"]!.AsObject(), null, token)) return;
                     }
                     Publish(WorkbookStatusKind.Warning, "Восстанавливаю неотправленные изменения из локальной копии", true);
                     return;
@@ -181,8 +181,8 @@ internal sealed class LiveWorkbookClient : IDisposable
                 foreach (var (id, address, property) in _remoteChanges)
                 {
                     var cells = before[id]["cells"]!.AsObject(); var cell = cells[address]?.AsObject() ?? LiveWorkbookBook.EmptyCell();
-                    cell[property] = (after[id]["cells"]![address] ?? LiveWorkbookBook.EmptyCell())[property]?.DeepClone();
-                    if (cell["content"]!["kind"]!.GetValue<string>() == "empty" && cell["fill"] is null) cells.Remove(address);
+                    LiveWorkbookBook.Set(cell, property, (after[id]["cells"]![address] ?? LiveWorkbookBook.EmptyCell())[property]);
+                    if (LiveWorkbookBook.IsEmpty(cell)) cells.Remove(address);
                     else if (cells[address] is null) cells[address] = cell;
                     string key = $"{id}/{address}/{property}"; _observedVersions[key] = _versions[key]?.DeepClone() ?? JsonValue.Create(_structure);
                 }
@@ -227,13 +227,13 @@ internal sealed class LiveWorkbookClient : IDisposable
         var applied = await Office.CommandAsync(new() { ["type"] = "apply", ["changes"] = native }, token);
         return applied["skipped"]?.GetValue<bool>() != true;
     }
-    private async Task<bool> AcceptConcurrentFillAsync(JsonObject local, string? snapshotFile, CancellationToken token)
+    private async Task<bool> AcceptConcurrentFormattingAsync(JsonObject local, string? snapshotFile, CancellationToken token)
     {
         // A concurrent color choice does not justify stopping a lesson. Accept
-        // the latest committed shared fill, but retain the complete local copy.
+        // the latest committed shared formatting, but retain the complete local copy.
         // Contents/structural conflicts still require an explicit user choice.
         if (_pending?["type"]?.GetValue<string>() != "patch" || _pending["changes"] is not JsonArray changes || changes.Count == 0 ||
-            changes.Any(change => change?["property"]?.GetValue<string>() != "fill") || _observedStructure != _structure ||
+            changes.Any(change => change?["property"]?.GetValue<string>() is not ("fill" or "borders")) || _observedStructure != _structure ||
             !LiveWorkbookBook.SameSheets(_observed, _remote)) return false;
         string recoveryFile = snapshotFile ?? await Office.ExportFileAsync(token);
         try { File.Copy(recoveryFile, _cache + ".color-conflict-" + Guid.NewGuid().ToString("N") + ".xlsx", false); }
@@ -242,7 +242,7 @@ internal sealed class LiveWorkbookClient : IDisposable
         _pending = null; _pendingLocal = null; _conflict = false; ConflictDescription = null; _remoteChanges = null;
         await ReconcileAsync(token);
         await PersistAsync(_observed, snapshotFile, token);
-        Publish(WorkbookStatusKind.Watching, "Цвет ячейки синхронизирован; работа продолжается");
+        Publish(WorkbookStatusKind.Watching, "Оформление ячейки синхронизировано; работа продолжается");
         return true;
     }
     public async Task TickAsync(CancellationToken token, JsonObject? incrementalBook = null, IReadOnlyCollection<(string Sheet, string Address, string Property)>? touched = null)
@@ -289,7 +289,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             catch (HelperApiException error) when (error.StatusCode == HttpStatusCode.Conflict && _pending is not null)
             {
                 Consume(await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/state", null, token));
-                if (await AcceptConcurrentFillAsync(snapshot.Book, snapshot.File, token)) return;
+                if (await AcceptConcurrentFormattingAsync(snapshot.Book, snapshot.File, token)) return;
                 _conflict = true; ConflictDescription = error.Message; await PersistAsync(snapshot.Book, snapshot.File, token);
                 Publish(WorkbookStatusKind.Warning, "Нужно согласовать изменения таблицы", true); return;
             }
@@ -297,7 +297,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             Phase("network-and-consume");
             if (response["receipt"]?["status"]?.GetValue<string>() == "conflict")
             {
-                if (await AcceptConcurrentFillAsync(snapshot.Book, snapshot.File, token)) return;
+                if (await AcceptConcurrentFormattingAsync(snapshot.Book, snapshot.File, token)) return;
                 _conflict = true; ConflictDescription = "Вы изменили те же ячейки, что и другой участник. Обе версии сохранены. Выберите, какие изменения оставить.";
                 await PersistAsync(snapshot.Book, snapshot.File, token); Publish(WorkbookStatusKind.Warning, "Совпали изменения в одной ячейке", true); return;
             }
@@ -427,7 +427,8 @@ internal sealed class LiveWorkbookClient : IDisposable
                     if (sheet is null) { incremental = null; break; }
                     string address = edit!["address"]!.GetValue<string>(); var value = edit["value"]!;
                     touched.Add((sheet["id"]!.GetValue<string>(), address, "content")); touched.Add((sheet["id"]!.GetValue<string>(), address, "fill"));
-                    if (value["content"]!["kind"]!.GetValue<string>() == "empty" && value["fill"] is null) sheet["cells"]!.AsObject().Remove(address);
+                    if (_grant.Live!.BordersSupported) touched.Add((sheet["id"]!.GetValue<string>(), address, "borders"));
+                    if (LiveWorkbookBook.IsEmpty(value)) sheet["cells"]!.AsObject().Remove(address);
                     else sheet["cells"]![address] = value.DeepClone();
                 }
             }

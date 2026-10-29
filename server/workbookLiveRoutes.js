@@ -17,6 +17,7 @@ const actor=auth=>`${auth.role}:${auth.id}`;
 const isText=asset=>/\.(txt|csv|tsv)$/i.test(asset.name);
 const minimumHelper='1.5.1';
 const supportsFilters=agent=>{const version=String(agent||'').match(/IvanEgeWorkbookHelper\/(\d+)\.(\d+)\.(\d+)/i);return Boolean(version&&!/macOS/i.test(agent)&&(Number(version[1])>1||Number(version[1])===1&&(Number(version[2])>5||Number(version[2])===5&&Number(version[3])>=1)));};
+const supportsBorders=agent=>{const v=String(agent||'').match(/IvanEgeWorkbookHelper\/(\d+)\.(\d+)\.(\d+)/i);return Boolean(v&&!/macOS/i.test(agent)&&(Number(v[1])>1||Number(v[1])===1&&(Number(v[2])>5||Number(v[2])===5&&Number(v[3])>=10)));};
 const seed=(store,card,asset)=>currentWorkbookSolution(card,asset.id)||{...asset,revision:card.solutions[asset.id]?.revision||0,...(isText(asset)?{name:asset.name.replace(/\.[^.]+$/,'')+' — решение.ods',hash:liveDigest(BLANK_WORKBOOK_ODS),blank:true}:{})};
 
 export function workbookLiveView(store,run,card,assetId){
@@ -40,7 +41,8 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
     if(!entry.filtersSupported)fail(426,'Для синхронизации фильтров и исправления прокрутки обновите помощник у обоих участников до версии 1.5.1 и снова откройте таблицу с доски. Локальные файлы сохранены.');
     const context=await authorize(entry.auth,entry.runId,entry.cardId,entry.assetId),mode=context.card.liveWorkbooks?.[entry.assetId];
     if(!mode?.enabled||mode.epoch!==entry.epoch)fail(410,'Совместное редактирование завершено. Ваша локальная копия сохранена.');
-    return {...context,entry,mode};
+    if(mode.bordersSupported&&!entry.bordersSupported)fail(426,'Для этой общей таблицы обновите помощник до версии 1.5.10. Локальная копия сохранена.');
+    entry.lastSeenAt=store.now();return {...context,entry,mode};
   };
   const intercept=handler(async(req,res,next)=>{
     const token=parseWorkbookHelperAuthorization(req.headers.authorization);if(!token.startsWith('wl_'))return next();
@@ -128,12 +130,30 @@ export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,all
       fail(426,`Запущенный помощник: ${detected || 'версия не определена'}. Обновите помощник до версии 1.5.1 или новее. Сохраните таблицы, выберите «Выход» в старом помощнике и повторно запустите новый установщик.`);
     }
     const hash=liveDigest(req.body.ticket),entry=tickets.get(hash);if(!entry||entry.expires<store.now())fail(410,'Ссылка запуска истекла. Нажмите «Открыть общую таблицу» снова.');
-    const {run,card,asset}=await authorize(entry.auth,entry.runId,entry.cardId,entry.assetId),mode=card.liveWorkbooks?.[entry.assetId];
+    const {run,card,asset}=await authorize(entry.auth,entry.runId,entry.cardId,entry.assetId);let mode=card.liveWorkbooks?.[entry.assetId];
     if(!mode?.enabled||mode.epoch!==entry.epoch)fail(410,'Совместный режим завершён');
+    const bordersSupported=supportsBorders(req.headers['user-agent']);
+    // Upgrade only a fully saved, disconnected book. A fresh epoch loads the
+    // complete native file, including formatting omitted by older helpers.
+    if(bordersSupported&&!mode.bordersSupported&&!mode.ordinaryFallback){
+      await store.lock(async()=>{
+        mode=card.liveWorkbooks[asset.id];if(!mode?.enabled||mode.epoch!==entry.epoch)fail(410,'Совместный режим изменён. Сохраните локальную копию и откройте таблицу с доски.');const state=store.liveWorkbooks.read(mode.key).state;
+        const recentClients=Object.values(store.data.sessions).some(session=>session.live&&session.epoch===mode.epoch&&session.lastSeenAt>store.now()-15000);
+        if(mode.bordersSupported||store.liveEvents.hasConnections(mode.key)||recentClients||state&&state.revision!==state.checkpointRevision)return;
+        {
+          const oldEpoch=mode.epoch,epoch=crypto.randomUUID();
+          mode={...mode,epoch,key:store.liveWorkbooks.key(run.id,card.id,asset.id+'-'+epoch),sourceHash:seed(store,card,asset).hash,createdAt:store.now(),bordersSupported:true};
+          card.liveWorkbooks[asset.id]=mode;
+          for(const ticket of tickets.values())if(ticket.runId===run.id&&ticket.cardId===card.id&&ticket.assetId===asset.id&&ticket.epoch===oldEpoch)ticket.epoch=epoch;
+        }
+        run.version++;store.save(run);await store.notify(run,'file',card.id);
+      });
+    }
+    if(mode.bordersSupported&&!bordersSupported)fail(426,'Для передачи границ ячеек обновите помощник до версии 1.5.10 у обоих участников.');
     const source=seed(store,card,asset),token='wl_'+crypto.randomBytes(32).toString('base64url'),expires=store.now()+30*86400000;
-    store.data.sessions[liveDigest(token)]={...entry,expires,filtersSupported:true};tickets.delete(hash);store.save();
+    store.data.sessions[liveDigest(token)]={...entry,epoch:mode.epoch,expires,filtersSupported:true,bordersSupported,lastSeenAt:store.now()};tickets.delete(hash);store.save();
     res.setHeader('Cache-Control','no-store');res.json({token,workbookKey:mode.key,fileName:source.name,solutionName:source.name,revision:source.revision||0,contentHash:source.hash,requiresName:false,expiresAt:new Date(expires).toISOString(),
-      live:entry.fallback?null:{protocol:1,filtersSupported:true,eventsSupported:true,epoch:mode.epoch,actorId:liveDigest(actor(entry.auth)),sessionId:liveDigest(token).slice(0,24),limits:LIVE_WORKBOOK_LIMITS},
+      live:entry.fallback?null:{protocol:1,filtersSupported:true,eventsSupported:true,bordersSupported:mode.bordersSupported===true,epoch:mode.epoch,actorId:liveDigest(actor(entry.auth)),sessionId:liveDigest(token).slice(0,24),limits:LIVE_WORKBOOK_LIMITS},
       sourceText:isText(asset)?{fileName:asset.name,contentHash:asset.hash,sizeBytes:asset.size}:null});
   }));
   app.get('/workbook-helper/v1/content',intercept,handler(async(req,res,next)=>{

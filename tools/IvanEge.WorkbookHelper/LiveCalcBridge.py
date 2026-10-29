@@ -155,11 +155,17 @@ class Calc:
             content = {'kind': 'boolean', 'value': expression == 'TRUE()'} if expression in ('TRUE()', 'FALSE()') else {'kind': 'formula', 'value': '=' + expression}
         color = cell.getPropertyValue('CellBackColor')
         fill = None if cell.getPropertyValue('IsCellBackgroundTransparent') or color < 0 else int(color)
-        return {'content': content, 'fill': fill}
+        result = {'content': content, 'fill': fill}
+        borders = self.read_borders(sheet, address) if self.args.borders else None
+        if borders:
+            result['borders'] = borders
+        return result
 
     def write(self, sheet, address, key, value):
         cell = sheet.getCellRangeByName(address)
-        if key == 'fill':
+        if key == 'borders':
+            self.write_borders(sheet, address, value)
+        elif key == 'fill':
             cell.setPropertyValue('IsCellBackgroundTransparent', value is None)
             cell.setPropertyValue('CellBackColor', -1 if value is None else int(value))
         elif value['kind'] == 'empty':
@@ -172,8 +178,82 @@ class Calc:
             formula = value['value'] if value['kind'] == 'formula' else ('=TRUE()' if value['value'] else '=FALSE()')
             cell.setTokens(self.parser.parseFormula(formula.lstrip('='), cell.getCellAddress()))
 
+    @staticmethod
+    def border_position(address):
+        letters, row = re.fullmatch(r'([A-Z]+)([0-9]+)', address).groups()
+        col = 0
+        for char in letters:
+            col = col * 26 + ord(char) - 64
+        return col - 1, int(row) - 1
+
+    @staticmethod
+    def border_pick(a, b):
+        weights = {'hair': 1, 'thin': 2, 'dotted': 2, 'dashed': 2, 'dashDot': 2, 'dashDotDot': 2, 'medium': 3, 'mediumDashed': 3, 'mediumDashDot': 3, 'mediumDashDotDot': 3, 'slantDashDot': 3, 'thick': 4, 'double': 5}
+        return max((line for line in (a, b) if line), key=lambda line: (weights[line['style']], json.dumps(line, separators=(',', ':'))), default=None)
+
+    def read_border_edge(self, cell, edge):
+        line = cell.getPropertyValue(edge.capitalize() + 'Border2')
+        width = int(line.LineWidth) or int(line.OuterLineWidth + line.InnerLineWidth + line.LineDistance)
+        if line.LineStyle == 32767 or width == 0:
+            return None
+        # Match Calc's XLSX export thresholds (0.75 / 1.75 / 2.5pt).
+        # Otherwise an exported dashed line may read as dotted and conditional
+        # application would incorrectly refuse later changes.
+        width = int(line.OuterLineWidth) or width
+        medium, hair = width >= 62, width < 26
+        style = {1: 'slantDashDot' if medium else 'dotted', 2: 'mediumDashed' if medium else 'dotted' if hair else 'dashed', 14: 'slantDashDot' if medium else 'dashed', 15: 'double', 16: 'mediumDashDot' if medium else 'dashed' if hair else 'dashDot', 17: 'mediumDashDotDot' if medium else 'dashed' if hair else 'dashDotDot'}.get(int(line.LineStyle))
+        if style is None:
+            style = 'thick' if width >= 88 else 'medium' if medium else 'hair' if hair else 'thin'
+        return {'style': style, 'color': int(line.Color) & 0xffffff}
+
+    def read_borders(self, sheet, address):
+        col, row = self.border_position(address)
+        cell, result = sheet.getCellByPosition(col, row), {}
+        for edge in ('left', 'right', 'top', 'bottom'):
+            if edge == 'left' and col > 0 or edge == 'top' and row > 0:
+                continue
+            line = self.read_border_edge(cell, edge)
+            if edge == 'right' and col < 16383:
+                line = self.border_pick(line, self.read_border_edge(sheet.getCellByPosition(col + 1, row), 'left'))
+            if edge == 'bottom' and row < 1048575:
+                line = self.border_pick(line, self.read_border_edge(sheet.getCellByPosition(col, row + 1), 'top'))
+            if line:
+                result[edge] = line
+        return result or None
+
+    def write_border_edge(self, cell, edge, value):
+        line = uno.createUnoStruct('com.sun.star.table.BorderLine2')
+        line.LineStyle = 32767
+        if value:
+            style = value['style']
+            line.Color = value['color']
+            line.LineStyle = {'dotted': 1, 'dashed': 2, 'mediumDashed': 2, 'double': 15, 'dashDot': 16, 'mediumDashDot': 16, 'dashDotDot': 17, 'mediumDashDotDot': 17, 'slantDashDot': 1}.get(style, 0)
+            line.LineWidth = 18 if style == 'hair' else 89 if style == 'thick' else 63 if style.startswith('medium') or style in ('slantDashDot', 'double') else 27
+        cell.setPropertyValue(edge.capitalize() + 'Border2', line)
+
+    def write_borders(self, sheet, address, value):
+        col, row = self.border_position(address)
+        cell = sheet.getCellByPosition(col, row)
+        for edge in ('left', 'right', 'top', 'bottom'):
+            if edge == 'left' and col > 0 or edge == 'top' and row > 0:
+                continue
+            line = (value or {}).get(edge)
+            self.write_border_edge(cell, edge, line)
+            if edge == 'right' and col < 16383:
+                self.write_border_edge(sheet.getCellByPosition(col + 1, row), 'left', line)
+            if edge == 'bottom' and row < 1048575:
+                self.write_border_edge(sheet.getCellByPosition(col, row + 1), 'top', line)
+
     def execute(self, command):
         kind = command['type']
+        if kind == 'read-cell':
+            sheet = self.doc.Sheets.getByName(command['sheetName'])
+            cell = sheet.getCellRangeByName(command['address'])
+            raw = {}
+            for edge in ('left', 'right', 'top', 'bottom'):
+                line = cell.getPropertyValue(edge.capitalize() + 'Border2')
+                raw[edge] = {key: int(getattr(line, key)) for key in ('LineStyle', 'LineWidth', 'OuterLineWidth', 'InnerLineWidth', 'LineDistance', 'Color')}
+            return {'cell': self.read(sheet, command['address']), 'raw': raw}
         if kind == 'pulse':
             result = self.pulse(command.get('peers', []))
             selected = self.doc.getCurrentController().getSelection()
@@ -195,9 +275,11 @@ class Calc:
                     sheet = self.doc.Sheets.getByIndex(area.Sheet)
                     for row in range(area.StartRow, area.EndRow + 1):
                         for col in range(area.StartColumn, area.EndColumn + 1):
-                            cell = sheet.getCellByPosition(col, row)
-                            address = cell.AbsoluteName.split('.')[-1].replace('$', '')
-                            cells[(sheet.Name, address)] = {'sheetName': sheet.Name, 'address': address, 'value': self.read(sheet, address)}
+                            positions = ((col, row), (max(0, col - 1), row), (col, max(0, row - 1))) if self.args.borders else ((col, row),)
+                            for x, y in positions:
+                                cell = sheet.getCellByPosition(x, y)
+                                address = cell.AbsoluteName.split('.')[-1].replace('$', '')
+                                cells[(sheet.Name, address)] = {'sheetName': sheet.Name, 'address': address, 'value': self.read(sheet, address)}
                 if 0 < len(cells) <= 64:
                     result['cells'] = list(cells.values())
             return result
@@ -261,7 +343,7 @@ class Calc:
         if kind in ('apply', 'edit'):
             for change in command['changes']:
                 sheet = self.doc.Sheets.getByName(change['sheetName'])
-                if kind == 'apply' and self.read(sheet, change['address'])[change['property']] != change['expected']:
+                if kind == 'apply' and self.read(sheet, change['address']).get(change['property']) != change['expected']:
                     return {'skipped': True}
             self.doc.lockControllers()
             if kind == 'apply':
@@ -718,6 +800,8 @@ class Calc:
                 prior = previous['sheets'][index] if previous and index < len(previous['sheets']) else None
                 if prior:
                     for address, cell in prior['cells'].items():
+                        if cell.get('borders'):
+                            self.write(sheet, address, 'borders', None)
                         if cell['fill'] is not None:
                             self.write(sheet, address, 'fill', None)
             for source in sheets:
@@ -745,6 +829,9 @@ class Calc:
                         self.write(sheet, address, 'content', value['content'])
                     if value['fill'] is not None:
                         self.write(sheet, address, 'fill', value['fill'])
+                for address, value in source['cells'].items():
+                    if value.get('borders'):
+                        self.write(sheet, address, 'borders', value['borders'])
                 self.apply_filter(sheet, source.get('filter'))
         finally:
             self.doc.unlockControllers()
@@ -775,6 +862,7 @@ def main():
     for arg in ('file', 'local', 'profile', 'soffice'):
         parser.add_argument('--' + arg, required=True)
     parser.add_argument('--hidden', action='store_true')
+    parser.add_argument('--borders', action='store_true')
     args = parser.parse_args()
     calc = None
     try:

@@ -22,7 +22,7 @@ internal sealed class LiveOfficeProcess : IDisposable
         _diagnostics = process.StandardError.ReadToEndAsync();
     }
 
-    public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token, Uri? origin = null)
+    public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token, Uri? origin = null, bool borders = false)
     {
         if (engine == "excel" && !OfficeCompatibility.NativeDirectorySuitable(directory)) directory = OfficeCompatibility.CreateWorkspace();
         Directory.CreateDirectory(directory);
@@ -47,8 +47,9 @@ internal sealed class LiveOfficeProcess : IDisposable
         }
         start.ArgumentList.Add("--file"); start.ArgumentList.Add(Path.GetFullPath(source));
         start.ArgumentList.Add("--local"); start.ArgumentList.Add(local); if (hidden) start.ArgumentList.Add("--hidden");
+        if (borders) start.ArgumentList.Add("--borders");
         var process = Process.Start(start) ?? throw new InvalidOperationException("Не удалось запустить таблицу");
-        var bridge = new LiveOfficeProcess(process, directory, local);
+        var bridge = new LiveOfficeProcess(process, directory, local); bridge.Reader.IncludeBorders = borders;
         try
         {
             var line = await process.StandardOutput.ReadLineAsync(token).AsTask().WaitAsync(TimeSpan.FromSeconds(50), token);
