@@ -17,6 +17,7 @@ internal static class LiveWorkbookCheck
     private static void Ensure(bool value, string description) { if (!value) throw new InvalidOperationException(description); }
     private static async Task RunAsync(JsonObject config, JsonArray checks)
     {
+        if (config["capacityCheck"]?.GetValue<bool>() == true) { await LiveWorkbookCapacityCheck.RunAsync(config, checks); return; }
         var origin = new Uri(config["origin"]!.GetValue<string>()); if (!origin.IsLoopback || origin.Scheme != "http") throw new InvalidOperationException("Native checks only accept a local fixture");
         string directory = Path.GetFullPath(config["directory"]!.GetValue<string>()); Directory.CreateDirectory(directory);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3)); var token = timeout.Token;

@@ -6,6 +6,7 @@ import PreparedHomeworkHost from './components/PreparedHomeworkHost.jsx';
 import {isPreparedHomeworkGoal,normalizePreparedHomeworkGoal,preparedHomeworkProgress} from './utils/preparedHomework.js';
 import {openPreparedHomework} from './services/preparedHomework.js';
 import {paintPreparedInk,compositePreparedInk,isPreparedTaskAnchor} from './utils/preparedInk.js';
+import {findBoardEraserHit} from './utils/boardEraser.js';
 import {preparedBoardView,animatePreparedBoardView} from './utils/preparedBoardView.js';
 import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
 import {studySubjectGroup} from './utils/studySubjects.js';
@@ -14099,25 +14100,19 @@ export const BoardCanvasSection = ({
     const yItems = yItemsRef.current;
     const docInstance = docRef.current;
     if (!yItems || !docInstance) return;
-    for (let i = yItems.length - 1; i >= 0; i -= 1) {
-      const raw = yItems.get(i);
-      const item = raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
-      if (!item) continue;
-      let hit = false;
-      if (item.type === 'stroke') hit = hitTestStroke(item, point, BOARD_ERASER_RADIUS);
-      else if (item.type === 'line' || item.type === 'arrow') hit = hitTestLine(item, point, BOARD_ERASER_RADIUS);
-      else if (item.type === 'shape' || item.type === 'text' || item.type === 'task' || item.type === 'file') hit = isPointInRect(point, {
+    const index = findBoardEraserHit(yItems, (item) => {
+      if (item.type === 'stroke') return hitTestStroke(item, point, BOARD_ERASER_RADIUS);
+      if (item.type === 'line' || item.type === 'arrow') return hitTestLine(item, point, BOARD_ERASER_RADIUS);
+      return isPointInRect(point, {
         x: item.x || 0,
         y: item.y || 0,
         width: item.width || 0,
         height: item.height || 0,
       });
-      if (!hit) continue;
-      docInstance.transact(() => {
-        yItems.delete(i, 1);
-      }, localOriginRef.current);
-      return;
-    }
+    });
+    if (index >= 0) docInstance.transact(() => {
+      yItems.delete(index, 1);
+    }, localOriginRef.current);
   };
 
   const getBoardContentBounds = (items) => {

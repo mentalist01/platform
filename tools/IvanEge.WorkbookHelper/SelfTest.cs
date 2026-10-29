@@ -111,6 +111,10 @@ internal static class SelfTest
         var second = WorkbookFallback.CreateCopy(source, new Uri("https://ivan100.ru"));
         Assert(second != copy && File.ReadAllText(copy) == "student local edit" && File.ReadAllText(source) == "saved checkpoint", "A fallback retry must not overwrite the source or an edited ordinary copy");
         Assert(WorkbookFallback.Explanation.Contains("автоматически сохраняет") && WorkbookFallback.Explanation.Contains("последнее сохранение"), "Fallback must explain automatic whole-file saving without claiming cell synchronization");
+        Assert(WorkbookFallback.IsCapacityFailure(new LiveWorkbookCapacityException("cell limit")), "Native cell limits must retain whole-file autosave");
+        Assert(WorkbookFallback.IsCapacityFailure(new HelperApiException("model byte limit", HttpStatusCode.RequestEntityTooLarge)), "Server model limits must retain whole-file autosave");
+        Assert(!WorkbookFallback.IsCapacityFailure(new HelperApiException("expired", HttpStatusCode.Unauthorized)), "Expired permission is not permission to switch modes");
+        Assert(!WorkbookFallback.IsCapacityFailure(new FormatException("damaged book")), "An invalid workbook is not a capacity signal");
     }
     private static void TestOfficeCompatibility(string directory)
     {

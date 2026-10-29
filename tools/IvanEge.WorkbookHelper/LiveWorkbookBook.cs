@@ -25,14 +25,14 @@ internal sealed class LiveWorkbookBook
     private static XDocument? Read(ZipArchive archive, string name)
     {
         var entry = archive.GetEntry(name); if (entry is null) return null;
-        if (entry.Length > 80 * 1024 * 1024) throw new FormatException("Лист слишком велик для совместного режима");
+        if (entry.Length > 80 * 1024 * 1024) throw new LiveWorkbookCapacityException("Лист слишком велик для совместного режима");
         using var stream = entry.Open(); using var reader = XmlReader.Create(stream, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 80 * 1024 * 1024 });
         return XDocument.Load(reader);
     }
     public JsonObject Read(string file)
     {
         using var archive = ZipFile.OpenRead(file);
-        if (archive.Entries.Sum(entry => entry.Length) > 256L * 1024 * 1024) throw new FormatException("Слишком большая распакованная книга");
+        if (archive.Entries.Sum(entry => entry.Length) > 256L * 1024 * 1024) throw new LiveWorkbookCapacityException("Слишком большая распакованная книга");
         var workbook = Read(archive, "xl/workbook.xml") ?? throw new FormatException("Некорректная книга XLSX");
         if (archive.Entries.Any(entry => entry.FullName.StartsWith("xl/externalLinks/", StringComparison.OrdinalIgnoreCase))) throw new FormatException("Сначала удалите внешние связи из таблицы");
         var relationships = Read(archive, "xl/_rels/workbook.xml.rels")!;
@@ -83,7 +83,7 @@ internal sealed class LiveWorkbookBook
                 var fillIndex = styleIndex < fillIds.Length ? fillIds[styleIndex] : 0;
                 int? fill = fillIndex < fills.Length ? fills[fillIndex] : null;
                 if (content["kind"]!.GetValue<string>() == "empty" && fill is null) continue;
-                if (++count > 250000) throw new FormatException("В совместном режиме допускается до 250 000 заполненных ячеек");
+                if (++count > 250000) throw new LiveWorkbookCapacityException("В совместном режиме допускается до 250 000 заполненных ячеек");
                 cells[address] = new JsonObject { ["content"] = content, ["fill"] = fill };
             }
             var result = new JsonObject { ["id"] = id, ["name"] = name, ["cells"] = cells };

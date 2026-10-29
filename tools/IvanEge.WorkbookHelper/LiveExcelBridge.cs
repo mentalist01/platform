@@ -214,6 +214,7 @@ internal sealed class LiveExcelBridge : IDisposable
             case "snapshot":
                 string destination = command["path"]!.GetValue<string>(); _book.SaveCopyAs(destination); return new { path = destination, localPath = (string)_book.FullName };
             case "save": _book.Save(); return new { saved = true };
+            case "fixture-busy": throw new COMException("Excel is temporarily busy", unchecked((int)0x800AC472));
             case "apply":
                 var changes = command["changes"]!.AsArray();
                 // Validate all conditions before changing anything; user edits
@@ -523,7 +524,7 @@ internal sealed class LiveExcelBridge : IDisposable
         catch { /* Leave an unsaved document open rather than discarding it. */ }
         finally { Release(_book); Release(_app); }
     }
-    private bool IsClosed() { try { return (int)_book.Windows.Count == 0; } catch { return true; } }
+    private bool IsClosed() { try { return (int)_book.Windows.Count == 0; } catch (Exception error) when (OfficeBusyErrors.IsTemporary(error)) { return false; } catch { return true; } }
     public static int Run(string[] args)
     {
         string Argument(string name) { var index = Array.IndexOf(args, name); if (index < 0 || index + 1 >= args.Length) throw new FormatException("Missing bridge argument"); return args[index + 1]; }
@@ -538,7 +539,7 @@ internal sealed class LiveExcelBridge : IDisposable
                 line = inputLine.GetAwaiter().GetResult(); if (line is null) break;
                 var input = JsonNode.Parse(line)!.AsObject(); if (input["type"]!.GetValue<string>() == "close") break;
                 try { Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), result = bridge.Execute(input) })); }
-                catch (Exception error) { Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), error = error.Message, closed = bridge.IsClosed(), busy = error.HResult is unchecked((int)0x80010001) or unchecked((int)0x8001010A) })); }
+                catch (Exception error) { bool busy = OfficeBusyErrors.IsTemporary(error); Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), error = error.Message, closed = !busy && bridge.IsClosed(), busy })); }
             }
             return 0;
         }

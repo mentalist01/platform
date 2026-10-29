@@ -108,7 +108,9 @@ internal sealed class LiveOfficeProcess : IDisposable
         }
         finally { _gate.Release(); }
     }
-    public async Task<(JsonObject Book, string File)> SnapshotAsync(CancellationToken token)
+    // Whole-file saving must remain available even when the cell model cannot
+    // represent this workbook. Export does not parse or truncate its contents.
+    public async Task<string> ExportFileAsync(CancellationToken token)
     {
         SnapshotCount++;
         string file = Path.Combine(_directory, "snapshot-" + Guid.NewGuid().ToString("N") + ".xlsx");
@@ -120,10 +122,16 @@ internal sealed class LiveOfficeProcess : IDisposable
             JsonObject result;
             try { result = Closed ? throw new LiveOfficeClosedException() : await CommandAsync(new() { ["type"] = "snapshot", ["path"] = file }, token); }
             catch (LiveOfficeClosedException) when (File.Exists(LocalPath))
-            { File.Copy(LocalPath, file); return (Reader.Read(file), file); }
+            { File.Copy(LocalPath, file); return file; }
             if (result["localPath"]?.GetValue<string>() is string local && Path.IsPathFullyQualified(local)) LocalPath = local;
-            return (Reader.Read(file), file);
+            return file;
         }
+        catch { try { File.Delete(file); } catch { } throw; }
+    }
+    public async Task<(JsonObject Book, string File)> SnapshotAsync(CancellationToken token)
+    {
+        string file = await ExportFileAsync(token);
+        try { return (Reader.Read(file), file); }
         catch { try { File.Delete(file); } catch { } throw; }
     }
     public void Dispose()

@@ -411,6 +411,13 @@ internal sealed class LiveWorkbookClient : IDisposable
         }
     }
     public void RequestSave() => _saveRequested = true;
+    public void StopLiveSynchronization()
+    {
+        Paused = true;
+        _events?.Dispose(); _events = null;
+        _peers = [];
+        Presence?.Invoke(new(), []);
+    }
     public async Task UndoAsync(bool redo, CancellationToken token)
     {
         if (_conflict || _pending is not null || !_gate.Wait(0)) return;
