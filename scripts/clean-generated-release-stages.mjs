@@ -37,7 +37,7 @@ function main(){
  if(process.platform!=='linux')throw Error('Run on the production Linux server only');const apply=process.argv.includes('--apply'),root='/root',repo='/root/app';
  const stages=fs.readdirSync(root,{withFileTypes:true}).filter(d=>d.isDirectory()&&d.name.endsWith('-stage')).map(d=>path.join(root,d.name)).filter(p=>fs.existsSync(path.join(p,'manifest.json'))&&fs.realpathSync(p)===p).sort((a,b)=>fs.statSync(path.join(b,'manifest.json')).mtimeMs-fs.statSync(path.join(a,'manifest.json')).mtimeMs);
  let total=0,count=0;const skipped=[];
- for(const directory of stages.slice(3)){
+ for(const directory of stages.slice(2)){
   if(fs.statSync(path.join(directory,'manifest.json')).mtimeMs>Date.now()-86400000)continue;
   if(fs.existsSync(path.join(directory,'cache-removal.json')))continue;
   try{

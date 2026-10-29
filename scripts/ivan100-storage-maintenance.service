@@ -8,8 +8,9 @@ Type=oneshot
 User=root
 WorkingDirectory=/root/app
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/usr/bin/node /root/app/.maintenance/archive-maintenance-to-s3.mjs --apply
 ExecStart=/usr/bin/node /root/app/.maintenance/clean-generated-release-stages.mjs --apply
+ExecStart=/usr/bin/node /root/app/.maintenance/archive-old-release-directories.mjs --apply
+ExecStart=/usr/bin/node /root/app/.maintenance/archive-maintenance-to-s3.mjs --apply
 Nice=10
 IOSchedulingClass=idle
 CPUQuota=50%

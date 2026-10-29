@@ -8,11 +8,11 @@ import {S3Client,PutObjectCommand,GetObjectCommand,HeadObjectCommand,DeleteObjec
 const SOURCE='/root/ivan100-maintenance-archives',PREFIX='maintenance-archives/verified-v1/';
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 export async function digest(stream){const h=crypto.createHash('sha256');for await(const chunk of stream)h.update(chunk);return h.digest('hex');}
-export function eligible(file,stat,now=Date.now()){
- return /^[-a-zA-Z0-9_.]+\.(?:tar\.gz|tgz)$/.test(path.basename(file))&&stat.isFile()&&!stat.isSymbolicLink()&&stat.mtimeMs<now-24*3600000;
+export function eligible(file,stat,now=Date.now(),minimumAgeMs=24*3600000){
+ return Number.isFinite(minimumAgeMs)&&minimumAgeMs>=0&&/^[-a-zA-Z0-9_.]+\.(?:tar\.gz|tgz)$/.test(path.basename(file))&&stat.isFile()&&!stat.isSymbolicLink()&&stat.mtimeMs<=now-minimumAgeMs;
 }
-export async function verifiedTransfer({file,client,bucket,journal,now=Date.now,keepLocal=false}){
- const before=fs.lstatSync(file);if(!eligible(file,before,now()))throw Error('Not a closed maintenance archive');
+export async function verifiedTransfer({file,client,bucket,journal,now=Date.now,keepLocal=false,minimumAgeMs=24*3600000}){
+ const before=fs.lstatSync(file);if(!eligible(file,before,now(),minimumAgeMs))throw Error('Not a closed maintenance archive');
  const sha=await digest(fs.createReadStream(file)),name=path.basename(file),key=PREFIX+sha+'/'+name;
  let exists=false;
  try{const head=await client.send(new HeadObjectCommand({Bucket:bucket,Key:key}));if(head.ContentLength!==before.size||head.Metadata?.sha256!==sha)throw Error('Stored object differs');exists=true;}catch(e){if(e.$metadata?.httpStatusCode!==404&&e.name!=='NotFound'&&e.name!=='NoSuchKey')throw e;}
