@@ -15,6 +15,7 @@ internal sealed class LiveWorkbookBook
     private static readonly XNamespace S = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
     private static readonly XNamespace R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     public bool IncludeBorders { get; set; }
+    public bool IncludeFormatting { get; set; }
     private readonly Dictionary<string, string> _identities = [];
     private readonly Dictionary<string, string> _names = [];
     public IReadOnlyDictionary<string, string> SheetNames => _names;
@@ -46,6 +47,7 @@ internal sealed class LiveWorkbookBook
         var fillIds = styles?.Root?.Element(S + "cellXfs")?.Elements(S + "xf").Select(style => (int?)style.Attribute("fillId") ?? 0).ToArray() ?? [0];
         var borderStyles = !IncludeBorders ? new JsonObject?[]{null} : styles?.Root?.Element(S + "borders")?.Elements(S + "border").Select(border => LiveWorkbookBorders.Xml(border, scheme, indexed)).ToArray() ?? [null];
         var borderIds = styles?.Root?.Element(S + "cellXfs")?.Elements(S + "xf").Select(style => (int?)style.Attribute("borderId") ?? 0).ToArray() ?? [0];
+        var formats=IncludeFormatting?LiveWorkbookFormatting.ReadStyles(styles,scheme,indexed):new JsonObject?[]{null};
         var output = new JsonArray(); var count = 0; var currentNames = new Dictionary<string, string>();
         foreach (var sheet in workbook.Root!.Element(S + "sheets")!.Elements(S + "sheet"))
         {
@@ -87,24 +89,37 @@ internal sealed class LiveWorkbookBook
                 int? fill = fillIndex < fills.Length ? fills[fillIndex] : null;
                 int borderIndex = styleIndex < borderIds.Length ? borderIds[styleIndex] : 0;
                 var borders = IncludeBorders && borderIndex < borderStyles.Length ? borderStyles[borderIndex] : null;
-                if (content["kind"]!.GetValue<string>() == "empty" && fill is null && borders is null) continue;
+                var format=IncludeFormatting&&styleIndex<formats.Length?LiveWorkbookFormatting.Relative(formats[styleIndex],formats[0]):null;
+                if (content["kind"]!.GetValue<string>() == "empty" && fill is null && borders is null&&format is null) continue;
                 if (++count > 250000) throw new LiveWorkbookCapacityException("В совместном режиме допускается до 250 000 заполненных ячеек");
                 cells[address] = new JsonObject { ["content"] = content, ["fill"] = fill };
                 if (borders is not null) cells[address]!["borders"] = borders.DeepClone();
+                if(format is not null)cells[address]!["format"]=format.DeepClone();
             }
             if (IncludeBorders) LiveWorkbookBorders.Canonicalize(cells);
+            if(IncludeFormatting)foreach(string address in cells.Where(item=>item.Value!["content"]!["kind"]!.GetValue<string>()=="empty"&&item.Value["fill"] is null&&item.Value["borders"] is null&&item.Value["format"] is null).Select(item=>item.Key).ToArray())cells.Remove(address);
             var result = new JsonObject { ["id"] = id, ["name"] = name, ["cells"] = cells };
             var filter = LiveWorkbookFilter.Read(document);
             if (filter is not null) result["filter"] = filter;
+            if(IncludeFormatting&&LiveWorkbookFormatting.Layout(document) is JsonObject layout)result["layout"]=layout;
             output.Add(result);
         }
         _names.Clear(); foreach (var item in currentNames) _names[item.Key] = item.Value;
         if (output.Count is < 1 or > 16) throw new FormatException("Для совместного режима нужна книга от 1 до 16 листов");
-        return new JsonObject { ["sheets"] = output };
+        var book=new JsonObject{["sheets"]=output};
+        if(IncludeFormatting&&formats[0] is not null)book["defaultFormat"]=formats[0]!.DeepClone();
+        return book;
     }
     public static JsonObject EmptyCell() => new() { ["content"] = new JsonObject { ["kind"] = "empty" }, ["fill"] = null };
-    public static bool IsEmpty(JsonNode cell) => cell["content"]!["kind"]!.GetValue<string>() == "empty" && cell["fill"] is null && cell["borders"] is null;
-    public static void Set(JsonObject cell, string property, JsonNode? value) { if (property == "borders" && value is null) cell.Remove(property); else cell[property] = value?.DeepClone(); }
+    public static bool IsEmpty(JsonNode cell) => cell["content"]!["kind"]!.GetValue<string>() == "empty" && cell["fill"] is null && cell["borders"] is null&&cell["format"] is null;
+    public static void Set(JsonObject cell, string property, JsonNode? value) { if ((property is "borders" or "format" or "layout") && value is null) cell.Remove(property); else cell[property] = value?.DeepClone(); }
+    public static JsonNode? Value(JsonNode sheet,string address,string property)=>address=="@"?sheet[property]:(sheet["cells"]![address]??EmptyCell())[property];
+    public static void SetValue(JsonNode sheet,string address,string property,JsonNode? value)
+    {
+        if(address=="@"){Set(sheet.AsObject(),property,value);return;}
+        var cells=sheet["cells"]!.AsObject();var cell=cells[address]?.AsObject()??EmptyCell();Set(cell,property,value);
+        if(IsEmpty(cell))cells.Remove(address);else if(cells[address] is null)cells[address]=cell;
+    }
     public static string Digest(JsonNode value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToJsonString()))).ToLowerInvariant();
     public static JsonArray Differences(JsonObject before, JsonObject after, JsonObject versions, long structureRevision)
     {
@@ -115,12 +130,13 @@ internal sealed class LiveWorkbookBook
             var id = sheet!["id"]!.GetValue<string>(); if (!previous.TryGetValue(id, out var old)) continue;
             var cells = sheet["cells"]!.AsObject(); var oldCells = old["cells"]!.AsObject();
             foreach (var address in cells.Select(item => item.Key).Union(oldCells.Select(item => item.Key)))
-                foreach (var property in new[] { "content", "fill", "borders" })
+                foreach (var property in new[] { "content", "fill", "borders","format" })
                 {
                     var value = (cells[address] ?? EmptyCell())[property]; var prior = (oldCells[address] ?? EmptyCell())[property];
                     if (JsonNode.DeepEquals(value, prior)) continue;
                     changes.Add(new JsonObject { ["sheetId"] = id, ["address"] = address, ["property"] = property, ["value"] = value?.DeepClone(), ["baseVersion"] = versions[$"{id}/{address}/{property}"]?.GetValue<long>() ?? structureRevision });
                 }
+            if(!JsonNode.DeepEquals(old["layout"],sheet["layout"]))changes.Add(new JsonObject{["sheetId"]=id,["address"]="@",["property"]="layout",["value"]=sheet["layout"]?.DeepClone(),["baseVersion"]=versions[$"{id}/@/layout"]?.GetValue<long>()??structureRevision});
         }
         return changes;
     }
@@ -133,7 +149,7 @@ internal sealed class LiveWorkbookBook
         foreach (var (id, address, property) in touched)
         {
             if (!previous.TryGetValue(id, out var old) || !current.TryGetValue(id, out var sheet)) continue;
-            var value = (sheet["cells"]![address] ?? EmptyCell())[property]; var prior = (old["cells"]![address] ?? EmptyCell())[property];
+            var value=Value(sheet,address,property);var prior=Value(old,address,property);
             if (JsonNode.DeepEquals(value, prior)) continue;
             changes.Add(new JsonObject { ["sheetId"] = id, ["address"] = address, ["property"] = property, ["value"] = value?.DeepClone(), ["baseVersion"] = versions[$"{id}/{address}/{property}"]?.GetValue<long>() ?? structureRevision });
         }
@@ -141,7 +157,7 @@ internal sealed class LiveWorkbookBook
     }
     public static bool Structural(JsonObject before, JsonObject after, JsonArray changes)
     {
-        if (!SameSheets(before, after)) return true;
+        if (!SameSheets(before, after)||!SameDefaults(before,after)) return true;
         var oldFilters = before["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!["filter"]);
         if (after["sheets"]!.AsArray().Any(sheet => !JsonNode.DeepEquals(oldFilters[sheet!["id"]!.GetValue<string>()], sheet["filter"]))) return true;
         var sheets = before["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!["cells"]!.AsObject());
@@ -158,4 +174,5 @@ internal sealed class LiveWorkbookBook
     public static bool SameSheets(JsonObject before, JsonObject after) =>
         before["sheets"]!.AsArray().Select(sheet => sheet!["id"] + "/" + sheet["name"]).SequenceEqual(
             after["sheets"]!.AsArray().Select(sheet => sheet!["id"] + "/" + sheet["name"]));
+    public static bool SameDefaults(JsonObject before,JsonObject after)=>JsonNode.DeepEquals(before["defaultFormat"],after["defaultFormat"]);
 }

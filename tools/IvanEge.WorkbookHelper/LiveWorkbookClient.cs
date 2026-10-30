@@ -98,10 +98,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                     if (_remoteChanges.Count > 2048) _remoteChanges = null;
                 }
                 var sheet = _remote["sheets"]!.AsArray().First(sheet => sheet!["id"]!.GetValue<string>() == change!["sheetId"]!.GetValue<string>())!;
-                var cells = sheet["cells"]!.AsObject(); string address = change!["address"]!.GetValue<string>(), property = change["property"]!.GetValue<string>();
-                var cell = cells[address]?.AsObject() ?? LiveWorkbookBook.EmptyCell(); LiveWorkbookBook.Set(cell, property, change["value"]);
-                if (LiveWorkbookBook.IsEmpty(cell)) cells.Remove(address);
-                else if (cells[address] is null) cells[address] = cell;
+                string address=change!["address"]!.GetValue<string>(),property=change["property"]!.GetValue<string>();LiveWorkbookBook.SetValue(sheet,address,property,change["value"]);
                 _versions[$"{sheet["id"]}/{address}/{property}"] = revision;
             }
         }
@@ -127,7 +124,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             // two hashes; never open that long recovery filename natively.
             Directory.CreateDirectory(_directory); openSource = Path.Combine(_directory, "recovery.xlsx"); File.Copy(_cache + ".xlsx", openSource, true);
         }
-        Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin, _grant.Live.BordersSupported);
+        Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin, _grant.Live.BordersSupported,_grant.Live.FormattingSupported);
         if (state["book"] is JsonObject serverBook) Office.Reader.UseNames(serverBook);
         var snapshot = await Office.SnapshotAsync(token);
         try
@@ -180,10 +177,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                 var after = _remote["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!);
                 foreach (var (id, address, property) in _remoteChanges)
                 {
-                    var cells = before[id]["cells"]!.AsObject(); var cell = cells[address]?.AsObject() ?? LiveWorkbookBook.EmptyCell();
-                    LiveWorkbookBook.Set(cell, property, (after[id]["cells"]![address] ?? LiveWorkbookBook.EmptyCell())[property]);
-                    if (LiveWorkbookBook.IsEmpty(cell)) cells.Remove(address);
-                    else if (cells[address] is null) cells[address] = cell;
+                    LiveWorkbookBook.SetValue(before[id],address,property,LiveWorkbookBook.Value(after[id],address,property));
                     string key = $"{id}/{address}/{property}"; _observedVersions[key] = _versions[key]?.DeepClone() ?? JsonValue.Create(_structure);
                 }
                 _remoteChanges.Clear(); return true;
@@ -198,7 +192,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             try
             {
                 if (!JsonNode.DeepEquals(current.Book, _observed)) { ConflictDescription = "Другой участник изменил порядок строк или листов, пока вы редактировали таблицу. Обе версии сохранены."; _conflict = true; return false; }
-                if (LiveWorkbookBook.SameSheets(_observed, _remote) && changes.Count == 0)
+                if (LiveWorkbookBook.SameSheets(_observed, _remote) && LiveWorkbookBook.SameDefaults(_observed,_remote) && changes.Count == 0)
                 {
                     var filters = new JsonArray(_remote["sheets"]!.AsArray().Select(sheet => (JsonNode)new JsonObject { ["sheetName"] = sheet!["name"]!.DeepClone(), ["value"] = sheet["filter"]?.DeepClone() }).ToArray());
                     await Office.CommandAsync(new() { ["type"] = "filters", ["filters"] = filters }, token);
@@ -221,7 +215,7 @@ internal sealed class LiveWorkbookClient : IDisposable
         foreach (var change in changes)
         {
             var sheet = sheets[change!["sheetId"]!.GetValue<string>()]; string address = change["address"]!.GetValue<string>(), property = change["property"]!.GetValue<string>();
-            var expected = (sheet["cells"]![address] ?? LiveWorkbookBook.EmptyCell())[property];
+            var expected=LiveWorkbookBook.Value(sheet,address,property);
             native.Add(new JsonObject { ["sheetName"] = sheet["name"]!.DeepClone(), ["address"] = address, ["property"] = property, ["value"] = change["value"]?.DeepClone(), ["expected"] = expected?.DeepClone() });
         }
         var applied = await Office.CommandAsync(new() { ["type"] = "apply", ["changes"] = native }, token);
@@ -233,7 +227,7 @@ internal sealed class LiveWorkbookClient : IDisposable
         // the latest committed shared formatting, but retain the complete local copy.
         // Contents/structural conflicts still require an explicit user choice.
         if (_pending?["type"]?.GetValue<string>() != "patch" || _pending["changes"] is not JsonArray changes || changes.Count == 0 ||
-            changes.Any(change => change?["property"]?.GetValue<string>() is not ("fill" or "borders")) || _observedStructure != _structure ||
+            changes.Any(change => change?["property"]?.GetValue<string>() is not ("fill" or "borders" or "format")) || _observedStructure != _structure ||
             !LiveWorkbookBook.SameSheets(_observed, _remote)) return false;
         string recoveryFile = snapshotFile ?? await Office.ExportFileAsync(token);
         try { File.Copy(recoveryFile, _cache + ".color-conflict-" + Guid.NewGuid().ToString("N") + ".xlsx", false); }
@@ -264,7 +258,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             {
                 bool structural = LiveWorkbookBook.Structural(_observed, snapshot.Book, differences);
                 if (differences.Count > 10000 && !structural) structural = true;
-                bool filtersOnly = structural && differences.Count == 0 && LiveWorkbookBook.SameSheets(_observed, snapshot.Book);
+                bool filtersOnly = structural && differences.Count == 0 && LiveWorkbookBook.SameSheets(_observed, snapshot.Book) && LiveWorkbookBook.SameDefaults(_observed,snapshot.Book);
                 _pending = new JsonObject { ["id"] = Guid.NewGuid().ToString("N"), ["type"] = filtersOnly ? "filter" : structural ? "replace" : "patch" };
                 if (filtersOnly)
                 {
@@ -348,6 +342,7 @@ internal sealed class LiveWorkbookClient : IDisposable
         }
         finally { if (snapshotFile is not null) File.Delete(snapshotFile); _gate.Release(); }
     }
+    private bool _wasDraft;
     public async Task PollAsync(CancellationToken token)
     {
         if (Office.Closed) { if (!Paused) await TickAsync(token); return; }
@@ -385,7 +380,8 @@ internal sealed class LiveWorkbookClient : IDisposable
         Presence?.Invoke(pulse, (JsonArray)_peers.DeepClone());
         // Unconfirmed native input is only a transient preview. Never export a
         // half-entered formula or apply remote writes through the active editor.
-        if (pulse["draft"] is JsonObject) return;
+        if (pulse["draft"] is JsonObject) { _wasDraft = true; return; }
+        if (_wasDraft) { _wasDraft = false; _lastSnapshot = 0; }
         if (Paused || _conflict) return;
         long serial = pulse["serial"]?.GetValue<long>() ?? -1;
         bool watching = pulse["watching"]?.GetValue<bool>() == true;
@@ -428,12 +424,22 @@ internal sealed class LiveWorkbookClient : IDisposable
                     string address = edit!["address"]!.GetValue<string>(); var value = edit["value"]!;
                     touched.Add((sheet["id"]!.GetValue<string>(), address, "content")); touched.Add((sheet["id"]!.GetValue<string>(), address, "fill"));
                     if (_grant.Live!.BordersSupported) touched.Add((sheet["id"]!.GetValue<string>(), address, "borders"));
-                    if (LiveWorkbookBook.IsEmpty(value)) sheet["cells"]!.AsObject().Remove(address);
-                    else sheet["cells"]![address] = value.DeepClone();
+                    // An implicit empty neighbour inherits a native style but
+                    // is absent from OOXML. A committed populated cell has a
+                    // real style: send it atomically with its new contents.
+                    var next=value.DeepClone();
+                    if(_grant.Live!.FormattingSupported && edit["formatKnown"]?.GetValue<bool>()==true)touched.Add((sheet["id"]!.GetValue<string>(),address,"format"));
+                    else
+                    {
+                        var oldFormat=sheet["cells"]![address]?["format"];
+                        if(oldFormat is null)next.AsObject().Remove("format");else next["format"]=oldFormat.DeepClone();
+                    }
+                    if (LiveWorkbookBook.IsEmpty(next)) sheet["cells"]!.AsObject().Remove(address);
+                    else sheet["cells"]![address] = next;
                 }
             }
             await TickAsync(token, incremental, incremental is null ? null : touched);
-            _lastSerial = serial; _lastSnapshot = Environment.TickCount64; _remoteHint = Math.Max(_remoteHint, _revision);
+            _lastSerial = serial; if (incremental is null) _lastSnapshot = Environment.TickCount64; _remoteHint = Math.Max(_remoteHint, _revision);
         }
     }
     public void RequestSave() => _saveRequested = true;
@@ -473,7 +479,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                     // book against the new remote book would undo peer edits.
                     var changes = LiveWorkbookBook.Differences(_observed, snapshot.Book, _versions, _structure);
                     bool structural = _observedStructure != _structure || _pending?["type"]?.GetValue<string>() == "replace" || LiveWorkbookBook.Structural(_observed, snapshot.Book, changes) ||
-                        !LiveWorkbookBook.SameSheets(_observed, _remote);
+                        !LiveWorkbookBook.SameSheets(_observed, _remote) || !LiveWorkbookBook.SameDefaults(_observed,_remote);
                     _pending = new() { ["id"] = Guid.NewGuid().ToString("N"), ["type"] = structural ? "replace" : "patch" };
                     if (structural) { _pending["baseRevision"] = _revision; _pending["book"] = snapshot.Book.DeepClone(); }
                     else _pending["changes"] = changes;

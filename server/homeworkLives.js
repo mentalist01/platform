@@ -9,7 +9,8 @@ import { filterCancelledGroupEgeGoals } from '../src/utils/groupHomeworkCancella
 import { hasPythonHomeworkPractice, isPythonHomeworkGoal, isPythonPracticeHomework } from '../src/utils/homeworkAssessment.js';
 
 export const MAX_HOMEWORK_LIVES = 3;
-export const MONTHLY_HOMEWORK_DAMAGE = 8;
+export const MONTHLY_HOMEWORK_DAMAGE = 4;
+const LEGACY_MONTHLY_HOMEWORK_DAMAGE = 8;
 const text = value => String(value ?? '').trim();
 const time = value => Date.parse(text(value));
 const round = value => Math.round(value * 1e6) / 1e6;
@@ -129,7 +130,16 @@ export class HomeworkLivesStore {
     if (settings?.enabled && !settings.introPolicySince) {
       settings = this.data.teachers[id] = { ...settings, introPolicySince: new Date(this.now()).toISOString() }; this.save();
     }
+    if (settings?.enabled && !this.data.damagePolicy) {
+      // One durable cutover for the installation. Already assessed events keep
+      // their recorded loss; late reconstruction of old deadlines uses 8.
+      this.data.damagePolicy = { since: new Date(this.now()).toISOString(), monthlyDamage: MONTHLY_HOMEWORK_DAMAGE };
+      this.save();
+    }
     return settings || { enabled: false, activatedAt: '' };
+  }
+  damageBudget(atMs = this.now()) {
+    return atMs >= time(this.data.damagePolicy?.since) ? MONTHLY_HOMEWORK_DAMAGE : LEGACY_MONTHLY_HOMEWORK_DAMAGE;
   }
   configure(teacherId, enabled) {
     const previous = this.settings(teacherId);
@@ -203,8 +213,9 @@ export class HomeworkLivesStore {
       }
       const percent = Math.max(0, Math.min(100, Number(result.percent) || 0));
       const damageMultiplier = issued >= time(settings.introPolicySince) ? this.introductoryPeriod(context, issued).multiplier : 1;
+      const damageBudget = this.damageBudget(due);
       if (correctMixedAssessment) {
-        const loss = result.reliable ? round((1 - percent / 100) * MONTHLY_HOMEWORK_DAMAGE / period.plannedCount) : 0;
+        const loss = result.reliable ? round((1 - percent / 100) * (existing.damageBudget || LEGACY_MONTHLY_HOMEWORK_DAMAGE) / period.plannedCount) : 0;
         Object.assign(existing, {
           previousAssessment: { percent: existing.percent, loss: existing.loss, reliable: existing.reliable,
             totalCount: existing.totalCount, completedCount: existing.completedCount },
@@ -222,8 +233,8 @@ export class HomeworkLivesStore {
         sequence: Object.keys(period.events).length,
         recordedAt: new Date(now).toISOString(), reliable: result.reliable === true,
         percent: result.reliable ? percent : null, totalCount: result.totalCount || 0, completedCount: result.completedCount || 0,
-        damageMultiplier,
-        loss: result.reliable ? round((1 - percent / 100) * MONTHLY_HOMEWORK_DAMAGE / period.plannedCount * damageMultiplier) : 0,
+        damageMultiplier, damageBudget,
+        loss: result.reliable ? round((1 - percent / 100) * damageBudget / period.plannedCount * damageMultiplier) : 0,
         reason: result.reason || '' };
       if (this.balance(period) === 0 && (!period.review || period.review.cancelledAt)) period.review = { createdAt: new Date(now).toISOString(), month };
       changed = true;
@@ -248,7 +259,7 @@ export class HomeworkLivesStore {
       .filter(review => review && !review.handledAt && !review.cancelledAt);
     return { enabled: settings.enabled, activatedAt: settings.activatedAt, effectiveSince: new Date(this.effectiveSince(student) || now).toISOString(), adapting: adaptation.active, adaptation,
       studentId: student.id, month, maxLives: MAX_HOMEWORK_LIVES, remaining: period ? this.balance(period) : MAX_HOMEWORK_LIVES,
-      plannedCount, nextPlannedCount: this.plannedCount(row, nextLivesMonth(month), context), planLocked: Boolean(period && Object.keys(period.events).length), maxLossPerHomework: MONTHLY_HOMEWORK_DAMAGE / plannedCount * adaptation.multiplier,
+      plannedCount, nextPlannedCount: this.plannedCount(row, nextLivesMonth(month), context), planLocked: Boolean(period && Object.keys(period.events).length), maxLossPerHomework: this.damageBudget(now) / plannedCount * adaptation.multiplier,
       resetsAt: new Date(monthStart(nextLivesMonth(month))).toISOString(), history, pendingReviews,
       studentNotice: settings.enabled && period?.review && !period.review.cancelledAt && this.balance(period) === 0
         ? { id: `${month}:${period.review.createdAt}`, month, readAt: period.review.studentReadAt || '' } : null,

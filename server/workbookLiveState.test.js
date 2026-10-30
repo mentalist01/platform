@@ -3,12 +3,47 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {createLiveState,applyLiveBatch,liveResponse,normalizeLiveBook} from './workbookLiveState.js';
+import {createLiveState,applyLiveBatch,liveResponse,normalizeLiveBook,normalizeLiveFormat,normalizeLiveLayout} from './workbookLiveState.js';
 import {WorkbookLiveStore} from './workbookLiveStore.js';
 
 const number=value=>({kind:'number',value});
 const book=()=>({sheets:[{id:'sheet1',name:'Лист 1',cells:{A1:{content:number(10),fill:null}}}]});
 const patch=(id,address,value,baseVersion=0,property='content')=>({id,type:'patch',changes:[{sheetId:'sheet1',address,property,value,baseVersion}]});
+
+test('format and merge patches are independent of content, durable, reversible and sparse',async()=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'workbook-format-')),key='c'.repeat(64);
+  let store=new WorkbookLiveStore(directory);await store.initialize(key,book(),'source');
+  const format={font:{name:'Arial',size:14,bold:true,color:0x123456},alignment:{horizontal:'center',wrap:true},numberFormat:'0.00%'};
+  await store.submit(key,'teacher',patch('style','A1',format,0,'format'),0);
+  await store.submit(key,'student',patch('content','A1',number(55)),1);
+  await store.submit(key,'teacher',patch('merge','@',{merges:['C1:E1']},0,'layout'),2);
+  store=new WorkbookLiveStore(directory);let result=store.response(key);
+  assert.deepEqual(result.book.sheets[0].cells.A1,{content:number(55),fill:null,format});
+  assert.deepEqual(result.book.sheets[0].layout,{merges:['C1:E1']});
+  await store.submit(key,'teacher',{id:'unmerge',type:'undo',targetId:'merge'},3);
+  assert.equal(store.response(key).book.sheets[0].layout,undefined);
+  await store.submit(key,'teacher',{id:'remerge',type:'redo',targetId:'unmerge'},4);
+  assert.deepEqual(store.response(key).book.sheets[0].layout,{merges:['C1:E1']});
+  await store.submit(key,'teacher',patch('clear-style','A1',null,1,'format'),5);
+  assert.equal(store.response(key).book.sheets[0].cells.A1.format,undefined);
+  assert.equal(store.response(key).book.sheets[0].cells.A1.content.value,55);
+});
+
+test('relative format defaults survive, formatting-only cells survive and invalid or overlapping merges reject atomically',()=>{
+  const defaults={font:{name:'Calibri',size:11,color:0,bold:false,italic:false,underline:'none',strike:false},alignment:{horizontal:'general',vertical:'bottom',wrap:false,shrink:false,rotation:0},numberFormat:'General'};
+  assert.deepEqual(normalizeLiveFormat(defaults),defaults);
+  const base=book();base.defaultFormat={font:{name:'Arial',bold:true}};base.sheets[0].cells.A1.format={font:{name:'Calibri',bold:false}};
+  assert.deepEqual(normalizeLiveBook(base),base);
+  const source=book();source.sheets[0].cells.B1={content:{kind:'empty'},fill:null,format:{font:{bold:true}}};
+  assert.deepEqual(normalizeLiveBook(source).sheets[0].cells.B1.format,{font:{bold:true}});
+  for(const value of [{font:{size:-1}},{font:{bold:'true'}},{alignment:{rotation:999}},{numberFormat:'x\0y'}])assert.throws(()=>normalizeLiveFormat(value));
+  for(const value of [{merges:['C1:E1','D1:F1']},{merges:['A1:XFD1048576']},{merges:['A0:A1']},{merges:['A1:A1']},{merges:['E1:C1']}])assert.throws(()=>normalizeLiveLayout(value));
+  assert.deepEqual(normalizeLiveLayout({merges:['C1:E1','A2:B2','C1:E1']}),{merges:['A2:B2','C1:E1']});
+  const state=createLiveState(book(),'source'),command=patch('invalid','A1',{font:{size:1000}},0,'format');
+  command.changes.push({sheetId:'sheet1',address:'@',property:'layout',value:{merges:['A1:B1']},baseVersion:0});
+  assert.throws(()=>applyLiveBatch(state,'teacher',command));assert.equal(state.revision,0);assert.equal(state.book.sheets[0].layout,undefined);
+  assert.throws(()=>applyLiveBatch(state,'teacher',patch('bad-address','A1',{merges:['C1:E1']},0,'layout')));
+});
 test('different cells and independent properties merge while an overlapping batch stays atomic',()=>{
   const initial=createLiveState(book(),'source'),a=applyLiveBatch(initial,'teacher:a',patch('one','A1',number(20))).state;
   const b=applyLiveBatch(a,'student:a',patch('two','A1',0xff0000,0,'fill')).state;

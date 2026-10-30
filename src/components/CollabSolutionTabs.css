@@ -25,12 +25,17 @@
 }
 
 .collab-solutions__row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; min-width: 0; }
-.collab-solutions__tabs-row { position: relative; flex: 1 1 auto; padding: 0; min-width: 0; overflow: hidden; }
+.collab-solutions__tabs-row { position: relative; display: flex; align-items: center; gap: 3px; flex: 1 1 auto; padding: 0; min-width: 0; overflow: hidden; }
 .collab-solutions__tabs {
-  display: flex; gap: 5px; min-width: 0; padding: 1px 2px; overflow-x: auto;
-  scrollbar-width: none; -ms-overflow-style: none;
+  display: flex; flex: 1 1 auto; gap: 5px; min-width: 0; padding: 1px 2px 4px; overflow-x: auto;
+  scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--solution-accent) 45%, transparent) var(--solution-muted-surface);
+  overscroll-behavior-x: contain;
 }
-.collab-solutions__tabs::-webkit-scrollbar { display: none; }
+.collab-solutions__tabs::-webkit-scrollbar { height: 6px; }
+.collab-solutions__tabs::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--solution-accent) 45%, transparent); border-radius: 6px; }
+.collab-solutions__tabs::-webkit-scrollbar-track { background: var(--solution-muted-surface); border-radius: 6px; }
+.collab-solutions__scroll { flex: 0 0 24px; display: grid; place-items: center; width: 24px; height: 30px; padding: 0; border: 1px solid var(--solution-border); border-radius: 7px; background: var(--solution-muted-surface); color: var(--solution-accent); cursor: pointer; }
+.collab-solutions__scroll:hover:not(:disabled) { background: var(--solution-active); }
 .collab-solutions__tab,
 .collab-solutions__button,
 .collab-solutions__icon-button {

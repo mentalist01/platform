@@ -9,7 +9,7 @@ import {WorkbookLivePresence} from './workbookLivePresence.js';
 test('authenticated push is isolated, reports revisions immediately, previews typing and clears on disconnect',{timeout:15000},async()=>{
   const identities={a:{id:'t',role:'teacher',name:'Teacher'},b:{id:'s',role:'student',name:'Pupil'},other:{id:'s2',role:'student',name:'Other'}};
   let ended=false,revision=0;
-  const presence=new WorkbookLivePresence(),store={now:Date.now,liveWorkbooks:{read:()=>({state:{revision}})}};
+  const presence=new WorkbookLivePresence(),store={now:Date.now,data:{sessions:{}},liveWorkbooks:{read:()=>({state:{revision}})}};
   const session=async req=>{const token=req.headers.authorization?.replace('Workbook ','').replace(/_+$/,'');if(!identities[token]||ended)throw Error('No access');return{mode:{key:token==='other'?'other':'room'},entry:{auth:identities[token]}};};
   const events=createWorkbookLiveEvents({session,presence,store}),server=http.createServer();server.on('upgrade',(req,socket,head)=>void events.upgrade(req,socket,head));
   server.listen(0,'127.0.0.1');await once(server,'listening');

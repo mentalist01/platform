@@ -31,8 +31,9 @@ try{
   assert.ok(['excel','calc'].includes(teacherEngine)&&['excel','calc'].includes(pupilEngine));
   const hidden=process.env.WORKBOOK_NATIVE_CHECK_VISIBLE!=='1';
   const presenceOnly=process.env.WORKBOOK_NATIVE_CHECK_PRESENCE_ONLY==='1';
+  const formattingOnly=process.env.WORKBOOK_NATIVE_CHECK_FORMATTING_ONLY==='1';
   const bordersOnly=process.env.WORKBOOK_NATIVE_CHECK_BORDERS_ONLY==='1';
-  fs.writeFileSync(configFile,JSON.stringify({origin:f.base,teacherTicket,pupilTicket,directory:path.join(directory,'work'),report,teacherEngine,pupilEngine,hidden,presenceOnly,bordersOnly}));
+  fs.writeFileSync(configFile,JSON.stringify({origin:f.base,teacherTicket,pupilTicket,directory:path.join(directory,'work'),report,teacherEngine,pupilEngine,hidden,presenceOnly,bordersOnly,formattingOnly,draftUi:process.env.WORKBOOK_NATIVE_CHECK_DRAFT_UI==='1',filterOnly:process.env.WORKBOOK_NATIVE_CHECK_FILTER_ONLY==='1'}));
   const helper=path.resolve(process.env.WORKBOOK_NATIVE_CHECK_EXE||'tools/IvanEge.WorkbookHelper/bin/Release/net9.0-windows/win-x64/IvanEgeWorkbookHelper.exe');
   let output='';const child=spawn(helper,['--live-check',configFile],{windowsHide:true,stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',bytes=>{output+=bytes;});child.stderr.on('data',bytes=>{output+=bytes;});
@@ -41,6 +42,6 @@ try{
   const result=JSON.parse(fs.readFileSync(report,'utf8'));
   assert.equal(code,0,JSON.stringify(result));assert.ok(result.ok);
   const current=(await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),teacher)).run;
-  if(!presenceOnly&&!bordersOnly)assert.ok(current.cards[0].attachments[0].solution,'Merged result must appear on the board');
+  if(!presenceOnly&&!bordersOnly&&!formattingOnly)assert.ok(current.cards[0].attachments[0].solution,'Merged result must appear on the board');
   console.log(JSON.stringify({ok:true,checks:result.checks,solution:current.cards[0].attachments[0].solution?.name,directory}));
 }finally{await f.stop();}

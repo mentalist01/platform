@@ -1,7 +1,7 @@
 import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Columns2, Layers3, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Columns2, Layers3, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
 import { DEFAULT_COLLAB_SOLUTION_ID, MAX_COLLAB_SOLUTIONS, planNumberedCollabSolutions } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
 
@@ -58,6 +58,7 @@ export default function CollabSolutionTabs({
   const [choosingComparison, setChoosingComparison] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [dragging, setDragging] = useState(null);
+  const [tabScroll, setTabScroll] = useState({ before: false, after: false });
   const hasParticipantTabs = participants.length > 0;
   const visibleSolutionTabs = hasParticipantTabs
     ? solutions.filter((solution) => solution.id !== mainSolutionId)
@@ -66,6 +67,7 @@ export default function CollabSolutionTabs({
     ...participants.map((participant) => ({ ...participant, key: `participant:${participant.id}`, kind: 'participant' })),
     ...visibleSolutionTabs.map((solution) => ({ ...solution, key: `solution:${solution.id}`, kind: 'solution' })),
   ];
+  const tabSignature = tabEntries.map(entry => `${entry.key}:${entry.name}`).join('|');
   const activeSolution = solutions.find((solution) => solution.id === activeId);
   const comparisonSolution = solutions.find((solution) => solution.id === compareId);
   const otherSolutions = solutions.filter((solution) => solution.id !== activeId);
@@ -80,22 +82,34 @@ export default function CollabSolutionTabs({
   useEffect(() => {
     const tabs = tabsRef.current;
     if (!tabs) return undefined;
+    const updateOverflow = () => setTabScroll(previous => {
+      const next = { before: tabs.scrollLeft > 1, after: tabs.scrollLeft + tabs.clientWidth < tabs.scrollWidth - 1 };
+      return previous.before === next.before && previous.after === next.after ? previous : next;
+    });
     const updateTabs = () => {
       const selected = tabs.querySelector('[aria-selected="true"]');
-      if (!selected) return;
-      const viewport = tabs.getBoundingClientRect();
-      const selectedRect = selected.getBoundingClientRect();
-      if (selectedRect.left < viewport.left) {
-        tabs.scrollLeft += selectedRect.left - viewport.left - 4;
-      } else if (selectedRect.right > viewport.right) {
-        tabs.scrollLeft += selectedRect.right - viewport.right + 4;
+      if (selected) {
+        const viewport = tabs.getBoundingClientRect();
+        const selectedRect = selected.getBoundingClientRect();
+        if (selectedRect.left < viewport.left) {
+          tabs.scrollLeft += selectedRect.left - viewport.left - 4;
+        } else if (selectedRect.right > viewport.right) {
+          tabs.scrollLeft += selectedRect.right - viewport.right + 4;
+        }
       }
+      updateOverflow();
     };
     updateTabs();
     const observer = new ResizeObserver(updateTabs);
     observer.observe(tabs);
-    return () => observer.disconnect();
-  }, [activeId, solutions]);
+    tabs.addEventListener('scroll', updateOverflow, { passive: true });
+    return () => { observer.disconnect(); tabs.removeEventListener('scroll', updateOverflow); };
+  }, [activeId, activeParticipantId, tabSignature]);
+
+  const scrollTabs = direction => {
+    const tabs = tabsRef.current;
+    tabs?.scrollBy({ left: direction * Math.max(100, tabs.clientWidth * .7), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  };
 
   useEffect(() => {
     if (!contextMenu) return undefined;
@@ -362,9 +376,11 @@ export default function CollabSolutionTabs({
     <div className={`collab-solutions${dark ? ' collab-solutions--dark' : ''}`}>
       <div className="collab-solutions__row">
         <div className="collab-solutions__tabs-row">
+          {(tabScroll.before || tabScroll.after) && <button type="button" className="collab-solutions__scroll" aria-label="Предыдущие вкладки кода" title="Прокрутить вкладки влево" disabled={!tabScroll.before} onClick={() => scrollTabs(-1)}><ChevronLeft size={15}/></button>}
           <div className="collab-solutions__tabs" role="tablist" aria-label="Разделы кода" ref={tabsRef}>
             {tabEntries.map(renderTab)}
           </div>
+          {(tabScroll.before || tabScroll.after) && <button type="button" className="collab-solutions__scroll" aria-label="Следующие вкладки кода" title="Прокрутить вкладки вправо" disabled={!tabScroll.after} onClick={() => scrollTabs(1)}><ChevronRight size={15}/></button>}
         </div>
         <div className="collab-solutions__actions">
           {!readOnly && (

@@ -12,12 +12,14 @@ internal sealed class LiveExcelBridge : IDisposable
     private readonly string _localPath;
     private readonly bool _hidden;
     private readonly bool _borders;
+    private readonly bool _formatting;
+    private JsonObject? _defaultFormat;
     private readonly LiveExcelChanges _changes = null!;
     private static void Release(object? value) { if (value is not null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value); }
 
-    public LiveExcelBridge(string source, string localPath, bool hidden, bool borders = false)
+    public LiveExcelBridge(string source, string localPath, bool hidden, bool borders = false, bool formatting = false)
     {
-        _localPath = localPath; _hidden = hidden; _borders = borders;
+        _localPath = localPath; _hidden = hidden; _borders = borders; _formatting = formatting;
         string stage = "запуск приложения";
         try
         {
@@ -42,6 +44,7 @@ internal sealed class LiveExcelBridge : IDisposable
             stage = "сохранение рабочей копии XLSX";
             _book.SaveAs(localPath, 51); // Common file format, no macros.
             stage = "подключение изменений";
+            _defaultFormat=_formatting?LiveWorkbookFormatting.ReadExcel(_book,"@"):null;
             _changes = new LiveExcelChanges(_app);
         }
         catch (Exception error)
@@ -56,7 +59,7 @@ internal sealed class LiveExcelBridge : IDisposable
     }
 
     private dynamic Sheet(string name) => _book.Worksheets[name];
-    private JsonObject ReadCell(dynamic sheet, string address)
+    private JsonObject ReadCell(dynamic sheet, string address, bool includeFormatting = true)
     {
         dynamic cell = sheet.Range[address]; dynamic interior = cell.Interior;
         try
@@ -73,16 +76,19 @@ internal sealed class LiveExcelBridge : IDisposable
                 var color = Convert.ToInt32(interior.Color); fill = (color & 255) << 16 | color & 0x00ff00 | color >> 16 & 255;
             }
             var result = new JsonObject { ["content"] = content, ["fill"] = fill };
-            var borders = _borders ? LiveWorkbookBorders.ReadExcel(sheet, address) : null; if (borders is not null) result["borders"] = borders; return result;
+            var borders = _borders ? LiveWorkbookBorders.ReadExcel(sheet, address) : null; if (borders is not null) result["borders"] = borders;
+            if (_formatting && includeFormatting && LiveWorkbookFormatting.Relative(LiveWorkbookFormatting.ReadExcel(sheet, address),_defaultFormat) is JsonObject format) result["format"] = format;
+            return result;
         }
         finally { Release(interior); Release(cell); }
     }
-    private static void WriteCell(dynamic sheet, string address, string property, JsonNode? value)
+    private void WriteCell(dynamic sheet, string address, string property, JsonNode? value)
     {
-        dynamic cell = sheet.Range[address];
+        dynamic cell = LiveWorkbookFormatting.ExcelRange((object)sheet,address);
         try
         {
-            if (property == "borders") LiveWorkbookBorders.WriteExcel(sheet, address, value);
+            if (property == "format") LiveWorkbookFormatting.WriteExcel(sheet, address, LiveWorkbookFormatting.Resolve(value,_defaultFormat));
+            else if (property == "borders") LiveWorkbookBorders.WriteExcel(sheet, address, value);
             else if (property == "fill")
             {
                 dynamic interior = cell.Interior;
@@ -103,6 +109,7 @@ internal sealed class LiveExcelBridge : IDisposable
                 default: throw new FormatException("Неподдерживаемое содержимое ячейки");
             }
         }
+        catch(Exception error){throw new InvalidOperationException("Не удалось применить "+property+" к "+address+": "+error.Message,error);}
         finally { Release(cell); }
     }
 
@@ -166,10 +173,27 @@ internal sealed class LiveExcelBridge : IDisposable
                 {
                     var cells = new JsonArray();
                     foreach (var edit in (_borders ? edits.SelectMany(edit => { var (col,row)=LiveWorkbookBorders.Position(edit.Address); return new (string Sheet,string Address)[]{edit,(edit.Sheet,LiveWorkbookBorders.Address(Math.Max(1,col-1),row)),(edit.Sheet,LiveWorkbookBorders.Address(col,Math.Max(1,row-1)))}; }).Distinct() : edits))
-                    { dynamic sheet = Sheet(edit.Sheet); try { cells.Add(new JsonObject { ["sheetName"] = edit.Sheet, ["address"] = edit.Address, ["value"] = ReadCell(sheet, edit.Address) }); } finally { Release(sheet); } }
+                    {
+                        dynamic sheet = Sheet(edit.Sheet);
+                        try
+                        {
+                            var value=ReadCell(sheet,edit.Address,false);
+                            bool known=_formatting&&(value["content"]!["kind"]!.GetValue<string>()!="empty"||value["fill"] is not null||value["borders"] is not null);
+                            if(known&&LiveWorkbookFormatting.Relative(LiveWorkbookFormatting.ReadExcel(sheet,edit.Address),_defaultFormat) is JsonObject format)value["format"]=format;
+                            cells.Add(new JsonObject{["sheetName"]=edit.Sheet,["address"]=edit.Address,["value"]=value,["formatKnown"]=known});
+                        }
+                        finally{Release(sheet);}
+                    }
                     pulse["cells"] = cells;
                 }
                 return pulse;
+            case "fixture-title": _app.Caption=command["title"]!.GetValue<string>(); return new{titled=true};
+            case "fixture-quiet-format":
+                bool previousEvents=_app.EnableEvents;_app.EnableEvents=false;
+                dynamic quietSheet=Sheet(command["sheetName"]!.GetValue<string>());
+                try{WriteCell(quietSheet,command["address"]!.GetValue<string>(),"format",command["value"]);}
+                finally{Release(quietSheet);_app.EnableEvents=previousEvents;}
+                return new{formatted=true};
             case "viewport":
                 dynamic viewport = _app.ActiveWindow;
                 try { return new { row = (int)viewport.ScrollRow - 1, column = (int)viewport.ScrollColumn - 1, zoom = Convert.ToInt32(viewport.Zoom) }; }
@@ -218,33 +242,10 @@ internal sealed class LiveExcelBridge : IDisposable
                 finally { Release(selectedSheet); }
             case "snapshot":
                 string destination = command["path"]!.GetValue<string>(); _book.SaveCopyAs(destination); return new { path = destination, localPath = (string)_book.FullName };
+            case "format-defaults": _defaultFormat=command["value"]?.DeepClone().AsObject();return new{updated=true};
             case "save": _book.Save(); return new { saved = true };
             case "fixture-busy": throw new COMException("Excel is temporarily busy", unchecked((int)0x800AC472));
-            case "apply":
-                var changes = command["changes"]!.AsArray();
-                // Validate all conditions before changing anything; user edits
-                // that happened during a request must remain in the workbook.
-                foreach (var change in changes)
-                {
-                    dynamic sheet = Sheet(change!["sheetName"]!.GetValue<string>());
-                    try
-                    {
-                        if (!JsonNode.DeepEquals(ReadCell(sheet, change["address"]!.GetValue<string>())[change["property"]!.GetValue<string>()], change["expected"])) return new { skipped = true };
-                    }
-                    finally { Release(sheet); }
-                }
-                _app.EnableEvents = false; _app.ScreenUpdating = false;
-                try
-                {
-                    foreach (var change in changes)
-                    {
-                        dynamic sheet = Sheet(change!["sheetName"]!.GetValue<string>());
-                        try { WriteCell(sheet, change["address"]!.GetValue<string>(), change["property"]!.GetValue<string>(), change["value"]); }
-                        finally { Release(sheet); }
-                    }
-                }
-                finally { _app.EnableEvents = true; _app.ScreenUpdating = !_hidden; }
-                return new { skipped = false };
+            case "apply": return ApplyChanges(command["changes"]!.AsArray(), true);
             case "replace":
                 Replace(command["book"]!.AsObject(), command["previous"] as JsonObject); return new { replaced = true };
             case "filter":
@@ -267,14 +268,7 @@ internal sealed class LiveExcelBridge : IDisposable
                 dynamic cell = evaluationSheet.Range[command["address"]!.GetValue<string>()];
                 try { return new { value = (object?)cell.Value2, text = (string)cell.Text }; }
                 finally { Release(cell); Release(evaluationSheet); }
-            case "edit":
-                foreach (var change in command["changes"]!.AsArray())
-                {
-                    dynamic sheet = Sheet(change!["sheetName"]!.GetValue<string>());
-                    try { WriteCell(sheet, change["address"]!.GetValue<string>(), change["property"]!.GetValue<string>(), change["value"]); }
-                    finally { Release(sheet); }
-                }
-                return new { edited = true };
+            case "edit": return ApplyChanges(command["changes"]!.AsArray(), false);
             case "insert-rows":
                 dynamic insertSheet = Sheet(command["sheetName"]!.GetValue<string>());
                 try { insertSheet.Rows[command["row"]!.GetValue<int>()].Insert(); }
@@ -284,6 +278,14 @@ internal sealed class LiveExcelBridge : IDisposable
                 dynamic fillSheet = Sheet(command["sheetName"]!.GetValue<string>()); dynamic range = fillSheet.Range[command["range"]!.GetValue<string>()];
                 try { range.FillDown(); } finally { Release(range); Release(fillSheet); }
                 return new { filled = true };
+            case "fill-right":
+                dynamic rightSheet = Sheet(command["sheetName"]!.GetValue<string>()), rightRange = rightSheet.Range[command["range"]!.GetValue<string>()];
+                try { rightRange.FillRight(); } finally { Release(rightRange); Release(rightSheet); }
+                return new { filled = true };
+            case "move-range":
+                dynamic moveSheet = Sheet(command["sheetName"]!.GetValue<string>()), moveRange = moveSheet.Range[command["range"]!.GetValue<string>()], destinationRange = moveSheet.Range[command["destination"]!.GetValue<string>()];
+                try { moveRange.Cut(Destination: destinationRange); } finally { Release(destinationRange); Release(moveRange); Release(moveSheet); }
+                return new { moved = true };
             case "theme-fill":
                 dynamic themeSheet = Sheet(command["sheetName"]!.GetValue<string>()); dynamic themeCell = themeSheet.Range[command["address"]!.GetValue<string>()]; dynamic themeFill = themeCell.Interior;
                 try { themeFill.Pattern = 1; themeFill.ThemeColor = 5; themeFill.TintAndShade = .4; }
@@ -399,14 +401,69 @@ internal sealed class LiveExcelBridge : IDisposable
         return new Rectangle(x, y, Math.Max(0, right - x), Math.Max(0, bottom - y));
     }
 
+    private object ApplyChanges(JsonArray changes, bool conditional)
+    {
+        var metadata = changes.Any(change => change!["property"]!.GetValue<string>() is "layout" or "format") ? ReadMetadata() : null;
+        var sheets = metadata?["sheets"]!.AsArray().ToDictionary(sheet => sheet!["name"]!.GetValue<string>(), sheet => sheet!);
+        var layouts = sheets?.ToDictionary(item => item.Key, item => item.Value["layout"] as JsonObject) ?? [];
+        foreach (var change in changes)
+        {
+            string name = change!["sheetName"]!.GetValue<string>(), property = change["property"]!.GetValue<string>();
+            dynamic sheet = Sheet(name);
+            try
+            {
+                JsonNode? actual = !conditional ? null : property == "layout" ? layouts.GetValueOrDefault(name) : property == "format" ? sheets![name]["cells"]![change["address"]!.GetValue<string>()]?["format"] : ReadCell(sheet, change["address"]!.GetValue<string>(), false)[property];
+                if (conditional && !JsonNode.DeepEquals(actual, change["expected"])) return new { skipped = true };
+            }
+            finally { Release(sheet); }
+        }
+        bool events = _app.EnableEvents;
+        if (conditional) _app.EnableEvents = false;
+        _app.ScreenUpdating = false;
+        try
+        {
+            foreach (var change in changes.Where(change => change!["property"]!.GetValue<string>() == "layout"))
+            {
+                dynamic sheet = Sheet(change!["sheetName"]!.GetValue<string>());
+                try { LiveWorkbookFormatting.UnmergeExcel(sheet, layouts.GetValueOrDefault((string)sheet.Name)); }
+                finally { Release(sheet); }
+            }
+            foreach (var change in changes.Where(change => change!["property"]!.GetValue<string>() != "layout"))
+            {
+                dynamic sheet = Sheet(change!["sheetName"]!.GetValue<string>());
+                try { WriteCell(sheet, change["address"]!.GetValue<string>(), change["property"]!.GetValue<string>(), change["value"]); }
+                finally { Release(sheet); }
+            }
+            foreach (var change in changes.Where(change => change!["property"]!.GetValue<string>() == "layout"))
+            {
+                dynamic sheet = Sheet(change!["sheetName"]!.GetValue<string>());
+                try { LiveWorkbookFormatting.MergeExcel(sheet, change["value"]); }
+                finally { Release(sheet); }
+            }
+        }
+        finally { _app.EnableEvents = events; _app.ScreenUpdating = !_hidden; }
+        return new { skipped = false };
+    }
+    private JsonObject ReadMetadata()
+    {
+        string file = Path.Combine(Path.GetDirectoryName(_localPath)!, "layout-" + Guid.NewGuid().ToString("N") + ".xlsx");
+        try { _book.SaveCopyAs(file); return new LiveWorkbookBook{IncludeFormatting=true}.Read(file); }
+        finally { File.Delete(file); }
+    }
+
     private void Replace(JsonObject book, JsonObject? previous)
     {
-        var sheets = book["sheets"]!.AsArray();
-        _app.EnableEvents = false; _app.ScreenUpdating = false;
+        var sheets = book["sheets"]!.AsArray(); string step="листы";
+        var phaseClock=Stopwatch.StartNew();bool trace=sheets.Sum(s=>s!["cells"]!.AsObject().Count)>1000;
+        void Trace(string name){if(trace)AppLog.Info("Native Excel replace "+name+" ms="+phaseClock.ElapsedMilliseconds);}
+        Trace("start");
+        int calculation=Convert.ToInt32(_app.Calculation);
+        _app.Calculation=-4135;_app.EnableEvents = false; _app.ScreenUpdating = false;
         try
         {
             // Reuse sheets in order, preserving workbook formatting and charts
             // outside changed cells; temporary names avoid rename collisions.
+            if(_formatting){if(!JsonNode.DeepEquals(_defaultFormat,book["defaultFormat"]))LiveWorkbookFormatting.WriteExcel(_book,"@",book["defaultFormat"]);_defaultFormat=book["defaultFormat"]?.DeepClone().AsObject();}
             while ((int)_book.Worksheets.Count < sheets.Count) _book.Worksheets.Add(After: _book.Worksheets[_book.Worksheets.Count]);
             bool namesChanged = (int)_book.Worksheets.Count != sheets.Count;
             for (int index = 0; index < sheets.Count; index++)
@@ -422,6 +479,7 @@ internal sealed class LiveExcelBridge : IDisposable
                     if ((string)sheet.Name != sheets[index]!["name"]!.GetValue<string>()) sheet.Name = sheets[index]!["name"]!.GetValue<string>(); dynamic used = sheet.UsedRange;
                     try
                     {
+                        if (_formatting) LiveWorkbookFormatting.UnmergeExcel(sheet, previous?["sheets"]?.AsArray().ElementAtOrDefault(index)?["layout"]);
                         // Never apply a fill to UsedRange: changing row visibility
                         // can extend it to all 16,384 columns. Formatting that
                         // rectangle materializes millions of empty XLSX cells.
@@ -432,9 +490,11 @@ internal sealed class LiveExcelBridge : IDisposable
                             catch (COMException error) when (error.HResult == unchecked((int)0x800A03EC)) { /* No cells of this kind. */ }
                             finally { Release(populated); }
                         }
+                        step="сброс оформления";
                         var priorSheet = previous?["sheets"]?.AsArray().ElementAtOrDefault(index);
-                        foreach (var oldBorder in priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["borders"] is not null) ?? []) WriteCell(sheet, oldBorder.Key, "borders", null);
-                        foreach (var oldCell in priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["fill"] is not null) ?? []) WriteCell(sheet, oldCell.Key, "fill", null);
+                        foreach (var oldBorder in priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["borders"] is not null) ?? []) {step="сброс границы "+oldBorder.Key;WriteCell(sheet, oldBorder.Key, "borders", null);}
+                        foreach (string area in LiveWorkbookFormatting.CompactRanges((priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["format"] is not null) ?? []).Select(cell=>cell.Key))) {step="сброс формата "+area;WriteCell(sheet, area, "format", null);}
+                        foreach (var oldCell in priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["fill"] is not null) ?? []) {step="сброс заливки "+oldCell.Key;WriteCell(sheet, oldCell.Key, "fill", null);}
                     }
                     finally { Release(used); }
                 }
@@ -445,30 +505,38 @@ internal sealed class LiveExcelBridge : IDisposable
                 dynamic sheet = Sheet(source!["name"]!.GetValue<string>());
                 try
                 {
-                    var cells = source["cells"]!.AsObject(); int maxRow = 0, maxColumn = 0;
-                    foreach (var entry in cells) { var at = Position(entry.Key); maxRow = Math.Max(maxRow, at.Row); maxColumn = Math.Max(maxColumn, at.Column); }
-                    if ((long)maxRow * maxColumn is > 0 and <= 500000)
+                    var cells = source["cells"]!.AsObject();
+                    Trace("before contents");step="содержимое";
+                    // Do not materialize a huge bounding rectangle when the
+                    // actual data occupies AF:AH plus a few cells near A1.
+                    foreach(string area in LiveWorkbookFormatting.CompactRanges(cells.Select(cell=>cell.Key)))
                     {
-                        var values = new object?[maxRow, maxColumn];
-                        foreach (var entry in cells)
+                        var ends=area.Split(':');var first=Position(ends[0]);var last=Position(ends[^1]);
+                        var values=new object?[last.Row-first.Row+1,last.Column-first.Column+1];
+                        for(int row=first.Row;row<=last.Row;row++)for(int column=first.Column;column<=last.Column;column++)
                         {
-                            var at = Position(entry.Key); var content = entry.Value!["content"]!;
-                            values[at.Row - 1, at.Column - 1] = content["kind"]!.GetValue<string>() switch
-                            { "number" => content["value"]!.GetValue<double>(), "text" => "'" + content["value"]!.GetValue<string>(), "formula" => content["value"]!.GetValue<string>(), "boolean" => content["value"]!.GetValue<bool>(), _ => null };
+                            var content=cells[LiveWorkbookBorders.Address(column,row)]!["content"]!;
+                            values[row-first.Row,column-first.Column]=content["kind"]!.GetValue<string>() switch
+                            {"number"=>content["value"]!.GetValue<double>(),"text"=>"'"+content["value"]!.GetValue<string>(),"formula"=>content["value"]!.GetValue<string>(),"boolean"=>content["value"]!.GetValue<bool>(),_=>null};
                         }
-                        dynamic range = sheet.Range["A1"].Resize[maxRow, maxColumn];
-                        try { range.Formula = values; } finally { Release(range); }
+                        dynamic range=sheet.Range[area];try{range.Formula=values;}finally{Release(range);}
                     }
-                    else foreach (var entry in cells) WriteCell(sheet, entry.Key, "content", entry.Value!["content"]);
+                    Trace("after contents");step="заливки";
                     foreach (var group in cells.Where(cell => cell.Value!["fill"] is not null).GroupBy(cell => cell.Value!["fill"]!.GetValue<int>()))
-                        foreach (var batch in group.Select(cell => cell.Key).Chunk(100)) WriteCell(sheet, string.Join(',', batch), "fill", JsonValue.Create(group.Key));
+                        foreach (string area in LiveWorkbookFormatting.CompactRanges(group.Select(cell => cell.Key))) WriteCell(sheet, area, "fill", JsonValue.Create(group.Key));
+                    step="границы";
                     foreach (var entry in cells.Where(cell => cell.Value!["borders"] is not null)) WriteCell(sheet, entry.Key, "borders", entry.Value!["borders"]);
-                    ApplyFilter(sheet, source["filter"] as JsonObject);
+                    Trace("before formatting");step="форматирование";
+                    foreach (var group in cells.Where(cell => cell.Value!["format"] is not null).GroupBy(cell => cell.Value!["format"]!.ToJsonString()))
+                        foreach (string area in LiveWorkbookFormatting.CompactRanges(group.Select(cell => cell.Key))) WriteCell(sheet, area, "format", group.First().Value!["format"]);
+                    Trace("after formatting");if (_formatting) LiveWorkbookFormatting.MergeExcel(sheet, source["layout"]);
+                    ApplyFilter(sheet, source["filter"] as JsonObject);Trace("filter done");
                 }
                 finally { Release(sheet); }
             }
         }
-        finally { _app.EnableEvents = true; _app.ScreenUpdating = !_hidden; }
+        catch(Exception error){throw new InvalidOperationException("Не удалось обновить таблицу: "+step+". "+error.Message,error);}
+        finally { _app.Calculation=calculation;_app.EnableEvents = true; _app.ScreenUpdating = !_hidden; }
     }
     private static void ApplyFilter(dynamic sheet, JsonObject? state)
     {
@@ -537,7 +605,7 @@ internal sealed class LiveExcelBridge : IDisposable
         string Argument(string name) { var index = Array.IndexOf(args, name); if (index < 0 || index + 1 >= args.Length) throw new FormatException("Missing bridge argument"); return args[index + 1]; }
         try
         {
-            using var bridge = new LiveExcelBridge(Argument("--file"), Argument("--local"), args.Contains("--hidden"), args.Contains("--borders"));
+            using var bridge = new LiveExcelBridge(Argument("--file"), Argument("--local"), args.Contains("--hidden"), args.Contains("--borders"), args.Contains("--formatting"));
             Console.WriteLine("{\"ready\":true}"); string? line;
             while (true)
             {
@@ -546,7 +614,7 @@ internal sealed class LiveExcelBridge : IDisposable
                 line = inputLine.GetAwaiter().GetResult(); if (line is null) break;
                 var input = JsonNode.Parse(line)!.AsObject(); if (input["type"]!.GetValue<string>() == "close") break;
                 try { Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), result = bridge.Execute(input) })); }
-                catch (Exception error) { bool busy = OfficeBusyErrors.IsTemporary(error); Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), error = error.Message, closed = !busy && bridge.IsClosed(), busy })); }
+                catch (Exception error) { bool busy = OfficeBusyErrors.IsTemporary(error); if(!busy)AppLog.Error("Native Excel command failed: "+input["type"]?.GetValue<string>(),error); Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), error = error.Message, closed = !busy && bridge.IsClosed(), busy })); }
             }
             return 0;
         }

@@ -22,7 +22,7 @@ internal sealed class LiveOfficeProcess : IDisposable
         _diagnostics = process.StandardError.ReadToEndAsync();
     }
 
-    public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token, Uri? origin = null, bool borders = false)
+    public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token, Uri? origin = null, bool borders = false,bool formatting=false)
     {
         if (engine == "excel" && !OfficeCompatibility.NativeDirectorySuitable(directory)) directory = OfficeCompatibility.CreateWorkspace();
         Directory.CreateDirectory(directory);
@@ -48,8 +48,10 @@ internal sealed class LiveOfficeProcess : IDisposable
         start.ArgumentList.Add("--file"); start.ArgumentList.Add(Path.GetFullPath(source));
         start.ArgumentList.Add("--local"); start.ArgumentList.Add(local); if (hidden) start.ArgumentList.Add("--hidden");
         if (borders) start.ArgumentList.Add("--borders");
+        if(formatting)start.ArgumentList.Add("--formatting");
         var process = Process.Start(start) ?? throw new InvalidOperationException("Не удалось запустить таблицу");
         var bridge = new LiveOfficeProcess(process, directory, local); bridge.Reader.IncludeBorders = borders;
+        bridge.Reader.IncludeFormatting=formatting;
         try
         {
             var line = await process.StandardOutput.ReadLineAsync(token).AsTask().WaitAsync(TimeSpan.FromSeconds(50), token);
@@ -132,7 +134,15 @@ internal sealed class LiveOfficeProcess : IDisposable
     public async Task<(JsonObject Book, string File)> SnapshotAsync(CancellationToken token)
     {
         string file = await ExportFileAsync(token);
-        try { return (Reader.Read(file), file); }
+        try
+        {
+            var book=Reader.Read(file);
+            // Named default styles and OOXML style zero can differ after an
+            // ODS import. Fast native reads must use the same base as the full
+            // exported model, including explicit resets to Calibri/General.
+            if(Reader.IncludeFormatting&&!Closed)await CommandAsync(new(){["type"]="format-defaults",["value"]=book["defaultFormat"]?.DeepClone()},token);
+            return (book,file);
+        }
         catch { try { File.Delete(file); } catch { } throw; }
     }
     public void Dispose()

@@ -8,7 +8,7 @@ import { HomeworkLivesStore, livesMonth } from './homeworkLives.js';
 test('real API isolates teacher/student lives, protects mutations and keeps progress intact', {timeout:60000},async()=>{
   const now=Date.now(),issuedAt=new Date(now-3*86400000).toISOString(),dueAt=new Date(now-86400000).toISOString();
   const f=await createGroupHomeworkFixture(undefined,(write,data)=>{
-    const store=new HomeworkLivesStore(path.join(data,'homework-lives.json'),{now:()=>now-4*86400000});store.configure('teacher-a',true);
+    const store=new HomeworkLivesStore(path.join(data,'homework-lives.json'),{now:()=>now-4*86400000});store.data.damagePolicy={since:'2099-01-01T00:00:00Z',monthlyDamage:4};store.configure('teacher-a',true);
     const students=JSON.parse(fs.readFileSync(path.join(data,'students.json'),'utf8')).map(s=>({...s,createdAt:new Date(now-90*86400000).toISOString()}));write('students',students);
     const entry=id=>({id,issuedAt,dueAt,homeWork:'Python + ЕГЭ',goals:[{type:'task',taskNumber:4,levelId:'basic',targetQuestions:[1,2],targetQuestionIds:['ege-question','ege-second']}]});
     write('tests',{4:{basic:[{id:'ege-question',answer:'17'},{id:'ege-second',answer:'18'}]}});

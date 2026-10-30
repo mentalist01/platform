@@ -20,7 +20,9 @@ internal static class LiveWorkbookCheck
         if (config["capacityCheck"]?.GetValue<bool>() == true) { await LiveWorkbookCapacityCheck.RunAsync(config, checks); return; }
         var origin = new Uri(config["origin"]!.GetValue<string>()); if (!origin.IsLoopback || origin.Scheme != "http") throw new InvalidOperationException("Native checks only accept a local fixture");
         string directory = Path.GetFullPath(config["directory"]!.GetValue<string>()); Directory.CreateDirectory(directory);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3)); var token = timeout.Token;
+        // The full matrix now includes both formatting and 20,000-row fixtures.
+        // Each latency-sensitive operation retains its own stricter deadline.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(6)); var token = timeout.Token;
         var faults = new ConnectionFaults();
         using var teacherApi = new HelperApiClient(origin); using var pupilApi = new HelperApiClient(origin, faults);
         var teacherGrant = await teacherApi.ExchangeAsync(config["teacherTicket"]!.GetValue<string>(), token);
@@ -66,6 +68,7 @@ internal static class LiveWorkbookCheck
             var clock = Stopwatch.StartNew(); await action(); checks.Add(new JsonObject { ["name"] = name, ["passed"] = true, ["ms"] = clock.ElapsedMilliseconds });
             File.WriteAllText(config["report"]!.GetValue<string>() + ".progress.json", checks.ToJsonString());
         }
+        if(config["filterOnly"]?.GetValue<bool>()==true)goto SortingChecks;
         await Check("Native cell and range presence reaches the peer without changing its own selection or workbook", async () =>
         {
             var wanted = new JsonArray(new JsonArray(2, 1, 8, 3));
@@ -153,7 +156,132 @@ internal static class LiveWorkbookCheck
             // Leave the semantic fixture empty for the convergence cases below.
             await Edit(teacher, "Z1", new() { ["kind"] = "empty" }); await Settle();
         });
+        if(config["draftUi"]?.GetValue<bool>()==true)
+        {
+            await Check("Actual native draft remains transient then Enter publishes the confirmed COUNT formula",async()=>
+            {
+                await Edit(teacher,"D2",Number(1));await Edit(teacher,"D3",Number(2));await Settle();
+                await teacher.Office.CommandAsync(new(){["type"]="fixture-title",["title"]="IVAN100 Draft QA 20261030"},token);
+                await teacher.Office.CommandAsync(new(){["type"]="select",["sheetName"]=sheet,["ranges"]=new JsonArray(new JsonArray(13,3,13,3))},token);
+                bool sawDraft=false;long confirmedAt=0;teacher.Presence+=(frame,_)=>{if(frame["draft"] is JsonObject)sawDraft=true;else if(sawDraft&&confirmedAt==0)confirmedAt=Environment.TickCount64;};
+                File.WriteAllText(Path.Combine(directory,"draft-ui-ready.txt"),"Use the owned IVAN100 Draft QA window. Enter =COUNT(D2:D13), wait, then press Enter.");
+                var clock=Stopwatch.StartNew();long committedAt=0;
+                while(true)
+                {
+                    await Task.WhenAll(teacher.PollAsync(token),pupil.PollAsync(token));
+                    if(sawDraft)
+                    {
+                        var cell=await pupil.Office.CommandAsync(new(){["type"]="read-cell",["sheetName"]=sheet,["address"]="D14"},token);
+                        if(cell["cell"]?["content"]?["kind"]?.GetValue<string>()=="formula")
+                        {
+                            var value=await pupil.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="D14"},token);
+                            Ensure(value["value"]!.GetValue<double>()==2,"Committed native formula did not calculate");Ensure(confirmedAt>0&&Environment.TickCount64-confirmedAt<2500,"Confirmed draft exceeded the commit budget");committedAt=Environment.TickCount64-confirmedAt;break;
+                        }
+                    }
+                    Ensure(clock.ElapsedMilliseconds<240000,"Actual typing/Enter check timed out");await Task.Delay(80,token);
+                }
+                File.WriteAllText(Path.Combine(directory,"draft-ui-result.json"),new JsonObject{["sawDraft"]=sawDraft,["committedAtMs"]=committedAt,["peerValue"]=2}.ToJsonString());
+            });
+            return;
+        }
+        if (!hidden)
+        {
+            await Check("Peer range and draft coordinates stay physical across both monitor DPIs and back", async()=>
+            {
+                var frames=new JsonObject();
+                frames["teacher"]=await LiveWorkbookGeometryCheck.RunAsync(teacher.Office,sheet,token);
+                frames["pupil"]=await LiveWorkbookGeometryCheck.RunAsync(pupil.Office,sheet,token);
+                File.WriteAllText(Path.Combine(directory,"monitor-geometry.json"),frames.ToJsonString());
+            });
+        }
         if (config["presenceOnly"]?.GetValue<bool>() == true) return;
+        if(teacherGrant.Live!.FormattingSupported && pupilGrant.Live!.FormattingSupported)
+        {
+            async Task Property(LiveWorkbookClient client,string address,string property,JsonNode? value)=>await client.Office.CommandAsync(new(){["type"]="edit",["changes"]=new JsonArray(new JsonObject{["sheetName"]=sheet,["address"]=address,["property"]=property,["value"]=value?.DeepClone()})},token);
+            await Check("Fonts, alignment, wrapping and numeric formats converge and clear in both directions",async()=>
+            {
+                var style=new JsonObject{["font"]=new JsonObject{["name"]="Arial",["size"]=14,["color"]=0x9933cc,["bold"]=true,["italic"]=true,["underline"]="double",["strike"]=true},["alignment"]=new JsonObject{["horizontal"]="center",["vertical"]="top",["wrap"]=true,["rotation"]=30},["numberFormat"]="0.00%"};
+                var baseline=await teacher.Office.SnapshotAsync(token);
+                JsonObject? expectedStyle;
+                try{expectedStyle=LiveWorkbookFormatting.Relative(LiveWorkbookFormatting.Resolve(style,baseline.Book["defaultFormat"]),baseline.Book["defaultFormat"]);}finally{File.Delete(baseline.File);}
+                await Edit(teacher,"F3",Number(.25));await Property(teacher,"F3","format",style);await Settle();
+                foreach(var client in new[]{teacher,pupil})
+                {
+                    var read=await client.Office.CommandAsync(new(){["type"]="read-cell",["sheetName"]=sheet,["address"]="F3"},token);
+                    Ensure(JsonNode.DeepEquals(read["cell"]?["format"],expectedStyle),"Native style did not match shared style: "+read);
+                }
+                await Property(pupil,"F3","format",new JsonObject{["alignment"]=new JsonObject{["horizontal"]="right",["vertical"]="center",["shrink"]=true,["rotation"]=-45},["numberFormat"]="0.000"});await Settle();
+                await Property(teacher,"F3","format",null);await Settle();
+                await Edit(pupil,"F3",new(){["kind"]="empty"});await Settle();
+            });
+            await Check("Merge and unmerge preserve the heading, contents and peer edits",async()=>
+            {
+                await Edit(teacher,"C1",new(){["kind"]="text",["value"]="ID процесса A"});
+                await Property(teacher,"@","layout",new JsonObject{["merges"]=new JsonArray("C1:E1")});await Settle();
+                var merged=await pupil.Office.SnapshotAsync(token);
+                try{Ensure(merged.Book["sheets"]![0]!["layout"]?["merges"]?[0]?.GetValue<string>()=="C1:E1","Merged range missing");}finally{File.Delete(merged.File);}
+                await Property(pupil,"@","layout",null);await Settle();
+                await Edit(pupil,"D1",Number(20));await Settle();
+                await Edit(teacher,"C1",new(){["kind"]="empty"});await Edit(pupil,"D1",new(){["kind"]="empty"});await Settle();
+            });
+        }
+        await Check("Moving a colored range clears its old position and moves every value through normal polling",async()=>
+        {
+            foreach(var client in new[]{teacher,pupil})
+            {
+                await Edit(client,"D8",Number(1),0xbb7799);await Edit(client,"E8",Number(2),0xbb7799);await Edit(client,"F8",Number(3),0xbb7799);await Settle();
+                await client.Office.CommandAsync(new(){["type"]="move-range",["sheetName"]=sheet,["range"]="D8:F8",["destination"]="Y8"},token);
+                var other=client==teacher?pupil:teacher;var clock=Stopwatch.StartNew();
+                while(true)
+                {
+                    await Task.WhenAll(teacher.PollAsync(token),pupil.PollAsync(token));
+                    var old=await other.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="D8"},token);
+                    var last=await other.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="AA8"},token);
+                    if((old["value"] is null || old["value"]!.GetValue<double>()==0) && last["value"]!.GetValue<double>()==3)break;
+                    Ensure(!teacher.Conflicted&&!pupil.Conflicted,"Range move stalled with a conflict");
+                    Ensure(clock.ElapsedMilliseconds<6500,"Range move did not clear source and populate destination");await Task.Delay(80,token);
+                }
+                await Settle();
+                foreach(string address in new[]{"Y8","Z8","AA8"})await Edit(client,address,new(){["kind"]="empty"});
+                await Settle();
+            }
+        });
+        await Check("COUNT formulas committed and autofilled across a row arrive as calculated cells, not only drafts",async()=>
+        {
+            await Edit(teacher,"D2",Number(1));await Edit(teacher,"D3",Number(2));await Settle();
+            await teacher.Office.CommandAsync(new(){["type"]="select",["sheetName"]=sheet,["ranges"]=new JsonArray(new JsonArray(13,3,13,3))},token);await teacher.PollAsync(token);
+            await Edit(teacher,"D14",new(){["kind"]="formula",["value"]="=COUNT(D2:D13)"});
+            await teacher.Office.CommandAsync(new(){["type"]="fill-right",["sheetName"]=sheet,["range"]="D14:AC14"},token);
+            var clock=Stopwatch.StartNew();
+            while(true)
+            {
+                await Task.WhenAll(teacher.PollAsync(token),pupil.PollAsync(token));
+                var read=await pupil.Office.CommandAsync(new(){["type"]="read-cell",["sheetName"]=sheet,["address"]="AC14"},token);
+                if(read["cell"]?["content"]?["kind"]?.GetValue<string>()=="formula")break;
+                Ensure(!teacher.Conflicted&&!pupil.Conflicted,"Autofill caused a conflict");Ensure(clock.ElapsedMilliseconds<6500,"Autofilled COUNT formulas did not arrive");await Task.Delay(80,token);
+            }
+            await Settle();
+            var count=await pupil.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="D14"},token);
+            Ensure(count["value"]!.GetValue<double>()==2,"COUNT formula did not recalculate");
+            foreach(string address in new[]{"D2","D3"})await Edit(teacher,address,new(){["kind"]="empty"});
+            await Settle();
+        });
+        await Check("Continuous small edits cannot postpone the full native formatting audit",async()=>
+        {
+            long before=teacher.Office.SnapshotCount;var initial=Stopwatch.StartNew();
+            while(teacher.Office.SnapshotCount==before){await teacher.PollAsync(token);await Task.Delay(100,token);Ensure(initial.ElapsedMilliseconds<6500,"Initial native audit did not run");}
+            await teacher.Office.CommandAsync(new(){["type"]="fixture-quiet-format",["sheetName"]=sheet,["address"]="B200",["value"]=new JsonObject{["font"]=new JsonObject{["color"]=0x2266cc,["bold"]=true}}},token);
+            var clock=Stopwatch.StartNew();int sequence=1;
+            while(true)
+            {
+                await Edit(teacher,"N90",Number(sequence++));await Task.WhenAll(teacher.PollAsync(token),pupil.PollAsync(token));
+                var read=await pupil.Office.CommandAsync(new(){["type"]="read-cell",["sheetName"]=sheet,["address"]="B200"},token);
+                if(read["cell"]?["format"]?["font"]?["color"]?.GetValue<int>()==0x2266cc)break;
+                Ensure(clock.ElapsedMilliseconds<7000,"Small incremental edits starved the full native audit");await Task.Delay(100,token);
+            }
+            await Settle();
+        });
+        if(config["formattingOnly"]?.GetValue<bool>()==true)return;
         if (teacherGrant.Live!.BordersSupported && pupilGrant.Live!.BordersSupported)
         {
             await Check("Border thickness, style, color and deletion converge between native editors", async () =>
@@ -186,7 +314,7 @@ internal static class LiveWorkbookCheck
                 }
                 await Borders(teacher,"H8",null);await Settle();
                 var cleared=await teacher.Office.SnapshotAsync(token);
-                try { Ensure(cleared.Book["sheets"]![0]!["cells"]!["C4"] is null,"Border-only empty cell survived clearing"); }
+                try { var cell=cleared.Book["sheets"]![0]!["cells"]!["C4"];Ensure(cell is null || cell["borders"] is null && cell["content"]!["kind"]!.GetValue<string>()=="empty","Cleared border survived or introduced contents"); }
                 finally { File.Delete(cleared.File); }
             });
         }
@@ -316,6 +444,7 @@ internal static class LiveWorkbookCheck
                 Ensure(JsonNode.DeepEquals(selection, (await client.Office.CommandAsync(new() { ["type"] = "pulse" }, token))["selection"]), "Snapshot changed the native selection");
             }
         });
+        SortingChecks:
         await Check("Sorting ten thousand rows in either office engine preserves row pairs and each participant's own viewport", async () =>
         {
             await pupil.Office.CommandAsync(new() { ["type"] = "load-filter-data", ["sheetName"] = sheet, ["count"] = 10000 }, token); await Settle();

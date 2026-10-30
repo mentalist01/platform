@@ -30,11 +30,47 @@ function fixture(t){
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'ivan-homework-lives-'));
   t.after(()=>{if(path.resolve(directory).startsWith(path.resolve(os.tmpdir())+path.sep))fs.rmSync(directory,{recursive:true,force:true});});
   let now=instant('10-01T00:00:00Z');
-  const file=path.join(directory,'lives.json'),store=new HomeworkLivesStore(file,{now:()=>now});store.configure(student.teacherId,true);
+  const file=path.join(directory,'lives.json'),store=new HomeworkLivesStore(file,{now:()=>now});
+  // Preserve legacy-policy scenarios; the cutover has separate regression coverage.
+  store.data.damagePolicy={since:'2099-01-01T00:00:00Z',monthlyDamage:4};store.configure(student.teacherId,true);
   now=instant('10-14T10:00:00Z');
   const context=(homeworks,count=4)=>({homeworks,estimatePlan:()=>count,evaluate:h=>({reliable:true,percent:h.percent,totalCount:10,completedCount:h.percent/10})});
   return{store,file,context,clock:value=>{now=instant(value);}};
 }
+
+test('new policy halves future deadline damage for every workload and preserves adaptation',t=>{
+  const {store,context,clock}=fixture(t);
+  clock('10-30T10:00:00Z');delete store.data.damagePolicy;store.save();
+  const dueAt='2026-10-30T11:00:00Z',issuedAt='2026-10-29T10:00:00Z';
+  store.settings(student.teacherId);clock('10-30T12:00:00Z');
+  for(const count of [4,8,12]){
+    const work={...assigned('new-'+count,0,dueAt),issuedAt};
+    const status=store.status({...student,id:'new-'+count},context([work],count));
+    assert.equal(status.history[0].loss,Math.round(4/count*1e6)/1e6);
+    assert.equal(status.history[0].damageBudget,4);
+    assert.equal(status.maxLossPerHomework,4/count);
+  }
+  const adapted=context([{...assigned('adapted',0,dueAt),issuedAt}],4);
+  adapted.completedLessonTimes=['2026-10-01T10:00Z'];adapted.startedLessonTimes=adapted.completedLessonTimes;
+  const status=store.status({...student,id:'adapted'},adapted);
+  assert.equal(status.history[0].loss,0.5);assert.equal(status.remaining,2.5);
+  assert.equal(status.history[0].damageMultiplier,0.5);assert.equal(status.maxLossPerHomework,0.5);
+});
+
+test('cutover and restart retain old balances and historical deadlines while reducing new ones',t=>{
+  const {store,context,clock,file}=fixture(t);
+  const old=assigned('old',50);assert.equal(store.status(student,context([old])).remaining,2);
+  clock('10-30T10:00:00Z');delete store.data.damagePolicy;store.save();
+  const cutover=store.status(student,context([old]));assert.equal(cutover.remaining,2);
+  assert.equal(cutover.history[0].loss,1);assert.equal(cutover.maxLossPerHomework,1);
+  const upcoming={...assigned('upcoming',0,'2026-10-30T11:00:00Z'),issuedAt:'2026-10-29T10:00:00Z'};
+  clock('10-30T12:00:00Z');assert.equal(store.status(student,context([old,upcoming])).remaining,1);
+  const reopened=new HomeworkLivesStore(file,{now:()=>instant('10-30T13:00:00Z')});
+  const status=reopened.status(student,context([old,upcoming]));
+  assert.equal(status.remaining,1);assert.equal(reopened.data.damagePolicy.since,'2026-10-30T10:00:00.000Z');
+  const late=store.status({...student,id:'late-history'},context([assigned('historical',0)]));
+  assert.equal(late.history[0].loss,2,'Old unassessed deadlines retain their historical rate');
+});
 
 test('zero-lives explanation is durable, independent of the teacher review and renewed after a corrected deduction', t => {
   const { store, context, file } = fixture(t);
