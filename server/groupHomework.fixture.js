@@ -5,7 +5,7 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 
-export async function createGroupHomeworkFixture(fixedPort, seedData, {existingGroupId} = {}) {
+export async function createGroupHomeworkFixture(fixedPort, seedData, {existingGroupId, persistCollab = false} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ivan100-concurrent-homework-'));
   const data = path.join(root, 'data'), uploads = path.join(root, 'uploads');
   fs.mkdirSync(data); fs.mkdirSync(uploads);
@@ -24,7 +24,7 @@ export async function createGroupHomeworkFixture(fixedPort, seedData, {existingG
   let logs = '';
   const child = spawn(process.execPath, ['server/index.js'], { cwd: path.resolve(import.meta.dirname, '..'), windowsHide: true,
     env: { ...process.env, CORS_ALLOWED_ORIGINS: fixedPort ? 'http://127.0.0.1:5599,http://localhost:5599' : '', PORT: String(port), NODE_ENV: 'test', PLATFORM_DATA_DIR: data, PLATFORM_UPLOADS_DIR: uploads,
-      PLATFORM_JSON_BACKUPS_DIR: path.join(root, 'json-backups'), COLLAB_PERSISTENCE: '0', DISABLE_STARTUP_XP_REBALANCE: '1', LEARNING_GROUPS_ENABLED: '1', LEARNING_GROUP_RTC_ENABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      PLATFORM_JSON_BACKUPS_DIR: path.join(root, 'json-backups'), PLATFORM_COLLAB_DIR:path.join(root,'collab'), COLLAB_PERSISTENCE: persistCollab ? '1' : '0', DISABLE_STARTUP_XP_REBALANCE: '1', LEARNING_GROUPS_ENABLED: '1', LEARNING_GROUP_RTC_ENABLED: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', chunk => { logs += chunk; }); child.stderr.on('data', chunk => { logs += chunk; });
   const stop = async () => { if (child.exitCode !== null) return; const ended = new Promise(resolve => child.once('exit', resolve)); child.kill(); await ended; };
   const request = async (route, token, body, method = body ? 'POST' : 'GET', expected = 200) => {

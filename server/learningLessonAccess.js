@@ -1,6 +1,6 @@
 import {parseBoardPageRoom} from '../src/utils/boardPages.js';
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
-import {pythonExplanationBoardRoom} from '../src/utils/pythonExplanationBoard.js';
+import {pythonExplanationBoardRoom,pythonExplanationCodeRoom} from '../src/utils/pythonExplanationBoard.js';
 import {pythonGroupBoardRoom,pythonGroupCodeBase} from '../src/utils/pythonGroupWorkspace.js';
 
 const MAX_ENTITY_ID_LENGTH = 160;
@@ -299,6 +299,7 @@ const buildLegacyRoomNames = (student) => {
   return {
     board: `board-${teacherId}-${studentId}`,
     'python-board': pythonExplanationBoardRoom(teacherId, studentId),
+    'python-collab': pythonExplanationCodeRoom(teacherId, studentId),
     collab: `collab-${teacherId}-${studentId}`,
     rtc: `rtc:${teacherId}:${studentId}`,
     pythonPrefix: `py-collab:py-sync:${studentId}:`,
@@ -312,7 +313,7 @@ export const resolveLegacyLearningRoomTarget = (value, students) => {
   for (const student of entries) {
     const names = buildLegacyRoomNames(student);
     if (!names) continue;
-    const exactKind = ['board', 'python-board', 'collab', 'rtc'].find((kind) => names[kind] === roomId);
+    const exactKind = ['board', 'python-board', 'python-collab', 'collab', 'rtc'].find((kind) => names[kind] === roomId);
     const isPythonRoom = roomId.startsWith(names.pythonPrefix)
       && roomId.length > names.pythonPrefix.length;
     if (!exactKind && !isPythonRoom) continue;
@@ -382,6 +383,7 @@ export const resolveLearningRealtimeRoomTarget = ({ roomId, sessions, students, 
     }
     const board=pythonGroupBoardRoom(group.id),prefix=`py-collab:${pythonGroupCodeBase(group.id)}:`;
     if(board&&roomId===board)return {targetType:'group',kind:'python-board',groupId:group.id,teacherId:group.teacherId,group,roomId};
+    if(roomId===pythonExplanationCodeRoom(group.teacherId,'',group.id))return {targetType:'group',kind:'python-collab',groupId:group.id,teacherId:group.teacherId,group,roomId};
     if(pythonGroupCodeBase(group.id)&&roomId.startsWith(prefix)&&/^\d+:[a-zA-Z0-9._-]+:[a-zA-Z0-9._-]+$/.test(roomId.slice(prefix.length)))
       return {targetType:'group',kind:'python',groupId:group.id,teacherId:group.teacherId,group,roomId};
   }
@@ -540,7 +542,7 @@ export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) 
   const access = authorizeLearningRealtimeRoom({
     ...options,
     roomId: pageRoom?.baseRoomId || docName,
-    allowedKinds: ['board', 'python-board', 'board-private', 'collab', 'collab-private', 'python'],
+    allowedKinds: ['board', 'python-board', 'python-collab', 'board-private', 'collab', 'collab-private', 'python'],
     allowedSessionStatuses: Array.isArray(options.allowedSessionStatuses)
       ? options.allowedSessionStatuses
       : ['scheduled', 'active', 'completed'],

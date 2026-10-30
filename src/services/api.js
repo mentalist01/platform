@@ -1498,6 +1498,9 @@ export const api = {
   getLearningGroupProgress: async (groupId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'progress'))
   ),
+  getLearningGroupPythonProgress: async (groupId) => (
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'python-progress'))
+  ),
   getStudentsLeaderboard: async (teacherIdOrOptions = '', maybeOptions = {}) => {
     const options = teacherIdOrOptions && typeof teacherIdOrOptions === 'object'
       ? teacherIdOrOptions
@@ -2913,8 +2916,9 @@ export const api = {
     const res = await apiFetch(`/api/workbook-parts/files/${encodeURIComponent(id)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({partNumber,pendingOnly:true})});
     if (!res.ok) throw new Error(await parseApiError(res)); return res.json();
   },
-  getFiles: async (studentId) => {
+  getFiles: async (studentId, options = {}) => {
     const params = new URLSearchParams();
+    if (options.groupId) params.append('learningGroupId', options.groupId);
     if (studentId) params.append('studentId', studentId);
     params.append('_ts', String(Date.now()));
     const qs = params.toString();
@@ -2980,6 +2984,7 @@ export const api = {
     if (options?.source) form.append('source', String(options.source));
     if (options?.learningGroupId) form.append('learningGroupId', String(options.learningGroupId));
     if (options?.learningLessonId) form.append('learningLessonId', String(options.learningLessonId));
+    if (options?.pythonExplanationGroup) form.append('pythonExplanationGroup', '1');
     if (options?.memory && typeof options.memory === 'object') {
       form.append('memory', JSON.stringify(options.memory));
     }

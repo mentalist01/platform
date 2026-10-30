@@ -55,6 +55,8 @@ import {
 import { getCollabWsUrl } from '../utils/runtimeUrls';
 import { getHomeworkLessonBasketItemKey } from '../utils/homeworkLessonBasket';
 import { getRutubeEmbedUrl, getRutubeWatchUrl } from '../utils/learningGroups';
+import { pythonGroupQuestionStatus } from '../utils/pythonGroupProgress';
+import { PythonGroupQuestionProgress } from './PythonGroupProgress';
 
 const QUESTION_CODE_SAVE_DEBOUNCE_MS = 250;
 const COLLAB_SEED_DELAY_MS = 450;
@@ -267,6 +269,10 @@ const PythonReviewModal = ({
   codeSyncRoomId = '',
   groupMode = false,
   groupName = '',
+  groupProgress = null,
+  groupProgressLoading = false,
+  groupProgressError = '',
+  onGroupProgressRefresh,
   onQuestionChange,
   lessonWorkspace = null,
   lessonTopics = [],
@@ -306,6 +312,11 @@ const PythonReviewModal = ({
     summary: '',
     ts: null,
   });
+  useEffect(() => {
+    if(!groupMode||!onGroupProgressRefresh||!['done','error'].includes(sharedRunState.status))return undefined;
+    const timer=window.setTimeout(onGroupProgressRefresh,500);
+    return ()=>window.clearTimeout(timer);
+  },[groupMode,onGroupProgressRefresh,sharedRunState.status,sharedRunState.ts]);
   const [runnerLoading, setRunnerLoading] = useState(false);
   const [runnerError, setRunnerError] = useState('');
   const [testResults, setTestResults] = useState([]);
@@ -444,6 +455,7 @@ const PythonReviewModal = ({
     });
 
     const trapTheoryFocus = (event) => {
+      if (event.target?.closest?.('.python-explanation-dialog')) return;
       if (event.key !== 'Tab') return;
       const focusableElements = getFocusableElements();
       if (!focusableElements.length) {
@@ -1584,7 +1596,9 @@ const PythonReviewModal = ({
   const currentQuestionInBasket = Boolean(currentBasketItemKey) && (
     Array.isArray(homeworkLessonBasketItems) ? homeworkLessonBasketItems : []
   ).some((item) => getHomeworkLessonBasketItemKey(item) === currentBasketItemKey);
-  const isSolved = solvedIds.has(currentId);
+  const groupTopic = groupMode ? groupProgress?.topics?.[task.number] : null;
+  const currentGroupStatus = groupMode ? pythonGroupQuestionStatus(groupProgress,task.number,currentId) : null;
+  const isSolved = groupMode ? currentGroupStatus?.state === 'complete' : solvedIds.has(currentId);
   const questionCodeEntry = getQuestionCodeEntry(currentId, questionCodeById);
   const fallbackSolvedCode = typeof solvedCodeById?.[currentId] === 'string' ? solvedCodeById[currentId] : '';
   const fallbackStarterCode = typeof currentQuestion?.starterCode === 'string' ? currentQuestion.starterCode : '';
@@ -1628,9 +1642,9 @@ const PythonReviewModal = ({
   const currentQuestionDisplayIndex = Math.max(1, currentQuestionPosition + 1);
   const totalVisibleQuestions = Math.max(visibleQuestionItems.length, 1);
   const solvedVisibleCount = visibleQuestionItems.reduce((count, item) => (
-    solvedIds.has(String(item.question?.id ?? item.questionIndex)) ? count + 1 : count
+    (groupMode ? groupTopic?.questions?.[String(item.question?.id ?? item.questionIndex)]?.solvedCount > 0 : solvedIds.has(String(item.question?.id ?? item.questionIndex))) ? count + 1 : count
   ), 0);
-  const currentMastery = questions.length
+  const currentMastery = groupMode ? groupTopic?.percent || 0 : questions.length
     ? Math.round((solvedIds.size / questions.length) * 100)
     : 0;
   const isRecordingTheory = theoryType === THEORY_RECORDING_TYPE && Boolean(theoryRecording);
@@ -1762,7 +1776,7 @@ const PythonReviewModal = ({
   const isWideWorkspace = viewportWidth >= 1100;
   const isCompactRuntimeViewport = viewportWidth < 1500 || viewportHeight < 820;
   const isVeryCompactRuntimeViewport = viewportWidth < 1200 || viewportHeight < 760;
-  const isDenseQuestionNav = visibleQuestionItems.length >= 10;
+  const isDenseQuestionNav = !groupMode && visibleQuestionItems.length >= 10;
   const useDenseTaskChips = isDenseQuestionNav || isCompactRuntimeViewport;
   const denseQuestionNavClass = isCompactRuntimeViewport
     ? 'grid min-w-0 w-full max-w-[calc(100vw-1.5rem)] grid-cols-[repeat(auto-fit,minmax(92px,1fr))] gap-1 max-h-[88px] overflow-y-auto overflow-x-hidden pr-1 [scrollbar-width:thin]'
@@ -1819,7 +1833,7 @@ const PythonReviewModal = ({
 
   const modal = (
     <div className="python-runtime-modal-overlay fixed inset-0 bg-slate-900/45 z-50 modal-backdrop flex items-stretch justify-stretch p-0">
-      <div data-runtime-role="teacher" data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className={`python-runtime-modal-shell python-runtime-modal-shell--solve surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
+      <div data-runtime-role="teacher" data-runtime-theme={isDarkTheme ? 'dark' : 'light'} className={`python-runtime-modal-shell python-runtime-modal-shell--solve ${groupMode?'python-runtime-modal-shell--group-progress':''} surface-card modal-card modal-card--fullscreen rounded-none w-screen h-[100dvh] max-w-none max-h-none p-0 shadow-2xl relative overflow-hidden ${modalShellThemeClass}`}>
         <div className="h-full w-full overflow-hidden">
           <div
             className={`flex h-full flex-col overflow-hidden ${
@@ -1859,10 +1873,10 @@ const PythonReviewModal = ({
                   </p>
                 </div>
               </div>
-              {!groupMode&&<div className={`python-runtime-progress-card rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
+              {(!groupMode||groupProgress)&&<div className={`python-runtime-progress-card rounded-[16px] border px-3 py-2 ${mutedStripClass}`}>
                 <div className="flex items-center justify-between gap-2.5">
                   <div className="python-runtime-progress-summary flex items-center gap-1.5">
-                    <span className={`python-runtime-progress-label text-[10px] font-semibold ${mutedTextClass}`}>Прогресс темы</span>
+                    <span className={`python-runtime-progress-label text-[10px] font-semibold ${mutedTextClass}`}>{groupMode?'Решено в группе':'Прогресс темы'}</span>
                     <span className={`python-runtime-progress-count text-[11px] font-bold ${secondaryTextClass}`}>
                       {`${solvedVisibleCount} / ${visibleQuestionItems.length || 0}`}
                     </span>
@@ -1958,7 +1972,8 @@ const PythonReviewModal = ({
               >
                 {visibleQuestionItems.map((item) => {
                   const qId = String(item.question?.id ?? item.questionIndex);
-                  const solved = solvedIds.has(qId);
+                  const groupStatus=groupMode?pythonGroupQuestionStatus(groupProgress,task.number,qId):null;
+                  const solved = groupMode ? groupStatus?.state==='complete' : solvedIds.has(qId);
                   const isCurrent = item.questionIndex === currentIndex;
                   const buttonClass = isCurrent
                     ? (solved
@@ -1983,11 +1998,13 @@ const PythonReviewModal = ({
                       onClick={() => setCurrentIndex(item.questionIndex)}
                       data-current={isCurrent ? 'true' : 'false'}
                       data-solved={solved ? 'true' : 'false'}
+                      data-group-state={groupStatus?.state}
+                      aria-label={`Задача ${item.localNumber}: ${label}${groupStatus?`. Решили ${groupStatus.label}. ${groupStatus.detail}`:''}`}
                       aria-current={isCurrent ? 'step' : undefined}
                       className={`python-runtime-chip python-runtime-task-chip rounded-[14px] border text-left transition-all ${
                         isDenseQuestionNav ? 'w-full min-w-0 px-1.5 py-1' : 'shrink-0 min-w-[136px] px-2 py-1.5'
                       } ${buttonClass}`}
-                      title={label}
+                      title={label+(groupStatus?`. Решили ${groupStatus.label}. ${groupStatus.detail}`:'')}
                     >
                       <div className={`flex ${useDenseTaskChips ? 'items-center gap-1.5' : 'items-start gap-2'}`}>
                         <div className={`inline-flex shrink-0 items-center justify-center border font-bold ${
@@ -2001,7 +2018,7 @@ const PythonReviewModal = ({
                         } ${useDenseTaskChips ? 'h-6 w-6 rounded-[9px] text-[9px]' : 'mt-0.5 h-7 w-7 rounded-[10px] text-[10px]'}`}>
                           {solved ? <CheckCircle2 size={14} /> : item.localNumber}
                         </div>
-                        <div className={`${isDenseQuestionNav ? 'text-[12px]' : 'text-[13px]'} min-w-0 flex-1 truncate font-semibold`}>{label}</div>
+                        {groupMode?<div className="python-group-question-copy"><strong>{label}</strong><PythonGroupQuestionProgress status={groupStatus} compact/></div>:<div className={`${isDenseQuestionNav ? 'text-[12px]' : 'text-[13px]'} min-w-0 flex-1 truncate font-semibold`}>{label}</div>}
                       </div>
                     </button>
                   );
@@ -2101,10 +2118,15 @@ const PythonReviewModal = ({
               )}
             </div>
             <div className="python-runtime-question-status mt-2 flex flex-wrap items-center gap-2">
-              <span data-state={isSolved ? 'solved' : 'pending'} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${solvedStateClass}`}>
+              {groupMode?<>
+                <PythonGroupQuestionProgress status={currentGroupStatus}/>
+                {!groupProgress&&<span className="text-xs text-slate-500">{groupProgressLoading?'Загружаем прогресс группы…':'Прогресс группы недоступен'}</span>}
+                <button type="button" className="text-xs text-violet-600" onClick={onGroupProgressRefresh} title="Обновить прогресс группы"><RefreshCcw size={13}/></button>
+                {groupProgressError&&<span role="alert" className="text-xs text-rose-600">{groupProgressError}{groupProgress?' · Показаны последние результаты.':''}</span>}
+              </>:<span data-state={isSolved ? 'solved' : 'pending'} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[11px] font-semibold ${solvedStateClass}`}>
                 <CheckCircle2 size={12} />
                 {isSolved ? 'Ученик решил' : 'Ожидает решения'}
-              </span>
+              </span>}
               <QuestionDifficultyBadge
                 difficulty={questionDifficultyById?.[activeQuestionId]}
                 theme={isDarkTheme ? 'dark' : 'light'}
@@ -2402,7 +2424,7 @@ const PythonReviewModal = ({
               </span>
               <span data-state={isSolved ? 'solved' : 'pending'} className={`python-runtime-footer-note ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                 {isSolved ? <CheckCircle2 className="python-runtime-footer-note-icon" size={15} /> : <CircleDashed className="python-runtime-footer-note-icon" size={15} />}
-                {isSolved ? 'Ученик решил задачу, можно идти дальше.' : 'Сначала запусти тесты и проверь решение.'}
+                {groupMode ? isSolved ? 'Все ученики решили задачу.' : 'Личные решения участников показаны над условием.' : isSolved ? 'Ученик решил задачу, можно идти дальше.' : 'Сначала запусти тесты и проверь решение.'}
               </span>
             </div>
             <div className="python-runtime-footer-actions flex w-full flex-col gap-2 sm:w-auto sm:flex-row">

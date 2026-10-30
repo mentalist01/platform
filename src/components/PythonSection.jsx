@@ -38,6 +38,8 @@ import { getWeeklyTaskPracticeIndicator } from '../utils/weeklyTaskPractice';
 import PythonPracticePanel, { PythonPracticeBadge } from './PythonPracticePanel';
 import PythonExplanationBoard from './PythonExplanationBoard';
 import usePythonLessonWorkspace from '../hooks/usePythonLessonWorkspace';
+import usePythonGroupProgress from '../hooks/usePythonGroupProgress';
+import { PythonGroupTopicProgress } from './PythonGroupProgress';
 import {pythonGroupCodeBase,pythonGroupBoardRoom} from '../utils/pythonGroupWorkspace';
 import usePythonExplanationBoard from '../hooks/usePythonExplanationBoard';
 import { pythonExplanationBoardRoom } from '../utils/pythonExplanationBoard';
@@ -373,6 +375,7 @@ const PythonSection = ({
   teacherId,
   userName,
   ExplanationBoardCanvas,
+  ExplanationWorkspace,
   students,
   activeStudentId,
   onSelectStudent,
@@ -511,9 +514,11 @@ const PythonSection = ({
   const groupWorkspace=usePythonLessonWorkspace({role,userId:studentId,teacherId,groups,initialGroupId,lesson,personalTask,activeStudentId,onSelectStudent});
   const selectPythonTarget = groupWorkspace.selectTarget;
   const groupMode=Boolean(groupWorkspace.groupId);
+  const groupProgressState=usePythonGroupProgress(groupWorkspace.groupId,role==='teacher'&&groupMode);
+  const groupProgress=groupProgressState.data;
   const publishGroupTask=groupWorkspace.publishTask,remoteGroupTask=groupWorkspace.remoteTask;
   const effectiveStudentId = role === 'teacher' ? (groupMode?null:activeStudentId) : studentId;
-  const explanationRoomId = ExplanationBoardCanvas ? (groupMode?pythonGroupBoardRoom(groupWorkspace.groupId):pythonExplanationBoardRoom(teacherId, effectiveStudentId)) : '';
+  const explanationRoomId = ExplanationBoardCanvas || ExplanationWorkspace ? (groupMode?pythonGroupBoardRoom(groupWorkspace.groupId):pythonExplanationBoardRoom(teacherId, effectiveStudentId)) : '';
   const explanationBoard = usePythonExplanationBoard({ roomId: explanationRoomId, teacherId, studentId: effectiveStudentId, userId: studentId, role, groupId:groupWorkspace.groupId, followTeacher:!groupWorkspace.personalWork });
   const codeSyncRoomId = groupMode?pythonGroupCodeBase(groupWorkspace.groupId):effectiveStudentId
     ? `py-sync:${String(effectiveStudentId).trim()}`
@@ -752,6 +757,7 @@ const PythonSection = ({
   }, [role, pathTaskList.length]);
 
   const progressMap = useMemo(() => {
+    if(groupMode&&role==='teacher')return Object.fromEntries(taskList.map(task=>[task.id,groupProgress?.topics?.[task.number]?.percent||0]));
     const storedProgress = role === 'teacher'
       ? (studentData.progress || {})
       : (Object.keys(progress || {}).length ? progress : (studentData.progress || {}));
@@ -762,7 +768,7 @@ const PythonSection = ({
       storedProgress,
       levelId: PYTHON_LEVEL_ID,
     });
-  }, [PYTHON_LEVEL_ID, progress, role, studentData, taskList, testsDb]);
+  }, [PYTHON_LEVEL_ID, progress, role, studentData, taskList, testsDb,groupMode,groupProgress]);
   const practiceStats = useMemo(() => buildPracticeStatsForTests(studentData, testsDb), [studentData, testsDb]);
   const practiceItems = useMemo(() => taskList.map(task => ({
     task,
@@ -1929,7 +1935,7 @@ const PythonSection = ({
             </div>}
           </div>
           <h3 className="python-learning-task-card__title font-bold text-sm md:text-[15px] leading-snug text-slate-900">{task.title}</h3>
-          {groupMode&&role==='teacher'?<p className="mt-2.5 text-xs text-violet-600">Совместный разбор · открыть задачи</p>:<><div className="mt-2.5 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
+          {groupMode&&role==='teacher'?<PythonGroupTopicProgress topic={groupProgress?.topics?.[task.number]} loading={groupProgressState.loading}/>:<><div className="mt-2.5 flex items-center justify-between text-[11px] md:text-xs text-slate-500">
             <span>{section?.id === 'exam-prep' ? 'Прогресс подготовки' : 'Прогресс темы'}</span>
             <span className="python-learning-task-card__percent text-sm md:text-base font-extrabold text-slate-800">{val}%</span>
           </div>
@@ -2066,7 +2072,7 @@ const PythonSection = ({
               className="python-learning-focus-next"
               aria-label={focusTask
                 ? (role === 'teacher'
-                    ? `Открыть прогресс ученика по теме ${focusTask.title}`
+                    ? `Открыть ${groupMode?'задачи группы':'прогресс ученика'} по теме ${focusTask.title}`
                     : `${focusTaskProgress > 0 ? 'Продолжить' : 'Начать'} тему ${focusTask.title}`)
                 : 'Темы Python пока недоступны'}
             >
@@ -2123,6 +2129,11 @@ const PythonSection = ({
 
           <div className="python-learning-student-picker">{renderStudentPicker()}</div>
           {groupMode&&<p role="status" className="text-sm text-violet-700">{groupWorkspace.group.name} · общий код и доска. {groupWorkspace.connected?'Группа подключена.':'Подключаем группу…'} Результаты сохраняются отдельно у каждого ученика.</p>}
+          {groupMode&&role==='teacher'&&<div className="python-group-progress-note">
+            <span>Прогресс группы · {groupProgress ? `${groupProgress.memberCount} учеников` : 'Загружаем…'}. Задача учитывается в теме, если её решил хотя бы один участник.</span>
+            <button type="button" onClick={groupProgressState.refresh}><RefreshCcw size={13}/>Обновить прогресс</button>
+            {groupProgressState.error&&<span role="alert">{groupProgressState.error}{groupProgress ? ' · Показаны последние загруженные результаты.' : ''}</span>}
+          </div>}
           {groupWorkspace.error&&<p role="alert">{groupWorkspace.error}</p>}
 
           <div className="python-learning-section-picker" role="tablist" aria-label="Разделы Python">
@@ -2195,7 +2206,7 @@ const PythonSection = ({
         </div>
       )}
 
-      <PythonPracticePanel items={practiceItems} role={role} onOpen={openPythonPractice} />
+      {!(groupMode&&role==='teacher')&&<PythonPracticePanel items={practiceItems} role={role} onOpen={openPythonPractice} />}
 
       {role === 'student' && (
         <div className="md:hidden">
@@ -3050,6 +3061,10 @@ const PythonSection = ({
           task={reviewTask}
           groupMode={groupMode}
           groupName={groupWorkspace.group?.name||''}
+          groupProgress={groupProgress}
+          groupProgressLoading={groupProgressState.loading}
+          groupProgressError={groupProgressState.error}
+          onGroupProgressRefresh={groupProgressState.refresh}
           onQuestionChange={setActiveQuestionIndex}
           lessonWorkspace={lessonWorkspace}
           lessonTopics={taskList}
@@ -3079,9 +3094,10 @@ const PythonSection = ({
           })}
         />
       )}
-      <PythonExplanationBoard key={explanationRoomId} board={explanationBoard} Canvas={ExplanationBoardCanvas} theme={theme}
+      <PythonExplanationBoard key={explanationRoomId} board={explanationBoard} Canvas={ExplanationBoardCanvas} Workspace={ExplanationWorkspace} theme={theme}
         title={(role === 'teacher' ? reviewTask : activeTask)?.title}
-        context={{ role, userId: studentId, userName, teacherId, activeStudentId: groupMode?null:effectiveStudentId, students, tasks: taskList, groupId:groupWorkspace.groupId }} />
+        context={{ role, userId: studentId, userName, teacherId, activeStudentId: groupMode?null:effectiveStudentId, students, tasks: taskList, groupId:groupWorkspace.groupId,
+          participantIds:(groupWorkspace.group?.members||[]).filter(member=>member.status==='active').map(member=>member.studentId),withStudentId }} />
     </div>
   );
 };

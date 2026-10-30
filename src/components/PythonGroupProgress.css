@@ -1,0 +1,38 @@
+.python-group-topic-progress{display:grid;gap:5px;margin-top:12px;font-size:12px;color:#75648f}
+.python-group-topic-progress>div:first-child{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.python-group-topic-progress strong{font-size:16px;color:#594073}
+.python-group-topic-progress__track{height:7px;overflow:hidden;border-radius:8px;background:#eee7fa}
+.python-group-topic-progress__track i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#7c3aed,#b06bef);transition:width .3s}
+.python-group-topic-progress small{font-size:10px}
+.python-group-topic-progress__complete{display:flex;align-items:center;gap:5px;font-size:11px;color:#158263}
+.python-group-topic-progress__hint{margin-top:12px;font-size:12px;color:#8b7e9c}
+.python-group-question-progress{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0;font-size:12px;line-height:1.4;color:#766c87}
+.python-group-question-progress__count{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;padding:3px 7px;border:1px solid #e4deee;border-radius:8px;background:#f5f3f8;font-weight:700;color:#756a87}
+.python-group-question-progress__names{min-width:0;overflow-wrap:anywhere}
+.python-group-question-progress.is-complete .python-group-question-progress__count{color:#0c7958!important;border-color:#a7dccb;background:#eaf8f1}
+.python-group-question-progress.is-partial .python-group-question-progress__count{color:#976315!important;border-color:#eacb94;background:#fff6e5}
+.python-group-question-progress.is-compact{align-items:flex-start;gap:3px;font-size:10px}
+.python-group-question-progress.is-compact .python-group-question-progress__count{font-size:10px;padding:1px 5px}
+.python-group-question-progress.is-compact .python-group-question-progress__names{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:12px}
+.python-runtime-modal-shell--solve.python-runtime-modal-shell--group-progress .python-runtime-task-chip{height:auto!important;min-height:76px;width:clamp(166px,14vw,210px);flex-basis:clamp(166px,14vw,210px)}
+.python-runtime-modal-shell--solve.python-runtime-modal-shell--group-progress .python-runtime-task-chip>div{align-items:flex-start!important}
+.python-runtime-modal-shell--solve.python-runtime-modal-shell--group-progress .python-runtime-task-chip[data-group-state='partial']{border-color:#e6c991!important;background:color-mix(in srgb,#f59e0b 8%,var(--rt-card))!important}
+.python-runtime-modal-shell--solve.python-runtime-modal-shell--group-progress .python-runtime-task-chip[data-group-state='complete']{border-color:#5cb89a!important;background:color-mix(in srgb,#10b981 12%,var(--rt-card))!important}
+.python-runtime-modal-shell--group-progress .python-group-question-copy{display:grid;min-width:0;gap:4px;flex:1}
+.python-runtime-modal-shell--group-progress .python-group-question-copy>strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:600}
+.python-runtime-modal-shell--group-progress[data-runtime-role='teacher'] .python-runtime-task-chip{min-width:166px!important;flex-shrink:0;}
+.python-runtime-modal-shell--group-progress[data-runtime-role='teacher'] .python-runtime-task-chip[data-current='true']{outline:2px solid var(--rt-purple);outline-offset:-2px;color:var(--rt-secondary)!important;box-shadow:none!important}
+.python-runtime-modal-shell--group-progress[data-runtime-role='teacher'] .python-runtime-task-chip[data-group-state='partial']{background:color-mix(in srgb,#f59e0b 10%,var(--rt-card))!important;border-color:#e6c991!important}
+.python-runtime-modal-shell--group-progress[data-runtime-role='teacher'] .python-runtime-task-chip[data-group-state='complete']{background:var(--rt-green-soft)!important;border-color:#5cb89a!important}
+.python-runtime-modal-shell--group-progress[data-runtime-role='teacher'] .python-runtime-task-chip[data-group-state='new']{background:var(--rt-soft)!important}
+.python-runtime-modal-shell--group-progress[data-runtime-role='teacher'] .python-runtime-task-chip[data-current='true'] .python-group-question-copy *{color:var(--rt-secondary)!important}
+.python-runtime-modal-shell--group-progress .python-group-question-progress__names{color:var(--rt-secondary)!important}
+.python-runtime-modal-shell--group-progress[data-runtime-theme='dark'] .python-group-question-progress__count{background:#273147;border-color:#45516b;color:#c2cadc!important}
+.python-runtime-modal-shell--group-progress[data-runtime-theme='dark'] .python-group-question-progress.is-complete .python-group-question-progress__count{background:#143c34;border-color:#286b57;color:#abebd2!important}
+.python-runtime-modal-shell--group-progress[data-runtime-theme='dark'] .python-group-question-progress.is-partial .python-group-question-progress__count{background:#41331d;border-color:#78603b;color:#f1d8a7!important}
+.python-group-progress-note{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin:12px 0;padding:10px 14px;border:1px solid #e7def6;border-radius:14px;background:#f8f5fe;font-size:12px;color:#76628e}
+.python-group-progress-note button{display:inline-flex;align-items:center;gap:5px;color:#7c3aed;font-size:12px;font-weight:600}
+.python-group-progress-note [role='alert']{color:#be3854}
+.python-runtime-modal-shell--group-progress .python-runtime-task-strip .python-runtime-scrollbar{overflow-x:auto!important;scrollbar-width:thin!important;padding-bottom:6px!important;scrollbar-color:#ad8ee3 #f2edf9}
+.python-runtime-modal-shell--group-progress .python-runtime-task-strip .python-runtime-scrollbar::-webkit-scrollbar{display:block!important;height:6px!important}
+.python-runtime-modal-shell--group-progress .python-runtime-task-strip .python-runtime-scrollbar::-webkit-scrollbar-thumb{background:#ad8ee3;border-radius:6px}

@@ -4,6 +4,11 @@ export function pythonExplanationBoardRoom(teacherId, studentId) {
   return ENTITY_ID.test(teacherId || '') && ENTITY_ID.test(studentId || '')
     ? `board-python-${teacherId}-${studentId}` : '';
 }
+export function pythonExplanationCodeRoom(teacherId, studentId, groupId = '') {
+  if (groupId) return ENTITY_ID.test(groupId) ? `collab-python-group-${groupId}` : '';
+  const board = pythonExplanationBoardRoom(teacherId, studentId);
+  return board ? `collab-${board.slice(6)}` : '';
+}
 // The teacher-writable manifest carries commands. Live presence prevents a
 // saved command from opening yesterday's explanation when a pupil returns.
 export function livePythonExplanation(command, peers, teacherId, studentId, groupId='') {

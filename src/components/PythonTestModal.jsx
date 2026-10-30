@@ -520,6 +520,7 @@ const PythonTestModal = ({
       )).filter((element) => element.getClientRects().length > 0 && element.getAttribute('aria-hidden') !== 'true');
     };
     const handleTheoryKeyDown = (event) => {
+      if (event.target?.closest?.('.python-explanation-dialog')) return;
       if (event.key === 'Escape') {
         if (document.fullscreenElement || document.webkitFullscreenElement) return;
         event.preventDefault();

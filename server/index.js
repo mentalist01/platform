@@ -7,6 +7,7 @@ import { createStudentGroupPaymentEntryResolver } from './studentScheduleGroupPa
 import { isScheduleEntryInDateRange } from '../src/utils/scheduleDateRange.js';
 import { weeklyScheduleLabel } from '../src/utils/weeklySchedule.js';
 import { PYTHON_RUNNER_SCRIPT } from './pythonRunnerSource.js';
+import { buildPythonGroupProgress } from '../src/utils/pythonGroupProgress.js';
 import { isExplicitTrialLesson } from '../src/utils/calendarLessonType.js';
 import { googleCalendarReadId, googleApiEventToCalendarEvent } from './googleCalendarRead.js';
 import express from 'express';
@@ -27157,6 +27158,14 @@ app.post('/api/learning-groups/:groupId/lessons/:lessonId/answer-chat', handleLe
   return res.status(201).json({ message });
 }));
 
+app.get('/api/learning-groups/:groupId/python-progress', handleLearningRoute((req, res) => {
+  const group = ensureLearningGroupManageAccess(req, res, req.params.groupId);
+  if (!group) return;
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ progress: buildPythonGroupProgress({ group, students: readStudentsDb(),
+    progressDb: readProgressDb(), testsDb: readTestsDbForTeacher(group.teacherId) }) });
+}));
+
 app.get('/api/learning-groups/:groupId/progress', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
   if (!group) return;
@@ -42787,6 +42796,15 @@ app.get('/api/files/:id/image-tiles/:level/:tileName', async (req, res) => {
 });
 
 app.get('/api/files', (req, res) => {
+  if (req.query.learningGroupId) {
+    const group = ensureLearningGroupReadAccess(req,res,String(req.query.learningGroupId));
+    if (!group) return;
+    const files=readFilesDb().filter(entry=>!isWorkbookQuestionVirtualSource(entry) && (
+      (isLearningGroupNotesFile(entry) && entry.groupId===group.id
+        && (isTeacherRole(req.auth)||isAdminRole(req.auth)||canReadLearningGroupNotesFileForStudent(entry,req.auth.id)))
+      || (isLessonSharedFile(entry)&&entry.teacherId===group.teacherId)));
+    return res.json(enrichFilesWithFolderPath(files,readFoldersDb()));
+  }
   const { taskNumber, category, studentId } = req.query;
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
   const effectiveStudentId = resolveStudentAccessId({
@@ -42856,13 +42874,14 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   const normalizedLearningGroupId = String(learningGroupId || '').trim();
   const normalizedLearningLessonId = String(learningLessonId || '').trim();
   const hasLearningGroupTarget = Boolean(normalizedLearningGroupId || normalizedLearningLessonId);
+  const isPythonGroupNotes = req.body.pythonExplanationGroup === '1' && normalizedLearningGroupId && !normalizedLearningLessonId;
   let learningGroup = null;
   let learningLesson = null;
   let learningParticipantIds = [];
   let student = null;
   let studentTeacherId = '';
   if (hasLearningGroupTarget) {
-    if (!normalizedLearningGroupId || !normalizedLearningLessonId) {
+    if (!normalizedLearningGroupId || (!normalizedLearningLessonId && !isPythonGroupNotes)) {
       removeUploadedFile();
       return res.status(400).json({ error: 'Не удалось определить групповое занятие' });
     }
@@ -42871,13 +42890,19 @@ app.post('/api/files', upload.single('file'), (req, res) => {
       removeUploadedFile();
       return;
     }
-    learningLesson = getLearningLessonById(learningGroup.id, normalizedLearningLessonId);
-    if (!learningLesson) {
+    if (isPythonGroupNotes && learningGroup.status==='completed') {
+      removeUploadedFile();return res.status(409).json({error:'Группа завершена; конспекты доступны для просмотра.'});
+    }
+    learningLesson = isPythonGroupNotes ? null : getLearningLessonById(learningGroup.id, normalizedLearningLessonId);
+    if (!learningLesson && !isPythonGroupNotes) {
       removeUploadedFile();
       return res.status(404).json({ error: 'Групповое занятие не найдено' });
     }
+    const ownedStudentIds=isPythonGroupNotes?new Set(readStudentsDb().filter(student=>!student.deletedAt&&student.teacherId===learningGroup.teacherId).map(student=>student.id)):null;
     learningParticipantIds = Array.from(new Set(
-      (Array.isArray(learningLesson.participantIds) ? learningLesson.participantIds : [])
+      (isPythonGroupNotes ? (learningGroup.members||[]).filter(member=>member.status==='active'
+        && ownedStudentIds.has(member.studentId)).map(member=>member.studentId)
+        : Array.isArray(learningLesson.participantIds) ? learningLesson.participantIds : [])
         .map((value) => String(value || '').trim())
         .filter(Boolean)
     ));
@@ -42899,7 +42924,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
   let folderName = null;
   let folderRef = null;
   let isLessonSharedUpload = false;
-  const isLearningGroupNotesUpload = Boolean(learningGroup && learningLesson);
+  const isLearningGroupNotesUpload = Boolean(learningGroup && (learningLesson || isPythonGroupNotes));
   if (normalizedFolderId && isLearningGroupNotesUpload) {
     removeUploadedFile();
     return res.status(400).json({ error: 'Групповой конспект сохраняется без личной папки ученика' });
@@ -43031,7 +43056,7 @@ app.post('/api/files', upload.single('file'), (req, res) => {
     ...(isLearningGroupNotesUpload ? {
       teacherId: studentTeacherId,
       groupId: learningGroup.id,
-      lessonId: learningLesson.id,
+      lessonId: learningLesson?.id || '',
       participantIds: learningParticipantIds,
       sharedScope: LEARNING_GROUP_NOTES_SCOPE,
       isLearningGroupShared: true,

@@ -29,9 +29,9 @@ function PagedBoardWorkspace(props) {
   const teacher=role==='teacher' || role==='admin';
   const group=Boolean(groupId && (lessonId || canvasProps.studyPreview));
   const studySubjectId=group?groupStudySubject(groupId):activeStudentId;
-  const base=group ? groupNotebookBoard(groupId) : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null);
+  const base=canvasProps.workspaceRoomId || (group ? groupNotebookBoard(groupId) : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null));
   const bookRoom=boardPageBookRoom(base);
-  const study=useStudentStudyProgress(teacher?teacherId:'');
+  const study=useStudentStudyProgress(teacher&&!canvasProps.workspaceRoomId?teacherId:'');
   const studyCurrent=study.records[studySubjectId]?.current;
   const storageKey=bookRoom ? `board-page:${bookRoom}:${role}:${userId}` : '';
   const [initialPage]=useState(()=>{try{return boardPageInitialState(window.localStorage.getItem(storageKey));}catch{return boardPageInitialState(null);}});
@@ -156,7 +156,7 @@ function PagedBoardWorkspace(props) {
     <button type="button" onClick={toggle} className={`board-pages-current ${open?'is-active':''}`} aria-label={`Выбор страницы: ${page.title}`} aria-expanded={open} title={page.title}>
       <PanelLeft size={16}/><span className="board-pages-current__title">{page.title}</span><span className="board-pages-current__count">{index+1}/{pages.length}</span><ChevronDown size={14}/>
     </button>
-    {teacher&&!readOnly&&studySubjectId&&(!group||!boardStudentId)&&<StudentStudyBoardControl teacherId={teacherId} studentId={studySubjectId} pageId={pageId} room={boardPageRoom(base,pageId)} onSelectPage={choose}/>}
+    {teacher&&!readOnly&&!canvasProps.workspaceRoomId&&studySubjectId&&(!group||!boardStudentId)&&<StudentStudyBoardControl teacherId={teacherId} studentId={studySubjectId} pageId={pageId} room={boardPageRoom(base,pageId)} onSelectPage={choose}/>}
     <div className="board-prepared-slot"/>
     {uniquePeers.length>0 && <details className="board-pages-peers"><summary aria-label="Участники на страницах" title={uniquePeers.map(label).join('\n')}>
       <span className="board-pages-avatars" aria-hidden="true">{uniquePeers.slice(0,3).map(peer=><span className={`board-pages-avatar ${together(peer)?'is-together':''}`} key={peer.userId}>{initials(peer)}</span>)}</span>

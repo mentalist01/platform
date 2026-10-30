@@ -1,4 +1,6 @@
 import {useFullscreenPortalTarget} from './hooks/useFullscreenPortalTarget.js';
+import {pythonExplanationBoardRoom,pythonExplanationCodeRoom} from './utils/pythonExplanationBoard.js';
+import {pythonGroupBoardRoom} from './utils/pythonGroupWorkspace.js';
 import {installBoardSelectionGuard} from './utils/boardTextSelection.js';
 import './components/BoardInteraction.css';
 import {createBoardRenderIndex,boardItemBounds as getItemBounds} from './utils/boardRenderIndex.js';
@@ -3470,7 +3472,7 @@ export const CollabSection = ({
   teacherId,
   lessonId = '',
   groupId = '',
-  participantIds = [],
+  participantIds = null,
   theme = THEME_LIGHT,
   withStudentId,
   tasks,
@@ -3485,6 +3487,7 @@ export const CollabSection = ({
   readOnly = false,
   sandbox = null,
   onSandboxStateChange = null,
+  pythonExplanation = false,
 }) => {
   const isTeacher = role === 'teacher';
   const learningLessonId = String(lessonId || '').trim();
@@ -3495,6 +3498,7 @@ export const CollabSection = ({
       .filter(Boolean)
   )), [participantIds]);
   const isGroupLesson = Boolean(learningLessonId && learningGroupId);
+  const groupNotesTarget = isGroupLesson || Boolean(pythonExplanation && learningGroupId);
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
   const isSandbox = Boolean(sandbox && typeof sandbox === 'object');
   const sandboxId = isSandbox
@@ -3713,16 +3717,16 @@ export const CollabSection = ({
     ? window.matchMedia('(max-width: 767px)').matches
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
-  const canSaveToNotesTarget = isGroupLesson
+  const canSaveToNotesTarget = groupNotesTarget
     ? Boolean(isTeacher && learningParticipantIds.length > 0)
     : Boolean(effectiveStudentId);
-  const liveRoomId = isGroupLesson
+  const liveRoomId = pythonExplanation ? pythonExplanationCodeRoom(teacherId,effectiveStudentId,learningGroupId) : isGroupLesson
     ? groupNotebookCode(learningGroupId,effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?'':effectiveGroupParticipantId)
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const preparedBook = isSandbox || (isGroupLesson && effectiveGroupParticipantId !== GROUP_SHARED_CODE_ID) ? '' : lessonBookForCodeRoom(roomId);
   const [preparedPage] = useLessonPageSelection(preparedBook,role,userId);
-  const preparedRoom = preparedBook ? preparedBook.slice(0,-6)+(preparedPage==='main'?'':`~page~${preparedPage}`) : null;
+  const preparedRoom = !pythonExplanation && preparedBook ? preparedBook.slice(0,-6)+(preparedPage==='main'?'':`~page~${preparedPage}`) : null;
   const preparedContext = usePreparedLesson(preparedRoom);
   const preparedActive = preparedContext.run?.mode === 'prepared';
   const preparedCodeCard = preparedContext.run?.cards.find(card=>card.codeId===activeSolutionId);
@@ -3744,9 +3748,9 @@ export const CollabSection = ({
   }, [activeGroupParticipantName, roomId]);
   const notesSaveDraftStorageKey = useMemo(() => {
     const ownerId = isTeacher ? (teacherId || userId) : userId;
-    const targetId = isGroupLesson ? `group-lesson-${learningLessonId}` : effectiveStudentId;
+    const targetId = isGroupLesson ? `group-lesson-${learningLessonId}` : groupNotesTarget ? `python-group-${learningGroupId}` : effectiveStudentId;
     return buildNotesSaveDraftStorageKey('code', ownerId, targetId);
-  }, [effectiveStudentId, isGroupLesson, isTeacher, learningLessonId, teacherId, userId]);
+  }, [effectiveStudentId, groupNotesTarget, isGroupLesson, isTeacher, learningGroupId, learningLessonId, teacherId, userId]);
   useEffect(() => {
     const token = Number(openSaveToNotesToken) || 0;
     if (!token || openSaveToNotesTokenRef.current === token) return;
@@ -5061,7 +5065,7 @@ export const CollabSection = ({
   }, [isSandbox]);
 
   useEffect(() => {
-    if (isSandbox || !effectiveStudentId) {
+    if (isSandbox || (!effectiveStudentId && !groupNotesTarget)) {
       setTaskFiles([]);
       setTaskFilesError('');
       setTaskFilesLoading(false);
@@ -5069,37 +5073,35 @@ export const CollabSection = ({
       setSelectedTaskFileIds([]);
       return;
     }
-    let cancelled = false;
-    setTaskFilesLoading(true);
-    setTaskFilesLoaded(false);
-    api.getFiles(effectiveStudentId)
-      .then((data) => {
-        if (cancelled) return;
-        setTaskFiles(Array.isArray(data) ? data : []);
-        setTaskFilesError('');
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setTaskFiles([]);
-        setTaskFilesError(err?.message || '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b \u0437\u0430\u0434\u0430\u043d\u0438\u044f.');
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setTaskFilesLoading(false);
-          setTaskFilesLoaded(true);
-        }
-      });
-    return () => { cancelled = true; };
-  }, [effectiveStudentId, isSandbox]);
+    let cancelled = false, inFlight = false;
+    const load = async () => {
+      if (cancelled || inFlight || document.hidden) return;
+      inFlight = true;
+      try {
+        const data = await api.getFiles(groupNotesTarget ? null : effectiveStudentId, groupNotesTarget ? {groupId:learningGroupId} : {});
+        if (!cancelled) { setTaskFiles(Array.isArray(data) ? data : []); setTaskFilesError(''); }
+      } catch (err) {
+        if (!cancelled) setTaskFilesError(err?.message || 'Не удалось загрузить файлы задания.');
+      } finally {
+        inFlight = false;
+        if (!cancelled) { setTaskFilesLoading(false); setTaskFilesLoaded(true); }
+      }
+    };
+    setTaskFilesLoading(true); setTaskFilesLoaded(false);
+    void load();
+    const timer = groupNotesTarget ? window.setInterval(load, 10_000) : null;
+    if (groupNotesTarget) window.addEventListener('focus',load);
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('focus',load); };
+  }, [effectiveStudentId, groupNotesTarget, learningGroupId, isSandbox]);
 
   useEffect(() => {
-    if (!activeTaskFilesLoaded) return;
+    if (!activeTaskFilesLoaded || groupNotesTarget) return;
     const availableIds = new Set(filteredTaskFiles.map((file) => file.id));
     setSelectedTaskFileIds((prev) => {
       const next = prev.filter((id) => availableIds.has(id));
       return areStringArraysEqual(prev, next) ? prev : next;
     });
-  }, [activeTaskFilesLoaded, filteredTaskFiles]);
+  }, [activeTaskFilesLoaded, filteredTaskFiles, groupNotesTarget]);
 
   useEffect(() => {
     if (!notesPdfFolders.length) {
@@ -5756,7 +5758,7 @@ export const CollabSection = ({
   ]);
 
   useEffect(() => {
-    if (isSandbox || isGroupLesson || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
+    if (isSandbox || groupNotesTarget || !effectiveStudentId || !saveTaskNumber || !saveCategory) {
       setFolders([]);
       setFoldersError('');
       setFoldersLoading(false);
@@ -5779,7 +5781,7 @@ export const CollabSection = ({
         if (!cancelled) setFoldersLoading(false);
       });
     return () => { cancelled = true; };
-  }, [effectiveStudentId, isGroupLesson, isSandbox, saveTaskNumber, saveCategory]);
+  }, [effectiveStudentId, groupNotesTarget, isSandbox, saveTaskNumber, saveCategory]);
 
   useEffect(() => {
     setSaveError('');
@@ -6164,7 +6166,7 @@ export const CollabSection = ({
     if (isSandbox || collabReadOnly) return;
     const filesToUpload = Array.from(fileList || []).filter(Boolean);
     if (!filesToUpload.length) return;
-    if (!effectiveStudentId) {
+    if (!effectiveStudentId && !groupNotesTarget) {
       setTaskFilesError('\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0443\u0447\u0435\u043d\u0438\u043a\u0430.');
       return;
     }
@@ -6179,7 +6181,8 @@ export const CollabSection = ({
     try {
       const createdFiles = [];
       for (const file of filesToUpload) {
-        const created = await api.uploadFile(file, uploadTaskNumber, runTaskCategory, null, effectiveStudentId);
+        const created = await api.uploadFile(file, uploadTaskNumber, runTaskCategory, null, groupNotesTarget ? '' : effectiveStudentId,
+          groupNotesTarget ? {learningGroupId,learningLessonId,pythonExplanationGroup:pythonExplanation} : {});
         createdFiles.push(created);
       }
       if (createdFiles.length) {
@@ -6234,7 +6237,7 @@ export const CollabSection = ({
   }, []);
 
   const handleCreateFolder = async () => {
-    if (isSandbox || isGroupLesson) return;
+    if (isSandbox || groupNotesTarget) return;
     const name = newFolderName.trim();
     if (!name) {
       setFoldersError('Введите название папки.');
@@ -6266,7 +6269,7 @@ export const CollabSection = ({
       return;
     }
     if (!canSaveToNotesTarget) {
-      setSaveError(isGroupLesson ? 'В групповом занятии нет участников.' : 'Сначала выберите ученика.');
+      setSaveError(groupNotesTarget ? 'В группе нет участников.' : 'Сначала выберите ученика.');
       return;
     }
     if (!saveTaskNumber || !saveCategory) {
@@ -6313,14 +6316,15 @@ export const CollabSection = ({
         file,
         Number(saveTaskNumber),
         saveCategory,
-        isGroupLesson ? null : (saveFolderId || null),
-        isGroupLesson ? '' : effectiveStudentId,
+        groupNotesTarget ? null : (saveFolderId || null),
+        groupNotesTarget ? '' : effectiveStudentId,
         {
           source: fileSource,
           memory: buildCollabCodeMemory(baseName, fileSource, code),
-          ...(isGroupLesson ? {
+          ...(groupNotesTarget ? {
             learningGroupId,
             learningLessonId,
+            pythonExplanationGroup:pythonExplanation,
           } : {}),
         }
       );
@@ -8968,7 +8972,7 @@ export const CollabSection = ({
             Код из вкладки «{codeSolutions.find((item) => item.id === activeSolutionId)?.name || 'Удалённый вариант'}»
           </p>
           <p className="mt-1 text-xs text-gray-500">
-            {isGroupLesson
+            {groupNotesTarget
               ? 'Файл сохранится один раз и появится в «Конспектах» всех участников этого занятия.'
               : 'Файл появится в разделе «Конспекты» выбранного ученика.'}
           </p>
@@ -9017,7 +9021,7 @@ export const CollabSection = ({
 
           <div className="space-y-1">
             <label className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">Папка</label>
-            {isGroupLesson ? (
+            {groupNotesTarget ? (
               <div className="w-full rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-sm text-purple-700">
                 Общие конспекты группы
               </div>
@@ -9099,7 +9103,7 @@ export const CollabSection = ({
           })}
         </div>
 
-        {!isGroupLesson && <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        {!groupNotesTarget && <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
             type="text"
             value={newFolderName}
@@ -9743,7 +9747,7 @@ export const CollabSection = ({
               <select
                 value={runTaskNumber}
                 onChange={(e) => setRunTaskNumber(e.target.value)}
-                disabled={collabReadOnly || !effectiveStudentId || taskFileUploadBusy}
+                disabled={collabReadOnly || (!effectiveStudentId && !groupNotesTarget) || taskFileUploadBusy}
                 className={`collab-task-files-select rounded-xl border outline-none disabled:cursor-not-allowed disabled:opacity-60 ${
                   isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                 } ${
@@ -9761,7 +9765,7 @@ export const CollabSection = ({
               <select
                 value={runTaskCategory}
                 onChange={(e) => setRunTaskCategory(e.target.value)}
-                disabled={collabReadOnly || !effectiveStudentId || taskFileUploadBusy}
+                disabled={collabReadOnly || (!effectiveStudentId && !groupNotesTarget) || taskFileUploadBusy}
                 className={`collab-task-files-select rounded-xl border outline-none disabled:cursor-not-allowed disabled:opacity-60 ${
                   isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                 } ${
@@ -9785,11 +9789,11 @@ export const CollabSection = ({
                 <button
                   type="button"
                   onClick={() => taskFileInputRef.current?.click()}
-                  disabled={isSandbox || !effectiveStudentId || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING}
+                  disabled={isSandbox || (groupNotesTarget && !isTeacher) || (!effectiveStudentId && !groupNotesTarget) || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING}
                   className={`collab-task-files-upload inline-flex w-full items-center justify-center gap-1 rounded-xl border transition ${
                     isSplitCollabLayout ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs'
                   } ${
-                    isSandbox || !effectiveStudentId || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
+                    isSandbox || (groupNotesTarget && !isTeacher) || (!effectiveStudentId && !groupNotesTarget) || taskFileUploadBusy || runTaskCategory === COLLAB_TASK_FILE_CATEGORY_TESTING
                       ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                       : (isFullscreenDark
                         ? 'border-slate-600 bg-slate-950 text-slate-100 hover:border-violet-400'
@@ -10238,6 +10242,7 @@ export const CollabSection = ({
                 >
                   {collabBoardFullscreenButton}
                   <BoardSection
+                    workspaceRoomId={pythonExplanation ? (learningGroupId ? pythonGroupBoardRoom(learningGroupId) : pythonExplanationBoardRoom(teacherId,effectiveStudentId)) : undefined}
                     embedded
                     hideStudentPicker
                     showEmbeddedSummonButton={isTeacher}
@@ -10746,7 +10751,7 @@ export const CollabSection = ({
         </div>
       )}
 
-      {isTeacher && !isGroupLesson && !activeStudentId && (
+      {isTeacher && !isGroupLesson && !pythonExplanation && !activeStudentId && (
         <div className={`flex items-start gap-2 rounded-2xl border ${
           isCollabFullscreen
             ? (isFullscreenDark
@@ -11273,6 +11278,7 @@ const BoardSection = (props) => (
 
 export const BoardCanvasSection = ({
   pages = null,
+  workspaceRoomId = '',
   role,
   userId,
   userName,
@@ -17558,7 +17564,7 @@ export const BoardCanvasSection = ({
         />
         <canvas ref={preparedInkRef} className="prepared-ink-layer absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>
         <BoardFileDownloads items={boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
-        {!isSandbox&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={scheduleBoardRender} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
+        {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={scheduleBoardRender} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
           focus={(anchor,options)=>{preparedFlightRef.current?.();const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSize.width,zoom:zoomRef.current,initial:options?.initial,top});const apply=next=>{zoomRef.current=next.zoom;offsetRef.current=next.offset;setZoom(next.zoom);setOffset(next.offset);};if(options?.initial||window.matchMedia('(prefers-reduced-motion: reduce)').matches)apply(view);else preparedFlightRef.current=animatePreparedBoardView({from:{zoom:zoomRef.current,offset:offsetRef.current},to:view,onFrame:apply});}}/>}
@@ -26568,6 +26574,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               userName={user.name}
               ExplanationBoardCanvas={BoardCanvasSection}
+              ExplanationWorkspace={CollabSection}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
               onSelectStudent={setActiveStudentId}

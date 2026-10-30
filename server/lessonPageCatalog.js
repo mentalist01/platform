@@ -1,4 +1,6 @@
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
+import {pythonExplanationBoardRoom,pythonExplanationCodeRoom} from '../src/utils/pythonExplanationBoard.js';
+import {pythonGroupBoardRoom} from '../src/utils/pythonGroupWorkspace.js';
 import {createHash, randomUUID} from 'node:crypto';
 import {boardPagesList, FIRST_BOARD_PAGE_ID, MAX_BOARD_PAGES} from '../src/utils/boardPages.js';
 import {COLLAB_CODE_PAGES_KEY, COLLAB_CODE_PAGES_DELETED_KEY, COLLAB_CODE_PAGE_ALIASES_KEY,
@@ -13,6 +15,11 @@ const put=(map,key,value)=>{if(JSON.stringify(map.get(key))!==JSON.stringify(val
 const title=value=>{const text=typeof value==='string'?value.trim():'';if(!text||text.length>80)throw Error('Введите название страницы длиной до 80 символов.');return text;};
 
 export function lessonPageRooms(target) {
+  if(target && ['python-board','python-collab'].includes(target.kind)) {
+    const board=target.targetType==='group'?pythonGroupBoardRoom(target.groupId):pythonExplanationBoardRoom(target.teacherId,target.studentId);
+    const code=pythonExplanationCodeRoom(target.teacherId,target.studentId,target.targetType==='group'?target.groupId:'');
+    return board&&code?{book:board+'~pages',codes:[code],codeRoom:target.kind==='python-collab'?code:''}:null;
+  }
   if(!target||!['board','board-private','collab','collab-private'].includes(target.kind))return null;
   const codeRoom=target.kind.startsWith('collab')?target.roomId:'';
   if(target.targetType==='student')return {book:`board-${target.teacherId}-${target.studentId}~pages`,codes:[`collab-${target.teacherId}-${target.studentId}`],codeRoom};

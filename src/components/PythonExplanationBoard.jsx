@@ -6,13 +6,13 @@ import './PythonExplanationBoard.css';
 export function PythonExplanationBoardButton({ board }) {
   if (!board?.roomId) return null;
   return <button type="button" className="python-explanation-button" onClick={board.openBoard}
-    disabled={!board.connected} aria-label="Открыть доску"
-    title={board.error || (board.connected ? 'Объясните на доске и вернитесь к этому решению' : 'Подключаем доску…')}>
-    <Presentation size={17} /><span>Открыть доску</span>
+    disabled={!board.connected} aria-label="Открыть доску и код"
+    title={board.error || (board.connected ? 'Общая доска и запуск примеров Python' : 'Подключаем доску…')}>
+    <Presentation size={17} /><span>Доска и код</span>
   </button>;
 }
 
-export default function PythonExplanationBoard({ board, Canvas, context, theme, title }) {
+export default function PythonExplanationBoard({ board, Canvas, Workspace, context, theme, title }) {
   const dialog = useRef(null);
   const { open, closeBoard } = board;
   useEffect(() => {
@@ -25,6 +25,8 @@ export default function PythonExplanationBoard({ board, Canvas, context, theme, 
         event.preventDefault(); event.stopImmediatePropagation(); closeBoard();
       }
       if (event.key !== 'Tab' || !dialog.current) return;
+      // Monaco needs the key for indentation and completion before focus trapping.
+      if (event.target?.closest?.('.monaco-editor')) return;
       // A minimized theory window underneath has its own focus trap.
       event.stopImmediatePropagation();
       const controls = Array.from(dialog.current.querySelectorAll('button:not([disabled]), input, select, textarea, [tabindex="0"], [href]'))
@@ -43,16 +45,17 @@ export default function PythonExplanationBoard({ board, Canvas, context, theme, 
       if (returnFocus?.isConnected) requestAnimationFrame(() => returnFocus.focus({ preventScroll: true }));
     };
   }, [open, closeBoard]);
-  if (!board.open || !Canvas) return null;
+  if (!board.open || (!Canvas && !Workspace)) return null;
   return createPortal(<div className="python-explanation-overlay" data-theme={theme}>
-    <section className="python-explanation-dialog" role="dialog" aria-modal="true" aria-label="Доска для объяснения Python" ref={dialog} tabIndex={-1}>
+    <section className="python-explanation-dialog" role="dialog" aria-modal="true" aria-label="Доска и код для объяснения Python" ref={dialog} tabIndex={-1}>
       <header className="python-explanation-header">
-        <span className="python-explanation-heading"><Presentation size={21} /><span><strong>Доска для объяснения</strong><small>{title || 'Python'} · рисунки сохраняются</small></span></span>
+        <span className="python-explanation-heading"><Presentation size={21} /><span><strong>Доска и код для объяснения</strong><small>{title || 'Python'} · страницы и примеры сохраняются</small></span></span>
         <button type="button" onClick={board.closeBoard} className="python-explanation-return"><ArrowLeft size={17} />Вернуться к задаче</button>
         <button type="button" onClick={board.closeBoard} className="python-explanation-close" aria-label="Свернуть доску"><X size={20} /></button>
       </header>
       <div className="python-explanation-canvas">
-        <Canvas {...context} pages={{ liveRoomId: board.roomId }} theme={theme} embedded hideStudentPicker containedDialogs />
+        {Workspace ? <Workspace {...context} theme={theme} pythonExplanation hideStudentPicker />
+          : <Canvas {...context} pages={{ liveRoomId: board.roomId }} theme={theme} embedded hideStudentPicker containedDialogs />}
       </div>
     </section>
   </div>, document.body);
