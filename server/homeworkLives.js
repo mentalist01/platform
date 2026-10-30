@@ -107,6 +107,12 @@ export class HomeworkLivesStore {
       }
     } catch { this.error = 'Не удалось прочитать историю жизней. Нужна проверка преподавателя.'; }
     this.persistedData = structuredClone(this.data);
+    if (!this.error && !this.data.damagePolicy && Object.values(this.data.teachers).some(settings => settings.enabled)) {
+      // Establish the cutover on server startup, even if nobody opens the lives
+      // screen until after another homework deadline has already passed.
+      this.data.damagePolicy = { since: new Date(this.now()).toISOString(), monthlyDamage: MONTHLY_HOMEWORK_DAMAGE };
+      this.save();
+    }
   }
   ready() { if (this.error) throw Object.assign(Error(this.error), { status: 503 }); }
   save() {

@@ -72,6 +72,17 @@ test('cutover and restart retain old balances and historical deadlines while red
   assert.equal(late.history[0].loss,2,'Old unassessed deadlines retain their historical rate');
 });
 
+test('existing enabled installations establish cutover before the first lives request',t=>{
+  const {store,context,file}=fixture(t);
+  delete store.data.damagePolicy;store.save();
+  let now=instant('10-30T10:00:00Z');
+  const reopened=new HomeworkLivesStore(file,{now:()=>now});
+  assert.equal(reopened.data.damagePolicy.since,'2026-10-30T10:00:00.000Z');
+  now=instant('10-30T12:00:00Z');
+  const work={...assigned('new-after-startup',0,'2026-10-30T11:00:00Z'),issuedAt:'2026-10-29T10:00:00Z'};
+  assert.equal(reopened.status(student,context([work])).history[0].loss,1);
+});
+
 test('zero-lives explanation is durable, independent of the teacher review and renewed after a corrected deduction', t => {
   const { store, context, file } = fixture(t);
   const work = [assigned('one', 0), assigned('two', 0)];
