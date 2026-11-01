@@ -37,7 +37,7 @@ test('teacher pins condition position once; answer feedback and reconnect preser
   assert.equal(store.data.runs[run.id].cards[0].codeId,card.codeId);
 });
 
-test('controls expand and shrink without internal scrolling or moving the condition and existing ink',async t=>{
+test('different teacher control heights never move the shared anchor, condition or existing ink',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-controls-reflow-')),doc=new Y.Doc();
   const teacher={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
   const deps={directory,authorize:async auth=>({allowed:true,auth}),board:async()=>doc,sourceFiles:async()=>[]};
@@ -52,14 +52,24 @@ test('controls expand and shrink without internal scrolling or moving the condit
   items.delete(index,1);items.insert(index,[original]);
   const stroke={id:'existing-ink',type:'stroke',points:[{x:40,y:640},{x:240,y:640}],color:'#7d37d7',strokeWidth:3};items.push([stroke]);
   const conditionY=original.y+240*scale,bottom=original.y+original.height;
+  const version=run.version;let geometryUpdates=0;const countUpdate=()=>geometryUpdates++;doc.on('update',countUpdate);
   for(const top of [380,180,380]){
     const height=620+top-240;
     run=await store.action(teacher,run.id,{action:'layout',cards:[{id:card.id,height,conditionTop:top,reflowControls:true}]});
     const anchor=items.toArray().find(item=>item.id===card.anchorId);
-    assert.equal(anchor.y+top*scale,conditionY,'Changing controls must preserve the exact world position of the condition');
+    assert.equal(anchor.y,original.y,'Local control measurements must not mutate shared Yjs coordinates');
+    assert.equal(anchor.y+run.cards[0].conditionTop*scale,conditionY,'Changing controls must preserve the exact world position of the condition');
     assert.equal(anchor.y+anchor.height,bottom,'The condition and space below it stay in place');
+    assert.deepEqual(anchor,original,'A local panel change cannot invalidate an in-progress selection resize');
     assert.deepEqual(items.toArray().find(item=>item.id==='existing-ink'),stroke);
-    assert.equal(store.publicRun(store.data.runs[run.id],{auth:pupil}).cards[0].conditionTop,top);
+    assert.equal(store.publicRun(store.data.runs[run.id],{auth:pupil}).cards[0].conditionTop,240);
   }
-  store=new PreparedLessonTasks(deps);assert.equal(store.data.runs[run.id].cards[0].conditionTop,380);
+  assert.equal(run.version,version,'A local panel change must not notify every participant again');
+  assert.equal(geometryUpdates,0,'Alternating teacher windows must not produce shared geometry updates');
+  doc.off('update',countUpdate);
+  // A real condition image height change still adjusts the bottom of the card.
+  run=await store.action(teacher,run.id,{action:'layout',cards:[{id:card.id,height:800,conditionTop:380,reflowControls:true}]});
+  const taller=items.toArray().find(item=>item.id===card.anchorId);
+  assert.equal(taller.y,original.y);assert.equal(taller.height,660*scale);
+  store=new PreparedLessonTasks(deps);assert.equal(store.data.runs[run.id].cards[0].conditionTop,240);
 });

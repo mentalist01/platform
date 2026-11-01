@@ -33,12 +33,15 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
     const report=()=>{
       if(!node.isConnected)return;
       const actualTop=node.querySelector('.prepared-card-body')?.offsetTop,naturalTop=(header?.offsetHeight||0)+(interactive?.offsetHeight||0);
-      const desiredTop=run.canManage?naturalTop:Math.max(card.conditionTop||0,naturalTop);
-      setControlOverflow(Number.isFinite(card.conditionTop)?Math.max(0,actualTop-card.conditionTop):0);
+      // A pinned condition is a world coordinate shared with saved ink. Local
+      // controls may grow or shrink, but must never move its collaborative
+      // anchor: Yjs geometry and HTTP card metadata arrive independently.
+      const desiredTop=Number.isFinite(card.conditionTop)?card.conditionTop:naturalTop;
+      setControlOverflow(Number.isFinite(card.conditionTop)?actualTop-card.conditionTop:0);
       onMeasure(card.id,node.offsetHeight+desiredTop-actualTop,desiredTop);
     };
     const observer=new ResizeObserver(report);observer.observe(node);if(interactive)observer.observe(interactive);if(header)observer.observe(header);report();return()=>observer.disconnect();
-  },[card.id,card.conditionTop,run.canManage,onMeasure]);
+  },[card.id,card.conditionTop,onMeasure]);
   const [message,setMessage]=useState(''),[busy,setBusy]=useState(false),[checkingField,setCheckingField]=useState(null),upload=useRef(null);
   const action=input=>context.action(run.id,{cardId:card.id,...input});
   const {answers,draftConflict,change:changeAnswers,flush,restoreDraft,discardDraft}=usePreparedAnswerInput({card,runId:run.id,runVersion:run.version,auth,readOnly,action:context.action,onError:setMessage});
@@ -46,7 +49,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   const perform=async fn=>{if(busy)return;setBusy(true);setMessage('');try{await fn();}catch(error){setMessage(error.message);}finally{setBusy(false);}};
   const check=(accept,fieldIndex)=>perform(async()=>{if(context.selectedId&&context.selectedId!==card.id)context.select(card.id);setCheckingField(fieldIndex??null);try{const current=await flush();const result=await action({action:'check',revision:current.answerRevision,answerSchema:current.answerSchema,accept,...(fieldIndex!==undefined?{fieldIndex}:{})});if(card.answerMode!=='independent')setMessage(result.cards.find(c=>c.id===card.id)?.status==='solved'?'':'Пока неверно. Попробуйте ещё.');}finally{setCheckingField(null);}});
   const helper=asset=>perform(async()=>{const install=getWorkbookHelperInstall();if(!install.supported)throw Error('Для этого устройства доступно скачивание файла. Помощник таблиц можно установить из раздела «Загрузки».');const launch=await preparedRequest(`/api/lesson-task-runs/${run.id}/helper`,{cardId:card.id,assetId:asset.assetId});window.location.assign(`ivan-ege://workbook/open?${new URLSearchParams({origin:getExternalApiOrigin(),ticket:launch.ticket})}`);setMessage('Помощник открывается. После Ctrl+S решение появится здесь и в конспектах.');});
-  const queueHomework=()=>perform(async()=>{await flush();const root=element.current.getBoundingClientRect(),anchor=worldAnchor||{x:0,y:0,width:card.width};const images=Array.from(element.current.querySelectorAll('.prepared-card-body>img')).map((image,i)=>{const box=image.getBoundingClientRect(),ratio=anchor.width/root.width;return {id:card.images[i].id,x:anchor.x+(box.left-root.left)*ratio,y:anchor.y+(box.top-root.top)*ratio,width:box.width*ratio,height:box.height*ratio};});await preparedRequest('/api/prepared-homework/basket',{runId:run.id,cardId:card.id,images});setHomeworkQueued(true);});
+  const queueHomework=()=>perform(async()=>{await flush();const root=element.current.getBoundingClientRect(),anchor=worldAnchor||{x:0,y:0,width:card.width};const images=Array.from(element.current.querySelectorAll('.prepared-card-body>img')).map((image,i)=>{const box=image.getBoundingClientRect(),ratio=anchor.width/root.width;return {id:card.images[i].id,x:anchor.x+(box.left-root.left)*ratio,y:anchor.y-controlOverflow*anchor.width/card.width+(box.top-root.top)*ratio,width:box.width*ratio,height:box.height*ratio};});await preparedRequest('/api/prepared-homework/basket',{runId:run.id,cardId:card.id,images});setHomeworkQueued(true);});
   const title=preparedTaskTitle(card);
   const canEditFiles=!readOnly&&run.canEditFiles!==false&&(!run.groupId||run.canManage);
   const independent=card.answerMode==='independent',reference=run.canManage&&showReferenceAnswers?card.referenceAnswers:null;
@@ -55,8 +58,8 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   const wrongQuestions=independent?Array.from({length:card.answerCount},(_,i)=>i).filter(i=>answers[i]===card.answers[i]&&card.fieldResults?.[i]==='wrong'):[];
   const feedbackReference=reference&&(wrongFeedback||wrongQuestions.length)?getPreparedAnswerPasteOrder(card.answerCount,0,card.answerMode,card.answerTable).filter(i=>!independent||wrongQuestions.includes(i)).map(i=>({index:i,value:reference[i],label:independent?`Вопрос ${i+1}`:`Ответ ${i+1}`})):[];
   const answerInput=i=><input key={i} aria-label={independent?`Ответ на вопрос ${i+1} задачи ${card.index+1}`:`Ответ задачи ${card.index+1}${card.answerCount>1?`, поле ${i+1}`:''}`} value={answers[i]||''} aria-invalid={(independent?wrongQuestions.includes(i):wrongFeedback)||undefined} placeholder={reference?.[i]||(independent?'Ваш ответ':card.answerCount>1?`Ответ ${i+1}`:'')} maxLength={500} readOnly={readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct'} onChange={e=>change(i,e.target.value)} onPaste={e=>{if(readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct')return;const values=splitPastedAnswerValues(e.clipboardData.getData('text'));if(values.length>1){e.preventDefault();change(i,'',values);}}} onKeyDown={e=>{if(readOnly)return;if(e.key==='Enter'){if(independent){void check(false,i);return;}const nodes=Array.from(e.currentTarget.parentElement.querySelectorAll('input')),next=nodes[nodes.indexOf(e.currentTarget)+1];if(next)next.focus();else void check(false);}}}/>;
-  return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--${card.status}`} style={controlOverflow?{...style,transform:`${style?.transform||''} translateY(${-controlOverflow}px)`}:style} aria-label={`Подготовленная задача ${card.index+1}`}>
-    <div className={`prepared-card-controls${Number.isFinite(card.conditionTop)?' is-pinned':''}`} style={Number.isFinite(card.conditionTop)?{minHeight:card.conditionTop}:undefined}>
+  return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--${card.status}${Number.isFinite(card.conditionTop)?' prepared-card--anchored':''}`} style={controlOverflow?{...style,transform:`${style?.transform||''} translateY(${-controlOverflow}px)`}:style} aria-label={`Подготовленная задача ${card.index+1}`}>
+    <div className={`prepared-card-controls${Number.isFinite(card.conditionTop)?' is-pinned':''}`}>
     <header><strong className="prepared-task-name">{title}</strong><span>ЕГЭ №{card.taskNumber||run.taskNumber}</span>{run.sources?.length>1&&<span className="prepared-card-source" title={card.setName}>{card.setName}</span>}{card.difficult&&<span className="prepared-hard-badge">Сложная</span>}<strong className="prepared-task-status">{card.status==='solved'?'Решено':card.status==='skipped'?'Пропущено':'Решаем'}</strong>{run.canManage&&!run.homework&&!readOnly&&<button type="button" className={`prepared-card-homework${homeworkQueued?' is-queued':''}`} disabled={busy} title="Добавить задачу в подготовку домашки" onPointerDown={e=>e.stopPropagation()} onClick={()=>void queueHomework()}><Home size={12}/>{homeworkQueued?'В черновике ДЗ':'На дом'}</button>}</header>
     <div className="prepared-card-interactive" onPointerDown={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>
       {draftConflict&&<div className="prepared-draft-conflict"><p>Поля или общий ответ изменились с сохранения черновика. Какой ответ оставить?</p><button type="button" onClick={restoreDraft}>Восстановить мой черновик</button><button type="button" onClick={discardDraft}>Оставить общий ответ</button></div>}
@@ -100,8 +103,8 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
       const current=latest.current.run;if(!current?.canManage||readOnly)return;
       const cards=current.cards.flatMap(card=>{
         const size=heights.current.get(card.id);if(!size)return [];
-        const pin=card.kind!=='theory'&&Number.isFinite(size.conditionTop)&&(!Number.isFinite(card.conditionTop)||Math.abs(size.conditionTop-card.conditionTop)>=2);
-        return Math.abs(size.height-card.height)>=2||pin?[{id:card.id,height:size.height,...(pin?{conditionTop:size.conditionTop,reflowControls:true}:{})}]:[];
+        const pin=card.kind!=='theory'&&Number.isFinite(size.conditionTop)&&!Number.isFinite(card.conditionTop);
+        return Math.abs(size.height-card.height)>=2||pin?[{id:card.id,height:size.height,...(pin?{conditionTop:size.conditionTop}:{})}]:[];
       });
       if(cards.length)void layoutAction(current.id,{action:'layout',cards}).catch(e=>setError(e.message));
     },140);

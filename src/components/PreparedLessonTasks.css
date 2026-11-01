@@ -149,6 +149,11 @@
 .prepared-task-settings .prepared-expected-answers>div.prepared-answer-table{gap:5px 7px}.prepared-task-settings .prepared-answer-table label{font-size:10px;line-height:1.15;gap:2px}.prepared-task-settings .prepared-answer-table input{min-height:32px;padding:6px 8px;font-size:12px}.prepared-task-settings .prepared-answer-table[data-columns="1"] label{grid-template-columns:56px minmax(0,1fr);align-items:center;gap:5px}
 
 .prepared-card-controls.is-pinned{display:flex;flex-direction:column;box-sizing:border-box;overflow:visible}.prepared-card-controls.is-pinned>header{flex:none}.prepared-card-controls.is-pinned>.prepared-card-interactive{flex:none;overflow:visible}
+/* Controls grow upward in native layout. The image never waits for a React
+   resize callback or a server round trip to return to its ink coordinates. */
+.prepared-card--anchored{overflow:visible;border-top-left-radius:0;border-top-right-radius:0}
+.prepared-card--anchored>.prepared-card-controls.is-pinned{position:absolute;bottom:100%;left:-1px;right:-1px;background:var(--pt-panel);border:1px solid var(--pt-line);border-bottom:0;border-radius:15px 15px 0 0}
+.prepared-card--anchored>.prepared-card-controls>header{border-radius:14px 14px 0 0}
 
 .prepared-queue-summary>.prepared-queue-rows,.prepared-queue-summary>.prepared-queue-removed{display:flex;flex-direction:column;flex-wrap:nowrap;max-height:170px;overflow:auto}
 .prepared-queue-row{display:flex;align-items:center;gap:9px;min-width:0;padding:7px 9px;background:var(--pt-panel);border:1px solid var(--pt-line);border-radius:9px;font-size:12px;color:var(--pt-text)}
