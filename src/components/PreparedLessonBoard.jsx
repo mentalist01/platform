@@ -1,14 +1,12 @@
 import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-import {Check,ChevronRight,FileSpreadsheet,Download,ExternalLink,SkipForward,LocateFixed,Upload,RefreshCcw,Home} from 'lucide-react';
+import {Check,ChevronRight,SkipForward,LocateFixed,Upload,RefreshCcw,Home} from 'lucide-react';
 import {usePreparedLesson} from '../hooks/usePreparedLesson.js';
 import {usePreparedAnswerInput} from '../hooks/usePreparedAnswerInput.js';
 import {preparedRequest} from '../services/preparedLessonTasks.js';
 import PreparedConditionImage from './PreparedConditionImage.jsx';
 import PreparedAnswerStatus from './PreparedAnswerStatus.jsx';
 import PreparedFileHandoff from './PreparedFileHandoff.jsx';
-import PreparedLiveWorkbook from './PreparedLiveWorkbook.jsx';
-import PreparedWorkbookHistory from './PreparedWorkbookHistory.jsx';
 import PreparedSolveCelebration from './PreparedSolveCelebration.jsx';
 import {getExternalApiOrigin} from '../utils/runtimeUrls.js';
 import {getWorkbookHelperInstall} from '../utils/workbookHelperInstall.js';
@@ -17,12 +15,12 @@ import PreparedTaskLibrary from './PreparedTaskLibraryLauncher.jsx';
 import PreparedTaskPicker from './PreparedTaskPicker.jsx';
 import PreparedTheoryCard from './PreparedTheoryCard.jsx';
 import PreparedBoardOptions from './PreparedBoardOptions.jsx';
-import FileDownloadLink from './FileDownloadLink.jsx';
 import {preparedTaskTitle} from '../utils/preparedTaskTitle.js';
 import {splitPastedAnswerValues,getPreparedAnswerPasteOrder} from '../utils/answerPaste.js';
 import './PreparedLessonTasks.css';
 import {preparedAnswerLayout} from '../utils/preparedAnswerTable.js';
-import PreparedReferenceSolutions from './PreparedReferenceSolutions.jsx';
+import PreparedCardMaterials from './PreparedCardMaterials.jsx';
+import PreparedReferencePromotion from './PreparedReferencePromotion.jsx';
 
 export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showReferenceAnswers,worldAnchor}){
   const element=useRef(null);
@@ -59,7 +57,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   const wrongQuestions=independent?Array.from({length:card.answerCount},(_,i)=>i).filter(i=>answers[i]===card.answers[i]&&card.fieldResults?.[i]==='wrong'):[];
   const feedbackReference=reference&&(wrongFeedback||wrongQuestions.length)?getPreparedAnswerPasteOrder(card.answerCount,0,card.answerMode,card.answerTable).filter(i=>!independent||wrongQuestions.includes(i)).map(i=>({index:i,value:reference[i],label:independent?`Вопрос ${i+1}`:`Ответ ${i+1}`})):[];
   const answerInput=i=><input key={i} aria-label={independent?`Ответ на вопрос ${i+1} задачи ${card.index+1}`:`Ответ задачи ${card.index+1}${card.answerCount>1?`, поле ${i+1}`:''}`} value={answers[i]||''} aria-invalid={(independent?wrongQuestions.includes(i):wrongFeedback)||undefined} placeholder={reference?.[i]||(independent?'Ваш ответ':card.answerCount>1?`Ответ ${i+1}`:'')} maxLength={500} readOnly={readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct'} onChange={e=>change(i,e.target.value)} onPaste={e=>{if(readOnly||draftConflict||card.status==='solved'||independent&&card.fieldResults?.[i]==='correct')return;const values=splitPastedAnswerValues(e.clipboardData.getData('text'));if(values.length>1){e.preventDefault();change(i,'',values);}}} onKeyDown={e=>{if(readOnly)return;if(e.key==='Enter'){if(independent){void check(false,i);return;}const nodes=Array.from(e.currentTarget.parentElement.querySelectorAll('input')),next=nodes[nodes.indexOf(e.currentTarget)+1];if(next)next.focus();else void check(false);}}}/>;
-  return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--${card.status}${Number.isFinite(card.conditionTop)?' prepared-card--anchored':''}`} style={controlOverflow?{...style,transform:`${style?.transform||''} translateY(${-controlOverflow}px)`}:style} aria-label={`Подготовленная задача ${card.index+1}`}>
+  return <article data-anchor-id={card.anchorId} ref={element} className={`prepared-card prepared-card--compact${context.celebrationCardId===card.id?' is-celebrating':''} prepared-card--${card.status}${Number.isFinite(card.conditionTop)?' prepared-card--anchored':''}`} style={controlOverflow?{...style,transform:`${style?.transform||''} translateY(${-controlOverflow}px)`}:style} aria-label={`Подготовленная задача ${card.index+1}`}>
     <div className={`prepared-card-controls${Number.isFinite(card.conditionTop)?' is-pinned':''}`}>
     <header><strong className="prepared-task-name">{title}</strong><span>ЕГЭ №{card.taskNumber||run.taskNumber}</span>{run.sources?.length>1&&<span className="prepared-card-source" title={card.setName}>{card.setName}</span>}{card.difficult&&<span className="prepared-hard-badge">Сложная</span>}<strong className="prepared-task-status">{card.status==='solved'?'Решено':card.status==='skipped'?'Пропущено':'Решаем'}</strong>{run.canManage&&!run.homework&&!readOnly&&<button type="button" className={`prepared-card-homework${homeworkQueued?' is-queued':''}`} disabled={busy} title="Добавить задачу в подготовку домашки" onPointerDown={e=>e.stopPropagation()} onClick={()=>void queueHomework()}><Home size={12}/>{homeworkQueued?'В черновике ДЗ':'На дом'}</button>}</header>
     <div className="prepared-card-interactive" onPointerDown={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()}>
@@ -73,9 +71,8 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
         {message&&message!=='Пока неверно. Попробуйте ещё.'&&<p role="status">{message}</p>}
       </div>
       {run.canManage&&card.status==='solved'&&card.achievementParticipants?.length>0&&<details className="prepared-solve-credit"><summary>Учёт решения · {card.achievementParticipants.length===1?'ученик':`участников: ${card.achievementParticipants.length}`}</summary><small>Совместное решение засчитано. Самостоятельность подтверждаете вы.</small>{card.achievementParticipants.map(person=><div key={person.id}><span>{person.name}</span><button type="button" disabled={busy||readOnly||person.independent} onClick={()=>void perform(()=>action({action:'confirm-independent',studentId:person.id}))}>{person.independent?<><Check size={13}/>Самостоятельно</>:'Подтвердить самостоятельность'}</button></div>)}</details>}
-      {card.attachments.map(asset=><section className="prepared-card-file" key={asset.assetId}><div><FileSpreadsheet size={18}/><strong>{asset.name}</strong><FileDownloadLink href={asset.url} download={asset.name}><Download size={15}/>Исходный файл</FileDownloadLink></div>{asset.solution&&<div className="prepared-solution"><Check size={15}/><FileDownloadLink href={asset.solution.url} download={asset.solution.name}>{asset.solution.name}</FileDownloadLink><small>{asset.attempt?.number>1&&!asset.attempt.hasSaved?'Предыдущая попытка · ':''}{asset.solution.savedBy?.name} · {new Date(asset.solution.updatedAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</small></div>}{!canEditFiles&&run.groupId&&<small className="prepared-muted">{asset.solution?'Версия преподавателя · только просмотр':'Файл преподавателя · только просмотр'}</small>}{asset.helperText&&canEditFiles&&<small className="prepared-muted">Исходный текст и таблица для решения</small>}{(asset.helper||asset.solution)&&<PreparedWorkbookHistory asset={asset} run={run} cardId={card.id} disabled={readOnly||busy} canRestart={asset.helper&&canEditFiles&&!run.homework} refresh={context.refresh}/>}{asset.helper&&canEditFiles&&<PreparedLiveWorkbook asset={asset} run={run} cardId={card.id} disabled={readOnly||busy} refresh={context.refresh} onOpenSeparate={()=>void helper(asset)} extraActions={<div className="prepared-file-extra"><button type="button" disabled={busy} onClick={()=>{upload.current.dataset.assetId=asset.assetId;upload.current.dataset.revision=String(asset.solution?.revision||0);upload.current.click();}}><Upload size={13}/>Загрузить решение</button><PreparedFileHandoff asset={asset} disabled={busy} action={action}/></div>}/>}</section>)}
+      <PreparedCardMaterials card={card} run={run} readOnly={readOnly} busy={busy} canEditFiles={canEditFiles} refresh={context.refresh} onOpen={asset=>void helper(asset)} onExtra={asset=><div className="prepared-file-extra"><button type="button" disabled={busy} onClick={()=>{upload.current.dataset.assetId=asset.assetId;upload.current.dataset.revision=String(asset.solution?.revision||0);upload.current.click();}}><Upload size={13}/>Загрузить решение</button><PreparedFileHandoff asset={asset} disabled={busy} action={action}/></div>}/>
       {canEditFiles&&<input ref={upload} type="file" hidden onChange={event=>{const file=event.target.files?.[0];if(!file)return;const assetId=event.target.dataset.assetId,revision=event.target.dataset.revision;event.target.value='';void perform(async()=>{const form=new FormData();form.append('file',file);form.append('cardId',card.id);form.append('assetId',assetId);form.append('revision',revision);await preparedRequest(`/api/lesson-task-runs/${run.id}/solution`,form);context.refresh();setMessage('Решение сохранено на доске и в конспектах.');});}}/>}
-      <PreparedReferenceSolutions reference={card.referenceSolution} canManage={run.canManage} solved={card.status==='solved'}/>
 
     </div>
     </div>
@@ -134,6 +131,7 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   return <div className={`prepared-board-layer${dark?' prepared-dark':''}`}>
     {headerSlot?createPortal(controls,headerSlot):<div className="prepared-toolbar-fallback">{controls}</div>}
     {run&&run.cards.map(card=>{const stored=items.current.find(item=>item.id===card.anchorId);if(!stored)return null;const anchor=preview(stored),sx=zoom*anchor.width/card.width,Component=card.kind==='theory'?PreparedTheoryCard:PreparedTaskCard;return <Component key={card.id} card={card} run={run} context={context} auth={{id:userId,role}} readOnly={readOnly||!ready||run.readOnly} showReferenceAnswers={showReferenceAnswers} worldAnchor={anchor} onMeasure={measured} style={{left:(anchor.x-offset.x)*zoom,top:(anchor.y-offset.y)*zoom,width:card.width,transform:`scale(${sx})`}}/>;})}
+    {run&&<PreparedReferencePromotion run={run} refresh={context.refresh} disabled={readOnly||studyPreview} dark={dark}/>}
     {pending&&<div className="prepared-placement" onPointerDown={place}><span>{busy?'Добавляем задание…':`Нажмите на доске: здесь появится «${pending.set.name}». Esc — отмена.`}</span></div>}
     {notice&&<div className="prepared-board-notice" role="status">{notice}<button type="button" onClick={()=>setNotice('')}>Понятно</button></div>}
     {(error||context.error)&&<div className="prepared-board-error" role="alert">{error||context.error}<button type="button" onClick={()=>{setError('');context.refresh();}}>Повторить</button></div>}

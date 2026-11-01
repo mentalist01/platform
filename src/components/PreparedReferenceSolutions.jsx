@@ -1,6 +1,7 @@
 import {useRef} from 'react';
 import {FileCheck,Lock,Upload,X,Download,Check} from 'lucide-react';
 import FileDownloadLink from './FileDownloadLink.jsx';
+import PreparedCardPopover from './PreparedCardPopover.jsx';
 import './PreparedReferenceSolutions.css';
 
 const size=bytes=>bytes>=1048576?`${(bytes/1048576).toFixed(1)} МБ`:bytes?`${Math.max(1,Math.round(bytes/1024))} КБ`:'';
@@ -14,9 +15,10 @@ export function PreparedReferenceSolutionEditor({task,taskNumber,files,busy,onCh
   </section>;
 }
 
-export default function PreparedReferenceSolutions({reference,canManage,solved}){
+export default function PreparedReferenceSolutions({reference,canManage,solved,compact=false}){
   if(!reference)return null;
   const open=reference.available;
+  if(compact)return <PreparedCardPopover label={open?'Готовое решение':'Разбор откроется после правильного ответа'} title={!open?'Откроется после правильного ответа':canManage&&!solved?'Вам доступно · ученику после верного ответа':'Скачать готовое решение'} icon={open?<FileCheck size={15}/>:<Lock size={14}/>} buttonText="Разбор" locked={!open} className={`prepared-material-reference${open?' is-available':''}`}><div className="prepared-reference-popup-heading"><FileCheck size={18}/><div><strong>Готовое решение</strong><small>{canManage&&!solved?'Ученику — после верного ответа':'Можно скачать и сравнить со своим решением'}</small></div></div>{reference.files.map(file=><FileDownloadLink key={file.id} className="prepared-reference-download" href={file.url} download={file.name}><FileCheck size={17}/><span><strong>{file.name}</strong><small>{size(file.sizeBytes)}</small></span><Download size={14}/></FileDownloadLink>)}</PreparedCardPopover>;
   return <section className={`prepared-reference-files${open?' is-open':''}`} aria-label="Готовое решение">
     <div className="prepared-reference-title">{open?<FileCheck size={19}/>:<Lock size={17}/>}<div><strong>Готовое решение</strong><small>{!open?'Откроется после правильного ответа':canManage&&!solved?'Вам доступно · ученику после верного ответа':'Можно скачать и сравнить со своим решением'}</small></div>{open&&solved&&<Check size={16} className="prepared-reference-unlocked"/>}</div>
     {open&&reference.files.map(file=><FileDownloadLink key={file.id} className="prepared-reference-download" href={file.url} download={file.name}><FileCheck size={17}/><span><strong>{file.name}</strong><small>{size(file.sizeBytes)}</small></span><span className="prepared-reference-download-label"><Download size={14}/>Скачать</span></FileDownloadLink>)}

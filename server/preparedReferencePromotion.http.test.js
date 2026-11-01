@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import sharp from 'sharp';
+import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
+import {BLANK_WORKBOOK_ODS} from './blankWorkbook.js';
+
+test('HTTP: a pupil saves through the helper, solves, and only the teacher can publish the immutable reference',async t=>{
+  const f=await createGroupHomeworkFixture();t.after(()=>f.stop());const teacher=f.tokens['teacher-b'],pupil=f.tokens['student-c'];
+  const upload=async(route,name,bytes,token=teacher,method='POST',expected=201)=>{
+    const body=new FormData();body.append('file',new Blob([bytes]),name);body.append('revision','0');
+    const r=await fetch(f.base+route,{method,headers:{Authorization:token},body});assert.equal(r.status,expected,await r.clone().text());return r.json();
+  };
+  const png=await sharp({create:{width:600,height:200,channels:3,background:'white'}}).png().toBuffer();
+  const image=await upload('/api/lesson-task-images','condition.png',png,'Bearer '+teacher);
+  const source=await upload('/api/lesson-task-reference-files','source.ods',BLANK_WORKBOOK_ODS,'Bearer '+teacher);
+  const set=await f.request('/api/lesson-task-sets',teacher,{name:'Shared solution',taskNumber:18,tasks:[{images:[image.id],answers:['41','22'],attachments:[{assetId:source.id}]}]},'POST',201);
+  let {run}=await f.request('/api/lesson-task-runs',teacher,{room:'board-teacher-b-student-c',setId:set.id,x:0,y:0},'POST',201);const card=run.cards[0];
+  const promotion=`/api/lesson-task-runs/${run.id}/cards/${card.id}/reference-promotion`;
+  await f.request(promotion,pupil,{action:'attach'},'POST',403);
+  const launch=await f.request(`/api/lesson-task-runs/${run.id}/helper`,pupil,{cardId:card.id,assetId:source.id},'POST',201);
+  const session=await f.request('/workbook-helper/v1/exchange',pupil,{ticket:launch.ticket});
+  await upload('/workbook-helper/v1/content','Совместное решение.ods',BLANK_WORKBOOK_ODS,'Workbook '+session.token,'PUT',200);
+  ({run}=await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),teacher));assert.equal(run.cards[0].referencePromotion,null);
+  ({run}=await f.request(`/api/lesson-task-runs/${run.id}/action`,pupil,{action:'answer',cardId:card.id,revision:0,answers:['41','22']}));
+  ({run}=await f.request(`/api/lesson-task-runs/${run.id}/action`,pupil,{action:'check',cardId:card.id,revision:run.cards[0].answerRevision}));
+  assert.equal('referencePromotion' in run.cards[0],false);assert.equal(run.cards[0].referenceSolution,null);
+  ({run}=await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),teacher));
+  const file=run.cards[0].referencePromotion.files[0];assert.equal(file.name,'Совместное решение.ods');
+  await f.request(promotion,pupil,{action:'attach',assetId:file.assetId,solutionId:file.id,revision:file.revision},'POST',403);
+  await f.request(promotion,teacher,{action:'attach',assetId:file.assetId,solutionId:file.id,revision:file.revision-1},'POST',409);
+  const result=await f.request(promotion,teacher,{action:'attach',assetId:file.assetId,solutionId:file.id,revision:file.revision});assert.equal(result.attached,true);
+  ({run}=await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),pupil));
+  const ref=run.cards[0].referenceSolution.files[0];assert.equal(ref.name,'Совместное решение.ods');
+  const r=await fetch(f.base+ref.url,{headers:{Authorization:'Bearer '+pupil}});assert.equal(r.status,200);assert.deepEqual(Buffer.from(await r.arrayBuffer()),BLANK_WORKBOOK_ODS);
+  assert.equal(run.cards[0].attachments.length,1,'Reference publication never adds a new workbook input');
+  const library=await f.request('/api/lesson-task-sets',teacher);assert.equal(library.sets.find(s=>s.id===set.id).tasks[0].referenceSolutions.length,1);
+});

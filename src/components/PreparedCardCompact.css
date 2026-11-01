@@ -1,0 +1,63 @@
+/* Only controls change here. The condition's padding, width and world anchor
+   remain unchanged so existing drawings still meet the same image pixels. */
+.prepared-card--compact{box-shadow:0 6px 24px #3924580b}
+.prepared-card--compact>.prepared-card-controls>header{padding:8px 16px;background:linear-gradient(115deg,var(--pt-soft),var(--pt-panel) 78%);position:relative}
+.prepared-card--compact>.prepared-card-controls>header:before{content:'';position:absolute;inset:0 18% auto 0;height:1px;background:linear-gradient(90deg,#b995ef,transparent);opacity:.65;pointer-events:none}
+.prepared-card--compact .prepared-task-name{background:linear-gradient(145deg,var(--pt-panel),var(--pt-bg));box-shadow:inset 0 1px 0 #ffffff80,0 2px 5px #4c2b6c06}
+.prepared-card--compact .prepared-card-interactive{padding-top:10px}
+.prepared-card--compact .prepared-card-answer{padding:8px 10px 9px;border-radius:10px}
+.prepared-card--compact .prepared-check-button{position:relative;overflow:hidden;background:linear-gradient(125deg,#8c40e8,#7130cb);box-shadow:0 3px 9px #7b38ce20}
+.prepared-card--compact .prepared-check-button:after,.prepared-card--compact .prepared-open-workbook:after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(110deg,transparent 28%,#ffffff24 46%,transparent 62%);transform:translateX(-130%)}
+.prepared-card--compact .prepared-check-button:hover:not(:disabled):after,.prepared-card--compact .prepared-open-workbook:hover:not(:disabled):after{animation:prepared-compact-sheen .65s ease-out}
+.prepared-card--compact .prepared-solve-credit{margin:4px 0 0;font-size:10px}
+.prepared-card--compact .prepared-solve-credit summary{padding:2px 0}
+.prepared-card-materials{margin-top:7px}
+.prepared-material-row{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 0 6px;border-bottom:1px solid color-mix(in srgb,var(--pt-line) 65%,transparent)}
+.prepared-material-row:last-child{border-bottom:0;padding-bottom:1px}
+.prepared-material-name{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+.prepared-material-icon{display:grid;place-items:center;flex:none;width:30px;height:32px;border:1px solid var(--pt-line);border-radius:9px;color:var(--pt-accent);background:linear-gradient(140deg,var(--pt-panel),var(--pt-soft))}
+.prepared-material-name>div{min-width:0}
+.prepared-material-name strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:650;line-height:1.5;color:var(--pt-text)}
+.prepared-material-name .prepared-material-saved{display:flex;align-items:center;gap:3px;max-width:100%;width:fit-content;font-size:9px;line-height:1.5;color:var(--pt-green);text-decoration:none;white-space:nowrap}
+.prepared-material-saved:hover{text-decoration:underline}
+.prepared-material-actions,.prepared-live-workbook.is-compact{display:flex;align-items:center;gap:6px;flex:none;flex-wrap:nowrap;padding:0}
+.prepared-board-layer .prepared-card--compact .prepared-open-workbook{position:relative;overflow:hidden;white-space:nowrap;min-height:32px;padding:6px 10px;font-size:10px;font-weight:650;border-color:#7a38ce;color:#fff;background:linear-gradient(120deg,#8d47e1,#7731ce);box-shadow:0 3px 7px #7935c71a}
+.prepared-board-layer .prepared-materials-trigger{min-height:32px;padding:6px 9px;font-size:10px;gap:5px;white-space:nowrap;border-color:transparent;background:transparent;color:var(--pt-muted)}
+.prepared-board-layer .prepared-materials-trigger:hover{background:var(--pt-soft);color:var(--pt-accent)}
+.prepared-board-layer .prepared-materials-trigger[aria-expanded=true]{border-color:var(--pt-line);background:var(--pt-soft);color:var(--pt-accent)}
+.prepared-board-layer .prepared-materials-trigger[aria-disabled=true]{opacity:.65;cursor:help}
+.prepared-board-layer .prepared-material-reference.is-available{border-color:color-mix(in srgb,var(--pt-green) 18%,var(--pt-line));color:var(--pt-green);background:linear-gradient(130deg,var(--pt-panel),var(--pt-green-bg))}
+.prepared-board-layer .prepared-material-more{width:29px;padding:5px}
+.prepared-live-workbook.is-compact>.prepared-error{position:absolute;left:16px;right:16px;bottom:100%;z-index:2;font-size:11px;box-shadow:0 3px 14px #4c183b15}
+.prepared-material-reference-only{display:flex;justify-content:flex-end;padding:1px 0}
+.prepared-materials-popup{position:fixed;z-index:1100;box-sizing:border-box;padding:8px;overflow:auto;overscroll-behavior:contain;border:1px solid var(--pt-line);border-radius:13px;background:var(--pt-panel);box-shadow:0 12px 40px #34204524;color:var(--pt-text);font-size:12px;line-height:1.5;pointer-events:auto;user-select:none}
+.prepared-materials-popup[hidden]{display:none!important}
+.prepared-materials-popup button,.prepared-materials-popup>a,.prepared-materials-popup summary{display:flex;align-items:center;justify-content:flex-start;gap:7px;box-sizing:border-box;width:100%;padding:8px 9px;min-height:33px;border:0;border-radius:7px;background:transparent;color:var(--pt-text);font:inherit;font-size:11px;text-align:left;text-decoration:none;cursor:pointer}
+.prepared-materials-popup button:hover,.prepared-materials-popup>a:hover,.prepared-materials-popup summary:hover{background:var(--pt-bg);color:var(--pt-accent)}
+.prepared-materials-popup button:disabled{opacity:.48;cursor:not-allowed}
+.prepared-materials-popup :is(button,a,select,summary):focus-visible{outline:2px solid var(--pt-accent);outline-offset:-2px}
+.prepared-materials-popup .prepared-workbook-history{margin:0;font:inherit}
+.prepared-materials-popup .prepared-workbook-history-actions{display:block}
+.prepared-materials-popup .prepared-file-extra{display:block;margin:0}
+.prepared-materials-popup .prepared-file-extra button{font-size:11px}
+.prepared-materials-popup .prepared-materials-hint,.prepared-materials-popup .prepared-workbook-history>small{display:block;margin:7px 7px 2px;color:var(--pt-muted);font-size:10px;line-height:1.55}
+.prepared-material-program{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--pt-line);margin:6px 0;padding:10px 7px 3px;color:var(--pt-muted);font-size:10px}
+.prepared-material-program select{box-sizing:border-box;min-width:0;max-width:160px;width:160px;padding:6px 7px;border:1px solid var(--pt-line);border-radius:7px;background:var(--pt-panel);color:var(--pt-text);font:inherit;font-size:10px}
+.prepared-materials-popup details p{margin:8px;color:var(--pt-muted);font-size:10px}
+.prepared-materials-popup details a{color:var(--pt-accent)}
+.prepared-reference-popup-heading{display:flex;gap:9px;align-items:center;padding:7px 8px 9px;border-bottom:1px solid var(--pt-line);color:var(--pt-green)}
+.prepared-reference-popup-heading strong{display:block;color:var(--pt-text);font-size:12px}
+.prepared-reference-popup-heading small{display:block;color:var(--pt-muted);font-size:10px;margin-top:2px}
+.prepared-materials-popup .prepared-reference-download{margin-top:7px;border:1px solid var(--pt-line);color:var(--pt-green)}
+.prepared-promotion-dialog{width:min(100%,510px)}
+.prepared-promotion-dialog .prepared-promotion-icon{display:grid;place-items:center;width:42px;height:42px;background:var(--pt-green-bg);color:var(--pt-green);border:1px solid color-mix(in srgb,var(--pt-green) 15%,var(--pt-line));border-radius:12px;margin-bottom:14px}
+.prepared-promotion-dialog header{margin-bottom:10px}.prepared-promotion-dialog header h2{font-size:23px;line-height:1.2}
+.prepared-promotion-dialog p{color:var(--pt-muted);font-size:13px;line-height:1.65;margin:10px 0}
+.prepared-promotion-dialog p strong{color:var(--pt-text);font-weight:600}
+.prepared-promotion-dialog .prepared-promotion-file{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--pt-line);border-radius:11px;background:var(--pt-bg);margin:14px 0}
+.prepared-promotion-file>svg{color:var(--pt-accent);flex:none}.prepared-promotion-file>div{min-width:0;flex:1}
+.prepared-promotion-file strong{display:block;font-size:12px;overflow-wrap:anywhere}.prepared-promotion-file small{font-size:11px;color:var(--pt-muted)}
+.prepared-promotion-file a{color:var(--pt-accent);font-size:12px;text-decoration:none;flex:none}
+.prepared-promotion-dialog .prepared-promotion-note{display:flex;gap:7px;align-items:flex-start;color:var(--pt-green);font-size:12px}.prepared-promotion-note svg{flex:none;margin-top:3px}
+@keyframes prepared-compact-sheen{to{transform:translateX(130%)}}
+@media(prefers-reduced-motion:reduce){.prepared-card--compact .prepared-check-button:after,.prepared-card--compact .prepared-open-workbook:after{display:none}}
