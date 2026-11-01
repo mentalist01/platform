@@ -1,5 +1,5 @@
-import {useRef} from 'react';
-import {FileCheck,Lock,Upload,X,Download,Check} from 'lucide-react';
+import {useEffect,useRef} from 'react';
+import {FileCheck,Lock,LockKeyhole,LockKeyholeOpen,Upload,X,Download,Check} from 'lucide-react';
 import FileDownloadLink from './FileDownloadLink.jsx';
 import PreparedCardPopover from './PreparedCardPopover.jsx';
 import './PreparedReferenceSolutions.css';
@@ -16,9 +16,17 @@ export function PreparedReferenceSolutionEditor({task,taskNumber,files,busy,onCh
 }
 
 export default function PreparedReferenceSolutions({reference,canManage,solved,compact=false}){
+  const badge=useRef(null),wasLocked=useRef(false),open=Boolean(reference?.available),present=Boolean(reference);
+  useEffect(()=>{
+    if(!open){wasLocked.current=present;return;}
+    const unlock=wasLocked.current&&!canManage;wasLocked.current=false;
+    if(!unlock||window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+    const ring=badge.current?.animate([{boxShadow:'0 0 0 0 #38a67c00'},{boxShadow:'0 0 0 6px #38a67c25',offset:.45},{boxShadow:'0 0 0 10px #38a67c00'}],{duration:850,easing:'ease-out'});
+    const lock=badge.current?.querySelector('.prepared-reference-lock-open')?.animate([{transform:'translateY(0) rotate(0deg)'},{transform:'translateY(-3px) rotate(-16deg)',offset:.35},{transform:'translateY(0) rotate(0deg)'}],{duration:650,easing:'ease-out'});
+    return()=>{ring?.cancel();lock?.cancel();};
+  },[open,canManage,present]);
   if(!reference)return null;
-  const open=reference.available;
-  if(compact)return <PreparedCardPopover label={open?'Готовое решение':'Разбор откроется после правильного ответа'} title={!open?'Откроется после правильного ответа':canManage&&!solved?'Вам доступно · ученику после верного ответа':'Скачать готовое решение'} icon={open?<FileCheck size={15}/>:<Lock size={14}/>} buttonText="Разбор" locked={!open} className={`prepared-material-reference${open?' is-available':''}`}><div className="prepared-reference-popup-heading"><FileCheck size={18}/><div><strong>Готовое решение</strong><small>{canManage&&!solved?'Ученику — после верного ответа':'Можно скачать и сравнить со своим решением'}</small></div></div>{reference.files.map(file=><FileDownloadLink key={file.id} className="prepared-reference-download" href={file.url} download={file.name}><FileCheck size={17}/><span><strong>{file.name}</strong><small>{size(file.sizeBytes)}</small></span><Download size={14}/></FileDownloadLink>)}</PreparedCardPopover>;
+  if(compact)return <span ref={badge} className={`prepared-reference-badge${open?' is-open':' is-locked'}`}><PreparedCardPopover label={open?'Готовое решение':'Готовое решение закрыто · после верного ответа'} title={!open?'Готовое решение откроется после верного ответа':canManage&&!solved?'Вам доступно · ученику после верного ответа':'Скачать готовое решение'} icon={canManage?<FileCheck size={15}/>:<span className="prepared-reference-lock" aria-hidden="true"><LockKeyhole className="prepared-reference-lock-closed" size={15}/><LockKeyholeOpen className="prepared-reference-lock-open" size={15}/></span>} buttonText="Разбор" locked={!open} className={`prepared-material-reference${open?' is-available':' is-locked'}`}><div className="prepared-reference-popup-heading"><FileCheck size={18}/><div><strong>Готовое решение</strong><small>{canManage&&!solved?'Ученику — после верного ответа':'Можно скачать и сравнить со своим решением'}</small></div></div>{reference.files.map(file=><FileDownloadLink key={file.id} className="prepared-reference-download" href={file.url} download={file.name}><FileCheck size={17}/><span><strong>{file.name}</strong><small>{size(file.sizeBytes)}</small></span><Download size={14}/></FileDownloadLink>)}</PreparedCardPopover><span className="prepared-reference-announcement" role="status">{open?'Готовое решение доступно':'Готовое решение откроется после верного ответа'}</span></span>;
   return <section className={`prepared-reference-files${open?' is-open':''}`} aria-label="Готовое решение">
     <div className="prepared-reference-title">{open?<FileCheck size={19}/>:<Lock size={17}/>}<div><strong>Готовое решение</strong><small>{!open?'Откроется после правильного ответа':canManage&&!solved?'Вам доступно · ученику после верного ответа':'Можно скачать и сравнить со своим решением'}</small></div>{open&&solved&&<Check size={16} className="prepared-reference-unlocked"/>}</div>
     {open&&reference.files.map(file=><FileDownloadLink key={file.id} className="prepared-reference-download" href={file.url} download={file.name}><FileCheck size={17}/><span><strong>{file.name}</strong><small>{size(file.sizeBytes)}</small></span><span className="prepared-reference-download-label"><Download size={14}/>Скачать</span></FileDownloadLink>)}

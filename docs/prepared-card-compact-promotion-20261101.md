@@ -7,6 +7,12 @@ works inside fullscreen. The condition box, image dimensions and collaborative
 anchor are unchanged; menus and result dialogs never become part of that layout.
 Decorative accents use CSS gradients and a short hover sheen with reduced-motion
 support. Existing solve celebration and helper launch protocols are retained.
+The header has no separate top-edge pseudo-element that can protrude beyond the
+rounded corner. A pupil's compact reference badge shows a closed keyhole lock
+before a correct answer and transitions to an open lock with a brief halo after
+unlocking. Old solved tasks do not replay the animation when opened. Reduced
+motion disables both transitions and the unlock animation. File metadata and
+download authorization remain gated on the server.
 
 ## Saved workbook as a reference
 
@@ -45,5 +51,6 @@ Production build and targeted ESLint checks passed. Browser checks cover the
 teacher prompt and confirmation, student lock, history menu, fullscreen menu and
 unchanged pinned condition coordinates on an incorrect answer.
 
-This release is prepared locally. Installation remains deferred until the active
-lesson is finished, together with the consecutive-recording correction.
+The main release was installed after all lessons finished. The visual follow-up
+also checks that wrong answers leave the reference locked, correct answers expose
+the download, and the condition stays at the same screen coordinate throughout.
