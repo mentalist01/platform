@@ -80,6 +80,7 @@ import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/ut
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import { refreshedRecordingOccurrence } from './recordingSchedule.js';
+import { currentScheduledSuccessor, isAdjacentRecordingSuccessor } from './recordingRollover.js';
 import { addRecorderMaterial, recordingLibrary, addLessonRecordingMaterial } from './recorderMaterials.js';
 import { studentNameAvailability, assertStudentNamesAvailable } from './studentNameAvailability.js';
 import { recorderPythonCatalog, attachRecorderPythonTheory } from './recorderPythonTheory.js';
@@ -22866,7 +22867,7 @@ const hasGroupRecordingStudent = lessonId => {
   return false;
 };
 const recordingCalendarChecks = new Map();
-const refreshDesktopRecordingSchedule = async teacherId => {
+const refreshBoundDesktopRecordingSchedule = async teacherId => {
   const jobs = desktopRecordings.libraryJobs(teacherId).filter(job => job.desired === 'record'
     && ['waiting', 'recording'].includes(job.status));
   if (!jobs.length) return;
@@ -22906,6 +22907,45 @@ const refreshDesktopRecordingSchedule = async teacherId => {
       telemost.occurrence = updated.occurrence; telemost.autoFinishAtMs = updated.cutoffAt + TELEMOST_LESSON_BUFFER_MS;
     }
   }
+};
+const recordingRollovers = new Map();
+const refreshDesktopRecordingSchedule = async teacherId => {
+  if (recordingRollovers.has(teacherId)) return recordingRollovers.get(teacherId);
+  const operation = (async () => {
+    await refreshBoundDesktopRecordingSchedule(teacherId);
+    if (!desktopRecordings.enabled(teacherId)) return;
+    const nowMs = Date.now();
+    const all = desktopRecordings.libraryJobs(teacherId);
+    if (all.some(job => job.desired === 'record' && job.cutoffAt > nowMs)) return;
+    const latest = new Map();
+    for (const job of all) if (!job.occurrence.lessonId) latest.set(job.occurrence.studentId, job);
+    for (const brief of latest.values()) {
+      const previous = desktopRecordings.lessonJob(teacherId, brief.id);
+      if (!previous || previous.quarantinedAt || previous.status === 'error'
+        || previous.cutoffAt > nowMs || nowMs - previous.cutoffAt > 6 * 3600_000
+        || previous.stopRequestedAt || previous.stopReason && previous.stopReason !== 'lesson-ended') continue;
+      const student = findStudentById(previous.occurrence.studentId);
+      if (!student || student.teacherId !== teacherId) continue;
+      const platformCall = hasActivePlatformLessonCall(student);
+      const telemost = getTelemostLessonReplayEntry(student.id, nowMs);
+      if (!platformCall && !telemost) continue;
+      const occurrence = await resolveCurrentLessonReplayOccurrence(student, { id: teacherId, role: 'teacher' }, nowMs,
+        { preferActive: true, allowFallback: false, recordingSuccessorOf: previous.occurrence });
+      if (!isAdjacentRecordingSuccessor(previous.occurrence, occurrence, nowMs)) continue;
+      // Keep the finished first file bound to its own lesson. The new ID makes
+      // the existing recorder switch files using its normal deadline protocol.
+      desktopRecordings.stop(previous.occurrence.key, 'lesson-ended');
+      desktopRecordings.start(teacherId, occurrence, `Урок ${occurrence.dayKey} ${occurrence.time}`, occurrence.endMs,
+        { audioMode: platformCall ? 'platform' : 'telemost', transitionFrom: previous.id });
+      if (telemost?.occurrence.key === previous.occurrence.key) {
+        telemost.occurrence = occurrence; telemost.autoFinishAtMs = occurrence.endMs + TELEMOST_LESSON_BUFFER_MS;
+        telemost.lastSeenAt = nowMs;
+      }
+      break;
+    }
+  })().finally(() => recordingRollovers.delete(teacherId));
+  recordingRollovers.set(teacherId, operation);
+  return operation;
 };
 registerDesktopDeviceRoutes(app, desktopRecordings, {
   refreshSchedule: refreshDesktopRecordingSchedule,
@@ -23230,20 +23270,23 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
       if (hasActivePlatformLessonCall(student)) audioMode = 'platform';
       const activity = getTelemostLessonReplayEntry(student.id);
       const recording = desktopRecordings.libraryJobs(req.auth.id).find(job => job.desired === 'record'
-        && ['waiting', 'recording'].includes(job.status) && !job.occurrence.lessonId
+        && ['waiting', 'recording'].includes(job.status) && job.cutoffAt > Date.now() && !job.occurrence.lessonId
         && job.occurrence.studentId === student.id);
       if (recording && (activity || hasActivePlatformLessonCall(student))) {
         occurrence = recording.occurrence; cutoffAt = recording.cutoffAt;
         if (req.body?.audioMode === 'telemost') audioMode = 'telemost';
       }
-      else if (activity) {
+      else if (activity && activity.occurrence.endMs > Date.now()) {
         occurrence = activity.occurrence; cutoffAt = occurrence.endMs;
         if (req.body?.audioMode === 'telemost') audioMode = 'telemost';
       }
-      else if (hasActivePlatformLessonCall(student)) {
-        audioMode = 'platform';
+      else if (hasActivePlatformLessonCall(student) || activity) {
+        audioMode = hasActivePlatformLessonCall(student) ? 'platform' : 'telemost';
         occurrence = await resolveCurrentLessonReplayOccurrence(student, req.auth, Date.now(), { preferActive: true, allowFallback: true });
         cutoffAt = occurrence?.endMs;
+        if (activity && occurrence && activity.occurrence.key !== occurrence.key) {
+          activity.occurrence = occurrence; activity.autoFinishAtMs = occurrence.endMs + TELEMOST_LESSON_BUFFER_MS;
+        }
       }
     }
     if (!occurrence) { res.status(409).json({ error: 'Сначала начните занятие' }); return null; }
@@ -35297,7 +35340,9 @@ const resolveCurrentLessonReplayOccurrence = async (
         : null
     );
 
+  const scheduledSuccessor = activeIsRecent ? currentScheduledSuccessor(active.occurrence, candidates, nowMs) : null;
   let occurrence = preferredOccurrence
+    || (preferActive ? scheduledSuccessor : null)
     || (preferActive && activeIsRecent ? active.occurrence : null)
     || candidates[0]
     || null;
@@ -35329,6 +35374,7 @@ const resolveCurrentLessonReplayOccurrence = async (
         recordedAt: new Date(nowMs).toISOString(),
       }, { timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE });
   }
+  if (options.recordingSuccessorOf && !isAdjacentRecordingSuccessor(options.recordingSuccessorOf, occurrence, nowMs)) return null;
   const persisted = persistLessonReplayOccurrence({
     ...occurrence,
     studentId,
