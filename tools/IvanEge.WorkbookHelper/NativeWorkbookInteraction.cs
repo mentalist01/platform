@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace IvanEge.WorkbookHelper;
 
@@ -24,15 +25,30 @@ internal sealed class NativeWorkbookInteraction(bool hidden)
         }
         var gui = new GuiThread { Size = (uint)Marshal.SizeOf<GuiThread>() };
         uint thread = GetWindowThreadProcessId(_window, out _);
-        bool menu = thread != 0 && GetGUIThreadInfo(thread, ref gui) && (gui.Flags & 0x1e) != 0;
+        bool hasGui = thread != 0 && GetGUIThreadInfo(thread, ref gui);
+        bool menu = hasGui && (gui.Flags & 0x1e) != 0;
+        // Excel's address box accepts A1:A100 while its document remains COM
+        // ready. A periodic export/remote write can end that native edit. Read
+        // only window classes/caret state, never the address or typed keys.
+        bool textInput = foreground && hasGui && gui.Focus != 0
+            && GetAncestor(gui.Focus, 2) == GetAncestor(_window, 2)
+            && IsExcelTextInput(ClassName(GetAncestor(_window, 2)), ClassName(gui.Focus), gui.Caret != 0);
         bool held = foreground && new[] { 1, 2, 4, 0x10, 0x11 }.Any(key => (GetAsyncKeyState(key) & 0x8000) != 0);
         long now = Environment.TickCount64;
-        if (menu || held) _lastGesture = now;
-        bool busy = menu || held || (_lastGesture != long.MinValue && now - _lastGesture < 180);
+        if (menu || held || textInput) _lastGesture = now;
+        bool busy = menu || held || textInput || (_lastGesture != long.MinValue && now - _lastGesture < 180);
         if (busy) _deferred = true;
         else if (_deferred) { _deferred = false; Ended = true; }
         return busy;
     }
+    internal static bool IsExcelTextInput(string rootClass, string focusClass, bool caret) =>
+        rootClass.Equals("XLMAIN", StringComparison.OrdinalIgnoreCase)
+        && focusClass.Length > 0 && !focusClass.Equals("XLMAIN", StringComparison.OrdinalIgnoreCase)
+        && !focusClass.Equals("EXCEL7", StringComparison.OrdinalIgnoreCase)
+        && (caret || focusClass.Equals("Edit", StringComparison.OrdinalIgnoreCase)
+            || focusClass.StartsWith("RichEdit", StringComparison.OrdinalIgnoreCase));
+    private static string ClassName(nint window)
+    { var value = new StringBuilder(128); return window != 0 && GetClassName(window, value, value.Capacity) > 0 ? value.ToString() : ""; }
     [StructLayout(LayoutKind.Sequential)] private struct LastInput { public uint Size, Time; }
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct GuiThread
@@ -43,4 +59,5 @@ internal sealed class NativeWorkbookInteraction(bool hidden)
     [DllImport("user32.dll")] private static extern bool GetLastInputInfo(ref LastInput input);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint process);
     [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint thread, ref GuiThread info);
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode)] private static extern int GetClassName(nint window, StringBuilder value, int maximum);
 }

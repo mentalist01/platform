@@ -7,7 +7,7 @@ function fixture(){
   const tabs=new PlatformTabs({
     createView:()=>{
       const contents=Object.assign(new EventEmitter(),{id:++next,destroyed:false,loads:0,reloads:0,state:{},isDestroyed(){return this.destroyed},isCurrentlyAudible(){return this.audible===true},focus(){},async loadURL(url){this.url=url;this.loads++;this.emit('did-finish-load')},reload(){this.reloads++;this.emit('did-finish-load')},close(){this.destroyed=true;this.emit('destroyed')}});
-      const view={webContents:contents,setBounds(){},setVisible(value){this.visible=value;events.push(['visible',String(contents.id),value])}};views.push(view);return view;
+      const view={webContents:contents,setBounds(value){this.bounds=value;},setVisible(value){this.visible=value;events.push(['visible',String(contents.id),value])}};views.push(view);return view;
     },attach(){},detach:view=>detached.push(view),onState:state=>states.push(state),onActive(){},
     privacy:async(reason,hidden)=>{events.push(['privacy',reason,hidden]);},afterPaint:async contents=>{events.push(['paint',String(contents.id)]);},
   });
@@ -66,4 +66,25 @@ test('public reconciliation waits for a ready active tab and never clears privat
   await f.tabs.setPrivacy(f.views[0].webContents,'platform',false);
   assert.ok(!f.events.some(event=>event[0]==='privacy'&&!event[2]));
   assert.equal(f.tabs.activeId,one);assert.notEqual(one,two);
+});
+
+test('detaching and returning reparent the same document without reloading or stopping its call',async()=>{
+  const {DetachedTab}=require('../detached-tab.cjs');const f=fixture(),one=await f.add(),two=await f.add();
+  await f.tabs.activate(one);f.views[0].webContents.state={call:'connected',draft:'unfinished'};f.views[0].webContents.audible=true;
+  const tab=await f.tabs.detachTab(one);assert.equal(f.tabs.activeId,two);assert.deepEqual(f.states.at(-1).tabs.map(t=>t.id),[two]);
+  const window=Object.assign(new EventEmitter(),{contentView:{addChildView(view){this.child=view;},removeChildView(view){if(this.child===view)this.child=null;}},webContents:{send(){}},getContentSize:()=>[900,650],isFullScreen:()=>false,isDestroyed(){return this.destroyed===true;},setTitle(){},destroy(){this.destroyed=true;},isMinimized:()=>false,show(){},focus(){}});
+  const host=new DetachedTab({window,tab,tabs:f.tabs});assert.equal(window.contentView.child,f.views[0]);assert.equal(f.views[0].visible,true);
+  f.tabs.setBounds({x:0,y:80,width:1400,height:820});assert.deepEqual(f.views[0].bounds,{x:0,y:38,width:900,height:612});
+  f.tabs.setOverlay(true);assert.equal(f.views[0].visible,true);f.tabs.setOverlay(false);
+  await host.reload();assert.equal(f.views[0].webContents.reloads,1);assert.equal(f.views[1].webContents.reloads,0);
+  await host.returnToTabs();assert.equal(window.destroyed,true);assert.equal(f.tabs.activeId,one);assert.equal(f.views[0].webContents.loads,1);
+  assert.equal(f.views[0].webContents.destroyed,false);assert.deepEqual(f.views[0].webContents.state,{call:'connected',draft:'unfinished'});assert.equal(f.views[0].webContents.audible,true);
+  assert.equal(f.tabs.localTabs.length,2);
+});
+
+test('detached private pages do not mask the main lesson; closing them leaves the lesson alive',async()=>{
+  const f=fixture(),one=await f.add(),two=await f.add();await f.tabs.activate(one);const tab=await f.tabs.detachTab(two);f.events.length=0;
+  await f.tabs.setPrivacy(tab.view.webContents,'account',true);assert.deepEqual(f.events,[]);
+  let removed=false;tab.onDetachedRemoved=()=>{removed=true;};assert.equal(f.tabs.close(two),true);await f.settle();
+  assert.equal(removed,true);assert.equal(f.views[0].webContents.destroyed,false);assert.equal(f.tabs.activeId,one);assert.equal(await f.tabs.detachTab(one),null);
 });

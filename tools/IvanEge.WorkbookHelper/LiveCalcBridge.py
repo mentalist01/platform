@@ -386,7 +386,7 @@ class Calc:
         # in a large sheet. It runs only for an actual layout patch.
         with tempfile.TemporaryDirectory(prefix='iv100-layout-') as directory:
             file = Path(directory) / 'layout.xlsx'
-            self.execute({'type': 'snapshot', 'path': str(file)})
+            snapshot = self.execute({'type': 'snapshot', 'path': str(file)})
             with zipfile.ZipFile(file) as archive:
                 ns = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
                 rel = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id'
@@ -401,6 +401,9 @@ class Calc:
                     document = ET.fromstring(archive.read(path))
                     merges = sorted({item.attrib['ref'] for item in document.iter(ns + 'mergeCell')})
                     result[sheet.attrib['name']] = {'merges': merges} if merges else None
+                    if self.args.columns:
+                        result[sheet.attrib['name']] = result[sheet.attrib['name']] or {}
+                        result[sheet.attrib['name']]['columns'] = snapshot['columns'][sheet.attrib['name']]
                     wanted = {change['address'] for change in formats if change['sheetName'] == sheet.attrib['name']}
                     nodes = {item.attrib['r']: item for item in document.iter(ns + 'c') if item.attrib['r'] in wanted}
                     present = {address: item.attrib.get('s', '0') for address, item in nodes.items()}
@@ -428,6 +431,48 @@ class Calc:
     def merge(sheet, layout, enabled):
         for address in (layout or {}).get('merges', []):
             sheet.getCellRangeByName(address).merge(enabled)
+
+    def read_columns(self, file):
+        result = {}
+        ns = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+        rel = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id'
+        with zipfile.ZipFile(file) as archive:
+            links = {item.attrib['Id']: item.attrib['Target'] for item in ET.fromstring(archive.read('xl/_rels/workbook.xml.rels'))}
+            for source in ET.fromstring(archive.read('xl/workbook.xml')).find(ns + 'sheets'):
+                path = links[source.attrib[rel]].replace('\\', '/')
+                path = path.lstrip('/') if path.startswith('/') else 'xl/' + path
+                if '..' in path:
+                    raise ValueError('Invalid sheet path')
+                document = ET.fromstring(archive.read(path))
+                boundaries = {1, 16385}
+                for column in document.iter(ns + 'col'):
+                    start, end = int(column.attrib['min']), int(column.attrib['max'])
+                    if not 1 <= start <= end <= 16384:
+                        raise ValueError('Invalid column bounds')
+                    boundaries.update((start, end + 1))
+                boundaries = sorted(boundaries)
+                sheet = self.doc.Sheets.getByName(source.attrib['name'])
+                widths = []
+                for start, stop in zip(boundaries, boundaries[1:]):
+                    column = sheet.Columns.getByIndex(start - 1)
+                    pixels = round(column.Width * 96 / 2540) if column.IsVisible else 0
+                    if widths and widths[-1][2] == pixels:
+                        widths[-1][1] = stop - 1
+                    else:
+                        widths.append([start, stop - 1, pixels])
+                result[sheet.Name] = widths
+        return result
+
+    @staticmethod
+    def write_columns(sheet, layout, previous=None):
+        for start, end, pixels in (layout or {}).get('columns', []):
+            if any(a <= start and b >= end and width == pixels for a, b, width in (previous or {}).get('columns', [])):
+                continue
+            columns = sheet.getCellRangeByPosition(start - 1, 0, end - 1, 0).Columns
+            columns.OptimalWidth = False
+            if pixels:
+                columns.Width = round(pixels * 2540 / 96)
+            columns.IsVisible = pixels > 0
 
     @staticmethod
     def border_position(address):
@@ -603,7 +648,16 @@ class Calc:
             finally:
                 self.restore_view(view)
                 self.changes.ignored -= 1
-            return {'path': command['path'], 'localPath': uno.fileUrlToSystemPath(self.doc.getURL())}
+            return {'path': command['path'], 'localPath': uno.fileUrlToSystemPath(self.doc.getURL()),
+                    'columns': self.read_columns(command['path']) if self.args.columns else None}
+        if kind == 'fixture-columns':
+            sheet = self.doc.Sheets.getByName(command['sheetName'])
+            columns = sheet.getCellRangeByName(command['range']).Columns
+            if command.get('auto'):
+                columns.OptimalWidth = True
+            else:
+                columns.Width = round(command['width'] * 7 * 2540 / 96)
+            return {'resized': True}
         if kind == 'format-defaults':
             self._default_format = command.get('value')
             return {'updated': True}
@@ -616,6 +670,10 @@ class Calc:
                 self.restore_view(view)
                 self.changes.ignored -= 1
             return {'saved': True}
+        if kind == 'fixture-user-close':
+            self.doc.store()
+            self.doc.close(True)
+            return {'closed': True}
         if kind in ('apply', 'edit'):
             formatting = [change for change in command['changes'] if change['property'] == 'format']
             layouts, formats = self.read_metadata(formatting) if formatting or any(change['property'] == 'layout' for change in command['changes']) else ({}, {})
@@ -664,6 +722,8 @@ class Calc:
                 for change in command['changes']:
                     if change['property'] == 'layout':
                         self.merge(self.doc.Sheets.getByName(change['sheetName']), change['value'], True)
+                        if self.args.columns:
+                            self.write_columns(self.doc.Sheets.getByName(change['sheetName']), change['value'], layouts.get(change['sheetName']))
             finally:
                 self.doc.enableAutomaticCalculation(automatic)
                 self.doc.unlockControllers()
@@ -1164,6 +1224,8 @@ class Calc:
                 if self.args.formatting:
                     self.write_formats(sheet, {address: cell.get('format') for address, cell in source['cells'].items()})
                     self.merge(sheet, source.get('layout'), True)
+                if self.args.columns:
+                    self.write_columns(sheet, source.get('layout'))
                 self.apply_filter(sheet, source.get('filter'))
         finally:
             self.doc.enableAutomaticCalculation(automatic)
@@ -1197,6 +1259,7 @@ def main():
     parser.add_argument('--hidden', action='store_true')
     parser.add_argument('--borders', action='store_true')
     parser.add_argument('--formatting', action='store_true')
+    parser.add_argument('--columns', action='store_true')
     args = parser.parse_args()
     calc = None
     try:

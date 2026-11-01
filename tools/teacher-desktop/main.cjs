@@ -6,6 +6,7 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 const policy = require('./policy.cjs');
 const { PlatformTabs } = require('./platform-tabs.cjs');
+const { DetachedTab } = require('./detached-tab.cjs');
 const { openStudentWindow } = require('./student-window.cjs');
 const { Downloads, NativeDownloadRequests } = require('./downloads.cjs');
 const { TeacherCredentials } = require('./credentials.cjs');
@@ -30,6 +31,8 @@ const TITLE = 'IVAN100 Учитель';
 const SHELL_PAGE = path.join(__dirname, 'ui/shell.html');
 const PICKER_PAGE = path.join(__dirname, 'ui/sharing.html');
 const PANEL_PAGE = path.join(__dirname, 'ui/panel.html');
+const DETACHED_PAGE = path.join(__dirname,'ui/detached.html');
+const detachedTabs = new Map();
 const icon = path.join(__dirname, 'assets/icon.png');
 let mainWindow, platformView, platformTabs, recorderWindow, platformSession, utilityWindow, downloads, credentials, updates;
 let panelKind = 'downloads', panelOpen = false;
@@ -101,6 +104,27 @@ function showPanel(kind) { panelKind = kind; panelOpen = true; utilityWindow?.sh
 function closePanel() { panelOpen = false; utilityWindow?.hide(); void recordingPrivacy.set('accounts', false).catch(() => {}); }
 function validPanel(event) { return utilityWindow && event.sender === utilityWindow.webContents && event.senderFrame === event.sender.mainFrame && policy.isLocalPage(event.senderFrame.url, PANEL_PAGE); }
 function validPlatformEvent(event) { return ownedPlatform(event.sender) && event.senderFrame === event.sender.mainFrame; }
+function detachedForContents(contents){return [...detachedTabs.values()].find(host=>host.tab.view.webContents===contents);}
+function detachedForEvent(event){const host=detachedTabs.get(event.sender.id);return host&&event.senderFrame===event.sender.mainFrame&&policy.isLocalPage(event.senderFrame.url,DETACHED_PAGE)?host:null;}
+async function detachPlatformTab(id,dragged=false){
+  const original=platformTabs.localTabs.find(tab=>tab.id===String(id));if(!original)return;
+  const point=screen.getCursorScreenPoint(),bounds=mainWindow.getBounds();
+  if(dragged&&point.x>=bounds.x&&point.x<bounds.x+bounds.width&&point.y>=bounds.y&&point.y<bounds.y+bounds.height)return;
+  if(platformTabs.localTabs.length===1)await platformTabs.add();
+  const area=screen.getDisplayNearestPoint(point).workArea,width=Math.min(1180,area.width),height=Math.min(820,area.height);
+  const window=new BrowserWindow({title:'IVAN100 · отдельное окно',show:false,x:Math.max(area.x,Math.min(point.x-180,area.x+area.width-width)),y:Math.max(area.y,Math.min(point.y-20,area.y+area.height-height)),width,height,minWidth:640,minHeight:480,icon,backgroundColor:'#f7f7fd',autoHideMenuBar:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,partition:'shell',preload:path.join(__dirname,'detached-preload.cjs')}});
+  window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',event=>event.preventDefault());
+  let tab,host;
+  try{
+    await window.loadFile(DETACHED_PAGE);
+    tab=await platformTabs.detachTab(id);if(!tab){window.destroy();return;}
+    host=new DetachedTab({window,tab,tabs:platformTabs,onDisposed:()=>detachedTabs.delete(window.webContents.id)});
+    detachedTabs.set(window.webContents.id,host);host.render();window.show();tab.view.webContents.focus();
+  }catch(error){
+    if(host)await host.returnToTabs();else{if(tab?.detached)await platformTabs.restoreTab(tab);if(!window.isDestroyed())window.destroy();}
+    throw error;
+  }
+}
 async function loadCabinet(url = policy.PLATFORM_URL) {
   if (!platformTabs?.active) return;
   return platformTabs.load(platformTabs.active, url);
@@ -110,10 +134,10 @@ function createPlatformView() {
   const contents = view.webContents;
   guardWebContents(contents, 'platform');
   view.setBackgroundColor('#f7f7fd');
-  contents.on('enter-html-full-screen', () => { if (platformView === view) { htmlFullscreenView = view; mainWindow.setFullScreen(true); } });
-  contents.on('leave-html-full-screen', () => { if (htmlFullscreenView === view) { htmlFullscreenView = null; mainWindow.setFullScreen(false); } });
+  contents.on('enter-html-full-screen', () => { const detached=detachedForContents(contents);if(detached)detached.window.setFullScreen(true);else if (platformView === view) { htmlFullscreenView = view; mainWindow.setFullScreen(true); } });
+  contents.on('leave-html-full-screen', () => { const detached=detachedForContents(contents);if(detached)detached.window.setFullScreen(false);else if (htmlFullscreenView === view) { htmlFullscreenView = null; mainWindow.setFullScreen(false); } });
   contents.on('will-prevent-unload', () => {
-    void dialog.showMessageBox(mainWindow, { title: 'Закрыть вкладку?', type: 'question', message: 'На вкладке могут оставаться несохранённые изменения.', buttons: ['Оставить открытой', 'Закрыть вкладку'], defaultId: 0, cancelId: 0, noLink: true }).then(result => {
+    void dialog.showMessageBox(detachedForContents(contents)?.window||mainWindow, { title: 'Закрыть вкладку?', type: 'question', message: 'На вкладке могут оставаться несохранённые изменения.', buttons: ['Оставить открытой', 'Закрыть вкладку'], defaultId: 0, cancelId: 0, noLink: true }).then(result => {
       if (result.response === 1 && !contents.isDestroyed()) contents.close({ waitForBeforeUnload: false });
     });
   });
@@ -122,10 +146,15 @@ function createPlatformView() {
 }
 async function tabAction(action, value) {
   try {
+    const focused=[...detachedTabs.values()].find(host=>host.window===BrowserWindow.getFocusedWindow());
+    if(action==='tab-detach'||action==='tab-detach-drag')return await detachPlatformTab(value,action==='tab-detach-drag');
+    if(action==='tab-menu'){Menu.buildFromTemplate([{label:'Перенести в отдельное окно',click:()=>void tabAction('tab-detach',value)}]).popup({window:mainWindow});return;}
+    if(action==='tab-reload'&&focused)return await focused.reload();
+    if(action==='tab-close'&&value==null&&focused)return focused.close();
     if (action === 'tab-new') return await platformTabs.add();
     if (action === 'tab-new-url') return await platformTabs.add(value);
     if (action === 'tab-select') return await platformTabs.activate(value);
-    if (action === 'tab-close') return platformTabs.close(value);
+    if (action === 'tab-close') return platformTabs.close(value??platformTabs.activeId);
     if (action === 'tab-next') return await platformTabs.step(1);
     if (action === 'tab-previous') return await platformTabs.step(-1);
     if (action === 'tab-reload') return await platformTabs.reload();
@@ -304,6 +333,8 @@ ipcMain.handle('sharing:choose', (event, sourceId, withAudio) => {
   entry.finish(result);
 });
 ipcMain.handle('sharing:cancel', event => { pickerFor(event)?.finish({}); });
+ipcMain.handle('detached:state',event=>{const host=detachedForEvent(event);if(!host)throw Error('Недоступно');return host.state();});
+ipcMain.handle('detached:action',async(event,action)=>{const host=detachedForEvent(event);if(!host)throw Error('Недоступно');if(action==='return'){await host.returnToTabs();if(mainWindow.isMinimized())mainWindow.restore();mainWindow.show();mainWindow.focus();return;}if(action==='reload')return host.reload();throw Error('Недоступно');});
 ipcMain.handle('shell:state', event => { if (!validShell(event)) throw new Error('Недоступно'); return state; });
 ipcMain.handle('shell:action', async (event, action, value) => {
   if (!validShell(event)) throw new Error('Недоступно');
@@ -456,7 +487,7 @@ async function start() {
     { label: 'Вид', submenu: [{ label: 'Обновить текущую вкладку', accelerator: 'Ctrl+R', click: () => void tabAction('tab-reload') },
       { label: 'Обновить вкладку', accelerator: 'F5', visible: false, click: () => void tabAction('tab-reload') },
       { label: 'Новая вкладка', accelerator: 'Ctrl+T', click: () => void tabAction('tab-new') },
-      { label: 'Закрыть вкладку', accelerator: 'Ctrl+W', click: () => void tabAction('tab-close', platformTabs.activeId) },
+      { label: 'Закрыть вкладку', accelerator: 'Ctrl+W', click: () => void tabAction('tab-close') },
       { label: 'Следующая вкладка', accelerator: 'Ctrl+Tab', click: () => void tabAction('tab-next') },
       { label: 'Предыдущая вкладка', accelerator: 'Ctrl+Shift+Tab', click: () => void tabAction('tab-previous') }, { role: 'resetZoom', label: 'Масштаб 100%' }, { role: 'zoomIn', label: 'Увеличить' }, { role: 'zoomOut', label: 'Уменьшить' }, { role: 'togglefullscreen', label: 'Полный экран' }, ...(!app.isPackaged ? [
       { label: 'Диагностика кабинета', accelerator: 'Ctrl+Shift+I', click: () => platformView.webContents.toggleDevTools() },

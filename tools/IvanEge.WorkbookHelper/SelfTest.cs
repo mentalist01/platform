@@ -69,6 +69,7 @@ internal static class SelfTest
             TestSparseWorkbookDifferences();
             TestPresenceHover();
             TestOfficePreference();
+            TestNativeTextInputGuard();
             TestUpdateAuthentication(temporaryDirectory);
             TestUpdateLaunchOrder();
             TestWorkbookOpenFailure();
@@ -93,6 +94,16 @@ internal static class SelfTest
                 // Test cleanup is best effort.
             }
         }
+    }
+
+    private static void TestNativeTextInputGuard()
+    {
+        Assert(NativeWorkbookInteraction.IsExcelTextInput("XLMAIN", "Edit", false), "Address input must defer native work even between keystrokes");
+        Assert(NativeWorkbookInteraction.IsExcelTextInput("XLMAIN", "RichEdit20W", true), "Rich address/formula input must remain protected");
+        Assert(NativeWorkbookInteraction.IsExcelTextInput("XLMAIN", "OfficeInput", true), "A custom Excel editor with a caret must defer native work");
+        Assert(!NativeWorkbookInteraction.IsExcelTextInput("XLMAIN", "EXCEL7", true), "The worksheet must retain normal live preview and synchronization");
+        Assert(!NativeWorkbookInteraction.IsExcelTextInput("SALFRAME", "Edit", true), "The Excel-specific address guard must not pause Calc");
+        Assert(!NativeWorkbookInteraction.IsExcelTextInput("XLMAIN", "OfficeButton", false), "A focused toolbar button must not pause synchronization");
     }
     private static void TestWorkbookOpenFailure()
     {

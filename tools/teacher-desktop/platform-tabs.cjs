@@ -6,9 +6,10 @@ class PlatformTabs {
     Object.assign(this,{createView,attach,detach,onState,onActive,privacy,afterPaint,maxTabs});
     this.tabs=[];this.activeId='';this.queue=Promise.resolve();this.appliedPrivacy=new Set();this.overlay=false;
   }
-  get active(){return this.tabs.find(tab=>tab.id===this.activeId)||null;}
+  get localTabs(){return this.tabs.filter(tab=>!tab.detached);}
+  get active(){return this.localTabs.find(tab=>tab.id===this.activeId)||null;}
   forContents(contents){return this.tabs.find(tab=>tab.view.webContents===contents)||null;}
-  emit(){this.onState({tabs:this.tabs.map(tab=>({id:tab.id,title:tab.title,page:tab.page,audible:!tab.view.webContents.isDestroyed()&&tab.view.webContents.isCurrentlyAudible()})),activeTabId:this.activeId,page:this.active?.page||'loading'});}
+  emit(){this.onState({tabs:this.localTabs.map(tab=>({id:tab.id,title:tab.title,page:tab.page,audible:!tab.view.webContents.isDestroyed()&&tab.view.webContents.isCurrentlyAudible()})),activeTabId:this.activeId,page:this.active?.page||'loading'});for(const tab of this.tabs)if(tab.detached)tab.onDetachedState?.();}
   enqueue(action){const result=this.queue.catch(()=>{}).then(action);this.queue=result;return result;}
   async add(url=PLATFORM_URL+'&view=progress') {
     if(!isPlatform(url)||new URL(url).protocol!=='https:')throw Error('Во вкладках доступна только платформа ivan100.ru.');
@@ -49,6 +50,7 @@ class PlatformTabs {
   activate(id) {
     return this.enqueue(async()=>{
       const tab=this.tabs.find(value=>value.id===String(id));if(!tab)return false;
+      if(tab.detached){tab.onDetachedFocus?.();return true;}
       // Mask the target before displaying it. Keep the previous tab's mask until
       // the new public view has painted, so switching cannot expose finances.
       await this.addPrivacy(tab);
@@ -65,25 +67,34 @@ class PlatformTabs {
     if(this.active!==tab)return Promise.resolve({hidden,inactive:true});
     return this.enqueue(()=>this.active===tab?this.syncPrivacy(tab):undefined).then(()=>({hidden}));
   }
-  showActive(){for(const tab of this.tabs)if(!tab.view.webContents.isDestroyed())tab.view.setVisible(tab.id===this.activeId&&tab.page==='ready'&&!this.overlay);}
+  showActive(){for(const tab of this.localTabs)if(!tab.view.webContents.isDestroyed())tab.view.setVisible(tab.id===this.activeId&&tab.page==='ready'&&!this.overlay);}
   setOverlay(hidden){this.overlay=hidden;this.showActive();}
-  setBounds(bounds){this.bounds=bounds;for(const tab of this.tabs)if(!tab.view.webContents.isDestroyed())tab.view.setBounds(bounds);}
+  setBounds(bounds){this.bounds=bounds;for(const tab of this.localTabs)if(!tab.view.webContents.isDestroyed())tab.view.setBounds(bounds);}
   setTitle(contents,title){const tab=this.forContents(contents);if(!tab||typeof title!=='string')return;tab.title=title.trim().replace(/[\r\n\t]/g,' ').slice(0,100)||'Платформа';tab.customTitle=true;this.emit();}
-  async reload() {
-    const tab=this.active;if(!tab)return;
+  async reload(id=this.activeId) {
+    const tab=this.tabs.find(tab=>tab.id===String(id));if(!tab)return;
     tab.privateReasons.add('platform');tab.page='loading';tab.customTitle=false;this.showActive();this.emit();
     await this.setPrivacy(tab.view.webContents,'platform',true);
     tab.view.webContents.reload();
   }
-  close(id=this.activeId){const tab=this.tabs.find(value=>value.id===String(id));if(!tab||this.tabs.length<2)return false;tab.view.webContents.close({waitForBeforeUnload:true});return true;}
+  async detachTab(id){
+    const tab=this.localTabs.find(tab=>tab.id===String(id));if(!tab||this.localTabs.length<2)return null;
+    if(this.active===tab)await this.activate(this.localTabs.find(other=>other!==tab).id);
+    return this.enqueue(()=>{if(!this.tabs.includes(tab)||tab.detached)return null;this.detach(tab.view);tab.detached=true;tab.view.setVisible(false);this.emit();return tab;});
+  }
+  async restoreTab(tab){
+    await this.enqueue(()=>{if(!this.tabs.includes(tab)||!tab.detached)return;tab.view.setVisible(false);tab.detached=false;this.attach(tab.view);if(this.bounds)tab.view.setBounds(this.bounds);this.emit();});
+    return this.activate(tab.id);
+  }
+  close(id=this.activeId){const tab=this.tabs.find(value=>value.id===String(id));if(!tab||!tab.detached&&this.localTabs.length<2)return false;tab.view.webContents.close({waitForBeforeUnload:true});return true;}
   removed(tab){
     const index=this.tabs.indexOf(tab);if(index<0)return;
-    this.tabs.splice(index,1);this.detach(tab.view);
+    this.tabs.splice(index,1);if(tab.detached)tab.onDetachedRemoved?.();else this.detach(tab.view);
     if(this.closing)return;
-    if(tab.id===this.activeId){this.activeId='';const next=this.tabs[Math.min(index,this.tabs.length-1)];if(next)void this.activate(next.id).catch(()=>this.emit());}
+    if(tab.id===this.activeId){this.activeId='';const next=this.localTabs[Math.min(index,this.localTabs.length-1)];if(next)void this.activate(next.id).catch(()=>this.emit());}
     else{this.emit();}
   }
-  step(offset){const index=this.tabs.findIndex(tab=>tab.id===this.activeId);const tab=this.tabs[(index+offset+this.tabs.length)%this.tabs.length];return tab?this.activate(tab.id):Promise.resolve(false);}
+  step(offset){const tabs=this.localTabs,index=tabs.findIndex(tab=>tab.id===this.activeId);const tab=tabs[(index+offset+tabs.length)%tabs.length];return tab?this.activate(tab.id):Promise.resolve(false);}
   destroy(){this.closing=true;for(const tab of [...this.tabs])if(!tab.view.webContents.isDestroyed())tab.view.webContents.close();this.tabs=[];}
 }
 module.exports={PlatformTabs};

@@ -16,6 +16,7 @@ internal sealed class LiveWorkbookBook
     private static readonly XNamespace R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     public bool IncludeBorders { get; set; }
     public bool IncludeFormatting { get; set; }
+    public bool IncludeColumns { get; set; }
     private readonly Dictionary<string, string> _identities = [];
     private readonly Dictionary<string, string> _names = [];
     private bool _sharedDefaults;

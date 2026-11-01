@@ -13,6 +13,9 @@ internal sealed class LiveOfficeProcess : IDisposable
     private readonly string _directory;
     private readonly Task<string> _diagnostics;
     private readonly NativeWorkbookInteraction _interaction;
+    private JsonObject? _exportedColumns;
+    private string _engine="calc";
+    private Uri? _origin;
     public string LocalPath { get; private set; }
     public bool Closed { get; private set; }
     public long SnapshotCount { get; private set; }
@@ -25,7 +28,7 @@ internal sealed class LiveOfficeProcess : IDisposable
         _diagnostics = process.StandardError.ReadToEndAsync();
     }
 
-    public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token, Uri? origin = null, bool borders = false,bool formatting=false)
+    public static async Task<LiveOfficeProcess> OpenAsync(string source, string directory, string engine, bool hidden, CancellationToken token, Uri? origin = null, bool borders = false,bool formatting=false,bool columns=false)
     {
         if (engine == "excel" && !OfficeCompatibility.NativeDirectorySuitable(directory)) directory = OfficeCompatibility.CreateWorkspace();
         Directory.CreateDirectory(directory);
@@ -52,9 +55,12 @@ internal sealed class LiveOfficeProcess : IDisposable
         start.ArgumentList.Add("--local"); start.ArgumentList.Add(local); if (hidden) start.ArgumentList.Add("--hidden");
         if (borders) start.ArgumentList.Add("--borders");
         if(formatting)start.ArgumentList.Add("--formatting");
+        if(columns)start.ArgumentList.Add("--columns");
         var process = Process.Start(start) ?? throw new InvalidOperationException("Не удалось запустить таблицу");
         var bridge = new LiveOfficeProcess(process, directory, local, hidden); bridge.Reader.IncludeBorders = borders;
         bridge.Reader.IncludeFormatting=formatting;
+        bridge.Reader.IncludeColumns=columns;
+        bridge._engine=engine;bridge._origin=origin;
         try
         {
             var line = await process.StandardOutput.ReadLineAsync(token).AsTask().WaitAsync(TimeSpan.FromSeconds(50), token);
@@ -140,6 +146,7 @@ internal sealed class LiveOfficeProcess : IDisposable
     public async Task<string> ExportFileAsync(CancellationToken token)
     {
         SnapshotCount++;
+        _exportedColumns=null;
         string file = Path.Combine(_directory, "snapshot-" + Guid.NewGuid().ToString("N") + ".xlsx");
         try
         {
@@ -151,6 +158,7 @@ internal sealed class LiveOfficeProcess : IDisposable
             catch (LiveOfficeClosedException) when (File.Exists(LocalPath))
             { File.Copy(LocalPath, file); return file; }
             if (result["localPath"]?.GetValue<string>() is string local && Path.IsPathFullyQualified(local)) LocalPath = local;
+            _exportedColumns=result["columns"] as JsonObject;
             return file;
         }
         catch { try { File.Delete(file); } catch { } throw; }
@@ -161,6 +169,18 @@ internal sealed class LiveOfficeProcess : IDisposable
         try
         {
             var book=Reader.Read(file);
+            if(Reader.IncludeColumns&&_exportedColumns is null)
+            {
+                // XML width units depend on the editor's Normal font. Never
+                // guess pixels from a font substituted by Windows. A closed
+                // workbook is measured in a separate hidden recovery instance.
+                string geometryDirectory=Path.Combine(_directory,"geometry-"+Guid.NewGuid().ToString("N"));
+                using var geometry=await OpenAsync(file,geometryDirectory,_engine,true,token,_origin,columns:true);
+                string measured=await geometry.ExportFileAsync(token);
+                try{_exportedColumns=geometry._exportedColumns?.DeepClone().AsObject();}
+                finally{File.Delete(measured);}
+            }
+            LiveWorkbookColumns.Overlay(book,_exportedColumns);
             // Named default styles and OOXML style zero can differ after an
             // ODS import. Fast native reads must use the same base as the full
             // exported model, including explicit resets to Calibri/General.

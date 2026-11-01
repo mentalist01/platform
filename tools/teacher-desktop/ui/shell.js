@@ -2,6 +2,8 @@
 const help = document.getElementById('help');
 const updates = document.getElementById('updates');
 let latestState;
+let tabPointer=null,suppressTabClickUntil=0;
+window.addEventListener('keydown',event=>{if(event.key==='Escape'&&tabPointer)tabPointer.cancelled=true;},true);
 async function showUpdates() { if (help.open) help.close(); await window.teacherApp.action('help-open'); if (!updates.open) updates.showModal(); }
 updates.addEventListener('close', () => { if (!help.open) window.teacherApp.action('help-close'); });
 window.teacherApp.onUpdates(showUpdates);
@@ -17,6 +19,7 @@ document.querySelectorAll('[data-action]').forEach(button => button.addEventList
   try { await window.teacherApp.action(button.dataset.action); } finally { button.disabled = false; if (latestState) render(latestState); }
 }));
 function renderTabs(state) {
+  if(tabPointer)return;
   const list=document.getElementById('platform-tabs');
   const focusedId=document.activeElement?.closest?.('[role="tab"]')?.dataset.tabId;
   list.replaceChildren();
@@ -26,7 +29,12 @@ function renderTabs(state) {
     const label=document.createElement('span');label.className='platform-tab__title';label.textContent=tab.title;item.append(label);
     if(tab.audible){const audio=document.createElement('span');audio.className='platform-tab__audio';audio.textContent='♫';audio.title='Вкладка воспроизводит звук';item.append(audio);}
     if(state.tabs.length>1){const close=document.createElement('button');close.className='platform-tab__close';close.textContent='×';close.title='Закрыть вкладку';close.setAttribute('aria-label','Закрыть вкладку «'+tab.title+'»');close.addEventListener('click',event=>{event.stopPropagation();void window.teacherApp.action('tab-close',tab.id);});item.append(close);}
-    item.addEventListener('click',()=>{void window.teacherApp.action('tab-select',tab.id);});
+    item.addEventListener('click',()=>{if(Date.now()>=suppressTabClickUntil)void window.teacherApp.action('tab-select',tab.id);});
+    item.addEventListener('pointerdown',event=>{if(event.button!==0||event.target.closest('button'))return;tabPointer={id:tab.id,pointerId:event.pointerId,x:event.clientX,y:event.clientY,dragging:false,cancelled:false};item.setPointerCapture(event.pointerId);});
+    item.addEventListener('pointermove',event=>{if(tabPointer?.pointerId!==event.pointerId)return;if(!tabPointer.dragging&&Math.hypot(event.clientX-tabPointer.x,event.clientY-tabPointer.y)>8){tabPointer.dragging=true;item.setPointerCapture(event.pointerId);}if(tabPointer.dragging)event.preventDefault();});
+    const finishDrag=(event,cancelled=false)=>{if(tabPointer?.pointerId!==event.pointerId)return;const drag=tabPointer;tabPointer=null;if(item.hasPointerCapture(event.pointerId))item.releasePointerCapture(event.pointerId);if(drag.dragging){suppressTabClickUntil=Date.now()+250;if(!cancelled&&!drag.cancelled)void window.teacherApp.action('tab-detach-drag',drag.id);if(latestState)renderTabs(latestState);}};
+    item.addEventListener('pointerup',event=>finishDrag(event));item.addEventListener('pointercancel',event=>finishDrag(event,true));
+    item.addEventListener('contextmenu',event=>{event.preventDefault();void window.teacherApp.action('tab-menu',tab.id);});
     item.addEventListener('auxclick',event=>{if(event.button===1){event.preventDefault();void window.teacherApp.action('tab-close',tab.id);}});
     item.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)){event.preventDefault();void window.teacherApp.action('tab-select',tab.id);}if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();void window.teacherApp.action(event.key==='ArrowRight'?'tab-next':'tab-previous');}});
     list.append(item);

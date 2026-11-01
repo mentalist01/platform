@@ -13,14 +13,15 @@ internal sealed class LiveExcelBridge : IDisposable
     private readonly bool _hidden;
     private readonly bool _borders;
     private readonly bool _formatting;
+    private readonly bool _columns;
     private JsonObject? _defaultFormat;
     private readonly Dictionary<string,string> _formatStyles=[];
     private readonly LiveExcelChanges _changes = null!;
     private static void Release(object? value) { if (value is not null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value); }
 
-    public LiveExcelBridge(string source, string localPath, bool hidden, bool borders = false, bool formatting = false)
+    public LiveExcelBridge(string source, string localPath, bool hidden, bool borders = false, bool formatting = false,bool columns=false)
     {
-        _localPath = localPath; _hidden = hidden; _borders = borders; _formatting = formatting;
+        _localPath = localPath; _hidden = hidden; _borders = borders; _formatting = formatting;_columns=columns;
         string stage = "запуск приложения";
         try
         {
@@ -332,9 +333,14 @@ internal sealed class LiveExcelBridge : IDisposable
                 }
                 finally { Release(selectedSheet); }
             case "snapshot":
-                string destination = command["path"]!.GetValue<string>(); _book.SaveCopyAs(destination); return new { path = destination, localPath = (string)_book.FullName };
+                string destination = command["path"]!.GetValue<string>(); _book.SaveCopyAs(destination); return new { path = destination, localPath = (string)_book.FullName,columns=_columns?LiveWorkbookColumns.ReadExcel(_book,destination):null };
+            case "fixture-columns":
+                dynamic widthSheet=Sheet(command["sheetName"]!.GetValue<string>()),widthRange=widthSheet.Range[command["range"]!.GetValue<string>()];
+                try{if(command["auto"]?.GetValue<bool>()==true)widthRange.EntireColumn.AutoFit();else widthRange.EntireColumn.ColumnWidth=command["width"]!.GetValue<double>();return new{resized=true};}
+                finally{Release(widthRange);Release(widthSheet);}
             case "format-defaults": _defaultFormat=command["value"]?.DeepClone().AsObject();return new{updated=true};
             case "save": _book.Save(); return new { saved = true };
+            case "fixture-user-close": _book.Save();_book.Close(false);return new{closed=true};
             case "fixture-busy": throw new COMException("Excel is temporarily busy", unchecked((int)0x800AC472));
             case "apply": return ApplyChanges(command["changes"]!.AsArray(), true);
             case "replace":
@@ -567,7 +573,7 @@ internal sealed class LiveExcelBridge : IDisposable
             foreach (var change in changes.Where(change => change!["property"]!.GetValue<string>() == "layout"))
             {
                 dynamic sheet = Sheet(change!["sheetName"]!.GetValue<string>());
-                try { LiveWorkbookFormatting.MergeExcel(sheet, change["value"]); }
+                try { LiveWorkbookFormatting.MergeExcel(sheet, change["value"]);if(_columns)LiveWorkbookColumns.WriteExcel(sheet,change["value"],layouts.GetValueOrDefault((string)sheet.Name)); }
                 finally { Release(sheet); }
             }
         }
@@ -577,7 +583,7 @@ internal sealed class LiveExcelBridge : IDisposable
     private JsonObject ReadMetadata()
     {
         string file = Path.Combine(Path.GetDirectoryName(_localPath)!, "layout-" + Guid.NewGuid().ToString("N") + ".xlsx");
-        try { _book.SaveCopyAs(file); var reader=new LiveWorkbookBook{IncludeFormatting=true,IncludeBorders=_borders};reader.UseDefaults(_defaultFormat);return reader.Read(file); }
+        try { _book.SaveCopyAs(file); var reader=new LiveWorkbookBook{IncludeFormatting=true,IncludeBorders=_borders,IncludeColumns=_columns};reader.UseDefaults(_defaultFormat);var book=reader.Read(file);if(_columns)LiveWorkbookColumns.Overlay(book,LiveWorkbookColumns.ReadExcel(_book,file));return book; }
         finally { File.Delete(file); }
     }
 
@@ -663,6 +669,7 @@ internal sealed class LiveExcelBridge : IDisposable
                     foreach (var group in (_formatting?cells:cells.Where(cell=>cell.Value!["format"] is not null)).GroupBy(cell => cell.Value!["format"]?.ToJsonString()??"null"))
                         foreach (string area in LiveWorkbookFormatting.CompactRanges(group.Select(cell => cell.Key))) WriteCell(sheet, area, "format", group.First().Value!["format"]);
                     Trace("after formatting");if (_formatting) LiveWorkbookFormatting.MergeExcel(sheet, source["layout"]);
+                    if(_columns)LiveWorkbookColumns.WriteExcel(sheet,source["layout"]);
                     ApplyFilter(sheet, source["filter"] as JsonObject);Trace("filter done");
                 }
                 finally { Release(sheet); }
@@ -738,7 +745,7 @@ internal sealed class LiveExcelBridge : IDisposable
         string Argument(string name) { var index = Array.IndexOf(args, name); if (index < 0 || index + 1 >= args.Length) throw new FormatException("Missing bridge argument"); return args[index + 1]; }
         try
         {
-            using var bridge = new LiveExcelBridge(Argument("--file"), Argument("--local"), args.Contains("--hidden"), args.Contains("--borders"), args.Contains("--formatting"));
+            using var bridge = new LiveExcelBridge(Argument("--file"), Argument("--local"), args.Contains("--hidden"), args.Contains("--borders"), args.Contains("--formatting"),args.Contains("--columns"));
             Console.WriteLine("{\"ready\":true}"); string? line;
             while (true)
             {

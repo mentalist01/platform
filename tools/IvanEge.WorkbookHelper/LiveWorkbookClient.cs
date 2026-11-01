@@ -125,7 +125,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             // two hashes; never open that long recovery filename natively.
             Directory.CreateDirectory(_directory); openSource = Path.Combine(_directory, "recovery.xlsx"); File.Copy(_cache + ".xlsx", openSource, true);
         }
-        Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin, _grant.Live.BordersSupported,_grant.Live.FormattingSupported);
+        Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin, _grant.Live.BordersSupported,_grant.Live.FormattingSupported,_grant.Live.ColumnsSupported);
         Office.SlowCommand += () => Publish(WorkbookStatusKind.Reading,"Применяю большой диапазон в таблице. Изменения в очереди; соединение сохранено.");
         _lastSerial = (await Office.CommandAsync(new() { ["type"] = "pulse" }, token))["serial"]?.GetValue<long>() ?? -1;
         if (state["book"] is JsonObject serverBook) Office.Reader.UseNames(serverBook);

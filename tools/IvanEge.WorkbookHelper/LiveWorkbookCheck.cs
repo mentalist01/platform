@@ -68,6 +68,40 @@ internal static class LiveWorkbookCheck
             var clock = Stopwatch.StartNew(); await action(); checks.Add(new JsonObject { ["name"] = name, ["passed"] = true, ["ms"] = clock.ElapsedMilliseconds });
             File.WriteAllText(config["report"]!.GetValue<string>() + ".progress.json", checks.ToJsonString());
         }
+        if(config["columnsOnly"]?.GetValue<bool>()==true)
+        {
+            Ensure(teacherGrant.Live!.ColumnsSupported&&pupilGrant.Live!.ColumnsSupported,"Column capability was not negotiated");
+            for(int i=4;i<=12;i++)await Edit(teacher,LiveWorkbookBorders.Address(i,1),Number(i-3));
+            await Settle();
+            int Width(JsonObject book,int column)=>book["sheets"]!.AsArray().First(s=>s!["name"]!.GetValue<string>()==sheet)!["layout"]!["columns"]!.AsArray().First(r=>r![0]!.GetValue<int>()<=column&&r[1]!.GetValue<int>()>=column)![2]!.GetValue<int>();
+            foreach(var (source,name) in new[]{(teacher,teacherEngine),(pupil,pupilEngine)})
+            {
+                await Check(name+" manual column width and AutoFit synchronize without changing the other viewport",async()=>
+                {
+                    await teacher.Office.CommandAsync(new(){["type"]="view",["row"]=20,["column"]=3,["zoom"]=80},token);
+                    await pupil.Office.CommandAsync(new(){["type"]="view",["row"]=40,["column"]=6,["zoom"]=135},token);
+                    await source.Office.CommandAsync(new(){["type"]="fixture-columns",["sheetName"]=sheet,["range"]="D:K",["width"]=18d},token);await Settle();
+                    var wide=await source.Office.SnapshotAsync(token);int before=Width(wide.Book,4);File.Delete(wide.File);
+                    await source.Office.CommandAsync(new(){["type"]="fixture-columns",["sheetName"]=sheet,["range"]="D:K",["auto"]=true},token);await Settle();
+                    var narrow=await source.Office.SnapshotAsync(token);try{Ensure(Width(narrow.Book,4)<before,"AutoFit did not shrink numbered columns");}finally{File.Delete(narrow.File);}
+                    var a=await teacher.Office.CommandAsync(new(){["type"]="viewport"},token);var b=await pupil.Office.CommandAsync(new(){["type"]="viewport"},token);
+                    Ensure(a["row"]!.GetValue<int>()==20&&a["zoom"]!.GetValue<int>()==80&&b["row"]!.GetValue<int>()==40&&b["zoom"]!.GetValue<int>()==135,"Column widths shared the participants' independent view");
+                });
+            }
+            await Check("Column widths persist in a board checkpoint",async()=>{teacher.RequestSave();await teacher.TickAsync(token);await pupil.TickAsync(token);await Settle();});
+            await Check("Saved XLSX column geometry remains readable after the native editor closes",async()=>
+            {
+                foreach(var client in new[]{teacher,pupil})
+                {
+                    var before=await client.Office.SnapshotAsync(token);
+                    await client.Office.CommandAsync(new(){["type"]="fixture-user-close"},token);
+                    var restored=await client.Office.SnapshotAsync(token);
+                    try{Ensure(JsonNode.DeepEquals(before.Book["sheets"]![0]!["layout"]?["columns"],restored.Book["sheets"]![0]!["layout"]?["columns"]),"Saved XLSX physical widths changed during recovery: "+restored.Book["sheets"]![0]!["layout"]?["columns"]+" / "+before.Book["sheets"]![0]!["layout"]?["columns"]);}
+                    finally{File.Delete(before.File);File.Delete(restored.File);}
+                }
+            });
+            return;
+        }
         if(config["filterOnly"]?.GetValue<bool>()==true)goto SortingChecks;
         if (config["clipboardOnly"]?.GetValue<bool>() == true)
         {

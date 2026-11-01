@@ -60,12 +60,23 @@ export function normalizeLiveFormat(value){
 }
 export function normalizeLiveLayout(value){
   if(value==null)return null;
-  if(typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>k!=='merges')||!Array.isArray(value.merges)||value.merges.length>10000)fail('Некорректные объединения ячеек');
+  if(typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!['merges','columns'].includes(k))||value.merges!==undefined&&(!Array.isArray(value.merges)||value.merges.length>10000))fail('Некорректная разметка листа');
   const ranges=[];let area=0;
   const at=address=>{const [,letters,row]=address.match(/^([A-Z]+)(\d+)$/);return {c:[...letters].reduce((n,x)=>n*26+x.charCodeAt(0)-64,0),r:Number(row)};};
-  const merges=[...new Set(value.merges)].sort();
+  const merges=[...new Set(value.merges||[])].sort();
   for(const range of merges){const parts=typeof range==='string'?range.split(':'):[];if(parts.length!==2||parts.some(x=>!liveAddress(x)||x.includes('$')))fail('Некорректный диапазон объединения');const a=at(parts[0]),b=at(parts[1]);if(a.r>b.r||a.c>b.c||a.r===b.r&&a.c===b.c||(area+=(b.r-a.r+1)*(b.c-a.c+1))>1000000)fail('Слишком большой диапазон объединения');if(ranges.some(([c,d])=>a.r<=d.r&&b.r>=c.r&&a.c<=d.c&&b.c>=c.c))fail('Пересекающиеся объединения ячеек');ranges.push([a,b]);}
-  return merges.length?{merges}:null;
+  const result=merges.length?{merges}:{};
+  if(value.columns!==undefined){
+    if(!Array.isArray(value.columns)||!value.columns.length||value.columns.length>LIVE_WORKBOOK_LIMITS.columns)fail('Некорректная ширина столбцов');
+    const columns=[];let next=1;
+    for(const part of value.columns){
+      if(!Array.isArray(part)||part.length!==3||!part.every(Number.isInteger)||part[0]!==next||part[1]<part[0]||part[1]>LIVE_WORKBOOK_LIMITS.columns||part[2]<0||part[2]>100000)fail('Некорректная ширина столбцов');
+      const previous=columns.at(-1);if(previous?.[2]===part[2])previous[1]=part[1];else columns.push([...part]);next=part[1]+1;
+    }
+    if(next!==LIVE_WORKBOOK_LIMITS.columns+1)fail('Неполная разметка столбцов');
+    result.columns=columns;
+  }
+  return Object.keys(result).length?result:null;
 }
 const emptyCell=cell=>cell.content.kind==='empty'&&cell.fill===null&&!cell.borders&&!cell.format;
 const sheetValue=(sheet,address,property)=>address==='@'?sheet[property]??null:(sheet.cells[address]||liveEmpty())[property]??null;
