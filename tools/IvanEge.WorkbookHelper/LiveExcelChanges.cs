@@ -13,11 +13,12 @@ internal sealed class LiveExcelChanges : IDisposable
     private long _full;
     private readonly List<(long Serial, string Sheet, string Address)> _cells = [];
     public long Serial => Interlocked.Read(ref _serial);
+    public void Inspect(object sheet, object target) => Changed(sheet, target);
     public IEnumerable<(string Sheet, string Address)>? CellsSince(long serial)
     {
         if (serial < _full) return null;
-        var cells = _cells.Where(cell => cell.Serial > serial).Select(cell => (cell.Sheet, cell.Address)).Distinct().Take(65).ToArray();
-        return cells.Length <= 64 ? cells : null;
+        var cells = _cells.Where(cell => cell.Serial > serial).Select(cell => (cell.Sheet, cell.Address)).Distinct().Take(4097).ToArray();
+        return cells.Length <= 4096 ? cells : null;
     }
     private void Changed(object sheet, object target)
     {
@@ -28,7 +29,7 @@ internal sealed class LiveExcelChanges : IDisposable
             int row, column, height, width;
             try { row = (int)range.Row; column = (int)range.Column; height = (int)rows.Count; width = (int)columns.Count; }
             finally { if (Marshal.IsComObject(rows)) Marshal.ReleaseComObject(rows); if (Marshal.IsComObject(columns)) Marshal.ReleaseComObject(columns); }
-            if ((long)height * width > 64 || _cells.Count > 128) { _cells.Clear(); _full = serial; return; }
+            if ((long)height * width > 4096 || _cells.Count > 16384) { _cells.Clear(); _full = serial; return; }
             string name = ((dynamic)sheet).Name;
             for (int r = row; r < row + height; r++) for (int c = column; c < column + width; c++)
             {

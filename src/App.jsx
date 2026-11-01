@@ -21,6 +21,7 @@ import BoardMinimap from './components/BoardMinimap.jsx';
 import { BoardFileUpload, BoardFileDownloads } from './components/BoardFiles.jsx';
 import PreparedLessonBoard from './components/PreparedLessonBoard.jsx';
 import {preparedRuntimeFiles} from './utils/preparedRuntimeFiles.js';
+import {PYODIDE_INDEX_URL,PYODIDE_FALLBACK_URL} from './python/pyodideRuntime.js';
 import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
 import {lessonBookForCodeRoom} from './utils/lessonPageSelection.js';
@@ -2579,40 +2580,28 @@ const isPythonTaskNumber = (value) => {
 
 const getPythonTaskInfo = (value) => PYTHON_TASK_MAP.get(Number(value)) || null;
 
-const PYODIDE_VERSION = '0.29.4';
-const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
-const PYODIDE_SCRIPT_URL = `${PYODIDE_INDEX_URL}pyodide.js`;
-
 const ensurePyodideReady = (() => {
   let pyodidePromise = null;
   return async () => {
     if (pyodidePromise) return pyodidePromise;
-    pyodidePromise = new Promise((resolve, reject) => {
+    pyodidePromise = (async () => {
       if (typeof window === 'undefined') {
-        reject(new Error('Pyodide доступен только в браузере.'));
-        return;
+        throw new Error('Pyodide доступен только в браузере.');
       }
-      if (window.loadPyodide) {
-        window.loadPyodide({ indexURL: PYODIDE_INDEX_URL })
-          .then(resolve)
-          .catch(reject);
-        return;
+      for (const indexURL of [PYODIDE_INDEX_URL, PYODIDE_FALLBACK_URL]) {
+        try {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = indexURL + 'pyodide.js';script.async = true;
+            script.onload = resolve;script.onerror = reject;
+            document.body.appendChild(script);
+          });
+          if (!window.loadPyodide) throw new Error('Python loader unavailable');
+          return await window.loadPyodide({indexURL});
+        } catch { /* Retry with the other matching runtime. */ }
       }
-      const script = document.createElement('script');
-      script.src = PYODIDE_SCRIPT_URL;
-      script.async = true;
-      script.onload = () => {
-        if (!window.loadPyodide) {
-          reject(new Error('Не удалось загрузить Pyodide.'));
-          return;
-        }
-        window.loadPyodide({ indexURL: PYODIDE_INDEX_URL })
-          .then(resolve)
-          .catch(reject);
-      };
-      script.onerror = () => reject(new Error('Ошибка загрузки Pyodide.'));
-      document.body.appendChild(script);
-    });
+      throw new Error('Не удалось загрузить Python. Проверьте соединение и повторите запуск.');
+    })().catch(error => {pyodidePromise = null;throw error;});
     return pyodidePromise;
   };
 })();

@@ -1,6 +1,5 @@
 import HEADLESS_TURTLE_SOURCE from './headless_turtle.py?raw';
-const PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v0.29.4/full/';
-const PYODIDE_SCRIPT_URL = `${PYODIDE_INDEX_URL}pyodide.js`;
+import {PYODIDE_INDEX_URL, PYODIDE_FALLBACK_URL} from './pyodideRuntime.js';
 const PYODIDE_STREAM_CHUNK_CHARS = 2048;
 const PYODIDE_TURTLE_SCENE_JSON_LIMIT = 4 * 1024 * 1024;
 const PYODIDE_TURTLE_SCENE_PRIMITIVE_LIMIT = 20_000;
@@ -10,21 +9,16 @@ export const createPyodideWorker = () => {
     let pyodidePromise = null;
     const ensurePyodide = () => {
       if (pyodidePromise) return pyodidePromise;
-      pyodidePromise = new Promise((resolve, reject) => {
-        try {
-          importScripts(${JSON.stringify(PYODIDE_SCRIPT_URL)});
-        } catch (err) {
-          reject(err);
-          return;
+      pyodidePromise = (async () => {
+        for (const indexURL of ${JSON.stringify([PYODIDE_INDEX_URL, PYODIDE_FALLBACK_URL])}) {
+          try {
+            importScripts(indexURL + 'pyodide.js');
+            if (!self.loadPyodide) throw new Error('Python loader unavailable');
+            return await self.loadPyodide({ indexURL });
+          } catch { /* Try the other complete, matching runtime. */ }
         }
-        if (!self.loadPyodide) {
-          reject(new Error('Pyodide loader not available'));
-          return;
-        }
-        self.loadPyodide({ indexURL: ${JSON.stringify(PYODIDE_INDEX_URL)} })
-          .then(resolve)
-          .catch(reject);
-      });
+        throw new Error('Не удалось загрузить Python. Проверьте соединение и нажмите «Запустить» ещё раз. Файлы задачи не изменены.');
+      })().catch(error => { pyodidePromise = null; throw error; });
       return pyodidePromise;
     };
 

@@ -264,6 +264,13 @@ internal static class SelfTest
             Assert(sparse.Any(other => System.Text.Json.Nodes.JsonNode.DeepEquals(change, other)), "Sparse sync changed a value or its conflict version");
         Assert(LiveWorkbookBook.Differences(after, after, versions, 3, touched).Count == 0, "Unchanged touched properties must not create edits");
         Assert(LiveWorkbookBook.Structural(before, after, full) == LiveWorkbookBook.Structural(before, after, sparse), "Sparse sync must retain structural-change guards");
+        var moved = (System.Text.Json.Nodes.JsonObject)before.DeepClone();
+        moved["sheets"]![0]!["cells"]!.AsObject().Remove("A1");
+        moved["sheets"]![0]!["cells"]!["D1"] = before["sheets"]![0]!["cells"]!["A1"]!.DeepClone();
+        var movedChanges=LiveWorkbookBook.Differences(before,moved,versions,3);
+        Assert(!LiveWorkbookBook.Structural(before,moved,movedChanges),"Moving existing numbers must retain atomic cell versions instead of replacing the whole book");
+        moved["sheets"]![0]!["name"]="Renamed";
+        Assert(LiveWorkbookBook.Structural(before,moved,movedChanges),"Renaming a sheet must retain its structural guard");
     }
 
     private static void TestPresenceHover()

@@ -18,9 +18,13 @@ internal sealed class LiveWorkbookBook
     public bool IncludeFormatting { get; set; }
     private readonly Dictionary<string, string> _identities = [];
     private readonly Dictionary<string, string> _names = [];
+    private bool _sharedDefaults;
+    private JsonNode? _defaultFormat;
+    public void UseDefaults(JsonNode? defaults) { _sharedDefaults = true; _defaultFormat = defaults?.DeepClone(); }
     public IReadOnlyDictionary<string, string> SheetNames => _names;
     public void UseNames(JsonObject book)
     {
+        if (IncludeFormatting) UseDefaults(book["defaultFormat"]);
         _names.Clear();
         foreach (var sheet in book["sheets"]!.AsArray()) _names[sheet!["id"]!.GetValue<string>()] = sheet["name"]!.GetValue<string>();
     }
@@ -84,12 +88,16 @@ internal sealed class LiveWorkbookBook
                 else if (kind == "b") content = new() { ["kind"] = "boolean", ["value"] = raw == "1" };
                 else if (kind == "e") throw new FormatException($"В ячейке {name}!{address} ошибка без формулы. Исправьте её перед подключением.");
                 else if (!string.IsNullOrEmpty(raw) && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)) content = new() { ["kind"] = "number", ["value"] = number };
+                // Empty inline/shared strings are blank cells in both native
+                // APIs. Keeping a distinct text("") value makes an otherwise
+                // matching range fail its conditional-write precondition.
+                if (content["kind"]!.GetValue<string>() == "text" && content["value"]!.GetValue<string>().Length == 0) content = new() { ["kind"] = "empty" };
                 var styleIndex = (int?)cell.Attribute("s") ?? 0;
                 var fillIndex = styleIndex < fillIds.Length ? fillIds[styleIndex] : 0;
                 int? fill = fillIndex < fills.Length ? fills[fillIndex] : null;
                 int borderIndex = styleIndex < borderIds.Length ? borderIds[styleIndex] : 0;
                 var borders = IncludeBorders && borderIndex < borderStyles.Length ? borderStyles[borderIndex] : null;
-                var format=IncludeFormatting&&styleIndex<formats.Length?LiveWorkbookFormatting.Relative(formats[styleIndex],formats[0]):null;
+                var format=IncludeFormatting&&styleIndex<formats.Length?LiveWorkbookFormatting.Relative(formats[styleIndex],_sharedDefaults?_defaultFormat:formats[0]):null;
                 if (content["kind"]!.GetValue<string>() == "empty" && fill is null && borders is null&&format is null) continue;
                 if (++count > 250000) throw new LiveWorkbookCapacityException("В совместном режиме допускается до 250 000 заполненных ячеек");
                 cells[address] = new JsonObject { ["content"] = content, ["fill"] = fill };
@@ -107,7 +115,8 @@ internal sealed class LiveWorkbookBook
         _names.Clear(); foreach (var item in currentNames) _names[item.Key] = item.Value;
         if (output.Count is < 1 or > 16) throw new FormatException("Для совместного режима нужна книга от 1 до 16 листов");
         var book=new JsonObject{["sheets"]=output};
-        if(IncludeFormatting&&formats[0] is not null)book["defaultFormat"]=formats[0]!.DeepClone();
+        var defaults=_sharedDefaults?_defaultFormat:formats[0];
+        if(IncludeFormatting&&defaults is not null)book["defaultFormat"]=defaults.DeepClone();
         return book;
     }
     public static JsonObject EmptyCell() => new() { ["content"] = new JsonObject { ["kind"] = "empty" }, ["fill"] = null };
@@ -160,16 +169,11 @@ internal sealed class LiveWorkbookBook
         if (!SameSheets(before, after)||!SameDefaults(before,after)) return true;
         var oldFilters = before["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!["filter"]);
         if (after["sheets"]!.AsArray().Any(sheet => !JsonNode.DeepEquals(oldFilters[sheet!["id"]!.GetValue<string>()], sheet["filter"]))) return true;
-        var sheets = before["sheets"]!.AsArray().ToDictionary(sheet => sheet!["id"]!.GetValue<string>(), sheet => sheet!["cells"]!.AsObject());
-        var prior = new HashSet<string>(); var next = new HashSet<string>();
-        foreach (var change in changes)
-        {
-            if (change!["property"]!.GetValue<string>() != "content") continue;
-            var old = (sheets[change["sheetId"]!.GetValue<string>()][change["address"]!.GetValue<string>()] ?? EmptyCell())["content"]!;
-            if (old["kind"]!.GetValue<string>() != "empty") prior.Add(old.ToJsonString());
-            if (change["value"]!["kind"]!.GetValue<string>() != "empty") next.Add(change["value"]!.ToJsonString());
-        }
-        return changes.Count > 1 && prior.Overlaps(next);
+        // Repeated values do not identify a structural operation. Copy/paste,
+        // fill and range moves commonly reuse numbers already in the book.
+        // Send their complete cell delta atomically, retaining per-property
+        // versions, rather than replacing unrelated concurrent pupil edits.
+        return false;
     }
     public static bool SameSheets(JsonObject before, JsonObject after) =>
         before["sheets"]!.AsArray().Select(sheet => sheet!["id"] + "/" + sheet["name"]).SequenceEqual(

@@ -100,7 +100,7 @@ class ChangeCounter(unohelper.Base, XModifyListener, XChangesListener):
                     self.full = self.serial
                     continue
                 area = change.ReplacedElement.getRangeAddress()
-                if (area.EndRow - area.StartRow + 1) * (area.EndColumn - area.StartColumn + 1) > 64:
+                if (area.EndRow - area.StartRow + 1) * (area.EndColumn - area.StartColumn + 1) > 4096:
                     self.full = self.serial
                     continue
                 self.ranges.append((self.serial, area))
@@ -189,19 +189,24 @@ class Calc:
         self._draft_serial = -1
         self._shape_rectangles = {}
 
-    def read(self, sheet, address, formatting=True):
-        cell = sheet.getCellRangeByName(address)
+    def read_content(self, cell):
         kind = cell.getType().value
         if kind == 'EMPTY':
             content = {'kind': 'empty'}
         elif kind == 'VALUE':
             content = {'kind': 'number', 'value': cell.getValue()}
         elif kind == 'TEXT':
-            content = {'kind': 'text', 'value': cell.getString()}
+            text = cell.getString()
+            content = {'kind': 'text', 'value': text} if text else {'kind': 'empty'}
         else:
             formula = self.parser.printFormula(cell.getTokens(), cell.getCellAddress())
             expression = formula.lstrip('=')
             content = {'kind': 'boolean', 'value': expression == 'TRUE()'} if expression in ('TRUE()', 'FALSE()') else {'kind': 'formula', 'value': '=' + expression}
+        return content
+
+    def read(self, sheet, address, formatting=True):
+        cell = sheet.getCellRangeByName(address)
+        content = self.read_content(cell)
         color = cell.getPropertyValue('CellBackColor')
         fill = None if cell.getPropertyValue('IsCellBackgroundTransparent') or color < 0 else int(color)
         result = {'content': content, 'fill': fill}
@@ -236,7 +241,7 @@ class Calc:
     @staticmethod
     def number_format(code):
         code = re.sub(r'\[\$-[a-zA-Z0-9-]+\]', '', code)
-        if re.fullmatch(r'(?:general|standard|стандарт|основной|общий)', code, re.I):
+        if re.fullmatch(r'(?:general|standard|стандарт|основной|общий|boolean)', code, re.I):
             return 'General'
         def token(match):
             value = match[0]
@@ -328,7 +333,7 @@ class Calc:
         key = formats.queryKey(code, locale, True)
         cell.NumberFormat = key if key >= 0 else formats.addNew(code, locale)
 
-    def write_formats(self, sheet, entries):
+    def write_ranges(self, sheet, entries, write):
         # Apply common styles to compact native areas, not through a dozen UNO
         # calls per cell in a 30,000-cell teaching file.
         groups = {}
@@ -365,7 +370,16 @@ class Calc:
             for start in range(0, len(rectangles), 100):
                 ranges = self.doc.createInstance('com.sun.star.sheet.SheetCellRanges')
                 ranges.addRangeAddresses(tuple(rectangles[start:start + 100]), False)
-                self.write_format(ranges, json.loads(key))
+                write(ranges, json.loads(key))
+
+    def write_formats(self, sheet, entries):
+        self.write_ranges(sheet, entries, self.write_format)
+
+    def write_fills(self, sheet, entries):
+        def fill(ranges, value):
+            ranges.IsCellBackgroundTransparent = value is None
+            ranges.CellBackColor = -1 if value is None else value
+        self.write_ranges(sheet, entries, fill)
 
     def read_metadata(self, formats=()):
         # Merge discovery from a native export avoids a COM/UNO call per cell
@@ -378,6 +392,9 @@ class Calc:
                 rel = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id'
                 links = {item.attrib['Id']: item.attrib['Target'] for item in ET.fromstring(archive.read('xl/_rels/workbook.xml.rels'))}
                 result, values, style_cache = {}, {}, {}
+                styles = ET.fromstring(archive.read('xl/styles.xml'))
+                fonts = [item.find(ns + 'name').get('val') if item.find(ns + 'name') is not None else None for item in styles.find(ns + 'fonts')]
+                cell_styles = list(styles.find(ns + 'cellXfs'))
                 for sheet in ET.fromstring(archive.read('xl/workbook.xml')).find(ns + 'sheets'):
                     path = links[sheet.attrib[rel]].replace('\\', '/')
                     path = path.lstrip('/') if path.startswith('/') else 'xl/' + path
@@ -390,7 +407,16 @@ class Calc:
                     native = self.doc.Sheets.getByName(sheet.attrib['name'])
                     for address in wanted:
                         if address in present and present[address] not in style_cache:
-                            style_cache[present[address]] = self.relative_format(self.read_format(native.getCellRangeByName(address)), self._default_format)
+                            absolute = self.read_format(native.getCellRangeByName(address)) or {}
+                            # UNO may return the substituted display font
+                            # (Liberation Sans for an imported Arial default).
+                            # Compare the declared exported font, as the durable
+                            # model does, rather than reporting a local edit.
+                            style = cell_styles[int(present[address])]
+                            declared = fonts[int(style.get('fontId', '0'))]
+                            if declared:
+                                absolute.setdefault('font', {})['name'] = declared
+                            style_cache[present[address]] = self.relative_format(absolute, self._default_format)
                         values[(native.Name, address)] = style_cache[present[address]] if address in present else None
                         if address in present and len(nodes[address]) == 0 and values[(native.Name, address)] is None:
                             cell = self.read(native, address, False)
@@ -484,10 +510,16 @@ class Calc:
             selected = self.doc.getCurrentController().getSelection()
             area = selected.getRangeAddress() if hasattr(selected, 'getRangeAddress') else None
             key = (area.Sheet, area.StartRow, area.StartColumn, area.EndRow, area.EndColumn) if area else None
+            if command.get('inspectSelection') and area:
+                self.changes.serial += 1
+                if (area.EndRow - area.StartRow + 1) * (area.EndColumn - area.StartColumn + 1) <= 4096:
+                    self.changes.ranges.append((self.changes.serial, area))
+                else:
+                    self.changes.full = self.changes.serial
             if self._cell_watch and self._cell_watch[0] != key:
                 self._cell_watch[1].removeModifyListener(self._cell_watch[2])
                 self._cell_watch = None
-            if key and not self._cell_watch and (area.EndRow - area.StartRow + 1) * (area.EndColumn - area.StartColumn + 1) <= 64:
+            if key and not self._cell_watch and (area.EndRow - area.StartRow + 1) * (area.EndColumn - area.StartColumn + 1) <= 4096:
                 listener = RangeCounter(self.changes, area)
                 selected.addModifyListener(listener)
                 self._cell_watch = (key, selected, listener)
@@ -511,7 +543,7 @@ class Calc:
                                     if formatting:
                                         value['format'] = formatting
                                 cells[(sheet.Name, address)] = {'sheetName': sheet.Name, 'address': address, 'value': value, 'formatKnown': known}
-                if 0 < len(cells) <= 64:
+                if 0 < len(cells) <= 12288:
                     result['cells'] = list(cells.values())
             return result
         if kind == 'activate':
@@ -589,10 +621,26 @@ class Calc:
             layouts, formats = self.read_metadata(formatting) if formatting or any(change['property'] == 'layout' for change in command['changes']) else ({}, {})
             for change in command['changes']:
                 sheet = self.doc.Sheets.getByName(change['sheetName'])
-                actual = None if kind != 'apply' else layouts.get(sheet.Name) if change['property'] == 'layout' else formats.get((sheet.Name, change['address'])) if change['property'] == 'format' else self.read(sheet, change['address'], False).get(change['property'])
-                if kind == 'apply' and actual != change['expected']:
-                    return {'skipped': True}
+                actual = None
+                if kind == 'apply':
+                    property = change['property']
+                    if property == 'layout':
+                        actual = layouts.get(sheet.Name)
+                    elif property == 'format':
+                        actual = formats.get((sheet.Name, change['address']))
+                    elif property == 'content':
+                        actual = self.read_content(sheet.getCellRangeByName(change['address']))
+                    elif property == 'fill':
+                        cell = sheet.getCellRangeByName(change['address'])
+                        color = cell.CellBackColor
+                        actual = None if cell.IsCellBackgroundTransparent or color < 0 else int(color)
+                    else:
+                        actual = self.read_borders(sheet, change['address'])
+                if kind == 'apply' and actual != change['expected'] and actual != change['value']:
+                    return {'skipped': True, 'address': change['address'], 'property': change['property'], 'actual': actual, 'expected': change['expected'], 'desired': change['value']}
             self.doc.lockControllers()
+            automatic = self.doc.isAutomaticCalculationEnabled()
+            self.doc.enableAutomaticCalculation(False)
             if kind == 'apply':
                 self.changes.ignored += 1
             try:
@@ -600,12 +648,24 @@ class Calc:
                     if change['property'] == 'layout':
                         self.merge(self.doc.Sheets.getByName(change['sheetName']), layouts.get(change['sheetName']), False)
                 for change in command['changes']:
-                    if change['property'] != 'layout':
+                    if change['property'] not in ('layout', 'format', 'fill'):
                         self.write(self.doc.Sheets.getByName(change['sheetName']), change['address'], change['property'], change['value'])
+                grouped_fills = {}
+                for change in command['changes']:
+                    if change['property'] == 'fill':
+                        grouped_fills.setdefault(change['sheetName'], {})[change['address']] = change['value']
+                for name, entries in grouped_fills.items():
+                    self.write_fills(self.doc.Sheets.getByName(name), entries)
+                grouped_formats = {}
+                for change in formatting:
+                    grouped_formats.setdefault(change['sheetName'], {})[change['address']] = change['value']
+                for name, entries in grouped_formats.items():
+                    self.write_formats(self.doc.Sheets.getByName(name), entries)
                 for change in command['changes']:
                     if change['property'] == 'layout':
                         self.merge(self.doc.Sheets.getByName(change['sheetName']), change['value'], True)
             finally:
+                self.doc.enableAutomaticCalculation(automatic)
                 self.doc.unlockControllers()
                 if kind == 'apply':
                     self.changes.ignored -= 1
@@ -1043,10 +1103,11 @@ class Calc:
         view = self.capture_view()
         self.changes.ignored += 1
         self.doc.lockControllers()
+        automatic = self.doc.isAutomaticCalculationEnabled()
+        self.doc.enableAutomaticCalculation(False)
         try:
             if self.args.formatting:
-                if self._default_format != book.get('defaultFormat'):
-                    self.write_format(self.doc.StyleFamilies.getByName('CellStyles').getByName('Default'), book.get('defaultFormat'), absolute=True)
+                self.write_format(self.doc.StyleFamilies.getByName('CellStyles').getByName('Default'), book.get('defaultFormat'), absolute=True)
                 self._default_format = book.get('defaultFormat')
             while self.doc.Sheets.getCount() < len(sheets):
                 self.doc.Sheets.insertNewByName('_iv_new_' + uuid.uuid4().hex[:8], self.doc.Sheets.getCount())
@@ -1070,8 +1131,7 @@ class Calc:
                     for address, cell in prior['cells'].items():
                         if cell.get('borders'):
                             self.write(sheet, address, 'borders', None)
-                        if cell['fill'] is not None:
-                            self.write(sheet, address, 'fill', None)
+                    self.write_fills(sheet, {address: None for address, cell in prior['cells'].items() if cell['fill'] is not None})
                     if self.args.formatting:
                         self.write_formats(sheet, {address: None for address, cell in prior['cells'].items() if cell.get('format')})
             for source in sheets:
@@ -1097,16 +1157,16 @@ class Calc:
                 for address, value in source['cells'].items():
                     if not bulk or value['content']['kind'] in ('formula', 'boolean'):
                         self.write(sheet, address, 'content', value['content'])
-                    if value['fill'] is not None:
-                        self.write(sheet, address, 'fill', value['fill'])
+                self.write_fills(sheet, {address: cell['fill'] for address, cell in source['cells'].items() if cell['fill'] is not None})
                 for address, value in source['cells'].items():
                     if value.get('borders'):
                         self.write(sheet, address, 'borders', value['borders'])
                 if self.args.formatting:
-                    self.write_formats(sheet, {address: cell['format'] for address, cell in source['cells'].items() if cell.get('format')})
+                    self.write_formats(sheet, {address: cell.get('format') for address, cell in source['cells'].items()})
                     self.merge(sheet, source.get('layout'), True)
                 self.apply_filter(sheet, source.get('filter'))
         finally:
+            self.doc.enableAutomaticCalculation(automatic)
             self.doc.unlockControllers()
             self.restore_view(view)
             self.changes.ignored -= 1

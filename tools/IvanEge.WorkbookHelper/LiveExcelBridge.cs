@@ -14,6 +14,7 @@ internal sealed class LiveExcelBridge : IDisposable
     private readonly bool _borders;
     private readonly bool _formatting;
     private JsonObject? _defaultFormat;
+    private readonly Dictionary<string,string> _formatStyles=[];
     private readonly LiveExcelChanges _changes = null!;
     private static void Release(object? value) { if (value is not null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value); }
 
@@ -59,7 +60,15 @@ internal sealed class LiveExcelBridge : IDisposable
     }
 
     private dynamic Sheet(string name) => _book.Worksheets[name];
-    private JsonObject ReadCell(dynamic sheet, string address, bool includeFormatting = true)
+    private static JsonObject NativeContent(object? value, string? formula = null)
+    {
+        if(formula is not null)return new(){["kind"]="formula",["value"]=formula.Replace("_xlfn.","",StringComparison.Ordinal)};
+        if(value is null or DBNull || value is string { Length: 0 })return new(){["kind"]="empty"};
+        if(value is string text)return new(){["kind"]="text",["value"]=text};
+        if(value is bool boolean)return new(){["kind"]="boolean",["value"]=boolean};
+        return new(){["kind"]="number",["value"]=Convert.ToDouble(value)};
+    }
+    private JsonObject ReadCell(dynamic sheet, string address, bool includeFormatting = true, bool includeBorders = true)
     {
         dynamic cell = sheet.Range[address]; dynamic interior = cell.Interior;
         try
@@ -67,7 +76,7 @@ internal sealed class LiveExcelBridge : IDisposable
             object? value = cell.Value2; JsonObject content;
             if ((bool)cell.HasFormula) content = new() { ["kind"] = "formula", ["value"] = ((string)cell.Formula).Replace("_xlfn.", "", StringComparison.Ordinal) };
             else if (value is null) content = new() { ["kind"] = "empty" };
-            else if (value is string text) content = new() { ["kind"] = "text", ["value"] = text };
+            else if (value is string text) content = text.Length == 0 ? new() { ["kind"] = "empty" } : new() { ["kind"] = "text", ["value"] = text };
             else if (value is bool boolean) content = new() { ["kind"] = "boolean", ["value"] = boolean };
             else content = new() { ["kind"] = "number", ["value"] = Convert.ToDouble(value) };
             int? fill = null;
@@ -76,7 +85,7 @@ internal sealed class LiveExcelBridge : IDisposable
                 var color = Convert.ToInt32(interior.Color); fill = (color & 255) << 16 | color & 0x00ff00 | color >> 16 & 255;
             }
             var result = new JsonObject { ["content"] = content, ["fill"] = fill };
-            var borders = _borders ? LiveWorkbookBorders.ReadExcel(sheet, address) : null; if (borders is not null) result["borders"] = borders;
+            var borders = _borders && includeBorders ? LiveWorkbookBorders.ReadExcel(sheet, address) : null; if (borders is not null) result["borders"] = borders;
             if (_formatting && includeFormatting && LiveWorkbookFormatting.Relative(LiveWorkbookFormatting.ReadExcel(sheet, address),_defaultFormat) is JsonObject format) result["format"] = format;
             return result;
         }
@@ -87,7 +96,16 @@ internal sealed class LiveExcelBridge : IDisposable
         dynamic cell = LiveWorkbookFormatting.ExcelRange((object)sheet,address);
         try
         {
-            if (property == "format") LiveWorkbookFormatting.WriteExcel(sheet, address, LiveWorkbookFormatting.Resolve(value,_defaultFormat));
+            if (property == "format")
+            {
+                var absolute=LiveWorkbookFormatting.Resolve(value,_defaultFormat);string key=absolute.ToJsonString();
+                if(!_formatStyles.TryGetValue(key,out string? style))
+                {
+                    style="IVAN100_"+Guid.NewGuid().ToString("N");
+                    LiveWorkbookFormatting.CreateExcelStyle(_book,style,absolute);_formatStyles.Add(key,style);
+                }
+                cell.Style=style;
+            }
             else if (property == "borders") LiveWorkbookBorders.WriteExcel(sheet, address, value);
             else if (property == "fill")
             {
@@ -156,6 +174,11 @@ internal sealed class LiveExcelBridge : IDisposable
     public object Execute(JsonObject command)
     {
         bool preserve = command["type"]!.GetValue<string>() is "snapshot" or "save" or "apply" or "replace" or "filters";
+        // SaveCopyAs cancels Excel's native copy buffer, including Paste
+        // Special. Remote writes do too. Read/publish committed cells while
+        // copying, and leave exports/incoming writes queued until it ends.
+        if (preserve && Convert.ToInt32(_app.CutCopyMode) != 0)
+            throw new COMException("Excel принимает операцию копирования или вставки", unchecked((int)0x800AC472));
         var view = preserve ? CaptureView() : null;
         try { return ExecuteCore(command); }
         finally { if (view is not null) RestoreView(view); }
@@ -167,19 +190,76 @@ internal sealed class LiveExcelBridge : IDisposable
             case "read-cell":
                 dynamic readSheet=Sheet(command["sheetName"]!.GetValue<string>()); try { return new { cell=ReadCell(readSheet,command["address"]!.GetValue<string>()) }; } finally { Release(readSheet); }
             case "pulse":
+                if (command["inspectSelection"]?.GetValue<bool>() == true)
+                {
+                    dynamic inspectSheet = _app.ActiveSheet, inspectRange = _app.Selection;
+                    try { _changes.Inspect(inspectSheet, inspectRange); }
+                    finally { Release(inspectRange); Release(inspectSheet); }
+                }
                 var pulse = Pulse(command["peers"] as JsonArray ?? []);
+                pulse["clipboardBusy"] = Convert.ToInt32(_app.CutCopyMode) != 0;
                 var edits = _changes.CellsSince(command["sinceSerial"]?.GetValue<long>() ?? -1)?.ToArray();
                 if (edits is { Length: > 0 })
                 {
                     var cells = new JsonArray();
-                    foreach (var edit in (_borders ? edits.SelectMany(edit => { var (col,row)=LiveWorkbookBorders.Position(edit.Address); return new (string Sheet,string Address)[]{edit,(edit.Sheet,LiveWorkbookBorders.Address(Math.Max(1,col-1),row)),(edit.Sheet,LiveWorkbookBorders.Address(col,Math.Max(1,row-1)))}; }).Distinct() : edits))
+                    var expanded=(_borders ? edits.SelectMany(edit => { var (col,row)=LiveWorkbookBorders.Position(edit.Address); return new (string Sheet,string Address)[]{edit,(edit.Sheet,LiveWorkbookBorders.Address(Math.Max(1,col-1),row)),(edit.Sheet,LiveWorkbookBorders.Address(col,Math.Max(1,row-1)))}; }).Distinct() : edits).ToArray();
+                    var uniformFormats=new Dictionary<(string Sheet,string Address),JsonObject?>();
+                    var withoutBorders=new HashSet<(string Sheet,string Address)>();
+                    var bulkContents=new Dictionary<(string Sheet,string Address),JsonObject>();
+                    var bulkFills=new Dictionary<(string Sheet,string Address),int?>();
+                    foreach(var group in expanded.GroupBy(edit=>edit.Sheet))
+                    {
+                        dynamic sheet=Sheet(group.Key);
+                        try
+                        {
+                            foreach(string area in LiveWorkbookFormatting.CompactRanges(group.Select(edit=>edit.Address)))
+                            {
+                                var ends=area.Split(':');var first=Position(ends[0]);var last=Position(ends[^1]);
+                                JsonObject? absolute=null;
+                                bool uniform=_formatting&&LiveWorkbookFormatting.TryUniformExcel(sheet,area,out absolute);
+                                JsonObject? relative=uniform?LiveWorkbookFormatting.Relative(absolute,_defaultFormat):null;
+                                dynamic scanRange=sheet.Range[area],scanBorders=scanRange.Borders,scanFill=scanRange.Interior;
+                                try
+                                {
+                                    object? line=scanBorders.LineStyle,hasFormula=scanRange.HasFormula,pattern=scanFill.Pattern;
+                                    bool none=line is not null and not DBNull&&Convert.ToInt32(line)==-4142;
+                                    object? rawValues=hasFormula is bool?(object?)scanRange.Value2:null;
+                                    object? rawFormulas=hasFormula is true?(object?)scanRange.Formula:null;
+                                    object? rawColor=pattern is not null and not DBNull&&Convert.ToInt32(pattern)!=-4142?scanFill.Color:null;
+                                    // Mixed Interior.Color can report zero as
+                                    // well as black. Cache only a uniform
+                                    // no-fill range; colored/mixed cells keep
+                                    // their individual native color reads.
+                                    bool fillKnown=pattern is not null and not DBNull&&Convert.ToInt32(pattern)==-4142;
+                                    int? fill=null;if(rawColor is not null and not DBNull){int c=Convert.ToInt32(rawColor);fill=(c&255)<<16|c&0xff00|c>>16&255;}
+                                    static object? At(object? data,int row,int col)=>data is Array a?a.GetValue(row+a.GetLowerBound(0),col+a.GetLowerBound(1)):data;
+                                    for(int row=first.Row;row<=last.Row;row++)for(int col=first.Column;col<=last.Column;col++)
+                                    {
+                                        var key=(group.Key,LiveWorkbookBorders.Address(col,row));
+                                        if(uniform)uniformFormats[key]=relative;
+                                        if(none)withoutBorders.Add(key);
+                                        if(fillKnown)bulkFills[key]=fill;
+                                        if(hasFormula is bool formula)bulkContents[key]=NativeContent(At(rawValues,row-first.Row,col-first.Column),formula?(string?)At(rawFormulas,row-first.Row,col-first.Column):null);
+                                    }
+                                }
+                                finally{Release(scanFill);Release(scanBorders);Release(scanRange);}
+                            }
+                        }
+                        finally{Release(sheet);}
+                    }
+                    foreach (var edit in expanded)
                     {
                         dynamic sheet = Sheet(edit.Sheet);
                         try
                         {
-                            var value=ReadCell(sheet,edit.Address,false);
+                            var value=bulkContents.TryGetValue(edit,out var content)&&bulkFills.TryGetValue(edit,out var fill)&&(!_borders||withoutBorders.Contains(edit))
+                                ?new JsonObject{["content"]=content.DeepClone(),["fill"]=fill}:ReadCell(sheet,edit.Address,false,!withoutBorders.Contains(edit));
                             bool known=_formatting&&(value["content"]!["kind"]!.GetValue<string>()!="empty"||value["fill"] is not null||value["borders"] is not null);
-                            if(known&&LiveWorkbookFormatting.Relative(LiveWorkbookFormatting.ReadExcel(sheet,edit.Address),_defaultFormat) is JsonObject format)value["format"]=format;
+                            if(known)
+                            {
+                                var format=uniformFormats.TryGetValue(edit,out var cached)?cached?.DeepClone():LiveWorkbookFormatting.Relative(LiveWorkbookFormatting.ReadExcel(sheet,edit.Address),_defaultFormat);
+                                if(format is not null)value["format"]=format;
+                            }
                             cells.Add(new JsonObject{["sheetName"]=edit.Sheet,["address"]=edit.Address,["value"]=value,["formatKnown"]=known});
                         }
                         finally{Release(sheet);}
@@ -188,6 +268,17 @@ internal sealed class LiveExcelBridge : IDisposable
                 }
                 return pulse;
             case "fixture-title": _app.Caption=command["title"]!.GetValue<string>(); return new{titled=true};
+            case "fixture-copy":
+                dynamic copySheet = Sheet(command["sheetName"]!.GetValue<string>()), copyRange = copySheet.Range[command["range"]!.GetValue<string>()];
+                try { copyRange.Copy(); return new { copyMode = Convert.ToInt32(_app.CutCopyMode) }; }
+                finally { Release(copyRange); Release(copySheet); }
+            case "fixture-clipboard":
+                if (command["cancel"]?.GetValue<bool>() == true) _app.CutCopyMode = false;
+                return new { copyMode = Convert.ToInt32(_app.CutCopyMode) };
+            case "fixture-paste":
+                dynamic pasteSheet = Sheet(command["sheetName"]!.GetValue<string>()), pasteRange = pasteSheet.Range[command["address"]!.GetValue<string>()];
+                try { pasteRange.PasteSpecial(Paste: command["formats"]?.GetValue<bool>() == true ? -4122 : -4163); return new { pasted = true, copyMode = Convert.ToInt32(_app.CutCopyMode) }; }
+                finally { Release(pasteRange); Release(pasteSheet); }
             case "fixture-quiet-format":
                 bool previousEvents=_app.EnableEvents;_app.EnableEvents=false;
                 dynamic quietSheet=Sheet(command["sheetName"]!.GetValue<string>());
@@ -406,14 +497,26 @@ internal sealed class LiveExcelBridge : IDisposable
         var metadata = changes.Any(change => change!["property"]!.GetValue<string>() is "layout" or "format") ? ReadMetadata() : null;
         var sheets = metadata?["sheets"]!.AsArray().ToDictionary(sheet => sheet!["name"]!.GetValue<string>(), sheet => sheet!);
         var layouts = sheets?.ToDictionary(item => item.Key, item => item.Value["layout"] as JsonObject) ?? [];
+        var actualCells = new Dictionary<(string Sheet, string Address), JsonObject>();
         foreach (var change in changes)
         {
             string name = change!["sheetName"]!.GetValue<string>(), property = change["property"]!.GetValue<string>();
             dynamic sheet = Sheet(name);
             try
             {
-                JsonNode? actual = !conditional ? null : property == "layout" ? layouts.GetValueOrDefault(name) : property == "format" ? sheets![name]["cells"]![change["address"]!.GetValue<string>()]?["format"] : ReadCell(sheet, change["address"]!.GetValue<string>(), false)[property];
-                if (conditional && !JsonNode.DeepEquals(actual, change["expected"])) return new { skipped = true };
+                string address = change["address"]!.GetValue<string>();
+                JsonNode? actual = null;
+                if (conditional)
+                {
+                    if (property == "layout") actual = layouts.GetValueOrDefault(name);
+                    else if (sheets is not null) actual = LiveWorkbookBook.Value(sheets[name], address, property);
+                    else
+                    {
+                        if (!actualCells.TryGetValue((name, address), out var cell)) actualCells[(name, address)] = cell = ReadCell(sheet, address, false);
+                        actual = cell[property];
+                    }
+                }
+                if (conditional && !JsonNode.DeepEquals(actual, change["expected"]) && !JsonNode.DeepEquals(actual, change["value"])) return new { skipped = true, address, property, actual = actual?.DeepClone(), expected = change["expected"]?.DeepClone(), desired = change["value"]?.DeepClone() };
             }
             finally { Release(sheet); }
         }
@@ -428,7 +531,34 @@ internal sealed class LiveExcelBridge : IDisposable
                 try { LiveWorkbookFormatting.UnmergeExcel(sheet, layouts.GetValueOrDefault((string)sheet.Name)); }
                 finally { Release(sheet); }
             }
-            foreach (var change in changes.Where(change => change!["property"]!.GetValue<string>() != "layout"))
+            foreach (var group in changes.Where(change => change!["property"]!.GetValue<string>() == "content").GroupBy(change => change!["sheetName"]!.GetValue<string>()))
+            {
+                dynamic sheet = Sheet(group.Key);
+                try
+                {
+                    var contents = group.ToDictionary(c => c!["address"]!.GetValue<string>(), c => c!["value"]!);
+                    foreach (string area in LiveWorkbookFormatting.CompactRanges(contents.Keys))
+                    {
+                        var ends = area.Split(':'); var first = Position(ends[0]); var last = Position(ends[^1]);
+                        var values = new object?[last.Row-first.Row+1,last.Column-first.Column+1];
+                        for (int row=first.Row;row<=last.Row;row++) for(int column=first.Column;column<=last.Column;column++)
+                        {
+                            var content=contents[LiveWorkbookBorders.Address(column,row)];
+                            values[row-first.Row,column-first.Column]=content["kind"]!.GetValue<string>() switch
+                            { "number"=>content["value"]!.GetValue<double>(), "text"=>"'"+content["value"]!.GetValue<string>(), "formula"=>content["value"]!.GetValue<string>(), "boolean"=>content["value"]!.GetValue<bool>(), _=>null };
+                        }
+                        dynamic range=sheet.Range[area];try{range.Formula=values;}finally{Release(range);}
+                    }
+                }
+                finally { Release(sheet); }
+            }
+            foreach (var group in changes.Where(c => c!["property"]!.GetValue<string>() is "fill" or "format").GroupBy(c => (Sheet:c!["sheetName"]!.GetValue<string>(),Property:c["property"]!.GetValue<string>(),Value:c["value"]?.ToJsonString())))
+            {
+                dynamic sheet = Sheet(group.Key.Sheet);
+                try { foreach(string area in LiveWorkbookFormatting.CompactRanges(group.Select(c=>c!["address"]!.GetValue<string>()))) WriteCell(sheet,area,group.Key.Property,group.First()!["value"]); }
+                finally { Release(sheet); }
+            }
+            foreach (var change in changes.Where(change => change!["property"]!.GetValue<string>() == "borders"))
             {
                 dynamic sheet = Sheet(change!["sheetName"]!.GetValue<string>());
                 try { WriteCell(sheet, change["address"]!.GetValue<string>(), change["property"]!.GetValue<string>(), change["value"]); }
@@ -447,7 +577,7 @@ internal sealed class LiveExcelBridge : IDisposable
     private JsonObject ReadMetadata()
     {
         string file = Path.Combine(Path.GetDirectoryName(_localPath)!, "layout-" + Guid.NewGuid().ToString("N") + ".xlsx");
-        try { _book.SaveCopyAs(file); return new LiveWorkbookBook{IncludeFormatting=true}.Read(file); }
+        try { _book.SaveCopyAs(file); var reader=new LiveWorkbookBook{IncludeFormatting=true,IncludeBorders=_borders};reader.UseDefaults(_defaultFormat);return reader.Read(file); }
         finally { File.Delete(file); }
     }
 
@@ -463,7 +593,7 @@ internal sealed class LiveExcelBridge : IDisposable
         {
             // Reuse sheets in order, preserving workbook formatting and charts
             // outside changed cells; temporary names avoid rename collisions.
-            if(_formatting){if(!JsonNode.DeepEquals(_defaultFormat,book["defaultFormat"]))LiveWorkbookFormatting.WriteExcel(_book,"@",book["defaultFormat"]);_defaultFormat=book["defaultFormat"]?.DeepClone().AsObject();}
+            if(_formatting){LiveWorkbookFormatting.WriteExcel(_book,"@",book["defaultFormat"]);_defaultFormat=book["defaultFormat"]?.DeepClone().AsObject();}
             while ((int)_book.Worksheets.Count < sheets.Count) _book.Worksheets.Add(After: _book.Worksheets[_book.Worksheets.Count]);
             bool namesChanged = (int)_book.Worksheets.Count != sheets.Count;
             for (int index = 0; index < sheets.Count; index++)
@@ -494,7 +624,7 @@ internal sealed class LiveExcelBridge : IDisposable
                         var priorSheet = previous?["sheets"]?.AsArray().ElementAtOrDefault(index);
                         foreach (var oldBorder in priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["borders"] is not null) ?? []) {step="сброс границы "+oldBorder.Key;WriteCell(sheet, oldBorder.Key, "borders", null);}
                         foreach (string area in LiveWorkbookFormatting.CompactRanges((priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["format"] is not null) ?? []).Select(cell=>cell.Key))) {step="сброс формата "+area;WriteCell(sheet, area, "format", null);}
-                        foreach (var oldCell in priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["fill"] is not null) ?? []) {step="сброс заливки "+oldCell.Key;WriteCell(sheet, oldCell.Key, "fill", null);}
+                        foreach (string area in LiveWorkbookFormatting.CompactRanges((priorSheet?["cells"]?.AsObject().Where(cell => cell.Value!["fill"] is not null) ?? []).Select(cell=>cell.Key))) {step="сброс заливки "+area;WriteCell(sheet, area, "fill", null);}
                     }
                     finally { Release(used); }
                 }
@@ -527,7 +657,10 @@ internal sealed class LiveExcelBridge : IDisposable
                     step="границы";
                     foreach (var entry in cells.Where(cell => cell.Value!["borders"] is not null)) WriteCell(sheet, entry.Key, "borders", entry.Value!["borders"]);
                     Trace("before formatting");step="форматирование";
-                    foreach (var group in cells.Where(cell => cell.Value!["format"] is not null).GroupBy(cell => cell.Value!["format"]!.ToJsonString()))
+                    // Imported ODS cells can retain a concrete old default
+                    // style even after the workbook's named default changes.
+                    // Materialize the shared default on populated cells too.
+                    foreach (var group in (_formatting?cells:cells.Where(cell=>cell.Value!["format"] is not null)).GroupBy(cell => cell.Value!["format"]?.ToJsonString()??"null"))
                         foreach (string area in LiveWorkbookFormatting.CompactRanges(group.Select(cell => cell.Key))) WriteCell(sheet, area, "format", group.First().Value!["format"]);
                     Trace("after formatting");if (_formatting) LiveWorkbookFormatting.MergeExcel(sheet, source["layout"]);
                     ApplyFilter(sheet, source["filter"] as JsonObject);Trace("filter done");

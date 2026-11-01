@@ -17,7 +17,7 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'python-worker-input-'));
 test.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
 let workerSource;
 vm.runInNewContext(`${factory}\ncreatePyodideWorker();`, {
-  PYODIDE_SCRIPT_URL: '', PYODIDE_INDEX_URL: '', PYODIDE_STREAM_CHUNK_CHARS: 2048,
+  PYODIDE_INDEX_URL: 'https://platform.test/vendor/pyodide/0.29.4/', PYODIDE_FALLBACK_URL: 'https://cdn.example.test/0.29.4/', PYODIDE_STREAM_CHUNK_CHARS: 2048,
   PYODIDE_TURTLE_SCENE_JSON_LIMIT: 4194304, PYODIDE_TURTLE_SCENE_PRIMITIVE_LIMIT: 20000,
   HEADLESS_TURTLE_SOURCE: '', COLLAB_DEBUG_TRACE_LIMIT: 1500,
   Blob: class { constructor(parts) { workerSource = parts.join(''); } },

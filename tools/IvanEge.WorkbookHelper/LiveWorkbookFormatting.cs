@@ -85,7 +85,7 @@ internal static class LiveWorkbookFormatting
     public static string NumberFormat(string code)
     {
         code=Regex.Replace(code,@"\[\$-[a-zA-Z0-9-]+\]","");
-        if(Regex.IsMatch(code,@"^(?:General|Standard|Основной|Общий|Стандарт)$",RegexOptions.IgnoreCase))return "General";
+        if(Regex.IsMatch(code,@"^(?:General|Standard|Основной|Общий|Стандарт|BOOLEAN)$",RegexOptions.IgnoreCase))return "General";
         // Quoted literals and currency/locale codes are preserved. Format token
         // case and redundant escapes of punctuation differ between office engines.
         return Regex.Replace(code,"\"(?:[^\"]|\"\")*\"|\\[[^\\]]*\\]|\\\\.|[^\"\\[\\\\]+",m=>m.Value.StartsWith('"')||m.Value.StartsWith('[')?m.Value:m.Value.StartsWith('\\')&&m.Value.Length==2&&!char.IsLetterOrDigit(m.Value[1])?m.Value[1..]:m.Value.ToLowerInvariant());
@@ -150,9 +150,38 @@ internal static class LiveWorkbookFormatting
             return Normalize(f,a,code);
         }finally{Release(font);Release(cell);}
     }
+    public static bool TryUniformExcel(dynamic sheet,string address,out JsonObject? format)
+    {
+        dynamic cell=ExcelRange((object)sheet,address),font=cell.Font;
+        try
+        {
+            object?[] values=[font.Name,font.Size,font.Color,font.ColorIndex,font.Bold,font.Italic,font.Strikethrough,font.Underline,cell.HorizontalAlignment,cell.VerticalAlignment,cell.WrapText,cell.ShrinkToFit,cell.Orientation,cell.NumberFormat];
+            if(values.Any(value=>value is null || value is DBNull)){format=null;return false;}
+            format=ReadExcel(sheet,address);return true;
+        }
+        finally{Release(font);Release(cell);}
+    }
     public static void WriteExcel(dynamic sheet,string address,JsonNode? format)
     {
-        dynamic cell=address=="@"?sheet.Styles[1]:ExcelRange((object)sheet,address),font=cell.Font;
+        dynamic cell=address=="@"?sheet.Styles[1]:ExcelRange((object)sheet,address);
+        try{WriteExcelTarget((object)cell,format);}finally{Release(cell);}
+    }
+    public static void CreateExcelStyle(dynamic book,string name,JsonNode? format)
+    {
+        dynamic style=book.Styles.Add(name);
+        try
+        {
+            WriteExcelTarget((object)style,format);
+            // Applying this style must preserve independently synchronized
+            // fills, edges, merges and protection on the destination range.
+            style.IncludeFont=true;style.IncludeAlignment=true;style.IncludeNumber=true;
+            style.IncludeBorder=false;style.IncludePatterns=false;style.IncludeProtection=false;
+        }
+        finally{Release(style);}
+    }
+    private static void WriteExcelTarget(dynamic cell,JsonNode? format)
+    {
+        dynamic font=cell.Font;
         try{
             var f=format?["font"];int color=f?["color"]?.GetValue<int>()??0;
             font.Name=f?["name"]?.GetValue<string>()??"Calibri";font.Size=f?["size"]?.GetValue<double>()??11;font.Color=(color&255)<<16|color&0xff00|color>>16&255;
@@ -164,7 +193,7 @@ internal static class LiveWorkbookFormatting
             int rotation=a?["rotation"]?.GetValue<int>()??0;cell.Orientation=rotation==255?-4166:rotation;
             object target=cell;
             target.GetType().InvokeMember("NumberFormat",BindingFlags.SetProperty,null,target,[format?["numberFormat"]?.GetValue<string>()??"General"],CultureInfo.GetCultureInfo("en-US"));
-        }finally{Release(font);Release(cell);}
+        }finally{Release(font);}
     }
     public static void UnmergeExcel(dynamic sheet,JsonNode? layout)
     {foreach(var range in layout?["merges"]?.AsArray()??[]){dynamic area=sheet.Range[range!.GetValue<string>()];try{area.UnMerge();}finally{Release(area);}}}

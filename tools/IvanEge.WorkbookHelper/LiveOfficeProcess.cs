@@ -12,13 +12,16 @@ internal sealed class LiveOfficeProcess : IDisposable
     private bool _disconnected;
     private readonly string _directory;
     private readonly Task<string> _diagnostics;
+    private readonly NativeWorkbookInteraction _interaction;
     public string LocalPath { get; private set; }
     public bool Closed { get; private set; }
     public long SnapshotCount { get; private set; }
     public LiveWorkbookBook Reader { get; } = new();
-    private LiveOfficeProcess(Process process, string directory, string localPath)
+    public event Action? SlowCommand;
+    private LiveOfficeProcess(Process process, string directory, string localPath, bool hidden)
     {
         _process = process; _directory = directory; LocalPath = localPath;
+        _interaction = new(hidden);
         _diagnostics = process.StandardError.ReadToEndAsync();
     }
 
@@ -50,7 +53,7 @@ internal sealed class LiveOfficeProcess : IDisposable
         if (borders) start.ArgumentList.Add("--borders");
         if(formatting)start.ArgumentList.Add("--formatting");
         var process = Process.Start(start) ?? throw new InvalidOperationException("Не удалось запустить таблицу");
-        var bridge = new LiveOfficeProcess(process, directory, local); bridge.Reader.IncludeBorders = borders;
+        var bridge = new LiveOfficeProcess(process, directory, local, hidden); bridge.Reader.IncludeBorders = borders;
         bridge.Reader.IncludeFormatting=formatting;
         try
         {
@@ -87,9 +90,23 @@ internal sealed class LiveOfficeProcess : IDisposable
         try
         {
             if (Closed || _process.HasExited) { Closed = _disconnected = true; throw new LiveOfficeDisconnectedException(); }
+            if (_interaction.Busy()) throw new LiveOfficeBusyException();
             command["id"] = ++_sequence;
             await _process.StandardInput.WriteLineAsync(command.ToJsonString().AsMemory(), token); await _process.StandardInput.FlushAsync(token);
-            var line = await _process.StandardOutput.ReadLineAsync(token).AsTask().WaitAsync(TimeSpan.FromSeconds(60), token);
+            // Keep one reader and one in-flight command while a large native
+            // range is busy. Sending another command after a soft timeout would
+            // corrupt the response sequence or replay a write.
+            var read = _process.StandardOutput.ReadLineAsync(token).AsTask();
+            string? line;var elapsed=Stopwatch.StartNew();bool warned=false;
+            while(true)
+            {
+                try { line=await read.WaitAsync(TimeSpan.FromSeconds(30),token);break; }
+                catch(TimeoutException) when(!_process.HasExited && elapsed.Elapsed<TimeSpan.FromMinutes(5))
+                {
+                    if(!warned){warned=true;AppLog.Info("Office command still running: "+command["type"]);SlowCommand?.Invoke();}
+                }
+            }
+            if(elapsed.ElapsedMilliseconds>=5000)AppLog.Info("Office command completed: "+command["type"]+" ms="+elapsed.ElapsedMilliseconds);
             if (line is null) { Closed = _disconnected = true; throw new LiveOfficeDisconnectedException(); }
             var response = JsonNode.Parse(line)!;
             if (response["busy"]?.GetValue<bool>() == true) throw new LiveOfficeBusyException();
@@ -102,7 +119,14 @@ internal sealed class LiveOfficeProcess : IDisposable
             if (response["closed"]?.GetValue<bool>() == true) { Closed = true; throw new LiveOfficeClosedException(); }
             if (response["error"] is not null) throw new InvalidOperationException(response["error"]!.GetValue<string>());
             if (response["id"]?.GetValue<int>() != _sequence) throw new InvalidOperationException("Мост таблицы вернул неверный номер команды");
-            return response["result"]!.AsObject();
+            var result = response["result"]!.AsObject();
+            if (command["type"]?.GetValue<string>() == "pulse")
+            {
+                if (result["window"] is JsonNode window) _interaction.SetWindow(window.GetValue<long>());
+                result["interactionRevision"] = _interaction.Activity;
+                result["interactionEnded"] = _interaction.Ended;
+            }
+            return result;
         }
         catch (Exception error) when ((error is IOException or TimeoutException) && error is not LiveOfficeClosedException && error is not LiveOfficeDisconnectedException)
         {

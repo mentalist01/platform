@@ -30,6 +30,7 @@ internal sealed class LiveWorkbookClient : IDisposable
     private LiveWorkbookEvents? _events;
     public event Action? WakeRequested;
     internal Action<string, double>? Timing { get; set; }
+    internal JsonObject? DeferredNativeChange { get; private set; }
     public event Action<JsonObject, JsonArray>? Presence;
     public string? ConflictDescription { get; private set; }
     public bool Conflicted => _conflict;
@@ -125,6 +126,8 @@ internal sealed class LiveWorkbookClient : IDisposable
             Directory.CreateDirectory(_directory); openSource = Path.Combine(_directory, "recovery.xlsx"); File.Copy(_cache + ".xlsx", openSource, true);
         }
         Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin, _grant.Live.BordersSupported,_grant.Live.FormattingSupported);
+        Office.SlowCommand += () => Publish(WorkbookStatusKind.Reading,"Применяю большой диапазон в таблице. Изменения в очереди; соединение сохранено.");
+        _lastSerial = (await Office.CommandAsync(new() { ["type"] = "pulse" }, token))["serial"]?.GetValue<long>() ?? -1;
         if (state["book"] is JsonObject serverBook) Office.Reader.UseNames(serverBook);
         var snapshot = await Office.SnapshotAsync(token);
         try
@@ -150,6 +153,19 @@ internal sealed class LiveWorkbookClient : IDisposable
                     if (_conflict)
                     {
                         Consume(await _api.LiveRequestAsync(_grant, "/workbook-helper/v1/live/state", null, token));
+                        if (_pending?["type"]?.GetValue<string>() == "patch" && _pending["changes"] is JsonArray recoveryChanges)
+                        {
+                            var remoteSheets=_remote["sheets"]!.AsArray().ToDictionary(s=>s!["id"]!.GetValue<string>(),s=>s!);
+                            var conflicts=new JsonArray();
+                            foreach(var change in recoveryChanges)
+                            {
+                                string id=change!["sheetId"]!.GetValue<string>(),address=change["address"]!.GetValue<string>(),property=change["property"]!.GetValue<string>();
+                                if(!remoteSheets.TryGetValue(id,out var sheet))continue;
+                                long version=_versions[$"{id}/{address}/{property}"]?.GetValue<long>()??_structure;
+                                if(version!=change["baseVersion"]!.GetValue<long>()&&!JsonNode.DeepEquals(LiveWorkbookBook.Value(sheet,address,property),change["value"]))conflicts.Add(change.DeepClone());
+                            }
+                            if(await RetryFormattingOverlapAsync(conflicts,saved["local"]!.AsObject(),null,token)){_conflict=false;ConflictDescription=null;await PersistAsync(saved["local"]!.AsObject(),null,token);return;}
+                        }
                         if (await AcceptConcurrentFormattingAsync(saved["local"]!.AsObject(), null, token)) return;
                     }
                     Publish(WorkbookStatusKind.Warning, "Восстанавливаю неотправленные изменения из локальной копии", true);
@@ -219,6 +235,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             native.Add(new JsonObject { ["sheetName"] = sheet["name"]!.DeepClone(), ["address"] = address, ["property"] = property, ["value"] = change["value"]?.DeepClone(), ["expected"] = expected?.DeepClone() });
         }
         var applied = await Office.CommandAsync(new() { ["type"] = "apply", ["changes"] = native }, token);
+        DeferredNativeChange = applied["skipped"]?.GetValue<bool>() == true ? applied : null;
         return applied["skipped"]?.GetValue<bool>() != true;
     }
     private async Task<bool> AcceptConcurrentFormattingAsync(JsonObject local, string? snapshotFile, CancellationToken token)
@@ -237,6 +254,27 @@ internal sealed class LiveWorkbookClient : IDisposable
         await ReconcileAsync(token);
         await PersistAsync(_observed, snapshotFile, token);
         Publish(WorkbookStatusKind.Watching, "Оформление ячейки синхронизировано; работа продолжается");
+        return true;
+    }
+    private async Task<bool> RetryFormattingOverlapAsync(JsonArray? conflicts, JsonObject local, string? snapshotFile, CancellationToken token)
+    {
+        if (_pending?["type"]?.GetValue<string>() != "patch" || _pending["changes"] is not JsonArray changes ||
+            conflicts is not { Count: > 0 } || conflicts.Any(c => c?["property"]?.GetValue<string>() is not ("fill" or "borders" or "format")) ||
+            _observedStructure != _structure || !LiveWorkbookBook.SameSheets(_observed, _remote)) return false;
+        string Key(JsonNode c) => $"{c["sheetId"]}/{c["address"]}/{c["property"]}";
+        var overlaps = conflicts.Select(c => Key(c!)).ToHashSet();
+        var retained = new JsonArray(changes.Where(c => !overlaps.Contains(Key(c!))).Select(c => c!.DeepClone()).ToArray());
+        if (retained.Count == 0) return await AcceptConcurrentFormattingAsync(local, snapshotFile, token);
+        string file = snapshotFile ?? await Office.ExportFileAsync(token);
+        try { File.Copy(file, _cache + ".color-conflict-" + Guid.NewGuid().ToString("N") + ".xlsx", false); }
+        finally { if (snapshotFile is null) File.Delete(file); }
+        // The rejected batch committed nothing. Retry every unaffected cell
+        // with its original version and a new id; never drop pasted contents
+        // merely because a fill/font collided in the same operation.
+        _pending = new() { ["id"] = Guid.NewGuid().ToString("N"), ["type"] = "patch", ["changes"] = retained };
+        _remoteChanges = null;
+        await PersistAsync(local, snapshotFile, token);
+        Publish(WorkbookStatusKind.Watching, "Согласовываю оформление; содержимое вставки сохранено");
         return true;
     }
     public async Task TickAsync(CancellationToken token, JsonObject? incrementalBook = null, IReadOnlyCollection<(string Sheet, string Address, string Property)>? touched = null)
@@ -291,6 +329,7 @@ internal sealed class LiveWorkbookClient : IDisposable
             Phase("network-and-consume");
             if (response["receipt"]?["status"]?.GetValue<string>() == "conflict")
             {
+                if (await RetryFormattingOverlapAsync(response["receipt"]?["conflicts"] as JsonArray, snapshot.Book, snapshot.File, token)) return;
                 if (await AcceptConcurrentFormattingAsync(snapshot.Book, snapshot.File, token)) return;
                 _conflict = true; ConflictDescription = "Вы изменили те же ячейки, что и другой участник. Обе версии сохранены. Выберите, какие изменения оставить.";
                 await PersistAsync(snapshot.Book, snapshot.File, token); Publish(WorkbookStatusKind.Warning, "Совпали изменения в одной ячейке", true); return;
@@ -343,17 +382,24 @@ internal sealed class LiveWorkbookClient : IDisposable
         finally { if (snapshotFile is not null) File.Delete(snapshotFile); _gate.Release(); }
     }
     private bool _wasDraft;
+    private bool _wasClipboard;
+    private long _lastInteraction, _inspectAt, _lastInspection;
     public async Task PollAsync(CancellationToken token)
     {
         if (Office.Closed) { if (!Paused) await TickAsync(token); return; }
         JsonObject pulse;
-        try { pulse = await Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = _peers.DeepClone(), ["sinceSerial"] = _lastSerial }, token); }
+        bool inspect = _inspectAt != 0 && Environment.TickCount64 >= _inspectAt;
+        try { pulse = await Office.CommandAsync(new() { ["type"] = "pulse", ["peers"] = _peers.DeepClone(), ["sinceSerial"] = _lastSerial, ["inspectSelection"] = inspect }, token); }
         catch (InvalidOperationException error)
         {
             if (!_presenceWarningLogged) { AppLog.Error("Native selection unavailable; cell synchronization continues", error); _presenceWarningLogged = true; }
             pulse = new() { ["serial"] = _lastSerial, ["watching"] = false, ["selection"] = null };
         }
         long now = Environment.TickCount64;
+        if (inspect) { _inspectAt = 0; _lastInspection = now; }
+        long activity = pulse["interactionRevision"]?.GetValue<long>() ?? 0;
+        if (activity != 0 && activity != _lastInteraction)
+        { _lastInteraction = activity; _inspectAt = Math.Max(now + 250, _lastInspection + 1000); }
         bool localChange = pulse["serial"]?.GetValue<long>() != _lastSerial;
         // A local edit must not wait behind an optional cursor round-trip.
         // The synchronization response already includes the latest revision.
@@ -382,11 +428,18 @@ internal sealed class LiveWorkbookClient : IDisposable
         // half-entered formula or apply remote writes through the active editor.
         if (pulse["draft"] is JsonObject) { _wasDraft = true; return; }
         if (_wasDraft) { _wasDraft = false; _lastSnapshot = 0; }
+        bool clipboard = pulse["clipboardBusy"]?.GetValue<bool>() == true;
+        if (_wasClipboard && !clipboard) _lastSnapshot = 0;
+        _wasClipboard = clipboard;
         if (Paused || _conflict) return;
         long serial = pulse["serial"]?.GetValue<long>() ?? -1;
         bool watching = pulse["watching"]?.GetValue<bool>() == true;
         bool nativeSaved = _lastWrite != 0 && File.GetLastWriteTimeUtc(Office.LocalPath).Ticks != _lastWrite;
-        bool snapshotDue = now - _lastSnapshot >= (_presenceSupported && watching ? 5000 : 600);
+        bool snapshotDue = !clipboard && now - _lastSnapshot >= (_presenceSupported && watching ? 5000 : 600);
+        // Excel keeps copy mode after Paste Special, allowing repeated pastes.
+        // Do not export (which destroys that buffer), but still publish bounded
+        // committed range edits immediately. Incoming writes remain queued.
+        if (clipboard && (_pending is not null || _saveRequested || nativeSaved || pulse["cells"] is not JsonArray { Count: > 0 and <= 12288 })) return;
         if (_pending is null && !_saveRequested && !nativeSaved && serial == _lastSerial && !snapshotDue && _presenceSupported && (_remoteHint > _revision || _events?.CheckpointRevision > _checkpoint))
         {
             // Receive cell patches without first exporting the whole native
@@ -413,7 +466,7 @@ internal sealed class LiveWorkbookClient : IDisposable
         {
             JsonObject? incremental = null;
             HashSet<(string Sheet, string Address, string Property)>? touched = null;
-            if (_pending is null && !_saveRequested && !nativeSaved && !snapshotDue && pulse["cells"] is JsonArray edits && edits.Count is > 0 and <= 64)
+            if (_pending is null && !_saveRequested && !nativeSaved && !snapshotDue && pulse["cells"] is JsonArray edits && edits.Count is > 0 and <= 12288)
             {
                 incremental = Copy(_observed);
                 touched = [];

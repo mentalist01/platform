@@ -1,0 +1,14 @@
+{
+  "version": "0.29.4",
+  "source": "https://github.com/pyodide/pyodide/releases/download/0.29.4/pyodide-core-0.29.4.tar.bz2",
+  "sourceSha256": "5304510cb0e4b5cfce57b410451c3fd2fba96177e3d0b8a31da9ad7a0620bff6",
+  "files": {
+    "pyodide.js": "7be9e63eddf6bd8786a5ab71c8689c35731d187e3415fe58d7cb95423b50421a",
+    "pyodide.mjs": "8fdfed5eaf81bde14bcdeaeea11f2672675b2362248f8537446b6fda5e4a4751",
+    "pyodide.asm.js": "fe75e97ef2c7a10c41f23b96344c553c7c1c62821bb206080dbb24941c06d5f3",
+    "pyodide.asm.wasm": "10090fe41e019ae669d512e1f747021a8db2aaab0f6dd6f85fa9368c55d681e3",
+    "python_stdlib.zip": "92cb24faa546818f3ef4050fd5bd2b6487bd2042efed2113af141d035f30efb4",
+    "pyodide-lock.json": "14d2c2dba101277999e17135e653d8f15389ad1437f53eae213bf0c3cdff723d",
+    "package.json": "c8d63a47f6649f02d365024ca23fac299f58df1c9d9f0d2b21441209c013a270"
+  }
+}

@@ -47,7 +47,7 @@ internal static class LiveWorkbookCheck
             for (int round = 0; round < 3; round++) { await teacher.TickAsync(token); await pupil.TickAsync(token); }
             Ensure(!teacher.Conflicted && !pupil.Conflicted, "Unexpected conflict: " + teacher.ConflictDescription + " " + pupil.ConflictDescription);
             var a = await teacher.Office.SnapshotAsync(token); var b = await pupil.Office.SnapshotAsync(token);
-            try { if (!JsonNode.DeepEquals(a.Book, b.Book)) { File.WriteAllText(Path.Combine(directory,"teacher-diverged.json"),a.Book.ToJsonString()); File.WriteAllText(Path.Combine(directory,"pupil-diverged.json"),b.Book.ToJsonString()); } Ensure(JsonNode.DeepEquals(a.Book, b.Book), "The native books did not converge. Filters: " + a.Book["sheets"]![0]!["filter"] + " / " + b.Book["sheets"]![0]!["filter"]); }
+            try { if (!JsonNode.DeepEquals(a.Book, b.Book)) { File.WriteAllText(Path.Combine(directory,"teacher-diverged.json"),a.Book.ToJsonString()); File.WriteAllText(Path.Combine(directory,"pupil-diverged.json"),b.Book.ToJsonString()); } Ensure(JsonNode.DeepEquals(a.Book, b.Book), "The native books did not converge. Deferred: " + teacher.DeferredNativeChange + " / " + pupil.DeferredNativeChange); }
             finally { File.Delete(a.File); File.Delete(b.File); }
         }
         if (teacherGrant.Live!.EventsSupported && pupilGrant.Live!.EventsSupported)
@@ -69,6 +69,140 @@ internal static class LiveWorkbookCheck
             File.WriteAllText(config["report"]!.GetValue<string>() + ".progress.json", checks.ToJsonString());
         }
         if(config["filterOnly"]?.GetValue<bool>()==true)goto SortingChecks;
+        if (config["clipboardOnly"]?.GetValue<bool>() == true)
+        {
+            await Check("Autofilled formulas and repeated addition survive Excel and Calc polling without becoming reference unions",async()=>
+            {
+                await Edit(teacher,"F400",Number(3));await Edit(teacher,"J400",Number(58));await Settle();
+                foreach(var client in new[]{teacher,pupil})
+                {
+                    await Edit(client,"K400",new(){["kind"]="formula",["value"]="=(J400+F400)*(F400+J400)"});
+                    await client.Office.CommandAsync(new(){["type"]="fill-down",["sheetName"]=sheet,["range"]="K400:K450"},token);
+                    await Settle();
+                    foreach(var participant in new[]{teacher,pupil})
+                    {
+                        var value=await participant.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="K400"},token);
+                        Ensure(value["value"]!.GetValue<double>()==3721,"Addition formula changed its meaning");
+                        var cell=await participant.Office.CommandAsync(new(){["type"]="read-cell",["sheetName"]=sheet,["address"]="K450"},token);
+                        string formula=cell["cell"]!["content"]!["value"]!.GetValue<string>();
+                        Ensure(formula=="=(J450+F450)*(F450+J450)","Autofilled addition changed: "+formula);
+                    }
+                }
+            });
+            await Check("Range moves merge with unrelated concurrent pupil contents", async () =>
+            {
+                await Edit(teacher,"A300",Number(7)); await Edit(teacher,"A301",Number(7)); await Settle();
+                await teacher.Office.CommandAsync(new(){["type"]="move-range",["sheetName"]=sheet,["range"]="A300:A301",["destination"]="C300"},token);
+                await Edit(pupil,"K300",Number(991)); await teacher.TickAsync(token); await pupil.TickAsync(token); await Settle();
+                var value=await teacher.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="K300"},token);
+                Ensure(value["value"]!.GetValue<double>()==991,"A range move lost the pupil's independent edit");
+            });
+            await Check("A format overlap in a pasted batch retains all non-conflicting contents",async()=>
+            {
+                await Edit(teacher,"D310",Number(1));await Settle();
+                await Edit(teacher,"D310",Number(1),0xff0000);
+                await Edit(pupil,"D310",Number(1),0x00ff00);await Edit(pupil,"E310",Number(777));
+                await teacher.TickAsync(token);await pupil.TickAsync(token);
+                Ensure(!pupil.Conflicted,"A fill overlap blocked unrelated pasted contents");await Settle();
+                var value=await teacher.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="E310"},token);
+                Ensure(value["value"]!.GetValue<double>()==777,"Resolving a fill overlap dropped pasted contents");
+            });
+            await Check("A saved mixed format conflict recovers its unsent contents after reopening",async()=>
+            {
+                var state=await teacherApi.LiveRequestAsync(teacherGrant,"/workbook-helper/v1/live/state",null,token);
+                var remote=state["book"]!.AsObject();var local=(JsonObject)remote.DeepClone();var target=local["sheets"]!.AsArray().First(s=>s!["name"]!.GetValue<string>()==sheet)!;
+                string id=target["id"]!.GetValue<string>();target["cells"]!["D310"]!["fill"]=0x334455;target["cells"]!["E311"]=new JsonObject{["content"]=Number(778),["fill"]=null};
+                var pending=new JsonObject{["id"]=Guid.NewGuid().ToString("N"),["type"]="patch",["changes"]=new JsonArray(
+                    new JsonObject{["sheetId"]=id,["address"]="D310",["property"]="fill",["value"]=0x334455,["baseVersion"]=0},
+                    new JsonObject{["sheetId"]=id,["address"]="E311",["property"]="content",["value"]=Number(778),["baseVersion"]=state["structureRevision"]!.DeepClone()})};
+                string cacheRoot=Path.Combine(directory,"mixed-recovery");Directory.CreateDirectory(cacheRoot);string cache=Path.Combine(cacheRoot,pupilGrant.WorkbookKey+"-"+pupilGrant.Live!.ActorId+".json");
+                File.WriteAllText(cache,new JsonObject{["epoch"]=pupilGrant.Live.Epoch,["remote"]=remote.DeepClone(),["observed"]=remote.DeepClone(),["versions"]=state["versions"]!.DeepClone(),["observedVersions"]=state["versions"]!.DeepClone(),["revision"]=state["revision"]!.DeepClone(),["structure"]=state["structureRevision"]!.DeepClone(),["observedStructure"]=state["structureRevision"]!.DeepClone(),["pending"]=pending,["pendingLocal"]=local.DeepClone(),["conflicted"]=true,["local"]=local}.ToJsonString());
+                string full=await teacher.Office.ExportFileAsync(token);File.Move(full,cache+".xlsx");
+                using var reopened=new LiveWorkbookClient(pupilApi,pupilGrant with{Live=pupilGrant.Live with{EventsSupported=false}},Path.Combine(directory,"mixed-reopened"),cacheRoot);
+                await reopened.InitializeAsync(pupilFile,pupilEngine,true,token);Ensure(!reopened.Conflicted,"Mixed cached conflict remained permanently blocked");
+                await reopened.TickAsync(token);await teacher.TickAsync(token);await pupil.TickAsync(token);await Settle();
+                var value=await teacher.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="E311"},token);
+                Ensure(value["value"]!.GetValue<double>()==778,"Recovered pasted contents were lost");
+            });
+            if(teacherEngine=="excel"||pupilEngine=="excel")await Check("Excel copy buffer and Paste Special survive polling and publish a 14 by 16 range before Escape",async()=>
+            {
+                var native=teacherEngine=="excel"?teacher:pupil;var peer=teacherEngine=="excel"?pupil:teacher;
+                var changes=new JsonArray();for(int row=0;row<14;row++)for(int col=0;col<16;col++)changes.Add(new JsonObject{["sheetName"]=sheet,["address"]=LiveWorkbookBorders.Address(col+1,row+330),["property"]="content",["value"]=Number(row*16+col+1)});
+                await native.Office.CommandAsync(new(){["type"]="edit",["changes"]=changes},token);await Settle();
+                await native.PollAsync(token);await peer.PollAsync(token);
+                await native.Office.CommandAsync(new(){["type"]="fixture-copy",["sheetName"]=sheet,["range"]="A330:P343"},token);
+                try
+                {
+                    bool deferred=false;try{await native.Office.ExportFileAsync(token);}catch(LiveOfficeBusyException){deferred=true;}
+                    Ensure(deferred,"A background export was allowed to destroy the clipboard");
+                    await native.Office.CommandAsync(new(){["type"]="select",["sheetName"]=sheet,["ranges"]=new JsonArray(new JsonArray(350,0,363,15))},token);
+                    await native.Office.CommandAsync(new(){["type"]="fixture-paste",["sheetName"]=sheet,["address"]="A351"},token);
+                    var pastedPulse=await native.Office.CommandAsync(new(){["type"]="pulse",["sinceSerial"]=0},token);
+                    File.WriteAllText(Path.Combine(directory,"clipboard-pulse.json"),pastedPulse.ToJsonString());
+                    var clock=Stopwatch.StartNew();while(true)
+                    {
+                        try{await native.PollAsync(token);}catch(LiveOfficeBusyException){}
+                        await peer.PollAsync(token);
+                        var value=await peer.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="P364"},token);
+                        if(value["value"]?.GetValue<double>()==224)break;
+                        Ensure(clock.ElapsedMilliseconds<6500,"Paste Special did not arrive while Excel kept its copy buffer");await Task.Delay(50,token);
+                    }
+                    Ensure(clock.ElapsedMilliseconds<6500,"Paste Special arrived only after the slow snapshot audit");
+                    checks.Add(new JsonObject{["name"]="Paste Special 224-cell committed transfer latency",["passed"]=true,["ms"]=clock.ElapsedMilliseconds});
+                    var clipboard=await native.Office.CommandAsync(new(){["type"]="fixture-clipboard"},token);
+                    Ensure(clipboard["copyMode"]!.GetValue<int>()==1,"Synchronization cancelled repeated Paste Special");
+                }
+                finally{await native.Office.CommandAsync(new(){["type"]="fixture-clipboard",["cancel"]=true},token);}
+                await Settle();
+                await native.Office.CommandAsync(new(){["type"]="fixture-quiet-format",["sheetName"]=sheet,["address"]="A330",["value"]=new JsonObject{["font"]=new JsonObject{["bold"]=true,["color"]=0x2266cc}}},token);
+                await Settle();await native.PollAsync(token);await peer.PollAsync(token);
+                await native.Office.CommandAsync(new(){["type"]="select",["sheetName"]=sheet,["ranges"]=new JsonArray(new JsonArray(350,4,350,4))},token);
+                await native.Office.CommandAsync(new(){["type"]="fixture-copy",["sheetName"]=sheet,["range"]="A330"},token);
+                try
+                {
+                    await native.Office.CommandAsync(new(){["type"]="fixture-paste",["sheetName"]=sheet,["address"]="E351",["formats"]=true},token);
+                    // Hidden fixtures have no real keyboard/mouse activity.
+                    // Exercise the same selection inspection requested by the
+                    // idle native-input hook after an actual UI paste.
+                    await native.Office.CommandAsync(new(){["type"]="pulse",["inspectSelection"]=true},token);
+                    var clock=Stopwatch.StartNew();while(true)
+                    {
+                        try{await native.PollAsync(token);}catch(LiveOfficeBusyException){}
+                        await peer.PollAsync(token);
+                        var value=await peer.Office.CommandAsync(new(){["type"]="read-cell",["sheetName"]=sheet,["address"]="E351"},token);
+                        if(value["cell"]?["format"]?["font"]?["bold"]?.GetValue<bool>()==true){Ensure(value["cell"]!["content"]!["value"]!.GetValue<double>()==5,"Formats-only paste replaced cell contents");break;}
+                        Ensure(clock.ElapsedMilliseconds<6500,"Formats-only Paste Special did not reach the peer");await Task.Delay(50,token);
+                    }
+                    Ensure((await native.Office.CommandAsync(new(){["type"]="fixture-clipboard"},token))["copyMode"]!.GetValue<int>()==1,"Formats-only synchronization cancelled the Excel clipboard");
+                    checks.Add(new JsonObject{["name"]="Formats-only Paste Special synchronizes without replacing contents or clipboard",["passed"]=true,["ms"]=clock.ElapsedMilliseconds});
+                }
+                finally{await native.Office.CommandAsync(new(){["type"]="fixture-clipboard",["cancel"]=true},token);}
+                await Settle();
+            });
+            if(teacherEngine=="excel"||pupilEngine=="excel")await Check("A 2500-row Paste Special publishes while the native copy buffer stays available",async()=>
+            {
+                var native=teacherEngine=="excel"?teacher:pupil;var peer=teacherEngine=="excel"?pupil:teacher;
+                await native.Office.CommandAsync(new(){["type"]="load-test-data",["sheetName"]=sheet,["count"]=2500},token);await Settle();
+                await native.PollAsync(token);await peer.PollAsync(token);
+                await native.Office.CommandAsync(new(){["type"]="fixture-copy",["sheetName"]=sheet,["range"]="R1:R2500"},token);
+                try
+                {
+                    await native.Office.CommandAsync(new(){["type"]="fixture-paste",["sheetName"]=sheet,["address"]="S1"},token);
+                    var clock=Stopwatch.StartNew();
+                    while(true)
+                    {
+                        await native.PollAsync(token);await peer.PollAsync(token);
+                        var value=await peer.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="S2500"},token);
+                        if(value["value"]?.GetValue<double>()==2500)break;
+                        Ensure(clock.ElapsedMilliseconds<20000,"A long pasted column stayed queued until Escape");await Task.Delay(50,token);
+                    }
+                    Ensure((await native.Office.CommandAsync(new(){["type"]="fixture-clipboard"},token))["copyMode"]!.GetValue<int>()==1,"Large paste synchronization cleared the source buffer");
+                }
+                finally{await native.Office.CommandAsync(new(){["type"]="fixture-clipboard",["cancel"]=true},token);}
+                await Settle();
+            });
+            return;
+        }
         await Check("Native cell and range presence reaches the peer without changing its own selection or workbook", async () =>
         {
             var wanted = new JsonArray(new JsonArray(2, 1, 8, 3));
