@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import sharp from 'sharp';
+import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
+
+test('real HTTP routes gate uploaded reference files, reject raw-asset bypass and preserve authorized group downloads',async t=>{
+  const f=await createGroupHomeworkFixture();t.after(()=>f.stop());const teacher=f.tokens['teacher-a'],pupil=f.tokens['student-a'],peer=f.tokens['student-b'];
+  const upload=async(route,token,name,bytes,expected=201)=>{const body=new FormData();body.append('file',new Blob([bytes]),name);const r=await fetch(f.base+route,{method:'POST',headers:{Authorization:`Bearer ${token}`},body});assert.equal(r.status,expected,await r.clone().text());return r.json();};
+  const bytes=Buffer.from('private finished solution');
+  await upload('/api/lesson-task-reference-files',pupil,'solution.xlsx',bytes,403);
+  await upload('/api/lesson-task-reference-files',teacher,'invalid.exe',bytes,400);
+  const file=await upload('/api/lesson-task-reference-files',teacher,'Разбор.xlsx',bytes);
+  assert.equal(file.name,'Разбор.xlsx','Browser multipart upload keeps Cyrillic filenames');
+  const png=await sharp({create:{width:600,height:200,channels:3,background:'white'}}).png().toBuffer();
+  const image=await upload('/api/lesson-task-images',teacher,'condition.png',png);
+  const set=await f.request('/api/lesson-task-sets',teacher,{name:'Готовое решение',taskNumber:3,tasks:[{images:[image.id],answers:['3900'],referenceSolutions:[{assetId:file.id}]}]},'POST',201);
+  let {run}=await f.request('/api/lesson-task-runs',teacher,{room:`board-group-${f.groupId}`,setId:set.id,x:0,y:0},'POST',201);
+  const card=run.cards[0],url=card.referenceSolution.files[0].url;
+  const get=async(url,token,expected)=>{const r=await fetch(f.base+url,{headers:{Authorization:`Bearer ${token}`}});assert.equal(r.status,expected,`${url}: ${await r.clone().text()}`);return r;};
+  const own=await(await get(url,teacher,200)).arrayBuffer();assert.deepEqual(Buffer.from(own),bytes);
+  for(const token of [pupil,peer,f.tokens['student-c'],f.tokens['teacher-b']])await get(url,token,403);
+  await get(file.url+`?run=${run.id}`,pupil,403);
+  const before=await f.request(`/api/lesson-task-run?room=${encodeURIComponent(run.room)}`,pupil);
+  assert.deepEqual(before.run.cards[0].referenceSolution,{available:false,files:[]});assert.equal(JSON.stringify(before).includes(file.id),false);
+  ({run}=await f.request(`/api/lesson-task-runs/${run.id}/action`,pupil,{action:'answer',cardId:card.id,revision:0,answers:['0']}));
+  ({run}=await f.request(`/api/lesson-task-runs/${run.id}/action`,pupil,{action:'check',cardId:card.id,revision:run.cards[0].answerRevision}));await get(url,pupil,403);
+  ({run}=await f.request(`/api/lesson-task-runs/${run.id}/action`,teacher,{action:'answer',cardId:card.id,revision:run.cards[0].answerRevision,answers:['3900']}));
+  ({run}=await f.request(`/api/lesson-task-runs/${run.id}/action`,teacher,{action:'check',cardId:card.id,revision:run.cards[0].answerRevision}));
+  assert.equal(run.cards[0].status,'solved');const download=await get(url,peer,200);
+  assert.deepEqual(Buffer.from(await download.arrayBuffer()),bytes);assert.match(download.headers.get('content-disposition'),/^attachment/);assert.match(download.headers.get('cache-control'),/private, no-store/);
+  await get(file.url+`?run=${run.id}`,peer,403);await get(url,f.tokens['student-c'],403);
+  assert.deepEqual(run.cards[0].attachments,[],'A finished solution never becomes a Python/helper input');
+});

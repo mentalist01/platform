@@ -45,6 +45,8 @@ export function updatePreparedSet(store,run,set){
       format:incoming.format,answerMode:incoming.answerMode||'combined',answers:[...incoming.answers],images:[...incoming.images],
       attachments:preparedFileSync([task],[incoming]).tasks[0].attachments};
     delete next.answerTable;delete next.answerCountOverride;
+    delete next.referenceSolutions;
+    if(incoming.referenceSolutions?.length)next.referenceSolutions=structuredClone(incoming.referenceSolutions);
     if(incoming.answerTable)next.answerTable={...incoming.answerTable};
     if(incoming.answerCountOverride)next.answerCountOverride=incoming.answerCountOverride;
     if(next.attachments.length>16)fail('Слишком много вложений. Используйте новую страницу.');
