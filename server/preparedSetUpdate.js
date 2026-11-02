@@ -1,3 +1,4 @@
+import {preparedAnswerGroups,remapPreparedGroupAnswers} from '../src/utils/preparedAnswerGroups.js';
 import {preparedTaskSource,preparedSetSequence,preparedSourceLatest,isPreparedTheory} from '../src/utils/preparedRunSources.js';
 import {preparedCheckingChanged} from '../src/utils/preparedTaskContent.js';
 import {preparedAnswerIndices,preparedAnswerTableChanged} from '../src/utils/preparedAnswerTable.js';
@@ -6,13 +7,15 @@ import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 
 const fail=message=>{throw Object.assign(new Error(message),{status:409});};
 const schemaChanged=(before,after)=>before.answers.length!==after.answers.length||
-  (before.answerMode||'combined')!==(after.answerMode||'combined')||preparedAnswerTableChanged(before,after);
+  (before.answerMode||'combined')!==(after.answerMode||'combined')||preparedAnswerTableChanged(before,after)||JSON.stringify(before.answerGroups||null)!==JSON.stringify(after.answerGroups||null);
 
 function updatedCard(card,before,after){
   if(isPreparedTheory(before)||!preparedCheckingChanged(before,after))return card;
   const schema=schemaChanged(before,after);
   let answers=card.answers;
-  if(schema){
+  if(schema&&(before.answerGroups||after.answerGroups)){
+    try{answers=remapPreparedGroupAnswers(before,after,card.answers);}catch(error){fail(error.message);}
+  }else if(schema){
     const values=preparedAnswerIndices(before).map(index=>card.answers[index]||'');
     if(values.slice(after.answers.length).some(value=>value.trim())){
       fail('Новые поля не вмещают введённые ответы. Сохраните их перед уменьшением количества ячеек.');
@@ -22,8 +25,11 @@ function updatedCard(card,before,after){
   }
   // A changed key invalidates a previous failed check, not the pupil's input.
   // Completed work and achievement receipts remain accepted historical results.
-  const fieldResults=after.answerMode==='independent'?after.answers.map((answer,index)=>
-    card.status==='solved'?'correct':!schema&&before.format===after.format&&before.answers[index]===answer?card.fieldResults?.[index]||null:null):[];
+  const fieldResults=after.answerMode==='independent'?Array(after.answers.length).fill(null):[];
+  if(after.answerMode==='independent')for(const group of preparedAnswerGroups(after)){
+    const result=card.status==='solved'?'correct':!schema&&before.format===after.format&&group.indices.every(index=>before.answers[index]===after.answers[index])?card.fieldResults?.[group.indices[0]]||null:null;
+    group.indices.forEach(index=>{fieldResults[index]=result;});
+  }
   return {...card,answers,fieldResults,lastResult:card.status==='solved'?card.lastResult:null,
     ...(schema?{answerRevision:card.answerRevision+1,lease:null}:{})};
 }
@@ -44,7 +50,8 @@ export function updatePreparedSet(store,run,set){
     const next={...task,...metadata,title:incoming.title,difficult:incoming.difficult===true,
       format:incoming.format,answerMode:incoming.answerMode||'combined',answers:[...incoming.answers],images:[...incoming.images],
       attachments:preparedFileSync([task],[incoming]).tasks[0].attachments};
-    delete next.answerTable;delete next.answerCountOverride;
+    delete next.answerTable;delete next.answerCountOverride;delete next.answerGroups;
+    if(incoming.answerGroups)next.answerGroups=structuredClone(incoming.answerGroups);
     delete next.referenceSolutions;
     if(incoming.referenceSolutions?.length)next.referenceSolutions=structuredClone(incoming.referenceSolutions);
     if(incoming.answerTable)next.answerTable={...incoming.answerTable};

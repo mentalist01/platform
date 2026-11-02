@@ -1,6 +1,6 @@
 // Describes the input grid only. Never includes or hashes the private key.
 export const preparedAnswerSchema=task=>JSON.stringify({count:task.answers?.length||task.answerCount||1,
-  mode:task.answerMode||'combined',table:task.answerTable||null,format:task.format||'exact'});
+  mode:task.answerMode||'combined',table:task.answerTable||null,format:task.format||'exact',...(task.answerGroups?{groups:task.answerGroups}:{})});
 
 // Merge server changes into untouched cells while keeping local typing. A late
 // acknowledgement must not erase a keystroke made while its request was in flight.

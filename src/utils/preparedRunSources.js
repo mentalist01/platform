@@ -47,6 +47,6 @@ export function preparedSourceUpdates(run,sets) {
       theoryUpdateAvailable:Boolean(set&&!set.draft&&sequence.some(isPreparedTheory)&&!source.hasTheory),
       newTasksAvailable:set&&!set.draft?sequence.filter(task=>!isPreparedTheory(task)&&!known.has(task.id)).length:0,
       filesUpdateAvailable:preparedFileSync(run.tasks,latest).changed>0,
-      checkingUpdateAvailable:run.tasks.some(task=>{const row=byId.get(task.id);return row&&((task.answerMode||'combined')!==(row.answerMode||'combined')||task.format!==row.format||preparedAnswerTableChanged(task,row));})};
+      checkingUpdateAvailable:run.tasks.some(task=>{const row=byId.get(task.id);return row&&((task.answerMode||'combined')!==(row.answerMode||'combined')||task.format!==row.format||preparedAnswerTableChanged(task,row)||JSON.stringify(task.answerGroups||null)!==JSON.stringify(row.answerGroups||null));})};
   });
 }

@@ -4,6 +4,7 @@ import {createPortal} from 'react-dom';
 import {X,Save,BookOpen,ArrowRight} from 'lucide-react';
 import {preparedRequest} from '../services/preparedLessonTasks.js';
 import {USER_SESSION_KEY} from '../utils/theme.js';
+import {enablePreparedGameAnswers} from '../utils/preparedAnswerGroups.js';
 import {preparedAnswerTask} from '../utils/egeAnswerFields.js';
 import {nextPreparedTaskTitle,preparedTaskIssues} from '../utils/preparedSetLibrary.js';
 import {usePreparedSetAutosave} from '../hooks/usePreparedSetAutosave.js';
@@ -13,7 +14,7 @@ import PreparedTaskEditor from './PreparedTaskEditor.jsx';
 import PreparedTheoryEditor from './PreparedTheoryEditor.jsx';
 import './PreparedLessonTasks.css';
 
-const blankTask=(number,title='1')=>preparedAnswerTask({id:crypto.randomUUID(),title,difficult:false,format:'exact',answers:[''],images:[],attachments:[]},number);
+const blankTask=(number,title='1')=>{const task=preparedAnswerTask({id:crypto.randomUUID(),title,difficult:false,format:'exact',answers:[''],images:[],attachments:[]},number);return Number(number)===19?enablePreparedGameAnswers(task):task;};
 export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,onSaved,activeRun,onRemoveSet,onRestoreSet,label='Задания к уроку',initiallyOpen=false}) {
   const portalTarget=useFullscreenPortalTarget();
   const [open,setOpen]=useState(initiallyOpen),[sets,setSets]=useState([]),[edit,setEdit]=useState(null),[selected,setSelected]=useState(0),[files,setFiles]=useState([]);
