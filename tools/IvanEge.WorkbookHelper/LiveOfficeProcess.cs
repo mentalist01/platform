@@ -15,6 +15,7 @@ internal sealed class LiveOfficeProcess : IDisposable
     private readonly NativeWorkbookInteraction _interaction;
     private JsonObject? _exportedColumns;
     private string _engine="calc";
+    internal string EngineName => _engine;
     private Uri? _origin;
     public string LocalPath { get; private set; }
     public bool Closed { get; private set; }

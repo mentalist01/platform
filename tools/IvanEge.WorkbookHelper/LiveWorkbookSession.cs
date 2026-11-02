@@ -81,7 +81,7 @@ internal sealed class LiveWorkbookSession : IDisposable
                         Update(new(WorkbookStatusKind.Warning, error.Message + " Локальная таблица сохранена. Нажмите «Решать» на доске ещё раз.", true));
                         break;
                     }
-                    catch (Exception error) { failures++; Update(new(WorkbookStatusKind.Warning, "Синхронизация приостановлена: " + error.Message + " Локальная копия сохранена.", failures == 1)); }
+                    catch (Exception error) { failures++; if(failures==1)await _client.ReportProblemAsync(error,"poll",_lifetime.Token); Update(new(WorkbookStatusKind.Warning, "Синхронизация приостановлена: " + error.Message + " Локальная копия сохранена.", failures == 1)); }
                     var delay = TimeSpan.FromMilliseconds(failures == 0 ? Math.Max(40, 120 - cycle.ElapsedMilliseconds) : Math.Min(15000, 1500 * Math.Pow(2, Math.Min(failures, 4))));
                     await _wake.WaitAsync(delay, _lifetime.Token);
                 }

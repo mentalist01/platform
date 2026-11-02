@@ -27,6 +27,7 @@ internal sealed class LiveWorkbookClient : IDisposable
     private long _lastPresence, _lastSnapshot, _lastSerial = -1, _remoteHint = -1;
     private bool _presenceSupported = true;
     private bool _presenceWarningLogged;
+    private long _lastProblemReport = long.MinValue;
     private LiveWorkbookEvents? _events;
     public event Action? WakeRequested;
     internal Action<string, double>? Timing { get; set; }
@@ -41,6 +42,20 @@ internal sealed class LiveWorkbookClient : IDisposable
     public long Revision => _revision;
     internal bool UsesPush => _events?.Connected == true;
     internal void RestartPush() => _events?.Reconnect();
+    internal async Task ReportProblemAsync(Exception error, string stage, CancellationToken token)
+    {
+        long now=Environment.TickCount64;
+        if(_lastProblemReport!=long.MinValue&&now-_lastProblemReport<30000)return;
+        _lastProblemReport=now;
+        AppLog.Error("Shared workbook "+stage,error);
+        try
+        {
+            var diagnostic=WorkbookOpenFailure.Diagnostic(error,Office?.EngineName??"auto");
+            diagnostic["stage"]=stage;diagnostic["revision"]=_revision;
+            await _api.LiveRequestAsync(_grant,"/workbook-helper/v1/live/diagnostics",diagnostic,token,TimeSpan.FromSeconds(2));
+        }
+        catch(Exception failure) when(failure is not OperationCanceledException) { AppLog.Error("Could not send workbook synchronization diagnostics",failure); }
+    }
     public bool Paused { get; set; }
     public LiveWorkbookClient(HelperApiClient api, WorkbookGrant grant, string directory, string? cacheRoot = null)
     {
@@ -127,9 +142,10 @@ internal sealed class LiveWorkbookClient : IDisposable
         }
         Office = await LiveOfficeProcess.OpenAsync(openSource, _directory, engine, hidden, token, _grant.Origin, _grant.Live.BordersSupported,_grant.Live.FormattingSupported,_grant.Live.ColumnsSupported);
         Office.SlowCommand += () => Publish(WorkbookStatusKind.Reading,"Применяю большой диапазон в таблице. Изменения в очереди; соединение сохранено.");
-        _lastSerial = (await Office.CommandAsync(new() { ["type"] = "pulse" }, token))["serial"]?.GetValue<long>() ?? -1;
+        void WaitingForOffice() => Publish(WorkbookStatusKind.Reading, "Подключаю синхронизацию. Закончите ввод или закройте меню таблицы — подключение продолжится автоматически.");
+        _lastSerial = (await NativeReadyRetry.RunAsync(() => Office.CommandAsync(new() { ["type"] = "pulse" }, token), WaitingForOffice, token))["serial"]?.GetValue<long>() ?? -1;
         if (state["book"] is JsonObject serverBook) Office.Reader.UseNames(serverBook);
-        var snapshot = await Office.SnapshotAsync(token);
+        var snapshot = await NativeReadyRetry.RunAsync(() => Office.SnapshotAsync(token), WaitingForOffice, token);
         try
         {
             if (state["initialized"]?.GetValue<bool>() != true)
@@ -148,7 +164,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                     _pendingLocal = saved["pendingLocal"] is JsonObject pendingLocal ? Copy(pendingLocal) : null;
                     _conflict = saved["conflicted"]?.GetValue<bool>() == true; ConflictDescription = saved["conflictDescription"]?.GetValue<string>();
                     _saveRequested = saved["saveRequested"]?.GetValue<bool>() == true;
-                    await Office.CommandAsync(new() { ["type"] = "replace", ["book"] = saved["local"]!.DeepClone(), ["previous"] = snapshot.Book.DeepClone() }, token);
+                    await NativeReadyRetry.RunAsync(() => Office.CommandAsync(new() { ["type"] = "replace", ["book"] = saved["local"]!.DeepClone(), ["previous"] = snapshot.Book.DeepClone() }, token), WaitingForOffice, token);
                     Office.Reader.UseNames(saved["local"]!.AsObject());
                     if (_conflict)
                     {
@@ -172,7 +188,7 @@ internal sealed class LiveWorkbookClient : IDisposable
                     return;
                 }
             }
-            if (!JsonNode.DeepEquals(snapshot.Book, _remote)) await Office.CommandAsync(new() { ["type"] = "replace", ["book"] = _remote.DeepClone(), ["previous"] = snapshot.Book.DeepClone() }, token);
+            if (!JsonNode.DeepEquals(snapshot.Book, _remote)) await NativeReadyRetry.RunAsync(() => Office.CommandAsync(new() { ["type"] = "replace", ["book"] = _remote.DeepClone(), ["previous"] = snapshot.Book.DeepClone() }, token), WaitingForOffice, token);
             Office.Reader.UseNames(_remote); _observed = Copy(_remote); _observedVersions = Copy(_versions); _observedStructure = _structure; _remoteChanges = [];
             _lastWrite = File.GetLastWriteTimeUtc(Office.LocalPath).Ticks;
             await PersistAsync(_observed, snapshot.File, token);
@@ -372,7 +388,13 @@ internal sealed class LiveWorkbookClient : IDisposable
                         if (!Office.Closed) await Office.CommandAsync(new() { ["type"] = "save" }, token);
                         _lastWrite = File.GetLastWriteTimeUtc(Office.LocalPath).Ticks;
                         if (Office.Closed) Paused = true;
+                        await PersistAsync(common.Book, common.File, token);
                         Publish(WorkbookStatusKind.Saved, "Общая версия сохранена на доску и в конспекты");
+                    }
+                    else
+                    {
+                        Publish(WorkbookStatusKind.Uploading,"Сохранение ещё не отправлено: согласовываю последние изменения таблицы. Локальный файл сохранён.");
+                        await ReportProblemAsync(new InvalidOperationException("Native snapshot differs from acknowledged workbook; checkpoint queued"),"checkpoint-waiting",token);
                     }
                 }
                 finally { File.Delete(common.File); }
@@ -431,7 +453,17 @@ internal sealed class LiveWorkbookClient : IDisposable
         bool clipboard = pulse["clipboardBusy"]?.GetValue<bool>() == true;
         if (_wasClipboard && !clipboard) _lastSnapshot = 0;
         _wasClipboard = clipboard;
-        if (Paused || _conflict) return;
+        if (_conflict)
+        {
+            if (_saveRequested || _lastWrite != 0 && File.GetLastWriteTimeUtc(Office.LocalPath).Ticks != _lastWrite)
+            {
+                _saveRequested=true;
+                Publish(WorkbookStatusKind.Warning,"На компьютер сохранено, на доску ещё не отправлено: нужно согласовать изменения. Откройте «Состояние и отмена общих правок» возле часов.");
+                await ReportProblemAsync(new InvalidOperationException("Save waiting for conflict resolution"),"checkpoint-conflict",token);
+            }
+            return;
+        }
+        if (Paused) return;
         long serial = pulse["serial"]?.GetValue<long>() ?? -1;
         bool watching = pulse["watching"]?.GetValue<bool>() == true;
         bool nativeSaved = _lastWrite != 0 && File.GetLastWriteTimeUtc(Office.LocalPath).Ticks != _lastWrite;

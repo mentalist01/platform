@@ -66,6 +66,8 @@ internal static class SelfTest
             TestFlatWorkbookSnapshot(temporaryDirectory).GetAwaiter().GetResult();
             TestHashValidation();
             TestLiveWorkbookXml();
+            TestFilterVisibilityFallback();
+            TestNativeStartupRetry().GetAwaiter().GetResult();
             TestSparseWorkbookDifferences();
             TestPresenceHover();
             TestOfficePreference();
@@ -96,6 +98,29 @@ internal static class SelfTest
         }
     }
 
+    private static async Task TestNativeStartupRetry()
+    {
+        int calls=0,notices=0;
+        int result=await NativeReadyRetry.RunAsync(()=>{if(++calls<3)throw new LiveOfficeBusyException();return Task.FromResult(17);},()=>notices++,CancellationToken.None);
+        Assert(result==17&&calls==3&&notices==1,"A startup gesture stopped synchronization instead of waiting");
+        using var cancel=new CancellationTokenSource();cancel.Cancel();
+        try { await NativeReadyRetry.RunAsync(()=>Task.FromResult(1),()=>{},cancel.Token);throw new InvalidOperationException("Canceled startup continued"); }
+        catch(OperationCanceledException) { }
+        try { await NativeReadyRetry.RunAsync<int>(()=>throw new IOException("disconnected"),()=>{},CancellationToken.None);throw new InvalidOperationException("A real connection failure was retried as UI busy"); }
+        catch(IOException) { }
+    }
+    private static void TestFilterVisibilityFallback()
+    {
+        const string prefix="<worksheet xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main'><sheetData><row r='2' hidden='1'/><row r='3' hidden='1'/><row r='6' hidden='1'/></sheetData><autoFilter ref='A1:F10'><filterColumn colId='2'><filters><filter val='M2'/></filters></filterColumn>";
+        foreach(string advanced in new[]{"<filters><dateGroupItem year='2023' month='8' day='14' dateTimeGrouping='day'/></filters>","<top10 val='10' top='1'/>","<colorFilter dxfId='0'/>"})
+        {
+            var filter=LiveWorkbookFilter.Read(XDocument.Parse(prefix+"<filterColumn colId='1'>"+advanced+"</filterColumn></autoFilter></worksheet>"))!;
+            Assert(filter["columns"]!.AsArray().Count==0,"A partial predicate changed an advanced combined filter");
+            Assert(filter["hiddenRows"]!.ToJsonString()=="[[2,3],[6,6]]","An advanced filter lost its exact hidden rows");
+        }
+        var ordinary=LiveWorkbookFilter.Read(XDocument.Parse(prefix+"</autoFilter></worksheet>"))!;
+        Assert(ordinary["columns"]!.AsArray().Count==1,"Ordinary filter predicates were lost");
+    }
     private static void TestNativeTextInputGuard()
     {
         Assert(NativeWorkbookInteraction.IsExcelTextInput("XLMAIN", "Edit", false), "Address input must defer native work even between keystrokes");

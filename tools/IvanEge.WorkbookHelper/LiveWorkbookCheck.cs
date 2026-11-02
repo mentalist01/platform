@@ -68,6 +68,24 @@ internal static class LiveWorkbookCheck
             var clock = Stopwatch.StartNew(); await action(); checks.Add(new JsonObject { ["name"] = name, ["passed"] = true, ["ms"] = clock.ElapsedMilliseconds });
             File.WriteAllText(config["report"]!.GetValue<string>() + ".progress.json", checks.ToJsonString());
         }
+        if(config["saveOnly"]?.GetValue<bool>()==true)
+        {
+            await Check("Pupil native Ctrl-S publishes after teacher checkpoint and close", async()=>
+            {
+                await Edit(teacher,"G1",new(){["kind"]="text",["value"]="Цена за упаковку"});await Settle();
+                teacher.RequestSave();await teacher.TickAsync(token);
+                await teacher.Office.CommandAsync(new(){["type"]="fixture-user-close"},token);await teacher.TickAsync(token);
+                await Edit(pupil,"G2",new(){["kind"]="formula",["value"]="=SUM(17,25)"});
+                await pupil.Office.CommandAsync(new(){["type"]="save"},token);
+                for(int i=0;i<5;i++)await pupil.PollAsync(token);
+                var state=await pupilApi.LiveRequestAsync(pupilGrant,"/workbook-helper/v1/live/state",null,token);
+                Ensure(state["fileRevision"]!.GetValue<long>()>=2,"Pupil Ctrl-S did not replace the older teacher checkpoint");
+                Ensure(state["checkpointRevision"]!.GetValue<long>()==state["revision"]!.GetValue<long>(),"Pupil saved before its changes arrived");
+                var value=await pupil.Office.CommandAsync(new(){["type"]="evaluate",["sheetName"]=sheet,["address"]="G2"},token);
+                Ensure(value["value"]!.GetValue<double>()==42,"Saved pupil formula was lost");
+            });
+            return;
+        }
         if(config["columnsOnly"]?.GetValue<bool>()==true)
         {
             Ensure(teacherGrant.Live!.ColumnsSupported&&pupilGrant.Live!.ColumnsSupported,"Column capability was not negotiated");
