@@ -28,6 +28,12 @@ test('HTTP: a pupil saves through the helper, solves, and only the teacher can p
   const file=run.cards[0].referencePromotion.files[0];assert.equal(file.name,'Совместное решение.ods');
   await f.request(promotion,pupil,{action:'attach',assetId:file.assetId,solutionId:file.id,revision:file.revision},'POST',403);
   await f.request(promotion,teacher,{action:'attach',assetId:file.assetId,solutionId:file.id,revision:file.revision-1},'POST',409);
+  assert.equal((await f.request(promotion,teacher,{action:'dismiss'})).dismissed,true);
+  assert.equal((await f.request(promotion,teacher,{action:'dismiss'})).dismissed,true,'double-clicking no is safe');
+  ({run}=await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),teacher));
+  assert.equal(run.cards[0].referencePromotion,null);assert.ok(run.cards[0].referencePromotionAvailable,'manual file-menu action remains available');
+  const pupilRun=(await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),pupil)).run;
+  assert.equal('referencePromotionAvailable' in pupilRun.cards[0],false);
   const result=await f.request(promotion,teacher,{action:'attach',assetId:file.assetId,solutionId:file.id,revision:file.revision});assert.equal(result.attached,true);
   ({run}=await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),pupil));
   const ref=run.cards[0].referenceSolution.files[0];assert.equal(ref.name,'Совместное решение.ods');

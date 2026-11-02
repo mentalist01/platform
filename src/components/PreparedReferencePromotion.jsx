@@ -9,9 +9,11 @@ import {preparedTaskTitle} from '../utils/preparedTaskTitle.js';
 export const PREPARED_REFERENCE_PROMOTION='prepared-reference-promotion';
 export default function PreparedReferencePromotion({run,refresh,disabled,dark}){
   const [cardId,setCardId]=useState(''),[assetId,setAssetId]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  const seen=useRef(null),timer=useRef(null),latest=useRef(null),target=useFullscreenPortalTarget(),dialog=useRef(null),returnFocus=useRef(null);
+  const seen=useRef(null),declined=useRef(new Set()),timer=useRef(null),latest=useRef(null),target=useFullscreenPortalTarget(),dialog=useRef(null),returnFocus=useRef(null);
+  const sourceKey=card=>`${card.setId}:${card.taskId}`;
+  const available=useMemo(()=>run?.canManage&&!disabled?run.cards.filter(card=>card.referencePromotion||card.referencePromotionAvailable):[],[run,disabled]);
   const eligible=useMemo(()=>run?.canManage&&!disabled?run.cards.filter(card=>card.referencePromotion):[],[run,disabled]);
-  const card=eligible.find(card=>card.id===cardId),offer=card?.referencePromotion;
+  const card=available.find(card=>card.id===cardId),offer=card?.referencePromotion||card?.referencePromotionAvailable;
   const file=offer?.files.find(file=>file.assetId===assetId)||offer?.files[0];
   const hasCard=Boolean(card);
   latest.current={runId:run?.id,eligible};
@@ -21,13 +23,13 @@ export default function PreparedReferencePromotion({run,refresh,disabled,dark}){
     // Existing solved tasks stay in their file menus; opening an old board
     // must not present a backlog of modal questions.
     if(seen.current?.runId!==run.id){clearTimeout(timer.current);seen.current={runId:run.id,ids:new Set(keys)};return;}
-    const fresh=eligible.find(card=>!seen.current.ids.has(`${run.id}:${card.id}`));
-    if(!cardId&&fresh){seen.current.ids.add(`${run.id}:${fresh.id}`);clearTimeout(timer.current);timer.current=setTimeout(()=>{if(latest.current.runId===run.id&&latest.current.eligible.some(card=>card.id===fresh.id)){setCardId(fresh.id);setAssetId('');setError('');}},1300);}
+    const fresh=eligible.find(card=>!seen.current.ids.has(`${run.id}:${card.id}`)&&!declined.current.has(sourceKey(card)));
+    if(!cardId&&fresh){seen.current.ids.add(`${run.id}:${fresh.id}`);clearTimeout(timer.current);timer.current=setTimeout(()=>{if(latest.current.runId===run.id&&latest.current.eligible.some(card=>card.id===fresh.id)&&!declined.current.has(sourceKey(fresh))){setCardId(fresh.id);setAssetId('');setError('');}},1300);}
   },[run,eligible,cardId]);
   useEffect(()=>{
-    const open=event=>{if(run?.id===event.detail?.runId&&eligible.some(card=>card.id===event.detail.cardId)){setCardId(event.detail.cardId);setAssetId('');setError('');}};
+    const open=event=>{if(run?.id===event.detail?.runId&&available.some(card=>card.id===event.detail.cardId)){setCardId(event.detail.cardId);setAssetId('');setError('');}};
     window.addEventListener(PREPARED_REFERENCE_PROMOTION,open);return()=>window.removeEventListener(PREPARED_REFERENCE_PROMOTION,open);
-  },[run,eligible]);
+  },[run,available]);
   useEffect(()=>{
     if(!cardId)return;
     if(!hasCard){setCardId('');return;}
@@ -37,7 +39,7 @@ export default function PreparedReferencePromotion({run,refresh,disabled,dark}){
   const close=()=>{if(!busy){setCardId('');setError('');}};
   const confirm=async action=>{
     if(busy||!file)return;setBusy(true);setError('');
-    try{await preparedRequest(`/api/lesson-task-runs/${run.id}/cards/${card.id}/reference-promotion`,{action,assetId:file.assetId,solutionId:file.id,revision:file.revision});setCardId('');await refresh();}
+    try{await preparedRequest(`/api/lesson-task-runs/${run.id}/cards/${card.id}/reference-promotion`,{action,assetId:file.assetId,solutionId:file.id,revision:file.revision});if(action==='dismiss')declined.current.add(sourceKey(card));seen.current?.ids.add(`${run.id}:${card.id}`);setCardId('');await refresh();}
     catch(e){setError(e.message);if(e.status===409)await refresh();}finally{setBusy(false);}
   };
   if(!card||!file)return null;

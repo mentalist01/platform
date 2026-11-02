@@ -87,3 +87,34 @@ test('a changed source question and a read-only teacher cannot publish an outdat
   await assert.rejects(promotePreparedReference(f.store,teacher,f.raw.id,f.card.id,input),{status:409});
   assert.equal(f.set.tasks[0].referenceSolutions,undefined);
 });
+
+test('declining belongs to the source task across pupil copies, reloads, edits and later saves; manual attachment remains possible',async t=>{
+  const f=await fixture(t);await f.save();await f.solve();
+  const decline=()=>promotePreparedReference(f.store,teacher,f.raw.id,f.card.id,{action:'dismiss'});
+  assert.equal((await decline()).dismissed,true);assert.equal((await decline()).dismissed,true,'a repeated click is idempotent');
+  assert.equal(f.view().referencePromotion,null);assert.ok(f.view().referencePromotionAvailable,'the file menu still supports an explicit decision');
+  const next=await f.store.start(teacher,{room:'board-other-copy',setId:f.set.id,x:0,y:0}),raw=f.store.data.runs[next.id],card=raw.cards[0];
+  await f.store.startHelper(pupil,raw.id,card.id,f.input.id);
+  await f.store.saveSolution({auth:pupil,run:raw,card,assetId:f.input.id,generation:card.bindings[f.input.id].generation,buffer:Buffer.from('other copy'),name:'Решение.xlsx',revision:0,viaHelper:true});
+  let view=await f.store.action(pupil,raw.id,{action:'answer',cardId:card.id,revision:0,answers:['42']});
+  await f.store.action(pupil,raw.id,{action:'check',cardId:card.id,revision:view.cards[0].answerRevision});
+  const show=store=>store.publicRun(store.data.runs[raw.id],{auth:teacher}).cards[0];
+  assert.equal(show(f.store).referencePromotion,null,'solving another copy must not ask again');
+  await f.store.saveSet(teacher,{...f.set,name:'Переименованный набор'});
+  const restarted=new PreparedLessonTasks(f.deps);assert.equal(show(restarted).referencePromotion,null);
+  const offer=show(restarted).referencePromotionAvailable.files[0];
+  assert.equal((await promotePreparedReference(restarted,teacher,raw.id,card.id,{action:'attach',assetId:offer.assetId,solutionId:offer.id,revision:offer.revision})).attached,true);
+  assert.equal(show(restarted).referencePromotionAvailable,undefined);assert.equal(show(restarted).referenceSolution.available,true);
+});
+
+test('legacy per-card declines migrate into durable source-task decisions without suppressing a different set',async t=>{
+  const f=await fixture(t);await f.save();await f.solve();
+  f.card.referencePromotionDismissed=true;f.store.save(f.raw);
+  const restarted=new PreparedLessonTasks(f.deps),copy={...restarted.data.runs[f.raw.id],cards:[{...f.card,referencePromotionDismissed:false}]};
+  assert.equal(restarted.publicRun(copy,{auth:teacher}).cards[0].referencePromotion,null);
+  assert.ok(JSON.parse(fs.readFileSync(restarted.file,'utf8')).referencePromotionDismissals);
+  const otherSet=await restarted.saveSet(teacher,{name:'Другой набор',taskNumber:9,tasks:f.set.tasks});
+  const different={...copy,setId:otherSet.id,tasks:otherSet.tasks};
+  assert.ok(restarted.publicRun(different,{auth:teacher}).cards[0].referencePromotion,'a different library set is independent');
+  const before=fs.readFileSync(restarted.file,'utf8');new PreparedLessonTasks(f.deps);assert.equal(fs.readFileSync(restarted.file,'utf8'),before,'migration is idempotent');
+});

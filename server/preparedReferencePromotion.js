@@ -3,6 +3,7 @@ import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 import {currentWorkbookSolution} from './preparedWorkbookHistory.js';
 import {preparedReferenceName} from './preparedReferenceName.js';
 import {preparedCheckingChanged} from '../src/utils/preparedTaskContent.js';
+import {preparedSolutionEntries} from './preparedSetRemoval.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const workbook=name=>/\.(xlsx?|xlsm|ods|fods|csv|tsv)$/i.test(name||'');
@@ -13,6 +14,30 @@ const sourceFor=(store,run,task)=>{
   const source=preparedTaskSource(run,task),set=store.data.sets[source.id];
   return set?.teacherId===run.teacherId?{set,task:set.tasks.find(row=>row.id===source.taskId)}:{};
 };
+const dismissalKey=(run,task)=>{
+  const source=preparedTaskSource(run,task);
+  return source.id&&source.taskId?JSON.stringify([run.teacherId,source.id,source.taskId]):'';
+};
+const isDismissed=(store,run,card)=>Boolean(card.referencePromotionDismissed||store.data.referencePromotionDismissals?.[dismissalKey(run,run.tasks[card.index])]);
+
+// A "no" belongs to the library task, not just one pupil's copy of its card.
+// Keep existing declines when upgrading without changing lessons or answers.
+export function migratePreparedReferenceDismissals(store){
+  let changed=false;
+  for(const run of Object.values(store.data.runs))for(const {card,task} of preparedSolutionEntries(run)){
+    if(!card.referencePromotionDismissed)continue;
+    if(!task)continue;
+    const key=dismissalKey(run,task);if(!key||store.data.referencePromotionDismissals?.[key])continue;
+    store.data.referencePromotionDismissals||={};store.data.referencePromotionDismissals[key]=new Date(store.now()).toISOString();changed=true;
+  }
+  if(changed)store.save();
+}
+
+export function preparedReferencePromotionState(store,run,card){
+  const offer=preparedReferencePromotionView(store,run,card,true,{manual:true});
+  return !offer?{referencePromotion:null}:isDismissed(store,run,card)
+    ?{referencePromotion:null,referencePromotionAvailable:offer}:{referencePromotion:offer};
+}
 
 // A published library copy is also discoverable after a crash between saving
 // the library and refreshing individual run snapshots. Downloads remain gated.
@@ -23,8 +48,8 @@ export function effectivePreparedReferences(store,task,run){
   return (source.task?.referenceSolutions||[]).filter(ref=>store.data.assets[ref.assetId]?.generatedReference===true);
 }
 
-export function preparedReferencePromotionView(store,run,card,canManage){
-  if(!canManage||run.homework||card.status!=='solved'||card.referencePromotionDismissed)return null;
+export function preparedReferencePromotionView(store,run,card,canManage,{manual=false}={}){
+  if(!canManage||run.homework||card.status!=='solved'||!manual&&isDismissed(store,run,card))return null;
   const task=run.tasks[card.index],source=sourceFor(store,run,task);
   if(!source.task||source.task.referenceSolutions?.length||task.referenceSolutions?.length||!sameTask(task,source.task))return null;
   const files=task.attachments.flatMap(attachment=>{
@@ -40,11 +65,14 @@ export async function promotePreparedReference(store,auth,runId,cardId,input={})
   if(!['teacher','admin'].includes(auth.role)||auth.id!==run.teacherId||access.readOnly)fail(403,'Готовый разбор подтверждает преподаватель этого набора');
   const card=run.cards.find(row=>row.id===cardId);
   if(!card)fail(404,'Задача не найдена');
-  const offer=preparedReferencePromotionView(store,run,card,true);
+  if(input.action==='dismiss'&&isDismissed(store,run,card))return {attached:false,dismissed:true};
+  const offer=preparedReferencePromotionView(store,run,card,true,{manual:true});
   if(!offer)fail(409,'Предложение уже изменилось: обновите задачу. Готовое решение не заменено.');
   if(input.action==='dismiss'){
-    card.referencePromotionDismissed=true;run.version++;store.save(run);await store.notify(run);
-    return {attached:false};
+    const key=dismissalKey(run,run.tasks[card.index]);
+    store.data.referencePromotionDismissals||={};store.data.referencePromotionDismissals[key]=new Date(store.now()).toISOString();
+    store.save();card.referencePromotionDismissed=true;run.version++;store.save(run);await store.notify(run);
+    return {attached:false,dismissed:true};
   }
   if(input.action!=='attach')fail(400,'Подтвердите добавление разбора');
   const file=offer.files.find(row=>row.assetId===input.assetId&&row.id===input.solutionId);
