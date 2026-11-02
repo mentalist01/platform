@@ -26,6 +26,7 @@ import useMockExamTimerConfirmation from '../hooks/useMockExamTimerConfirmation'
 import { subscribeQuestionSolveEnvironment } from '../hooks/useQuestionSolveTimer';
 import { Button } from './ui';
 import {mockReviewTaskStatus} from '../utils/monthlyMockReviewAttempt.js';
+import {getMockCarriedTaskKeys,getMockCarriedSolved} from '../utils/mockExamRetake.js';
 
 const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
 
@@ -522,7 +523,8 @@ const MockExamModal = ({
     const initialTask = requestedTask
       ? modalTaskNumbers.find((taskNumber) => String(taskNumber) === requestedTask)
       : null;
-    const nextSelectedTask = initialTask || firstTaskNumber;
+    const nextSelectedTask = initialTask || (getMockCarriedTaskKeys(nextAttempt).length&&!readOnly&&!isMockAttemptFinished(nextAttempt)
+      ? modalTaskNumbers.find(number=>!getMockCarriedTaskKeys(nextAttempt).includes(String(number))) : null) || firstTaskNumber;
     previousSelectedTaskRef.current = nextSelectedTask;
     setSelectedTask(nextSelectedTask);
   }, [readOnly, attemptMode, exam?.id, studentId, firstTaskNumber, hasRequestedTaskScope, initialTaskNumber, modalTaskNumbers, readAttemptAnswers, readAttemptResults, readAttemptSolved]);
@@ -800,8 +802,10 @@ const MockExamModal = ({
     || Object.keys(results || {}).length >= Math.max(1, totalTaskCount)
   );
   const timerInputsLocked = isTimerMode && (timerResultsVisible || timerExpired);
-  const inputsLocked = attemptFinished || timerInputsLocked || closing || isExiting;
-  const visibleSolvedSource = isTimerMode && !timerResultsVisible ? {} : solved;
+  const carriedTaskKeys=getMockCarriedTaskKeys(activeAttempt);
+  const isCurrentTaskCarried=carriedTaskKeys.includes(taskKey);
+  const inputsLocked = attemptFinished || timerInputsLocked || closing || isExiting || isCurrentTaskCarried;
+  const visibleSolvedSource = isTimerMode && !timerResultsVisible ? getMockCarriedSolved(activeAttempt) : solved;
   const visibleSolved = modalTaskNumbers.reduce((result, taskNumber) => {
     const key = String(taskNumber);
     if (Object.prototype.hasOwnProperty.call(visibleSolvedSource || {}, key)) {
@@ -824,7 +828,7 @@ const MockExamModal = ({
   const primaryScore = getPrimaryScoreFromSolved(visibleSolved);
   const secondaryScore = getSecondaryScoreFromPrimary(primaryScore);
   const displayProgressCount = isTimerMode && !timerResultsVisible ? answeredCount : solvedCount;
-  const currentTaskStatusLabel = isTimerMode && !timerResultsVisible
+  const currentTaskStatusLabel = isCurrentTaskCarried?'Зачтено ранее':isTimerMode && !timerResultsVisible
     ? (
         answerCount > 1 && currentFilledAnswerCount > 0
           ? `${currentFilledAnswerCount} из ${answerCount} введено`
@@ -861,6 +865,7 @@ const MockExamModal = ({
     && !timerExpired
     && !isTimerMode
     && !attemptFinished
+    && !isCurrentTaskCarried
   );
   const canFinishExam = Boolean(
     currentQuestion
@@ -1239,12 +1244,13 @@ const MockExamModal = ({
     if (!canRestartTimerExam) return;
     if (!await requestTimerConfirmation({
       kind: 'restart',
+      mode: effectiveAttemptMode,
       examTitle: exam?.title || '',
     })) return;
     hasLocalAttemptChangesRef.current = false;
     setRestartingTimer(true);
     setSaveError('');
-    setSaveStatus('Запускаем новый таймер без наград...');
+    setSaveStatus('Начинаем новую попытку…');
     try {
       const restarted = await onRestartTimerAttempt?.();
       if (restarted && typeof restarted === 'object') {
@@ -1264,8 +1270,9 @@ const MockExamModal = ({
         setArtifactDropBurst(null);
         setSuccessBurst(null);
         setNowMs(Date.now());
-        setSelectedTask(firstTaskNumber);
-        setSaveStatus('Новый таймер запущен без наград.');
+        const carried=getMockCarriedTaskKeys(restarted);
+        setSelectedTask(modalTaskNumbers.find(number=>!carried.includes(String(number)))||firstTaskNumber);
+        setSaveStatus(carried.length?`Перенесено верных заданий: ${carried.length}. Решите оставшиеся.`:'Новая попытка началась.');
       }
     } catch (err) {
       const message = typeof err?.message === 'string' ? err.message : '';
@@ -1461,7 +1468,7 @@ const MockExamModal = ({
     : (isDarkTheme
       ? 'flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200 transition hover:border-violet-400/40 hover:bg-violet-500/10'
       : 'flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 transition hover:border-purple-300 hover:bg-purple-50');
-  const statusPillClassName = isTimerMode && !timerResultsVisible
+  const statusPillClassName = isTimerMode && !timerResultsVisible && !isCurrentTaskCarried
     ? (isCurrentTaskAnswered
       ? (isDarkTheme
         ? 'border border-teal-400/[0.28] bg-teal-500/[0.12] text-teal-100'
@@ -1495,7 +1502,7 @@ const MockExamModal = ({
       return `${sizeClassName} border border-violet-400 bg-violet-500 text-white shadow-[0_14px_24px_rgba(139,92,246,0.32)]`;
     }
 
-    if (isTimerMode && !timerResultsVisible && isAnsweredTask) {
+    if (isTimerMode && !timerResultsVisible && isAnsweredTask && !isSolvedTask) {
       return isDarkTheme
         ? `${sizeClassName} border border-teal-400/30 bg-teal-500/[0.12] text-teal-100 hover:border-teal-300/50 hover:bg-teal-500/[0.16]`
         : `${sizeClassName} border border-teal-200 bg-teal-50 text-teal-700 hover:border-teal-300 hover:bg-teal-100`;
@@ -1519,6 +1526,7 @@ const MockExamModal = ({
   };
 
   const getTaskNavigationStatusLabel = (taskNumber) => {
+    if(carriedTaskKeys.includes(String(taskNumber)))return 'Верно в предыдущей попытке · зачтено';
     const taskAnswerCount = getMockAnswerCountForTask(taskNumber, exam?.tasks?.[String(taskNumber)]);
     const filledAnswerCount = getFilledAnswerCountForTask(taskNumber);
     const completionLabel = filledAnswerCount > 0
@@ -1562,7 +1570,7 @@ const MockExamModal = ({
           data-mock-task-state={
             taskNumber === selectedTask
               ? 'current'
-              : (isTimerMode && !timerResultsVisible && hasAnswerForTask(taskNumber))
+              : (isTimerMode && !timerResultsVisible && hasAnswerForTask(taskNumber) && !visibleSolved[String(taskNumber)])
                 ? 'answered'
                 : visibleSolved[String(taskNumber)]
                   ? 'solved'
@@ -1586,6 +1594,7 @@ const MockExamModal = ({
     return (
       <div className={`mock-exam-timer-actions ${compact ? 'mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap' : 'mt-3 flex flex-col gap-2'}`}>
         {activeAttempt?.monthlyPolicy && <p className="basis-full text-sm font-semibold">Пробник №{activeAttempt.monthlyPolicy.ordinal} · использовано {activeAttempt.monthlyPolicy.usedAttempts} из {activeAttempt.monthlyPolicy.maxAttempts} попыток. {activeAttempt.monthlyPolicy.perfect ? '100 баллов — пробник полностью пройден.' : 'В результат идёт лучшая.'}</p>}
+        {carriedTaskKeys.length>0&&<p className="basis-full text-sm text-emerald-600">Верные задания перенесены: {carriedTaskKeys.length}. Осталось решить: {totalTaskCount-solvedCount}.</p>}
         {(attemptFinished || timerExpired || timerResultsVisible) && (!activeAttempt?.monthlyPolicy || activeAttempt.monthlyPolicy.canRestart) && typeof onRestartTimerAttempt === 'function' && (
           <Button
             type="button"
@@ -2037,7 +2046,7 @@ const MockExamModal = ({
 
                     <div className={hasLargeAnswerGrid ? 'min-h-0 flex-1' : ''}>
                       <div className={`mb-2 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {reviewMode?'Зелёным отмечены верные задания, жёлтым — ошибки. Серым — без ответа.':isTimerMode && !timerResultsVisible
+                        {isCurrentTaskCarried?'Этот ответ уже был верным в предыдущей попытке и перенесён автоматически.':reviewMode?'Зелёным отмечены верные задания, жёлтым — ошибки. Серым — без ответа.':isTimerMode && !timerResultsVisible
                           ? (
                               answerCount > 1
                                 ? (

@@ -165,14 +165,19 @@ export const listCollabSolutions = (doc) => {
     if (id === DEFAULT_COLLAB_SOLUTION_ID || !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) continue;
     if (deleted.get(id) === true) continue;
     if (!metadata || typeof metadata.name !== 'string' || !metadata.name.trim()) continue;
-    others.push({ id, name: metadata.name.trim(), createdAt: normalizeCreatedAt(metadata.createdAt) });
+    const group=metadata.preparedGroup;
+    const preparedGroup=group&&typeof group.runId==='string'&&typeof group.setId==='string'&&typeof group.name==='string'
+      &&Number.isInteger(group.firstIndex)&&group.firstIndex>=0&&Number.isInteger(group.index)&&group.index>=0
+      ? {runId:group.runId,setId:group.setId,name:group.name,firstIndex:group.firstIndex,index:group.index}:null;
+    others.push({ id, name: metadata.name.trim(), createdAt: normalizeCreatedAt(metadata.createdAt),...(preparedGroup?{preparedGroup}:{}) });
   }
   others.sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const available = [main, ...others];
   const byId = new Map(available.map((solution) => [solution.id, solution]));
   const ordered = [];
   const seen = new Set();
-  for (const rawId of doc.getArray(COLLAB_SOLUTIONS_ORDER_KEY).toArray()) {
+  const explicitOrder=doc.getArray(COLLAB_SOLUTIONS_ORDER_KEY).toArray();
+  for (const rawId of explicitOrder) {
     const id = typeof rawId === 'string' ? rawId : '';
     const solution = byId.get(id);
     if (!solution || seen.has(id)) continue;
@@ -183,7 +188,33 @@ export const listCollabSolutions = (doc) => {
     if (seen.has(solution.id)) continue;
     ordered.push(solution);
   }
-  return ordered;
+  // Prepared sets form contiguous blocks in their board sequence. A later set
+  // must not land between old tasks due to timestamps or a saved tab order.
+  // Keep manual tabs and their relative order; preserve manual ordering within
+  // each set. New tasks without an explicit position use their task index.
+  const rank=new Map(explicitOrder.map((id,index)=>[id,index]));
+  const runs=new Map();
+  for(const solution of ordered){
+    const group=solution.preparedGroup;
+    if(!group)continue;
+    if(!runs.has(group.runId))runs.set(group.runId,[]);
+    runs.get(group.runId).push(solution);
+  }
+  for(const entries of runs.values())entries.sort((a,b)=>{
+    const left=a.preparedGroup,right=b.preparedGroup;
+    if(left.setId!==right.setId)return left.firstIndex-right.firstIndex||left.setId.localeCompare(right.setId);
+    if(rank.has(a.id)&&rank.has(b.id))return rank.get(a.id)-rank.get(b.id);
+    if(rank.has(a.id)!==rank.has(b.id))return rank.has(a.id)?-1:1;
+    return left.index-right.index||a.id.localeCompare(b.id);
+  });
+  const emitted=new Set();
+  return ordered.flatMap(solution=>{
+    const runId=solution.preparedGroup?.runId;
+    if(!runId)return [solution];
+    if(emitted.has(runId))return [];
+    emitted.add(runId);
+    return runs.get(runId);
+  });
 };
 
 export const reorderCollabSolutions = (doc, orderedIds, pageId) => {

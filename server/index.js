@@ -193,6 +193,7 @@ import {
   getMockExamContentRevision,
   resolveMockExamForAttempt,
 } from '../src/utils/mockExamVersioning.js';
+import {buildMockRetakeCarry,getMockCarriedTaskKeys,getMockCarriedSolved} from '../src/utils/mockExamRetake.js';
 import {
   QuestionTargetRemapConflictError,
   remapProgressQuestionTargets,
@@ -14411,6 +14412,7 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     answers,
     solved,
     solvedEver,
+    ...(getMockCarriedTaskKeys(meta).length ? {carriedTaskKeys:getMockCarriedTaskKeys(meta).filter(key=>Object.hasOwn(answers,key)),carriedFromAttemptId:String(meta.carriedFromAttemptId||'')} : {}),
     ...(Object.keys(resultOverrides).length > 0 ? { resultOverrides } : {}),
     mode,
     ...(attemptId ? { attemptId } : {}),
@@ -14458,8 +14460,8 @@ const hideUnfinishedMockTimerResults = (attempt) => {
   }
   return {
     ...attempt,
-    solved: {},
-    solvedEver: {},
+    solved: getMockCarriedSolved(attempt),
+    solvedEver: getMockCarriedSolved(attempt),
   };
 };
 
@@ -33157,7 +33159,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const previousTimerHasEvaluatedSolvedResults = Boolean(
     attemptMode === MOCK_ATTEMPT_MODE_TIMER
     && previousTimerStartedAt
-    && Object.keys(previousTimerSolvedMap).length > 0
+    && Object.keys(previousTimerSolvedMap).some(key=>!getMockCarriedTaskKeys(previousAttempt).includes(key))
   );
   const requestedTimerRestart = restartTimerExam === true;
   const canRestartTimerAttempt = Boolean(
@@ -33235,11 +33237,14 @@ app.put('/api/mock-exams/attempt', (req, res) => {
     if (diff < -1 || diff > 1) return serverDayKey;
     return clientDayKey;
   })();
+  const retakeCarry=canRestartTimerAttempt?buildMockRetakeCarry(attemptExam,previousAttemptExam,previousAttemptNormalized):null;
   const rawAnswersForSave = canRestartTimerAttempt
-    ? normalizeMockAttemptAnswers(attemptExam, {})
+    ? normalizeMockAttemptAnswers(attemptExam, retakeCarry.answers)
     : (startOnly
         ? previousAttemptNormalized.answers
         : mergeMockAttemptAnswers(attemptExam, previousAttemptNormalized.answers, answers));
+  // An old tab/autosave cannot erase the answers already credited on restart.
+  if(!canRestartTimerAttempt)for(const key of getMockCarriedTaskKeys(previousAttemptNormalized))rawAnswersForSave[key]=previousAttemptNormalized.answers[key];
   const scopedAnswersForSave = filterMockAttemptAnswersToTaskKeys(rawAnswersForSave, assignmentTargetTaskKeys);
   const previousTaskDurationsMs = canRestartTimerAttempt || startsNewHomeworkAttempt
     ? {}
@@ -33276,7 +33281,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       homeworkIssuedAt: homeworkAssignment.issuedAt,
       targetTaskKeys: assignmentTargetTaskKeys,
     } : {}),
-    ...(canRestartTimerAttempt ? { timerFinishedAt: '', finishedAt: '', status: 'active' } : {}),
+    ...(canRestartTimerAttempt ? { timerFinishedAt: '', finishedAt: '', status: 'active',carriedTaskKeys:retakeCarry.carriedTaskKeys,carriedFromAttemptId:previousAttemptId,resultOverrides:retakeCarry.resultOverrides } : {}),
     timerPausedAt,
     timerRemainingMs,
     timerRewardsDisabled,
@@ -33286,7 +33291,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   if (!shouldEvaluateMockAttempt) {
     const normalizedAttempt = {
       ...normalizedAttemptBase,
-      solved: canRestartTimerAttempt ? normalizedAttemptBase.solved : previousSolved,
+      solved: canRestartTimerAttempt ? getMockCarriedSolved(normalizedAttemptBase) : previousSolved,
       solvedEver: canRestartTimerAttempt ? normalizedAttemptBase.solvedEver : previousSolvedEver,
       mode: attemptMode,
       attemptNumber,

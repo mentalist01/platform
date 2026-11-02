@@ -1,5 +1,5 @@
 import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
-import { useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Columns2, Layers3, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
 import { DEFAULT_COLLAB_SOLUTION_ID, MAX_COLLAB_SOLUTIONS, planNumberedCollabSolutions } from '../utils/collabSolutions';
@@ -67,7 +67,9 @@ export default function CollabSolutionTabs({
     ...participants.map((participant) => ({ ...participant, key: `participant:${participant.id}`, kind: 'participant' })),
     ...visibleSolutionTabs.map((solution) => ({ ...solution, key: `solution:${solution.id}`, kind: 'solution' })),
   ];
-  const tabSignature = tabEntries.map(entry => `${entry.key}:${entry.name}`).join('|');
+  const groupKey=entry=>entry?.preparedGroup?`${entry.preparedGroup.runId}:${entry.preparedGroup.setId}`:'';
+  const showSetLabels=new Set(visibleSolutionTabs.map(groupKey).filter(Boolean)).size>1;
+  const tabSignature = tabEntries.map(entry => `${entry.key}:${entry.name}:${groupKey(entry)}:${entry.preparedGroup?.name||''}`).join('|');
   const activeSolution = solutions.find((solution) => solution.id === activeId);
   const comparisonSolution = solutions.find((solution) => solution.id === compareId);
   const otherSolutions = solutions.filter((solution) => solution.id !== activeId);
@@ -240,6 +242,7 @@ export default function CollabSolutionTabs({
       : visibleSolutionTabs.map((item) => item.id);
     const draggedId = currentDrag.key.split(':').slice(1).join(':');
     const overId = currentDrag.overKey.split(':').slice(1).join(':');
+    if(currentDrag.kind==='solution'&&groupKey(visibleSolutionTabs.find(item=>item.id===draggedId))!==groupKey(visibleSolutionTabs.find(item=>item.id===overId)))return;
     const next = source.filter((id) => id !== draggedId);
     const overIndex = next.indexOf(overId);
     if (overIndex < 0) return;
@@ -286,6 +289,7 @@ export default function CollabSolutionTabs({
       const overKey = target?.dataset?.collabTabKey || '';
       const overKind = target?.dataset?.collabTabKind || '';
       if (!overKey || overKind !== entry.kind) return;
+      if(entry.kind==='solution'&&target?.dataset?.collabTabGroup!==groupKey(entry))return;
       const rect = target.getBoundingClientRect();
       const nextDrag = {
         ...session.dragging,
@@ -327,6 +331,8 @@ export default function CollabSolutionTabs({
         tabIndex={selected ? 0 : -1}
         data-collab-tab-key={entry.key}
         data-collab-tab-kind={entry.kind}
+        data-collab-tab-group={groupKey(entry)}
+        aria-label={entry.preparedGroup?`${entry.preparedGroup.name} · ${entry.name}`:undefined}
         className={`collab-solutions__tab${selected ? ' is-active' : ''}${isParticipant ? ' is-participant' : ''}${isDragged ? ' is-dragging' : ''}${isDropTarget ? ` is-drop-${dragging.side}` : ''}`}
         disabled={disabled}
         onPointerDown={(event) => startTabLongPress(event, entry)}
@@ -350,7 +356,7 @@ export default function CollabSolutionTabs({
             y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
           });
         }}
-        title={`${entry.name}${presenceLabel ? ` · ${presenceLabel}` : ''}${viewerNames ? ` · Смотрят: ${viewerNames}` : ''}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}${canEdit && !isParticipant ? ' · Правая кнопка — действия' : ''}`}
+        title={`${entry.preparedGroup?`${entry.preparedGroup.name} · `:''}${entry.name}${presenceLabel ? ` · ${presenceLabel}` : ''}${viewerNames ? ` · Смотрят: ${viewerNames}` : ''}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}${canEdit && !isParticipant ? ' · Правая кнопка — действия' : ''}`}
       >
         <span className="collab-solutions__name">{entry.name}</span>
         {presence && <span className={`collab-solutions__presence${presence.online && !participantPresence.unavailable ? ' is-online' : ''}`}
@@ -378,7 +384,11 @@ export default function CollabSolutionTabs({
         <div className="collab-solutions__tabs-row">
           {(tabScroll.before || tabScroll.after) && <button type="button" className="collab-solutions__scroll" aria-label="Предыдущие вкладки кода" title="Прокрутить вкладки влево" disabled={!tabScroll.before} onClick={() => scrollTabs(-1)}><ChevronLeft size={15}/></button>}
           <div className="collab-solutions__tabs" role="tablist" aria-label="Разделы кода" ref={tabsRef}>
-            {tabEntries.map(renderTab)}
+            {tabEntries.map((entry,index)=><Fragment key={entry.key}>
+              {showSetLabels&&entry.preparedGroup&&groupKey(entry)!==groupKey(tabEntries[index-1])&&
+                <span className="collab-solutions__set-divider" title={entry.preparedGroup.name}><Layers3 size={12} aria-hidden="true"/><span>{entry.preparedGroup.name}</span></span>}
+              {renderTab(entry,index)}
+            </Fragment>)}
           </div>
           {(tabScroll.before || tabScroll.after) && <button type="button" className="collab-solutions__scroll" aria-label="Следующие вкладки кода" title="Прокрутить вкладки вправо" disabled={!tabScroll.after} onClick={() => scrollTabs(1)}><ChevronRight size={15}/></button>}
         </div>

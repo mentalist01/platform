@@ -11349,7 +11349,7 @@ export const BoardCanvasSection = ({
   const [mobileRemoteCursorPeekId, setMobileRemoteCursorPeekId] = useState('');
   const [tool, setTool] = useState('select');
   const [color, setColor] = useState(BOARD_COLORS[0] || BOARD_DEFAULT_COLOR);
-  const [penWidth, setPenWidth] = useState(() => (isTeacher ? 5 : BOARD_STROKE_WIDTH));
+  const [penWidth, setPenWidth] = useState(BOARD_STROKE_WIDTH);
   const [boardSize, setBoardSize] = useState({ width: 900, height: 520 });
   const [pasteError, setPasteError] = useState('');
   const [zoom, setZoom] = useState(1);
