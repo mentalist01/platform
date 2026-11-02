@@ -11,6 +11,8 @@ import {
   CircleAlert,
   Clock3,
   FileDown,
+  Copy,
+  BarChart3,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -23,6 +25,7 @@ import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import useMockExamTimerConfirmation from '../hooks/useMockExamTimerConfirmation';
 import { subscribeQuestionSolveEnvironment } from '../hooks/useQuestionSolveTimer';
 import { Button } from './ui';
+import {mockReviewTaskStatus} from '../utils/monthlyMockReviewAttempt.js';
 
 const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
 
@@ -270,6 +273,10 @@ const MockExamModal = ({
   studentId,
   initialAttempt,
   readOnly = false,
+  reviewMode = false,
+  reviewStudentLabel = '',
+  onCopyTask,
+  onOpenAnalysis,
   showMonthlyReview = false,
   attemptMode = MOCK_ATTEMPT_MODE_CLASSIC,
   initialTaskNumber = null,
@@ -294,6 +301,7 @@ const MockExamModal = ({
   const [results, setResults] = useState({});
   const [saveError, setSaveError] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
+  const [copyState,setCopyState]=useState({key:'',status:''});
   const [checking, setChecking] = useState(false);
   const [closing, setClosing] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
@@ -1550,6 +1558,7 @@ const MockExamModal = ({
           type="button"
           onClick={() => setSelectedTask(taskNumber)}
           data-mock-task-number={taskNumber}
+          data-mock-review-state={reviewMode?mockReviewTaskStatus(activeAttempt,String(taskNumber)):undefined}
           data-mock-task-state={
             taskNumber === selectedTask
               ? 'current'
@@ -1648,7 +1657,7 @@ const MockExamModal = ({
         aria-hidden={finishConfirmOpen || timerConfirmationRequest || completionResult ? 'true' : undefined}
         inert={finishConfirmOpen || timerConfirmationRequest || completionResult ? true : undefined}
         tabIndex={-1}
-        className={`modal-card mock-exam-modal-card ${isTimerMode ? 'mock-exam-modal--timer' : ''} relative flex h-[calc(100dvh-0.5rem)] max-h-none w-full max-w-[112rem] flex-col overflow-hidden rounded-[1.5rem] border p-3 shadow-2xl sm:h-[calc(100dvh-1rem)] sm:p-4 lg:h-[calc(100dvh-1.5rem)] ${shellClassName}`}
+        className={`modal-card mock-exam-modal-card ${reviewMode?'mock-exam-modal--review':''} ${isTimerMode ? 'mock-exam-modal--timer' : ''} relative flex h-[calc(100dvh-0.5rem)] max-h-none w-full max-w-[112rem] flex-col overflow-hidden rounded-[1.5rem] border p-3 shadow-2xl sm:h-[calc(100dvh-1rem)] sm:p-4 lg:h-[calc(100dvh-1.5rem)] ${shellClassName}`}
         style={shellStyle}
       >
         <div className="mock-exam-modal-card__launch-glow" aria-hidden="true" />
@@ -1670,19 +1679,19 @@ const MockExamModal = ({
               } inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest`}>
                 ЕГЭ
               </span>
-              {isTimerMode && (
+              {isTimerMode && !reviewMode && (
                 <span className={`mock-exam-timer-chip ${timerExpired ? 'mock-exam-timer-chip--expired' : ''}`}>
                   <Clock3 size={13} />
                   <span className="mock-exam-live-value">{timerExpired ? 'Время вышло' : timerLabel}</span>
                 </span>
               )}
-              <div
+              {!reviewMode&&<div
                 className={`mock-exam-artifact-hint ${isTimerMode ? 'mock-exam-artifact-hint--timer' : ''}`}
                 title={artifactHintText}
               >
                 <Sparkles size={14} />
                 <span>{artifactHintText}</span>
-              </div>
+              </div>}
             </div>
 
             <div className="mock-exam-modal-card__title-row mt-2 flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
@@ -1690,6 +1699,7 @@ const MockExamModal = ({
                 <h3 className={`mock-exam-modal-card__title break-words text-xl font-bold tracking-[-0.04em] sm:text-2xl lg:text-[2rem] ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
                   {exam.title}
                 </h3>
+                {reviewMode&&<div className="mock-review-tools"><span>{reviewStudentLabel?`${reviewStudentLabel} · `:''}Просмотр выполненного пробника</span>{onOpenAnalysis&&<button type="button" onClick={onOpenAnalysis}><BarChart3 size={15}/>Глубокий разбор</button>}{onCopyTask&&<button type="button" disabled={copyState.status==='copying'} onClick={async()=>{setCopyState({key:taskKey,status:'copying'});try{await onCopyTask(taskKey);setCopyState({key:taskKey,status:'copied'});}catch(error){setCopyState({key:taskKey,status:'error'});setSaveError(error.message);}}}><Copy size={15}/>{copyState.key===taskKey&&copyState.status==='copied'?'Скопировано · вставьте на доску':copyState.key===taskKey&&copyState.status==='copying'?'Копируем…':'Скопировать задание на доску'}</button>}</div>}
                 {secondaryBadges.length > 0 && <MockExamBadges badges={secondaryBadges} size="sm" className="gap-2" />}
                 <div className="mock-exam-header-mobile-stats flex flex-wrap items-center gap-2 xl:hidden">
                   {(!isTimerMode || timerResultsVisible) && (
@@ -1770,7 +1780,7 @@ const MockExamModal = ({
                 </div>
               </div>
 
-              {isTimerMode && (
+              {isTimerMode && !reviewMode && (
                 <div className={`mock-exam-timer-panel mock-exam-summary__timer mt-3 ${timerExpired ? 'mock-exam-timer-panel--expired' : ''}`}>
                   <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em]">
                     <Clock3 size={13} />
@@ -1818,8 +1828,8 @@ const MockExamModal = ({
 
               <div className={`mock-exam-task-legend shrink-0 flex flex-wrap gap-x-3 gap-y-1.5 pt-2.5 text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                 <div className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${isTimerMode ? 'bg-slate-700' : 'bg-violet-500'}`} />
-                  Текущее
+                  <span className={`h-2.5 w-2.5 rounded-full ${reviewMode ? 'bg-amber-400' : isTimerMode ? 'bg-slate-700' : 'bg-violet-500'}`} />
+                  {reviewMode ? 'Ошибка' : 'Текущее'}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`h-2.5 w-2.5 rounded-full ${isTimerMode && !timerResultsVisible ? 'bg-teal-400' : 'bg-emerald-400'}`} />
@@ -1827,7 +1837,7 @@ const MockExamModal = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`h-2.5 w-2.5 rounded-full ${isDarkTheme ? 'bg-slate-600' : 'bg-slate-300'}`} />
-                  Остальные
+                  {reviewMode ? 'Без ответа' : 'Остальные'}
                 </div>
               </div>
             </div>
@@ -2002,13 +2012,14 @@ const MockExamModal = ({
 
             {currentQuestion ? (
               <div
+                data-mock-review-state={reviewMode?mockReviewTaskStatus(activeAttempt,taskKey):undefined}
                 className={`mock-exam-modal-card__answer relative shrink-0 overflow-hidden rounded-[1.4rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'mock-exam-modal-card__answer--dense flex min-h-0 flex-col' : ''}`}
               >
                 <div className={`flex min-h-0 flex-col gap-4 xl:flex-row xl:justify-between ${hasLargeAnswerGrid ? 'h-full' : ''}`}>
                   <div className="min-w-0 flex flex-1 flex-col gap-3 min-h-0">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className={labelClassName}>Ответ</div>
-                      {(!isTimerMode || timerResultsVisible) && results[taskKey] !== undefined && (
+                      <div className={labelClassName}>{reviewMode?'Сохранённый ответ ученика':'Ответ'}</div>
+                      {(!isTimerMode || timerResultsVisible) && results[taskKey] !== undefined && (!reviewMode || mockReviewTaskStatus(activeAttempt,taskKey)!=='unanswered') && (
                         <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
                           results[taskKey]
                             ? (isDarkTheme
@@ -2026,7 +2037,7 @@ const MockExamModal = ({
 
                     <div className={hasLargeAnswerGrid ? 'min-h-0 flex-1' : ''}>
                       <div className={`mb-2 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {isTimerMode && !timerResultsVisible
+                        {reviewMode?'Зелёным отмечены верные задания, жёлтым — ошибки. Серым — без ответа.':isTimerMode && !timerResultsVisible
                           ? (
                               answerCount > 1
                                 ? (
@@ -2136,7 +2147,7 @@ const MockExamModal = ({
                     )}
                   </div>
 
-                  {!isTimerMode && (
+                  {!isTimerMode && !readOnly && (
                     <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col xl:self-end">
                       <label className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold sm:w-auto xl:min-w-[9rem] ${
                         isDarkTheme

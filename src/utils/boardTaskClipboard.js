@@ -147,6 +147,7 @@ export const normalizeBoardTaskClipboardPayload = (value) => {
     studentAnswers,
     studentCode: normalizeText(value.studentCode ?? value.code, MAX_CODE_LENGTH, { trim: false }),
     sourceStudentId: normalizeText(value.sourceStudentId ?? value.studentId, 240),
+    ...(isRecord(value.mockExamSource)?{mockExamSource:{examId:normalizeText(value.mockExamSource.examId,160),studentId:normalizeText(value.mockExamSource.studentId,160),attemptId:normalizeText(value.mockExamSource.attemptId,160),finishedAt:normalizeText(value.mockExamSource.finishedAt,80),taskKey:normalizeText(value.mockExamSource.taskKey,4)}}:{}),
   };
 };
 

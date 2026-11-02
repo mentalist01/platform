@@ -1,18 +1,20 @@
-import {useEffect,useState} from 'react';
-import {BookOpen,CheckCircle2,Clock3,ListChecks,RefreshCcw} from 'lucide-react';
+import {lazy,Suspense,useEffect,useState} from 'react';
+import {BarChart3,BookOpen,CheckCircle2,Clock3,ListChecks,RefreshCcw} from 'lucide-react';
 import {api} from '../services/api';
 import {getMonthlyMockMonth,getMonthlyMockPeriod,MONTHLY_MOCK_TIME_ZONE} from '../utils/monthlyMockExam';
 import {getTeacherMonthlyMockView} from '../utils/teacherMonthlyMock.js';
 import {mockAttemptLabel} from '../utils/mockExamAttemptView.js';
 import './StudentMonthlyMockHomework.css';
 import './TeacherMonthlyMockHomework.css';
+import './TeacherMonthlyMockReview.css';
+const TeacherMonthlyMockReview=lazy(()=>import('./TeacherMonthlyMockReview.jsx'));
 
 const labels={loading:'Проверяем…',unavailable:'Нет данных',unassigned:'Не назначен',scheduled:'Ещё не опубликован',completed:'Пройден',pending:'Не начат',in_progress:'В процессе',exempt:'Необязателен'};
 const plural=new Intl.PluralRules('ru');
 const taskCountLabel=count=>`${count} ${{one:'задание',few:'задания',many:'заданий',other:'задания'}[plural.select(count)]}`;
 const date=value=>new Date(value).toLocaleString('ru-RU',{timeZone:MONTHLY_MOCK_TIME_ZONE,day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
 
-export function TeacherMonthlyMockCard({data,error,studentId,studentName='',busy=false,onRefresh}){
+export function TeacherMonthlyMockCard({data,error,studentId,studentName='',busy=false,onRefresh,onReview}){
   const {status,row,assignment,score}=getTeacherMonthlyMockView(data,studentId);
   const completed=status==='completed';
   const period=data?.period||getMonthlyMockPeriod(getMonthlyMockMonth());
@@ -39,6 +41,7 @@ export function TeacherMonthlyMockCard({data,error,studentId,studentName='',busy
         <p>{description}</p>
         {row?.attemptPolicy && <p><strong>Пробник №{row.attemptPolicy.ordinal} · использовано {row.attemptPolicy.usedAttempts} из {row.attemptPolicy.maxAttempts} попыток</strong><br/>В отчёте и статистике учитывается лучший результат.</p>}
         {assignment&&<div className="student-monthly-mock__facts"><span><ListChecks size={16}/>{taskCountLabel(assignment.taskCount)}</span><span><Clock3 size={16}/>{assignment.mode==='classic'?'Без таймера':'С таймером'}</span></div>}
+        {completed&&row?.completion?.examId&&<div className="teacher-monthly-mock__review-actions"><button type="button" onClick={()=>onReview?.('tasks',row.completion)}><BookOpen size={17}/>Посмотреть пробник</button><button type="button" onClick={()=>onReview?.('analysis',row.completion)}><BarChart3 size={17}/>Глубокий разбор</button></div>}
       </div>
       <div className="student-monthly-mock__action-panel teacher-monthly-mock__result">
         {score!==null?<><span className="teacher-monthly-mock__result-label">Итоговый балл</span><output aria-label="Результат пробника"><strong>{score}</strong><span>из 100 баллов</span></output></>
@@ -52,6 +55,7 @@ export function TeacherMonthlyMockCard({data,error,studentId,studentName='',busy
 
 export default function TeacherMonthlyMockHomework({teacherId,studentId,studentName,refreshKey}){
   const [result,setResult]=useState(null),[revision,setRevision]=useState(0),[busy,setBusy]=useState(false);
+  const [review,setReview]=useState(null);
   const requestKey=`${teacherId}:${studentId}`;
   useEffect(()=>{
     if(!teacherId||!studentId)return undefined;
@@ -72,5 +76,5 @@ export default function TeacherMonthlyMockHomework({teacherId,studentId,studentN
     return()=>{disposed=true;window.clearInterval(timer);window.removeEventListener('focus',visible);window.removeEventListener('online',visible);document.removeEventListener('visibilitychange',visible);};
   },[teacherId,studentId,requestKey,refreshKey,revision]);
   const current=result?.key===requestKey?result:null;
-  return <TeacherMonthlyMockCard data={current?.data} error={current?.error} studentId={studentId} studentName={studentName} busy={busy} onRefresh={()=>setRevision(value=>value+1)}/>;
+  return <><TeacherMonthlyMockCard data={current?.data} error={current?.error} studentId={studentId} studentName={studentName} busy={busy} onRefresh={()=>setRevision(value=>value+1)} onReview={(view,completion)=>setReview({view,completion,key:requestKey})}/>{review?.key===requestKey&&<Suspense fallback={<p role="status">Открываем пробник…</p>}><TeacherMonthlyMockReview studentId={studentId} studentName={studentName} completion={review.completion} initialView={review.view} onClose={()=>setReview(null)}/></Suspense>}</>;
 }

@@ -295,6 +295,8 @@ import {
 } from './workbookHelper.js';
 import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
+import {registerMockExamBoardTasks} from './mockExamBoardTasks.js';
+import {monthlyMockReviewAttempt} from '../src/utils/monthlyMockReviewAttempt.js';
 import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
 import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
 import {registerGroupStudyProgressRoutes} from './groupStudyProgress.js';
@@ -24127,6 +24129,24 @@ const handleLessonPages=async(req,res)=>{
 app.get('/api/lesson-pages',handleLessonPages);
 app.post('/api/lesson-pages',handleLessonPages);
 registerPreparedTaskRoutes(app,preparedLessonTasks);
+registerMockExamBoardTasks(app,preparedLessonTasks,{
+  resolveSource:async(auth,source)=>{
+    const student=findStudentById(String(source?.studentId||''));
+    if(!student||!canAccessStudentByRole(auth,student))throw Object.assign(Error('Нет доступа к этому ученику'),{status:403});
+    const exam=readMockExamsDb().find(row=>row.id===source?.examId);
+    if(!exam||!isMockExamVisibleToStudent(exam,student.id))throw Object.assign(Error('Пробник недоступен'),{status:404});
+    const data=getStudentData(student.id),current={...data.mockAttempts?.[exam.id],attemptHistory:data.mockAttemptResults||[]};
+    let selected;
+    try{({selected}=monthlyMockReviewAttempt([exam],current,source));}catch(error){throw Object.assign(error,{status:409});}
+    if(!selected.attempt.finishedAt&&!selected.attempt.timerFinishedAt&&selected.attempt.status!=='finished')throw Object.assign(Error('Сначала завершите пробник'),{status:409});
+    const taskKey=String(source.taskKey||'');return {exam:selected.exam,question:selected.exam.tasks?.[taskKey],taskKey};
+  },
+  attachmentPath:asset=>{
+    let name=asset.storageName;
+    if(!name){try{const url=new URL(asset.url,'https://uploads.local');if(!url.pathname.startsWith('/uploads/'))return '';name=decodeURIComponent(url.pathname.slice('/uploads/'.length));}catch{return '';}}
+    return getWorkbookStoredFilePath({...asset,storageName:name});
+  },
+});
 registerPreparedSetExchangeRoutes(app,preparedLessonTasks,readTeachersDb);
 const egeStudyPlans=registerEgeStudyPlanRoutes(app,{dataDir});
 const groupStudyScope=async group=>{

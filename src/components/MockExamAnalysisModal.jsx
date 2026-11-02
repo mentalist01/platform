@@ -96,6 +96,7 @@ const MockExamAnalysisModal = ({
   getSecondaryScoreFromPrimary,
   onClose,
   onOpenTask,
+  onCopyTask,
   onAssignReview,
   onMarkTaskCorrect,
   revealUnansweredAnswers = false,
@@ -104,6 +105,8 @@ const MockExamAnalysisModal = ({
   const [expandedSelection, setExpandedSelection] = useState({ viewKey: '', taskKey: '' });
   const [markingTaskKey, setMarkingTaskKey] = useState('');
   const [correctionError, setCorrectionError] = useState('');
+  const [copyNotice, setCopyNotice] = useState('');
+  const [copyingTask,setCopyingTask]=useState('');
 
   const analysis = useMemo(() => buildMockExamAnalysis({
     exam,
@@ -379,6 +382,7 @@ const MockExamAnalysisModal = ({
                   </div>
                 </div>
 
+                {copyNotice && <div role="status" className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">{copyNotice}</div>}
                 {correctionError && (
                   <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
                     {correctionError}
@@ -471,6 +475,8 @@ const MockExamAnalysisModal = ({
                                 ))}
                               </div>
                               <aside className="space-y-3">
+                                {onOpenTask&&<button type="button" className="w-full rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs font-bold text-indigo-700" onClick={()=>onOpenTask(task.taskKey)}>Открыть задание в пробнике</button>}
+                                {onCopyTask&&<button type="button" disabled={Boolean(copyingTask)} className="w-full rounded-xl border border-purple-200 bg-purple-50 p-3 text-xs font-bold text-purple-700" onClick={async()=>{setCopyingTask(task.taskKey);setCopyNotice('');setCorrectionError('');try{await onCopyTask(task.taskKey);setCopyNotice('Задание скопировано. Перейдите на доску и нажмите Ctrl+V.');}catch(error){setCorrectionError(error.message);}finally{setCopyingTask('');}}}>{copyingTask===task.taskKey?'Копируем…':'Скопировать задание на доску'}</button>}
                                 <div className="rounded-xl border border-slate-200 bg-[rgb(var(--surface-soft))] p-3">
                                   <span className="text-[9px] font-black uppercase tracking-[0.14em] text-[rgb(var(--ink-soft))]">Ответ ученика</span>
                                   <strong className={`mt-1 block break-words text-sm ${task.status === 'incorrect' ? 'text-rose-700' : ''}`}>{formatAnswer(task.providedAnswers)}</strong>

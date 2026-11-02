@@ -165,6 +165,7 @@ import {
   selectLearningGroupWorkspaceLesson,
 } from './utils/lessonTargets';
 import { hasBoardTaskClipboardData, readBoardTaskFromPasteEvent } from './utils/boardTaskClipboard';
+import {preparedRequest} from './services/preparedLessonTasks.js';
 import { repairDuplicateBoardItems } from './utils/boardItemDeduplication';
 import {
   normalizePythonTaskCatalog,
@@ -15579,6 +15580,12 @@ export const BoardCanvasSection = ({
         setPasteError('');
         const docInstance = docRef.current;
         try {
+          if(boardTaskPayload.mockExamSource){
+            if(isSandbox)throw Error('Откройте доску урока, чтобы вставить задание с файлами и проверкой ответа.');
+            const point=getBoardPastePoint();
+            await preparedRequest('/api/lesson-task-mock-import',{room:liveRoomId,source:boardTaskPayload.mockExamSource,x:point.x-416,y:point.y-100});
+            return;
+          }
           const answerCount = Math.max(
             1,
             Math.min(BOARD_TASK_MAX_ANSWERS, Number(boardTaskPayload.answerCount) || 1)

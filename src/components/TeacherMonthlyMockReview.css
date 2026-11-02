@@ -1,0 +1,19 @@
+.teacher-monthly-mock__review-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}
+.teacher-monthly-mock__review-actions button,.mock-review-tools button{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #d8c8f2;border-radius:11px;padding:10px 14px;background:#f7f2ff;color:#6d28b5;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.teacher-monthly-mock__review-actions button:first-child{border-color:#8239dc;background:#8239dc;color:white;box-shadow:0 3px 9px #7c3aed20}
+.teacher-monthly-mock__review-actions button:hover,.mock-review-tools button:hover{filter:brightness(.96)}
+.monthly-review-loading{position:fixed;inset:0;z-index:1300;display:grid;place-items:center;background:#17112c88;padding:24px}
+.monthly-review-loading section{max-width:480px;background:rgb(var(--surface,255 255 255));color:rgb(var(--ink,30 27 45));padding:25px;border-radius:20px;box-shadow:0 15px 70px #17112c33}
+.monthly-review-loading h3{font-size:18px;font-weight:750;margin-bottom:12px}.monthly-review-loading p{margin-bottom:15px}.monthly-review-loading button{border:1px solid #d8c8f2;border-radius:9px;padding:8px 14px}
+.mock-review-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px}
+.mock-review-tools>span{flex-basis:100%;color:#81738f}.mock-review-tools button{padding:8px 11px;font-size:11px}
+.mock-exam-modal--review [data-mock-review-state=correct]{background:#e8f7ef!important;border-color:#7fbd9e!important;color:#176343!important}
+.mock-exam-modal--review [data-mock-review-state=incorrect]{background:#fff5d9!important;border-color:#e8bb58!important;color:#805b0d!important}
+.modal-card.mock-exam-modal-card.mock-exam-modal--review .mock-exam-task-picker button[data-mock-review-state=correct]{background:#e8f7ef!important;border-color:#7fbd9e!important;color:#176343!important}
+.modal-card.mock-exam-modal-card.mock-exam-modal--review .mock-exam-task-picker button[data-mock-review-state=incorrect]{background:#fff5d9!important;border-color:#e8bb58!important;color:#805b0d!important}
+.mock-exam-modal--review [data-mock-review-state][aria-current=step]{outline:2px solid currentColor;outline-offset:2px;box-shadow:none!important}
+.mock-exam-modal--review .mock-exam-modal-card__answer input:disabled{opacity:1;color:inherit;background:rgb(var(--surface,255 255 255));cursor:default}
+.mock-exam-modal--review .mock-exam-modal-card__answer[data-mock-review-state=incorrect] .text-rose-600{background:#fff0bf;border-color:#e8bb58;color:#805b0d}
+html[data-theme=dark] .mock-exam-modal--review [data-mock-review-state=correct]{background:#193d31!important;border-color:#428566!important;color:#b1efd1!important}
+html[data-theme=dark] .mock-exam-modal--review [data-mock-review-state=incorrect]{background:#44361c!important;border-color:#91733d!important;color:#f6d88e!important}
+html[data-theme=dark] .mock-review-tools button{background:#3c2b50;border-color:#72518e;color:#e4caff}

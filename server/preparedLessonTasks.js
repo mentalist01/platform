@@ -189,9 +189,9 @@ export class PreparedLessonTasks {
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
   async notify(run,kind='run',cardId=''){await this.projectCode(run);const change={runId:run.id,version:run.version,mode:run.mode,kind,cardId,at:this.now()};const doc=await this.board(run.room);doc.getMap('preparedTaskState').set('change',change);const book=await this.board(run.room.split('~page~')[0].split('~student~')[0]+'~pages');book.getMap('preparedTaskSignals').set(run.room,change);}
-  async start(auth,input){return this.lock(async()=>{
+  async start(auth,input,trustedSet){return this.lock(async()=>{
     const access=await this.access(auth,input.room,true);if(!teacher(auth))fail(403,'Начать набор может преподаватель');
-    const set=this.data.sets[input.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
+    const set=trustedSet||this.data.sets[input.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
     const filter=input.partNumber===undefined?undefined:Number(input.partNumber);
     if(filter!==undefined&&(!Number.isInteger(filter)||!preparedSetParts(set).some(part=>part.partNumber===filter)))fail(400,'В наборе нет выбранной части. Отметьте её начало в редакторе набора.');
     if(input.setVersion!==undefined&&Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Обновите окно перехода.');
@@ -209,11 +209,11 @@ export class PreparedLessonTasks {
       return {...structuredClone(task),id,sourceSetId:set.id,sourceSetName:set.name,sourceTaskNumber:task.sourceTaskNumber??set.taskNumber,sourcePartNumber:task.sourcePartNumber??set.partNumber,sourceSetVersion:set.version,sourceTaskId:task.id,sourceIndex:set.tasks.findIndex(row=>row.id===task.id)};
     });
   }
-  async appendSet(auth,id,input){return this.lock(async()=>{
+  async appendSet(auth,id,input,trustedSet){return this.lock(async()=>{
     const {run,access}=await this.getRun(auth,id,true);
     if(!teacher(auth)||run.teacherId!==auth.id)fail(403,'Добавлять наборы может преподаватель этой доски');
     if(run.homework)fail(409,'В домашнюю задачу нельзя добавлять наборы');
-    const set=this.data.sets[input.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
+    const set=trustedSet||this.data.sets[input.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
     if(preparedRunSources(run).some(source=>source.id===set.id)){await this.notify(run);return this.publicRun(run,access);}
     if(run.detachedSets?.some(record=>record.setId===set.id))fail(409,'Этот набор был убран со страницы. Верните его через список наборов.');
     if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Обновите список перед добавлением.');
@@ -224,7 +224,7 @@ export class PreparedLessonTasks {
     try{this.save(run);}catch(error){run.tasks=oldTasks;run.version=oldVersion;run.mode=oldMode;throw error;}
     await this.notify(run);return this.publicRun(run,access);
   });}
-  async addCard(run,index) {
+  async addCard(run,index,pointOverride) {
     const doc=await this.board(run.room),items=doc.getArray('items'),all=items.toArray();
     if(index===undefined)index=(preparedCurrentCard(run,all)?.index??-1)+1;
     if(!Number.isInteger(index)||index<0||index>=run.tasks.length)return;
@@ -234,7 +234,7 @@ export class PreparedLessonTasks {
     const previous=run.cards.slice().reverse().find(card=>all.some(item=>item.id===card.anchorId));
     const anchor=previous&&all.find(item=>item.id===previous.anchorId);
     const previews=Array.from(doc.awareness?.getStates?.().values()||[]).map(state=>state?.drawing).filter(Boolean);
-    const point=anchor?preparedNextPoint([...all,...previews],anchor):run.cards.length?preparedNextPoint([...all,...previews],{...run.start,width:640,height:0}):run.start,task=run.tasks[index];
+    const point=pointOverride||(anchor?preparedNextPoint([...all,...previews],anchor):run.cards.length?preparedNextPoint([...all,...previews],{...run.start,width:640,height:0}):run.start),task=run.tasks[index];
     const height=(isPreparedTheory(task)?70:124)+Math.max(0,(task.answerTable?preparedAnswerLayout(task).rows:Math.ceil(task.answers.length/2))-1)*44+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
     run.awaitingFirstCard=false;
     const card=existing||{id:crypto.randomUUID(),index,anchorId:'prepared-'+crypto.randomUUID(),codeId:'prepared-'+crypto.randomUUID(),x:point.x,y:point.y,width:640,height,spawnScale:1.3,status:isPreparedTheory(task)?'theory':'active',answers:task.answers.map(()=>''),answerRevision:0,code:{text:'',input:'',output:'',revision:0},solutions:{}};
@@ -390,7 +390,7 @@ export class PreparedLessonTasks {
       if(!(independent?card.answers[field].trim():card.answers.some(v=>v.trim()))&&!(manage&&input.accept))fail(400,'Сначала введите ответ');
       if(task.format==='manual'&&!manage)fail(409,'Это задание проверяет преподаватель');
       card.lastCheckAt=now;card.attempts=(card.attempts||0)+1;
-      const correct=(manage&&input.accept===true)||preparedAnswerMatches(independent?[task.answers[field]]:task.answers,independent?[card.answers[field]]:card.answers,task.format);
+      const correct=(manage&&input.accept===true)||(task.mockAnswerVariants&&!independent?task.mockAnswerVariants.some(expected=>preparedAnswerMatches(expected.map(v=>v.toLowerCase()),card.answers.map(v=>v.toLowerCase()),task.format)):preparedAnswerMatches(independent?[task.answers[field]]:task.answers,independent?[card.answers[field]]:card.answers,task.format));
       if(independent){card.fieldResults=task.answers.map((_,i)=>i===field?(correct?'correct':'wrong'):card.fieldResults?.[i]||null);}
       const complete=independent?card.fieldResults.every(result=>result==='correct'):correct;
       if(run.homework&&!correct)card.homeworkWrongCount=(card.homeworkWrongCount||0)+1;
