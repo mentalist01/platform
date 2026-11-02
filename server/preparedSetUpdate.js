@@ -1,5 +1,5 @@
 import {preparedAnswerGroups,remapPreparedGroupAnswers} from '../src/utils/preparedAnswerGroups.js';
-import {preparedTaskSource,preparedSetSequence,preparedSourceLatest,isPreparedTheory} from '../src/utils/preparedRunSources.js';
+import {preparedTaskSource,preparedSetSequence,preparedSourceLatest,preparedMissingTheory,isPreparedTheory} from '../src/utils/preparedRunSources.js';
 import {preparedCheckingChanged} from '../src/utils/preparedTaskContent.js';
 import {preparedAnswerIndices,preparedAnswerTableChanged} from '../src/utils/preparedAnswerTable.js';
 import {preparedFileSync} from '../src/utils/preparedFileSync.js';
@@ -50,6 +50,7 @@ export function updatePreparedSet(store,run,set){
     const next={...task,...metadata,title:incoming.title,difficult:incoming.difficult===true,
       format:incoming.format,answerMode:incoming.answerMode||'combined',answers:[...incoming.answers],images:[...incoming.images],
       attachments:preparedFileSync([task],[incoming]).tasks[0].attachments};
+    if(incoming.theoryStep)next.theoryStep={...incoming.theoryStep};
     delete next.answerTable;delete next.answerCountOverride;delete next.answerGroups;
     if(incoming.answerGroups)next.answerGroups=structuredClone(incoming.answerGroups);
     delete next.referenceSolutions;
@@ -67,9 +68,11 @@ export function updatePreparedSet(store,run,set){
   const added=sequence.filter(task=>!isPreparedTheory(task)&&!known.has(task.id));
   if(tasks.filter(task=>!isPreparedTheory(task)).length+added.length>100)fail('На странице может быть не больше 100 задач. Создайте новую страницу.');
   tasks=[...tasks,...store.sourceTasks(run,set,added)];
-  if(sequence.some(isPreparedTheory)&&!tasks.some(task=>isPreparedTheory(task)&&preparedTaskSource(run,task).id===set.id)){
+  const theory=preparedMissingTheory(run,set,sequence);
+  if(theory.length){
     const index=tasks.findIndex(task=>preparedTaskSource(run,task).id===set.id);
-    tasks.splice(index,0,store.sourceTasks(run,set,[sequence.find(isPreparedTheory)])[0]);
+    const last=tasks.findLastIndex(task=>isPreparedTheory(task)&&preparedTaskSource(run,task).id===set.id);
+    tasks.splice(last<0?index:last+1,0,...store.sourceTasks(run,set,theory));
   }
   const positions=new Map(tasks.map((task,index)=>[task.id,index]));
   const cards=run.cards.map(card=>({...cardUpdates.get(card.id)||card,index:positions.get(run.tasks[card.index].id)}));

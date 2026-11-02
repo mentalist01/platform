@@ -7,4 +7,5 @@ export const preparedCheckingChanged=(before,after)=>
 export const preparedTaskContentChanged=(before,after)=>
   before.title!==after.title||Boolean(before.difficult)!==Boolean(after.difficult)||
   JSON.stringify(before.images)!==JSON.stringify(after.images)||
+  JSON.stringify(before.theoryStep||null)!==JSON.stringify(after.theoryStep||null)||
   JSON.stringify(before.referenceSolutions||[])!==JSON.stringify(after.referenceSolutions||[])||preparedCheckingChanged(before,after);

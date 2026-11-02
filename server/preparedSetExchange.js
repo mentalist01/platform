@@ -51,7 +51,7 @@ export class PreparedSetExchange {
   preview(auth,id){
     const share=this.available(auth,id),set=share.snapshot;
     const assetView=assetId=>({...this.store.assetView(assetId),url:`/api/lesson-task-exchange/${id}/assets/${assetId}`});
-    return {version:share.version,authorName:this.author(share.teacherId),set:{id:set.id,name:set.name,taskNumber:set.taskNumber,partNumber:set.partNumber,version:set.version,theoryImages:set.theoryImages||[],theoryImageFiles:(set.theoryImages||[]).map(assetView),tasks:set.tasks.map(task=>({...task,imageFiles:task.images.map(assetView),...(task.referenceSolutions?.length?{referenceSolutions:task.referenceSolutions.map(file=>assetView(file.assetId))}:{}),attachments:task.attachments.map(file=>({name:file.name,runtime:file.runtime,runtimeName:file.runtimeName,...assetView(file.assetId)}))}))}};
+    return {version:share.version,authorName:this.author(share.teacherId),set:{id:set.id,name:set.name,taskNumber:set.taskNumber,partNumber:set.partNumber,version:set.version,theoryMode:set.theoryMode||'together',theoryImages:set.theoryImages||[],theoryImageFiles:(set.theoryImages||[]).map(assetView),tasks:set.tasks.map(task=>({...task,imageFiles:task.images.map(assetView),...(task.referenceSolutions?.length?{referenceSolutions:task.referenceSolutions.map(file=>assetView(file.assetId))}:{}),attachments:task.attachments.map(file=>({name:file.name,runtime:file.runtime,runtimeName:file.runtimeName,...assetView(file.assetId)}))}))}};
   }
   asset(auth,id,assetId){const share=this.available(auth,id);if(!references(share.snapshot).includes(assetId))fail(404,'Файл не найден');const asset=this.store.data.assets[assetId];if(!asset||asset.teacherId!==share.teacherId)fail(404,'Файл не найден');return asset;}
   copy(auth,id,input){
