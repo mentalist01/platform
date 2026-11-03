@@ -29,6 +29,6 @@ test('theory images persist through set APIs, display before questions, remain a
     assert.equal(run.cards[2].kind,'theory');
     ({run}=await request(`/api/lesson-task-runs/${run.id}/action`,a,{action:'theory-next',cardId:run.cards[2].id}));
     assert.equal(run.cards[3].kind,'task');assert.equal(run.cards[3].sourceIndex,0);assert.equal(run.cards[3].answerCount,2);
-    const after=(await request('/api/lesson-task-run?room='+encodeURIComponent(room),s)).run;assert.equal(after.cards.length,4);assert.equal('referenceAnswers' in after.cards[3],false);
+    const after=(await request('/api/lesson-task-run?room='+encodeURIComponent(room),s)).run;assert.equal(after.cards.length,4);assert.equal('referenceAnswers' in after.cards[3],false);assert.equal(after.canManage,false);assert.deepEqual(after.theoryFocus,run.theoryFocus);assert.equal(after.theoryFocus.cardId,run.cards[3].id);
   }finally{await f.stop();}
 });

@@ -140,6 +140,13 @@
 .prepared-card .prepared-theory-label{display:inline-flex;gap:7px;align-items:center;color:var(--pt-accent);font-size:14px}.prepared-card--theory .prepared-card-source{max-width:330px}.prepared-card--theory .prepared-task-status{color:var(--pt-muted)}
 .prepared-theory-mode{display:flex;flex-wrap:wrap;gap:8px}.prepared-card .prepared-theory-counter{font-size:11px;font-weight:500;white-space:nowrap;padding:3px 7px;background:var(--pt-soft);color:var(--pt-accent);border-radius:7px}
 .prepared-card button.prepared-theory-next{pointer-events:auto;margin-left:auto;flex-shrink:0;min-height:30px;padding:5px 9px;background:var(--pt-accent);border-color:var(--pt-accent);color:var(--pt-panel);font-size:11px}.prepared-card--theory header .prepared-card-source{flex:1;min-width:0}.prepared-card--theory>.prepared-error{pointer-events:auto;position:absolute;top:52px;left:12px;right:12px;z-index:2;margin:8px 0}
+.prepared-card button.prepared-theory-preview{pointer-events:auto;min-height:30px;padding:5px 8px;white-space:nowrap;font-size:11px;flex-shrink:0;color:var(--pt-accent)}
+.prepared-card.is-difficult{border-color:color-mix(in srgb,#d69b24 50%,var(--pt-line));box-shadow:0 5px 22px #a66b130e}
+.prepared-card.is-difficult .prepared-card-controls>header{background:linear-gradient(105deg,color-mix(in srgb,#f5bd4e 16%,var(--pt-panel)),var(--pt-panel) 82%)}
+.prepared-card header .prepared-hard-badge{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;line-height:18px;padding:2px 7px;border:1px solid #dfb25277;background:#fff1cf;color:#875709;border-radius:7px;font-size:10px;font-weight:650;flex-shrink:0}
+.prepared-dark .prepared-card header .prepared-hard-badge{background:#59431e;color:#ffe2a0;border-color:#997239}
+.prepared-card header .prepared-hard-badge.is-conquered{background:var(--pt-green-bg);color:var(--pt-green);border-color:color-mix(in srgb,var(--pt-green) 30%,transparent)}
+.prepared-card .prepared-hard-badge svg{flex-shrink:0;fill:currentColor;fill-opacity:.15}
 .prepared-board-options-menu{box-sizing:border-box;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;max-width:calc(100vw - 24px)}
 .prepared-board-options-menu button{max-width:100%;white-space:normal;text-align:left}.prepared-board-options-menu label{min-width:0}.prepared-board-options-menu label input{flex:none}
 

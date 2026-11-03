@@ -29,8 +29,9 @@ test('three sheets appear one at a time vertically, keep annotations, and repeat
   await assert.rejects(store.action(pupil,view.id,{action:'theory-next',cardId:first.id}),/преподаватель/);
   view=await store.action(auth,view.id,{action:'theory-next',cardId:first.id});
   const second=view.cards[1],a=items.toArray().find(i=>i.id===first.anchorId),b=items.toArray().find(i=>i.id===second.anchorId);
+  assert.deepEqual(view.theoryFocus,{cardId:second.id,revision:1});
   assert.ok(b.y>a.y+a.height);assert.equal(b.x,a.x);assert.equal(first.images[0].id,view.cards[0].images[0].id);
-  view=await store.action(auth,view.id,{action:'theory-next',cardId:first.id});assert.equal(view.cards.length,2);assert.equal(view.teacherCardId,second.id);
+  view=await store.action(auth,view.id,{action:'theory-next',cardId:first.id});assert.equal(view.cards.length,2);assert.equal(view.teacherCardId,second.id);assert.equal(view.theoryFocus.revision,2,'Repeated navigation still reaches students who panned away');
   view=await store.action(auth,view.id,{action:'next',expectedCount:2,fromCardId:second.id});
   const third=view.cards[2],c=items.toArray().find(i=>i.id===third.anchorId);assert.ok(c.y>b.y+b.height);assert.equal(c.x,b.x);
   view=await store.action(auth,view.id,{action:'theory-next',cardId:third.id});
@@ -40,6 +41,18 @@ test('three sheets appear one at a time vertically, keep annotations, and repeat
   assert.equal((await doc('collab-teacher-pupil')).getMap(COLLAB_SOLUTIONS_MAP_KEY).size,1);
   await assert.rejects(store.action(auth,view.id,{action:'theory-next',cardId:question.id}),/из теории/);
   const restarted=new PreparedLessonTasks(deps);assert.equal(restarted.data.runs[view.id].cards.length,4);assert.deepEqual(restarted.data.runs[view.id].tasks[1].theoryStep,{index:1,count:3});
+});
+
+test('new theory goes below typed notes, drawings and unfinished awareness strokes, including a two-sheet set',async t=>{
+  for(const count of [2,3]){
+    const {store,auth,doc,make,images}=fixture(t),set=await make({theoryImages:images.slice(0,count)}),room=`board-notes-${count}`;
+    let view=await store.start(auth,{room,setId:set.id,x:100,y:120});
+    const document=await doc(room),items=document.getArray('items'),a=items.toArray()[0],bottom=a.y+a.height;
+    const note={id:'note',type:'text',x:110,y:bottom+20,width:500,height:180,text:'Объяснение\nИ ещё строка'},ink={id:'ink-below',type:'stroke',points:[{x:140,y:bottom+230},{x:190,y:bottom+300}]};items.push([note,ink]);
+    document.awareness={getStates:()=>new Map([[1,{drawing:{type:'stroke',points:[{x:130,y:bottom+340},{x:240,y:bottom+400}]}}]])};
+    view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[0].id});
+    const b=items.toArray().find(item=>item.id===view.cards[1].anchorId);assert.equal(b.x,a.x);assert.ok(b.y>bottom+400);assert.deepEqual(items.toArray().find(item=>item.id==='note'),note);assert.deepEqual(items.toArray().find(item=>item.id==='ink-below'),ink);
+  }
 });
 
 test('two sheets open side by side, while the first question opens beneath both sheets',async t=>{
@@ -92,4 +105,14 @@ test('queue sync connects every theory page added later, without changing existi
   assert.equal(view.total,4);assert.equal(view.cards[0].id,first.id);assert.equal(view.cards[0].index,3);assert.equal(view.cards[0].codeId,first.codeId);
   assert.equal((await store.taskCatalog(auth,view.id)).tasks.filter(t=>t.kind==='theory').length,3);
   view=await store.action(auth,view.id,{action:'sync-queue',setId:set.id,setVersion:updated.version});assert.equal(view.total,4);
+});
+
+test('teacher preview lists unopened theory without changing the board or emitting navigation, and students cannot preview the queue',async t=>{
+  const {store,auth,pupil,make,doc}=fixture(t),set=await make(),view=await store.start(auth,{room:'board-preview',setId:set.id,x:0,y:0});
+  const items=(await doc('board-preview')).getArray('items').toArray(),version=store.data.runs[view.id].version;
+  const catalog=await store.taskCatalog(auth,view.id),theory=catalog.tasks.filter(task=>task.kind==='theory');
+  assert.equal(theory.length,3);assert.ok(theory[0].cardId);assert.equal(theory[1].cardId,'');assert.equal(theory[2].cardId,'');
+  assert.deepEqual((await doc('board-preview')).getArray('items').toArray(),items);assert.equal(store.data.runs[view.id].version,version);assert.equal(store.data.runs[view.id].theoryFocus,undefined);
+  await assert.rejects(store.taskCatalog(pupil,view.id),/преподавателю/);
+  const opened=await store.action(auth,view.id,{action:'choose',taskId:theory[2].id});assert.equal(opened.cards.length,2);assert.equal(opened.cards[1].title,'Теория · 3');assert.equal(opened.theoryFocus.cardId,opened.cards[1].id);
 });
