@@ -87615,3 +87615,52 @@ html[data-theme='dark'] .student-month-report__error {
   .student-month-report__focus,.student-month-report__practice,.student-month-report__contact{margin-inline:16px}
   .student-month-report__focus-fields{grid-template-columns:minmax(0,1fr);gap:0}
 }
+
+.board-trial-presentation-start {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  z-index: 32;
+  border: 1px solid #c4b5fd;
+  border-radius: 10px;
+  padding: 7px 11px;
+  background: #fff;
+  color: #5b21b6;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.board-trial-presentation-start:hover {
+  background: #f5f0ff;
+}
+
+[data-trial-presentation] .board-canvas-surface {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+}
+
+[data-trial-presentation] :is(
+  .board-pages-heading,
+  .board-tool-rail,
+  .board-bottom-controls,
+  .board-fullscreen-corner,
+  .board-image-toolbar,
+  .board-image-selection-layer,
+  .board-fragment-copy,
+  .board-fragment-notice,
+  .board-minimap-shell,
+  .board-remote-cursor-following,
+  .board-remote-cursor-marker,
+  .board-remote-cursor-indicator,
+  .prepared-board-notice,
+  .prepared-board-error,
+  .prepared-toolbar-fallback,
+  .prepared-card-homework,
+  .prepared-solve-credit,
+  .prepared-material-more,
+  .prepared-draft-conflict
+) {
+  display: none;
+}

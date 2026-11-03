@@ -11358,6 +11358,7 @@ export const BoardCanvasSection = ({
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   const [isBoardPanning, setIsBoardPanning] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [trialPresentation, setTrialPresentation] = useState(false);
   const [undoState, setUndoState] = useState({ canUndo: false, canRedo: false });
   const [selectedImageId, setSelectedImageId] = useState(null);
   const [imageResizePreview, setImageResizePreview] = useState(null);
@@ -12645,6 +12646,7 @@ export const BoardCanvasSection = ({
     const handleFullscreenChange = () => {
       const active = typeof document !== 'undefined' && document.fullscreenElement === boardRootRef.current;
       setIsFullscreen(active);
+      if (!active) setTrialPresentation(false);
     };
     if (typeof document === 'undefined') return undefined;
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -12970,6 +12972,20 @@ export const BoardCanvasSection = ({
         await document.exitFullscreen();
       }
     } catch { /* no-op */ }
+  };
+
+  const startTrialPresentation = async () => {
+    const root = boardRootRef.current;
+    if (!root?.requestFullscreen) return;
+    setTrialPresentation(true);
+    try {
+      if (document.fullscreenElement !== root) await root.requestFullscreen();
+      setTool('pen');
+      setIsMinimapOpen(false);
+      containerRef.current?.focus({ preventScroll: true });
+    } catch {
+      setTrialPresentation(false);
+    }
   };
 
   const handleSummonStudent = () => pages?.summon({zoom:zoomRef.current || 1,offset:{...offsetRef.current}});
@@ -17174,7 +17190,7 @@ export const BoardCanvasSection = ({
   ) : null;
   const boardCardContent = (
     <>
-      {isGroupLesson && !isSandbox && !pages?.studyPreview && (
+      {!trialPresentation && isGroupLesson && !isSandbox && !pages?.studyPreview && (
         <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto py-1" role="tablist" aria-label="Доски группы">
           {['', ...(isTeacher ? learningParticipantIds : [String(userId)])].map((studentId) => {
             const student = (Array.isArray(students) ? students : []).find((entry) => entry.id === studentId);
@@ -17197,7 +17213,7 @@ export const BoardCanvasSection = ({
           })}
         </div>
       )}
-      {!isSandbox && isTeacher && !hideStudentPicker && (
+      {!trialPresentation && !isSandbox && isTeacher && !hideStudentPicker && (
         <div className={`board-toolbar ${isFullscreen ? 'board-toolbar--fullscreen' : ''} ${embedded ? 'board-toolbar--embedded' : ''} ${!isFullscreen && !embedded ? 'board-toolbar--floating' : ''}`}>
           <div className="board-toolbar__strip board-toolbar__strip--actions">
             <div className="board-toolbar__actions">{renderStudentPicker()}</div>
@@ -17205,12 +17221,12 @@ export const BoardCanvasSection = ({
         </div>
       )}
 
-      {pasteError && (
+      {!trialPresentation && pasteError && (
         <div className="mt-2 text-xs text-rose-600">{pasteError}</div>
       )}
 
       <div className="board-pages-stage flex flex-1 min-h-0 relative gap-2">
-      {pages?.panel}
+      {!trialPresentation && pages?.panel}
       <div
         ref={containerRef}
         tabIndex={roomId && !boardReadOnly ? 0 : -1}
@@ -17229,6 +17245,16 @@ export const BoardCanvasSection = ({
         }`}
       >
         {pages?.header}
+        {isTeacher && !boardReadOnly && !isSandbox && !pages?.studyPreview && roomId && !trialPresentation && (
+          <button
+            type="button"
+            className="board-trial-presentation-start"
+            title="1 — перо, 2 — рука, 3 — ластик, 4 — текст, Page Down — следующее задание, Esc — выход"
+            onClick={() => void startTrialPresentation()}
+          >
+            Пробное занятие
+          </button>
+        )}
         {pages?.clipboard?.({
           refs: { items: boardItemsRef, selected: selectedIdsRef, doc: docRef, yItems: yItemsRef, undo: undoManagerRef, origin: localOriginRef, actions: boardClipboardActionsRef },
           target: { roomId, userId, studentId: effectiveStudentId, lessonId: learningLessonId, readOnly: boardReadOnly, sandbox: isSandbox },
@@ -17568,7 +17594,7 @@ export const BoardCanvasSection = ({
         {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={scheduleBoardRender} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
-          focus={focusPreparedCard}/>}
+          focus={focusPreparedCard} trialPresentation={trialPresentation}/>}
         <div
           className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
           aria-label={boardReadOnly ? 'Завершённые задания на доске' : 'Интерактивные задания на доске'}
@@ -18346,6 +18372,15 @@ export const BoardCanvasSection = ({
     <div
       ref={boardRootRef}
       className={`board-interaction-root ${boardShellClass}`}
+      data-trial-presentation={trialPresentation || undefined}
+      onKeyDownCapture={(event) => {
+        if (!trialPresentation || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        const nextTool = { 1: 'pen', 2: 'move', 3: 'eraser', 4: 'text' }[event.key];
+        if (!nextTool) return;
+        event.preventDefault();
+        setTool(nextTool);
+      }}
       data-lesson-replay-board-sandbox={isSandbox ? 'true' : undefined}
       onFocusCapture={() => { boardPasteFocusedRef.current = true; }}
       onBlurCapture={(event) => {
@@ -18354,7 +18389,7 @@ export const BoardCanvasSection = ({
         }
       }}
     >
-      {isFullscreen && isTeacher && <div data-homework-notes-dock="workspace" className="teacher-homework-notes-dock teacher-homework-notes-dock--workspace" />}
+      {isFullscreen && isTeacher && !trialPresentation && <div data-homework-notes-dock="workspace" className="teacher-homework-notes-dock teacher-homework-notes-dock--workspace" />}
       {!isSandbox && isTeacher && !isGroupLesson && !activeStudentId && !pages?.liveRoomId && (
         <div className="mb-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 flex items-start gap-2">
           <AlertTriangle size={18} className="mt-0.5" />
