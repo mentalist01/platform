@@ -17226,7 +17226,7 @@ export const BoardCanvasSection = ({
       )}
 
       <div className="board-pages-stage flex flex-1 min-h-0 relative gap-2">
-      {!trialPresentation && pages?.panel}
+      {pages?.panel}
       <div
         ref={containerRef}
         tabIndex={roomId && !boardReadOnly ? 0 : -1}

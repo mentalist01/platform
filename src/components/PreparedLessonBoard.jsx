@@ -134,8 +134,8 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   const canAdvance=!busy&&!switchBlocked&&hasNext&&['solved','skipped','theory','reviewed'].includes(active?.status);
   useEffect(()=>{
     if(!trialPresentation||!ready||!run?.canManage||readOnly)return;
-    const board=surface.current;
     const onKeyDown=event=>{
+      if(!surface.current||!document.fullscreenElement?.contains(surface.current))return;
       if(event.code!=='PageDown'||event.repeat||event.ctrlKey||event.metaKey||event.altKey)return;
       if(event.target.closest?.('input, textarea, select, [contenteditable="true"]'))return;
       event.preventDefault();
@@ -143,8 +143,8 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
       else if(canAdvance)void execute(()=>advance('next'));
       else if(!busy&&!switchBlocked&&!run.cards.length&&run.firstTaskId)void execute(()=>chooseTask(run.firstTaskId));
     };
-    board?.addEventListener('keydown',onKeyDown);
-    return()=>board?.removeEventListener('keydown',onKeyDown);
+    window.addEventListener('keydown',onKeyDown);
+    return()=>window.removeEventListener('keydown',onKeyDown);
   });
   const syncSet=async(setId,version)=>{await context.action(run.id,{action:'sync-set',setId,setVersion:version});};
   const syncFiles=async(version,setId=run.setId)=>{await context.action(run.id,{action:'sync-files',setId,setVersion:version});};

@@ -87642,10 +87642,16 @@ html[data-theme='dark'] .student-month-report__error {
 }
 
 [data-trial-presentation] :is(
-  .board-pages-heading,
-  .board-tool-rail,
-  .board-bottom-controls,
-  .board-fullscreen-corner,
+  .board-pages-peers,
+  .board-pages-notice,
+  .board-pages-create,
+  .board-pages-rename,
+  .board-pages-delete,
+  .board-bottom-controls__session,
+  .board-bottom-controls__button.is-danger,
+  .board-bottom-controls__help-button,
+  .prepared-board-options,
+  .prepared-sync-queue,
   .board-image-toolbar,
   .board-image-selection-layer,
   .board-fragment-copy,
@@ -87656,7 +87662,6 @@ html[data-theme='dark'] .student-month-report__error {
   .board-remote-cursor-indicator,
   .prepared-board-notice,
   .prepared-board-error,
-  .prepared-toolbar-fallback,
   .prepared-card-homework,
   .prepared-solve-credit,
   .prepared-material-more,
