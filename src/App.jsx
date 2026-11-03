@@ -13231,22 +13231,6 @@ export const BoardCanvasSection = ({
     }
   };
 
-  const findImageAtPoint = (point) => {
-    const boardItems = boardItemsRef.current;
-    for (let i = boardItems.length - 1; i >= 0; i -= 1) {
-      const item = boardItems[i];
-      if (!item || item.type !== 'image') continue;
-      const x = item.x || 0;
-      const y = item.y || 0;
-      const w = item.width || 0;
-      const h = item.height || 0;
-      if (point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h) {
-        return { item, index: i };
-      }
-    }
-    return null;
-  };
-
   const updateImagePosition = (id, x, y) => {
     if (sandboxReadOnlyRef.current) return;
     const yItems = yItemsRef.current;
@@ -16202,7 +16186,7 @@ export const BoardCanvasSection = ({
       event.currentTarget.setPointerCapture?.(event.pointerId);
       return;
     }
-    if (isSpaceDown || event.button === 1 || event.button === 2) {
+    if (tool === 'move' || isSpaceDown || event.button === 1 || event.button === 2) {
       stopFollowingRemoteCursor();
       panStateRef.current = {
         active: true,
@@ -16263,35 +16247,6 @@ export const BoardCanvasSection = ({
     if (tool === 'eraser') {
       eraserStateRef.current.active = true;
       eraseAtPoint(point);
-      event.currentTarget.setPointerCapture(event.pointerId);
-      return;
-    }
-    if (tool === 'move') {
-      const hit = findImageAtPoint(point);
-      if (hit?.item?.id) {
-        setSelectedImageId(hit.item.id);
-        if (hit.item.locked || hit.item.superLocked) return;
-        dragImageRef.current = {
-          active: true,
-          id: hit.item.id,
-          offsetX: point.x - (hit.item.x || 0),
-          offsetY: point.y - (hit.item.y || 0),
-          x: hit.item.x || 0,
-          y: hit.item.y || 0,
-        };
-        event.currentTarget.setPointerCapture(event.pointerId);
-        return;
-      }
-      setSelectedImageId(null);
-      stopFollowingRemoteCursor();
-      panStateRef.current = {
-        active: true,
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: offsetRef.current.x,
-        originY: offsetRef.current.y,
-      };
-      setIsBoardPanning(true);
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
@@ -17322,8 +17277,8 @@ export const BoardCanvasSection = ({
               setIsShapePaletteOpen(false);
             }}
             className={`board-tool-rail__button ${tool === 'move' ? 'is-active' : ''}`}
-            aria-label="Перемещение"
-            title="Перемещение"
+            aria-label="Перемещение по доске"
+            title="Перемещение по доске"
             aria-pressed={tool === 'move'}
           >
             <Hand size={20} />
@@ -17909,7 +17864,7 @@ export const BoardCanvasSection = ({
             </div>
           </div>
         )}
-        {!boardReadOnly && (tool === 'move' || tool === 'select') && displaySelectedImage && selectedImageScreenBox && (
+        {!boardReadOnly && tool === 'select' && displaySelectedImage && selectedImageScreenBox && (
           <div className="board-image-selection-layer" aria-label="Выбранное изображение">
             <div
               className={`board-image-selection ${isSelectedImageLocked ? 'is-locked' : ''}`}
