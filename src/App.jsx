@@ -16715,6 +16715,13 @@ export const BoardCanvasSection = ({
     };
     includePoint(offsetRef.current.x, offsetRef.current.y);
     includePoint(offsetRef.current.x + viewWidth, offsetRef.current.y + viewHeight);
+    const preparedCards = boardItemsRef.current.filter(item =>
+      isPreparedTaskAnchor(item) && [item.x, item.y, item.width, item.height].every(Number.isFinite)
+    );
+    for (const card of preparedCards) {
+      includePoint(card.x, card.y);
+      includePoint(card.x + card.width, card.y + card.height);
+    }
 
     if (minimapInteractionRef.current) Object.assign(bounds, minimapInteractionRef.current);
 
@@ -16739,6 +16746,22 @@ export const BoardCanvasSection = ({
     ctx.lineWidth = 0.9;
     ctx.strokeRect(pad, pad, mapWidth * scale, mapHeight * scale);
     ctx.restore();
+
+    if (preparedCards.length) {
+      const theoryIds = new Set(Array.from(
+        containerRef.current?.querySelectorAll('.prepared-card--theory[data-anchor-id]') || [],
+        card => card.dataset.anchorId
+      ));
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(pad, pad, mapWidth * scale, mapHeight * scale);
+      ctx.clip();
+      for (const card of preparedCards) {
+        ctx.fillStyle = theoryIds.has(card.id) ? '#247970' : '#7b56b9';
+        ctx.fillRect(toMiniX(card.x), toMiniY(card.y), Math.max(2, card.width * scale), Math.max(2, card.height * scale));
+      }
+      ctx.restore();
+    }
 
     if (scene?.canvas) {
       ctx.save();
@@ -16777,6 +16800,11 @@ export const BoardCanvasSection = ({
       renderMinimap();
     }, delayMs);
   }, [renderMinimap]);
+
+  const handlePreparedBoardVisualChange = useCallback(() => {
+    scheduleBoardRender();
+    if (minimapOpenRef.current) scheduleMinimapRender();
+  }, [scheduleBoardRender, scheduleMinimapRender]);
 
   useEffect(() => {
     scheduleMinimapRenderRef.current = scheduleMinimapRender;
@@ -17591,7 +17619,7 @@ export const BoardCanvasSection = ({
         />
         <canvas ref={preparedInkRef} className="prepared-ink-layer absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>
         <BoardFileDownloads items={boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
-        {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={scheduleBoardRender} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
+        {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={handlePreparedBoardVisualChange} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
           focus={focusPreparedCard} trialPresentation={trialPresentation}/>}

@@ -23,7 +23,7 @@ export default function BoardMinimap({ canvasRef, getGeometry, onNavigate, onInt
   return <canvas ref={canvasRef} width={240} height={140}
     className={`board-minimap-canvas block${dragging ? ' is-dragging' : ''}`}
     tabIndex={0} role="group" aria-label="Миникарта доски. Перетащите синюю рамку или используйте стрелки."
-    title="Перетащите синюю рамку или нажмите на нужное место"
+    title="Фиолетовый — задания, зелёный — теория. Нажмите на нужное место или перетащите синюю рамку."
     onPointerDown={event => {
       event.stopPropagation();
       if (event.button !== 0 || drag.current) return;
