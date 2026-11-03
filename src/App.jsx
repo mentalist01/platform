@@ -12661,7 +12661,7 @@ export const BoardCanvasSection = ({
     viewportAnimationRafRef.current = null;
   }, []);
 
-  const focusPreparedCard=useCallback((anchor,options)=>{preparedFlightRef.current?.();const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:options?.zoom??zoomRef.current,initial:options?.initial,fit:options?.fit,top});const apply=next=>{zoomRef.current=next.zoom;offsetRef.current=next.offset;setZoom(next.zoom);setOffset(next.offset);};if(options?.initial||window.matchMedia('(prefers-reduced-motion: reduce)').matches)apply(view);else preparedFlightRef.current=animatePreparedBoardView({from:{zoom:zoomRef.current,offset:offsetRef.current},to:view,onFrame:apply});},[]);
+  const focusPreparedCard=useCallback((anchor,options)=>{preparedFlightRef.current?.();const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:options?.zoom??zoomRef.current,initial:options?.initial,fit:options?.fit,top});const apply=next=>{zoomRef.current=next.zoom;offsetRef.current=next.offset;setZoom(next.zoom);setOffset(next.offset);};if((options?.initial&&!options.animate)||window.matchMedia('(prefers-reduced-motion: reduce)').matches)apply(view);else preparedFlightRef.current=animatePreparedBoardView({from:{zoom:zoomRef.current,offset:offsetRef.current},to:view,onFrame:apply});},[]);
 
   const summonedNavigation = pages?.navigation;
   const acknowledgeBoardNavigation = pages?.acknowledgeNavigation;

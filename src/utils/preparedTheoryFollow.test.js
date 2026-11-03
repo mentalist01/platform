@@ -12,10 +12,16 @@ test('an explicit next-sheet event selects the same sheet for every student and 
 test('layout and data refreshes, local preview, initial loading and old navigation do not pull the camera',()=>{
   assert.equal(preparedTheoryFollowTarget(after,{...after,version:100}),null);
   assert.equal(preparedTheoryFollowTarget(before,{...before,version:100}),null);
-  assert.equal(preparedTheoryFollowTarget(null,after),null);
+  assert.equal(preparedTheoryFollowTarget(undefined,after),null);
   assert.equal(preparedTheoryFollowTarget({...before,id:'other'},after),null);
   assert.equal(preparedTheoryFollowTarget(before,{...after,theoryFocus:{cardId:'missing',revision:1}}),null);
   assert.equal(preparedTheoryFollowTarget(after,{...after,theoryFocus:{cardId:'sheet-2',revision:-1}}),null);
+});
+test('the first theory sheet pulls a pupil already on an empty page, but opening an existing page does not',()=>{
+  const first={id:'new-run',teacherCardId:'first',cards:[{id:'first',index:0,kind:'theory'}],theoryFocus:{cardId:'first',revision:1}};
+  assert.deepEqual(preparedTheoryFollowTarget(null,first),{selectedId:'first',theoryFollowRevision:1});
+  assert.equal(preparedTheoryFollowTarget(undefined,first),null);
+  assert.equal(preparedTheoryFollowTarget(null,{...first,canManage:true}),null);
 });
 test('repeating the teacher navigation refocuses the same sheet; the last sheet can lead into the first question',()=>{
   assert.deepEqual(preparedTheoryFollowTarget(after,{...after,theoryFocus:{cardId:'sheet-2',revision:2}}),{selectedId:'sheet-2',theoryFollowRevision:2});
