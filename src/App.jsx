@@ -10,6 +10,7 @@ import {openPreparedHomework} from './services/preparedHomework.js';
 import {paintPreparedInk,compositePreparedInk,isPreparedTaskAnchor} from './utils/preparedInk.js';
 import {findBoardEraserHit} from './utils/boardEraser.js';
 import {preparedBoardView,animatePreparedBoardView} from './utils/preparedBoardView.js';
+import {incomingBoardTask} from './utils/boardTaskFollow.js';
 import {getAnswerCountForTask,getMockAnswerCountForTask} from './utils/egeAnswerFields.js';
 import {studySubjectGroup} from './utils/studySubjects.js';
 import {STUDY_CONTINUE_EVENT} from './services/studentStudyProgress.js';
@@ -12658,6 +12659,8 @@ export const BoardCanvasSection = ({
     viewportAnimationRafRef.current = null;
   }, []);
 
+  const focusPreparedCard=useCallback((anchor,options)=>{preparedFlightRef.current?.();const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:options?.zoom??zoomRef.current,initial:options?.initial,fit:options?.fit,top});const apply=next=>{zoomRef.current=next.zoom;offsetRef.current=next.offset;setZoom(next.zoom);setOffset(next.offset);};if(options?.initial||window.matchMedia('(prefers-reduced-motion: reduce)').matches)apply(view);else preparedFlightRef.current=animatePreparedBoardView({from:{zoom:zoomRef.current,offset:offsetRef.current},to:view,onFrame:apply});},[]);
+
   const summonedNavigation = pages?.navigation;
   const acknowledgeBoardNavigation = pages?.acknowledgeNavigation;
   const boardNavigationRef = useRef(null);
@@ -15276,6 +15279,8 @@ export const BoardCanvasSection = ({
         flushLessonReplayBoardSnapshot();
       }
       commitBoardData(nextSnapshot.nextItems, nextSnapshot.nextEstimatedBytes);
+      const insertedTask=incomingBoardTask(event?.changes?.delta,previousItems,{synced:provider?.synced,local:transaction?.local,role,teacherId,readOnly:boardReadOnly,sandbox:isSandbox});
+      if(insertedTask)focusPreparedCard(insertedTask);
       if (
         isSandbox
         && !sandboxReadOnlyRef.current
@@ -15536,7 +15541,7 @@ export const BoardCanvasSection = ({
       disposed = true;
       runtimeCleanup?.();
     };
-  }, [confirmSyncedBoardNavigation, roomId, wsUrl, wsParams, liveRoomId, localName, localColor, isTeacher, isSandbox, boardReadOnly, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
+  }, [confirmSyncedBoardNavigation, focusPreparedCard, role, teacherId, roomId, wsUrl, wsParams, liveRoomId, localName, localColor, isTeacher, isSandbox, boardReadOnly, sandboxReadOnly, sandboxSessionId, applyBoardDelta, buildBoardSnapshotFromYItems, commitBoardData, flushLessonReplayBoardSnapshot, getBoardCapacityError, resetBoardData, resetBoardInteractionState, scheduleBoardRender, scheduleBoardSceneRender, scheduleLessonReplayBoardSnapshot]);
 
   useEffect(() => {
     if (!isSandbox || !sandboxReadOnly) return;
@@ -17563,7 +17568,7 @@ export const BoardCanvasSection = ({
         {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={scheduleBoardRender} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
-          focus={(anchor,options)=>{preparedFlightRef.current?.();const top=(containerRef.current?.querySelector('.board-pages-heading')?.offsetHeight||38)+34;const view=preparedBoardView(anchor,{width:boardSize.width,height:boardSize.height,zoom:options?.zoom??zoomRef.current,initial:options?.initial,fit:options?.fit,top});const apply=next=>{zoomRef.current=next.zoom;offsetRef.current=next.offset;setZoom(next.zoom);setOffset(next.offset);};if(options?.initial||window.matchMedia('(prefers-reduced-motion: reduce)').matches)apply(view);else preparedFlightRef.current=animatePreparedBoardView({from:{zoom:zoomRef.current,offset:offsetRef.current},to:view,onFrame:apply});}}/>}
+          focus={focusPreparedCard}/>}
         <div
           className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
           aria-label={boardReadOnly ? 'Завершённые задания на доске' : 'Интерактивные задания на доске'}

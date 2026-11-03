@@ -29,9 +29,9 @@ test('three sheets appear one at a time vertically, keep annotations, and repeat
   await assert.rejects(store.action(pupil,view.id,{action:'theory-next',cardId:first.id}),/преподаватель/);
   view=await store.action(auth,view.id,{action:'theory-next',cardId:first.id});
   const second=view.cards[1],a=items.toArray().find(i=>i.id===first.anchorId),b=items.toArray().find(i=>i.id===second.anchorId);
-  assert.deepEqual(view.theoryFocus,{cardId:second.id,revision:1});
+  assert.deepEqual(view.theoryFocus,{cardId:second.id,revision:2});
   assert.ok(b.y>a.y+a.height);assert.equal(b.x,a.x);assert.equal(first.images[0].id,view.cards[0].images[0].id);
-  view=await store.action(auth,view.id,{action:'theory-next',cardId:first.id});assert.equal(view.cards.length,2);assert.equal(view.teacherCardId,second.id);assert.equal(view.theoryFocus.revision,2,'Repeated navigation still reaches students who panned away');
+  view=await store.action(auth,view.id,{action:'theory-next',cardId:first.id});assert.equal(view.cards.length,2);assert.equal(view.teacherCardId,second.id);assert.equal(view.theoryFocus.revision,3,'Repeated navigation still reaches students who panned away');
   view=await store.action(auth,view.id,{action:'next',expectedCount:2,fromCardId:second.id});
   const third=view.cards[2],c=items.toArray().find(i=>i.id===third.anchorId);assert.ok(c.y>b.y+b.height);assert.equal(c.x,b.x);
   view=await store.action(auth,view.id,{action:'theory-next',cardId:third.id});
@@ -112,7 +112,7 @@ test('teacher preview lists unopened theory without changing the board or emitti
   const items=(await doc('board-preview')).getArray('items').toArray(),version=store.data.runs[view.id].version;
   const catalog=await store.taskCatalog(auth,view.id),theory=catalog.tasks.filter(task=>task.kind==='theory');
   assert.equal(theory.length,3);assert.ok(theory[0].cardId);assert.equal(theory[1].cardId,'');assert.equal(theory[2].cardId,'');
-  assert.deepEqual((await doc('board-preview')).getArray('items').toArray(),items);assert.equal(store.data.runs[view.id].version,version);assert.equal(store.data.runs[view.id].theoryFocus,undefined);
+  assert.deepEqual((await doc('board-preview')).getArray('items').toArray(),items);assert.equal(store.data.runs[view.id].version,version);assert.deepEqual(store.data.runs[view.id].theoryFocus,view.theoryFocus);
   await assert.rejects(store.taskCatalog(pupil,view.id),/преподавателю/);
   const opened=await store.action(auth,view.id,{action:'choose',taskId:theory[2].id});assert.equal(opened.cards.length,2);assert.equal(opened.cards[1].title,'Теория · 3');assert.equal(opened.theoryFocus.cardId,opened.cards[1].id);
 });

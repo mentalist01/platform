@@ -211,7 +211,8 @@ export class PreparedLessonTasks {
   }
   assetView(assetId,runId=''){const a=this.data.assets[assetId];return a?{id:a.id,name:a.name,sizeBytes:a.size,mime:a.mime,width:a.width,height:a.height,url:`/api/lesson-task-assets/${a.id}${runId?'?run='+encodeURIComponent(runId):''}`} : null;}
   setView(set){return {...set,theoryImages:set.theoryImages||[],theoryImageFiles:(set.theoryImages||[]).map(id=>this.assetView(id)),tasks:set.tasks.map(t=>({...t,imageFiles:t.images.map(id=>this.assetView(id)),attachments:t.attachments.map(a=>({...a,...this.assetView(a.assetId)}))}))};}
-  theoryFocus(run){if(run.teacherCardId)run.theoryFocus={cardId:run.teacherCardId,revision:(run.theoryFocus?.revision||0)+1};}
+  // The legacy field also carries explicit exercise navigation for older clients.
+  theoryFocus(run,afterSolve=''){if(run.teacherCardId)run.theoryFocus={cardId:run.teacherCardId,revision:(run.theoryFocus?.revision||0)+1,...(afterSolve?{afterSolve}:{})};}
   publicRun(run,access) {
     if(!run)return null;
     const sources=preparedSourceUpdates(run,this.data.sets);
@@ -232,7 +233,7 @@ export class PreparedLessonTasks {
     const x=Number(input.x),y=Number(input.y);if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>900_000||Math.abs(y)>900_000)fail(400,'Укажите место на доске');
     if(old?.detachedSets?.some(record=>record.setId===set.id))fail(409,'Этот набор был убран со страницы. Верните его через список наборов.');
     const run={...(old||{}),id:old?.id||crypto.randomUUID(),teacherCardId:'',awaitingFirstCard:false,room:input.room,teacherId:set.teacherId,name:set.name,taskNumber:set.taskNumber,partNumber:filter??set.partNumber,setId:set.id,setVersion:set.version,...(filter!==undefined?{partFilters:{[set.id]:filter}}:{}),tasks:structuredClone(preparedSetSequence(set,filter)),cards:[],version:(old?.version||0)+1,mode:'prepared',auto:false,participantIds:access.participantIds||[],studentId:access.studentId||'',groupId:access.groupId||'',start:{x,y},createdAt:new Date(this.now()).toISOString()};
-    this.data.runs[run.id]=run;this.data.active[run.room]=run.id;this.save(run);this.save();await this.addCard(run);await this.notify(run);return this.publicRun(run,access);
+    this.data.runs[run.id]=run;this.data.active[run.room]=run.id;this.save(run);this.save();await this.addCard(run);this.theoryFocus(run);this.save(run);await this.notify(run);return this.publicRun(run,access);
   });}
   sourceTasks(run,set,tasks=preparedSetSequence(set)) {
     const known=new Set(run.tasks.map(task=>task.id));
@@ -338,7 +339,7 @@ export class PreparedLessonTasks {
     }
     else if(input.action==='auto')run.auto=input.value===true;
     else if(input.action==='focus'){requireCard();run.teacherCardId=card.id;}
-    else if(input.action==='choose'){const index=run.tasks.findIndex(task=>task.id===input.taskId);if(index<0)fail(404,'Задача не найдена в этом наборе');await this.addCard(run,index);if(isPreparedTheory(run.tasks[index]))this.theoryFocus(run);}
+    else if(input.action==='choose'){const index=run.tasks.findIndex(task=>task.id===input.taskId);if(index<0)fail(404,'Задача не найдена в этом наборе');await this.addCard(run,index);this.theoryFocus(run);}
     else if(input.action==='sync-files') {
       const set=this.data.sets[input.setId||run.setId];if(!set||set.teacherId!==auth.id||!preparedRunSources(run).some(source=>source.id===set.id))fail(404,'Набор не найден на этой странице');
       if(Number(input.setVersion)!==set.version)fail(409,'Набор изменён. Обновите список и повторите подключение файлов.');
@@ -421,7 +422,7 @@ export class PreparedLessonTasks {
     else if(input.action==='next'||input.action==='skip'){
       if(input.expectedCount!==run.cards.length)return this.publicRun(run,access);
       const last=preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray());if(input.fromCardId&&input.fromCardId!==last?.id)return this.publicRun(run,access);if(!last)return this.publicRun(run,access);if(isPreparedTheory(run.tasks[last.index]))last.status='reviewed';else if(input.action==='skip'&&last.status!=='solved'){last.status='skipped';last.skippedAt||=new Date(now).toISOString();}
-      else if(last.status!=='solved'&&last.status!=='skipped'&&last.status!=='reviewed')fail(409,'Сначала проверьте ответ или пропустите задачу');await this.addCard(run,last.index+1);if(isPreparedTheory(run.tasks[last.index])||isPreparedTheory(run.tasks[last.index+1]))this.theoryFocus(run);
+      else if(last.status!=='solved'&&last.status!=='skipped'&&last.status!=='reviewed')fail(409,'Сначала проверьте ответ или пропустите задачу');if(await this.addCard(run,last.index+1))this.theoryFocus(run);
     } else if(input.action==='claim'){requireCard();card.lease=null;return this.publicRun(run,access);}
     else if(input.action==='claim-code') {
       requireCard();const kind=input.action==='claim'?'lease':'codeLease',previous=card[kind];
@@ -463,7 +464,7 @@ export class PreparedLessonTasks {
       if(run.homework&&!correct)card.homeworkWrongCount=(card.homeworkWrongCount||0)+1;
       card.lastResult=correct?'correct':'wrong';card.lease=null;if(complete){card.status='solved';card.solvedBy=actorKey(auth);
         if(this.achievementContext){try{const context=await this.achievementContext(run,auth,access);card.solveReceipt=preparedSolveReceipt(run,card,this.data.assets,context,now);card.achievementPending=true;}catch(error){console.warn('[lesson-achievements] context unavailable:',error.message);}this.save(run);}
-        if(run.auto&&card===preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray()))await this.addCard(run,card.index+1);}
+        if(run.auto&&card===preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray())&&await this.addCard(run,card.index+1))this.theoryFocus(run,card.id);}
     } else if(input.action==='release') {requireCard();for(const kind of ['lease','codeLease'])if(card[kind]?.key===input.leaseKey)card[kind]=null;}
     else if(input.action==='code') {
       lease('codeLease');if(Number(input.revision)!==card.code.revision)fail(409,'Код обновлён другим участником. Ваш текст сохранён локально.');

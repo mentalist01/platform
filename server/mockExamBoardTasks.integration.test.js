@@ -16,6 +16,8 @@ test('teacher copies the exact historical mock task with files, private answers 
     const sourceBytes=await fetch(f.base+card.attachments[0].url,{headers:{Authorization:'Bearer '+f.tokens['teacher-a']}}).then(r=>r.text());assert.equal(sourceBytes,'1\n2\n3\n');
     const pupil=await f.request('/api/lesson-task-run?room='+room,f.tokens['student-a']);assert.equal('referenceAnswers' in pupil.run.cards[0],false);assert.equal(JSON.stringify(pupil).includes('mockAnswerVariants'),false);
     const second=await f.request('/api/lesson-task-mock-import',f.tokens['teacher-a'],{...input,x:900,y:300});assert.equal(second.run.id,first.run.id);assert.equal(second.run.cards.length,2);assert.equal(second.run.cards[0].anchorId,card.anchorId);
+    assert.ok(second.run.version>first.run.version+1,'The pasted card has a revision after the queue-only append');
+    const inserted=await f.request('/api/lesson-task-run?room='+room,f.tokens['student-a']);assert.equal(inserted.run.theoryFocus.cardId,second.run.cards[1].id);assert.ok(inserted.run.theoryFocus.revision>pupil.run.theoryFocus.revision);
     const live=await f.request('/api/lesson-task-runs/'+first.run.id+'/action',f.tokens['student-a'],{action:'answer',cardId:card.id,revision:0,answers:['3','4']});
     const checked=await f.request('/api/lesson-task-runs/'+first.run.id+'/action',f.tokens['student-a'],{action:'check',cardId:card.id,revision:live.run.cards[0].answerRevision});assert.equal(checked.run.cards[0].status,'solved');
     await f.request('/api/lesson-task-mock-import',f.tokens['teacher-a'],{...input,source:{...source,attemptId:'missing'}},'POST',409);

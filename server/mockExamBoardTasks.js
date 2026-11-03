@@ -37,7 +37,7 @@ export async function importMockExamTask(store,auth,input,{resolveSource,attachm
   store.save();
   if(!old?.tasks.length)return store.start(auth,{room,setId:set.id,...point},set);
   await store.appendSet(auth,old.id,{setId:set.id,setVersion:set.version},set);
-  return store.lock(async()=>{const {run,access}=await store.getRun(auth,old.id,true);if(run.teacherId!==auth.id)fail(403,'Нет доступа к этой доске');const index=run.tasks.findIndex(row=>row.sourceTaskId===task.id);if(index<0)fail(409,'Повторите вставку задания');await store.addCard(run,index,point);store.save(run);await store.notify(run);return store.publicRun(run,access);});
+  return store.lock(async()=>{const {run,access}=await store.getRun(auth,old.id,true);if(run.teacherId!==auth.id)fail(403,'Нет доступа к этой доске');const index=run.tasks.findIndex(row=>row.sourceTaskId===task.id);if(index<0)fail(409,'Повторите вставку задания');await store.addCard(run,index,point);store.theoryFocus(run);run.version++;store.save(run);await store.notify(run);return store.publicRun(run,access);});
 }
 
 export function registerMockExamBoardTasks(app,store,deps){
