@@ -1,3 +1,4 @@
+import {preparedTasksForSave} from '../src/utils/preparedSetLibrary.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -128,14 +129,19 @@ export class PreparedLessonTasks {
     const name=text(input.name,80),taskNumber=Number(input.taskNumber),part=Number(input.partNumber)||1;
     let incomplete=!name;
     if((!name&&!autosave)||!Number.isInteger(taskNumber)||taskNumber<1||taskNumber>27||!Number.isInteger(part)||part<1||part>20)fail(400,'Укажите название, номер ЕГЭ и часть');
-    if(!Array.isArray(input.tasks)||!input.tasks.length||input.tasks.length>100)fail(400,'Добавьте от 1 до 100 заданий');
+    if(!Array.isArray(input.tasks)||input.tasks.length>100)fail(400,'Можно добавить до 100 заданий');
     const theoryImages=[...new Set(input.theoryImages===undefined?previous?.theoryImages||[]:Array.isArray(input.theoryImages)?input.theoryImages:[])];
     if(input.theoryImages!==undefined&&!Array.isArray(input.theoryImages)||theoryImages.length>8)fail(400,'Добавьте до 8 изображений теории');
     for(const imageId of theoryImages){const asset=this.data.assets[imageId];if(!asset||asset.teacherId!==auth.id||!asset.mime.startsWith('image/'))fail(403,'Нет доступа к изображению теории');}
     const theoryMode=input.theoryMode??previous?.theoryMode??(previous?.theoryImages?.length?'together':'steps');
     if(!['steps','together'].includes(theoryMode))fail(400,'Выберите способ показа теории');
+    const submittedTasks=autosave?input.tasks:preparedTasksForSave({...input,theoryImages});
+    if(!submittedTasks.length&&!theoryImages.length){
+      if(!autosave)fail(400,'Добавьте теорию или хотя бы одну задачу');
+      incomplete=true;
+    }
     const sources=await this.sourceFiles(auth),tasks=[];
-    for(const [index,raw] of input.tasks.entries()) {
+    for(const [index,raw] of submittedTasks.entries()) {
       const answerGroups=normalizePreparedAnswerGroups(raw.answerGroups);
       if(raw.answerGroups!=null&&(!answerGroups||raw.answerMode!=='independent'||raw.answerTable!=null))fail(400,'Настройте блок 19–21 с отдельной проверкой и без общей таблицы.');
       if(answerGroups&&(!Array.isArray(raw.answers)||raw.answers.length!==preparedAnswerGroups({answerGroups}).flatMap(group=>group.indices).length||raw.answerCountOverride!==undefined&&Number(raw.answerCountOverride)!==raw.answers.length))fail(400,'Структура блока 19–21 не совпадает с количеством ответов');
@@ -170,12 +176,12 @@ export class PreparedLessonTasks {
       tasks.push({...(index>0&&raw.startsPart===true?{startsPart:true}:{}),difficult:raw.difficult===true,id:/^[a-f0-9-]{36}$/.test(raw.id||'')?raw.id:crypto.randomUUID(),title,format,answers,...(raw.answerMode==='independent'?{answerMode:'independent'}:{}),...(answerGroups?{answerGroups,answerCountOverride:answers.length}:{}),...(answerTable?{answerTable,answerCountOverride:answerTable.rows*answerTable.columns}:raw.answerCountOverride?{answerCountOverride:Number(raw.answerCountOverride)}:{}),images:imageIds,attachments,...(referenceSolutions.length?{referenceSolutions}:{})});
     }
     if([19,20,21].includes(taskNumber)&&preparedSetParts({partNumber:part,tasks}).length>22-taskNumber)fail(400,'Блок игр объединяет задания 19, 20 и 21. Проверьте границы частей.');
-    if(preparedSetParts({partNumber:part,tasks}).at(-1).partNumber>20)fail(400,'В наборе может быть не больше 20 частей');
+    if(preparedSetParts({partNumber:part,tasks}).at(-1)?.partNumber>20)fail(400,'В наборе может быть не больше 20 частей');
     if(new Set(tasks.map(task=>task.id)).size!==tasks.length)fail(400,'Идентификаторы задач должны быть разными');
     const rawPlacements=input.theoryPlacements===undefined?previous?.theoryPlacements:input.theoryPlacements;
     if(rawPlacements&&(typeof rawPlacements!=='object'||Array.isArray(rawPlacements)))fail(400,'Укажите место листов теории');
     const taskIds=new Set(tasks.map(task=>task.id)),theoryPlacements={};
-    for(const image of theoryImages){const target=rawPlacements?.[image];if(target)theoryPlacements[image]=target==='end'||taskIds.has(target)?target:'end';}
+    for(const image of theoryImages){const target=rawPlacements?.[image];if(target&&tasks.length)theoryPlacements[image]=target==='end'||taskIds.has(target)?target:'end';}
     const rawDisplay=input.theoryDisplay===undefined?previous?.theoryDisplay:input.theoryDisplay;
     if(rawDisplay&&(typeof rawDisplay!=='object'||Array.isArray(rawDisplay)))fail(400,'Укажите настройки листов теории');
     let theoryDisplay;
@@ -206,8 +212,10 @@ export class PreparedLessonTasks {
     if(set.draft)fail(409,'Сначала заполните название, условия и ответы в наборе');
     const x=Number(input.x),y=Number(input.y);if(!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>900_000||Math.abs(y)>900_000)fail(400,'Укажите место на доске');
     if(old?.detachedSets?.some(record=>record.setId===set.id))fail(409,'Этот набор был убран со страницы. Верните его через список наборов.');
-    const run={...(old||{}),id:old?.id||crypto.randomUUID(),teacherCardId:'',awaitingFirstCard:false,room:input.room,teacherId:set.teacherId,name:set.name,taskNumber:set.taskNumber,partNumber:filter??set.partNumber,setId:set.id,setVersion:set.version,...(filter!==undefined?{partFilters:{[set.id]:filter}}:{}),tasks:structuredClone(preparedSetSequence(set,filter)),cards:[],version:(old?.version||0)+1,mode:'prepared',auto:false,participantIds:access.participantIds||[],studentId:access.studentId||'',groupId:access.groupId||'',start:{x,y},createdAt:new Date(this.now()).toISOString()};
-    this.data.runs[run.id]=run;this.data.active[run.room]=run.id;this.save(run);this.save();await this.addCard(run);this.theoryFocus(run);this.save(run);await this.notify(run);return this.publicRun(run,access);
+    const run={...(old||{}),id:old?.id||crypto.randomUUID(),teacherCardId:'',awaitingFirstCard:input.deferFirstCard===true,room:input.room,teacherId:set.teacherId,name:set.name,taskNumber:set.taskNumber,partNumber:filter??set.partNumber,setId:set.id,setVersion:set.version,...(filter!==undefined?{partFilters:{[set.id]:filter}}:{}),tasks:structuredClone(preparedSetSequence(set,filter)),cards:[],version:(old?.version||0)+1,mode:'prepared',auto:false,participantIds:access.participantIds||[],studentId:access.studentId||'',groupId:access.groupId||'',start:{x,y},createdAt:new Date(this.now()).toISOString()};
+    this.data.runs[run.id]=run;this.data.active[run.room]=run.id;this.save(run);this.save();
+    if(!run.awaitingFirstCard){await this.addCard(run);this.theoryFocus(run);this.save(run);}
+    await this.notify(run);return this.publicRun(run,access);
   });}
   sourceTasks(run,set,tasks=preparedSetSequence(set)) {
     const known=new Set(run.tasks.map(task=>task.id));
@@ -283,7 +291,7 @@ export class PreparedLessonTasks {
     const requireCard=()=>{if(!card)fail(404,'Задача не найдена');};
     if(card&&isPreparedTheory(run.tasks[card.index])&&['claim','answer','check','confirm-independent','claim-code','code'].includes(input.action))fail(400,'Теория не требует ответа и не считается решённой задачей');
     const lease=(kind='lease')=>{requireCard();const previous=card[kind];if(!previous||previous.until<now||previous.actor!==actorKey(auth)||previous.key!==input.leaseKey)fail(409,`${previous?.name||'Другой участник'} редактирует поле либо время ввода истекло. Возьмите ввод заново.`);};
-    if(['remove-set','restore-set','mode','auto','next','theory-next','skip','focus','restore','layout','sync-set','sync-files','sync-queue','sync-checking','choose','confirm-independent'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
+    if(['remove-set','restore-set','mode','auto','next','theory-next','skip','focus','restore','layout','sync-set','sync-files','sync-queue','sync-checking','choose','begin','confirm-independent'].includes(input.action)&&!manage)fail(403,'Очередью управляет преподаватель');
     if(input.action==='remove-set'||input.action==='restore-set'){
       if(run.teacherId!==auth.id)fail(403,'Наборами управляет преподаватель этой доски');
       if(run.homework)fail(409,'Состав домашней задачи меняется при назначении домашки');
@@ -308,6 +316,10 @@ export class PreparedLessonTasks {
     }
     else if(input.action==='auto')run.auto=input.value===true;
     else if(input.action==='focus'){requireCard();run.teacherCardId=card.id;}
+    else if(input.action==='begin'){
+      if(run.cards.length||!run.tasks.length)return this.publicRun(run,access);
+      if(await this.addCard(run,0))this.theoryFocus(run);
+    }
     else if(input.action==='choose'){const index=run.tasks.findIndex(task=>task.id===input.taskId);if(index<0)fail(404,'Задача не найдена в этом наборе');await this.addCard(run,index);this.theoryFocus(run);}
     else if(input.action==='sync-files') {
       const set=this.data.sets[input.setId||run.setId];if(!set||set.teacherId!==auth.id||!preparedRunSources(run).some(source=>source.id===set.id))fail(404,'Набор не найден на этой странице');

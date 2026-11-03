@@ -6,7 +6,7 @@ import {preparedRequest} from '../services/preparedLessonTasks.js';
 import {USER_SESSION_KEY} from '../utils/theme.js';
 import {enablePreparedGameAnswers} from '../utils/preparedAnswerGroups.js';
 import {preparedAnswerTask} from '../utils/egeAnswerFields.js';
-import {nextPreparedTaskTitle,preparedTaskIssues} from '../utils/preparedSetLibrary.js';
+import {nextPreparedTaskTitle,preparedTaskIssues,preparedTasksForSave} from '../utils/preparedSetLibrary.js';
 import {usePreparedSetAutosave} from '../hooks/usePreparedSetAutosave.js';
 import PreparedSetList from './PreparedSetList.jsx';
 import PreparedSetExchange from './PreparedSetExchange.jsx';
@@ -33,7 +33,7 @@ export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,on
     value={...value,id:value.id||crypto.randomUUID(),version:value.version||0,tasks:value.tasks.map(task=>({...task,id:task.id||crypto.randomUUID()}))};
     setTheoryOpen(false);begin(value);setSavedSnapshot(value.version?JSON.stringify(value):'');setEdit(value);setSelected(0);setCrop(null);setValidationTaskId('');setError('');setSavedNotice('');
   };
-  useEffect(()=>{if(!open||!draftKey)return;try{const draft=JSON.parse(localStorage.getItem(draftKey)||'null');if(draft?.edit?.tasks?.length)setLocalDraft(draft);}catch{/* Optional recovery copy */}},[open,draftKey]);
+  useEffect(()=>{if(!open||!draftKey)return;try{const draft=JSON.parse(localStorage.getItem(draftKey)||'null');if(Array.isArray(draft?.edit?.tasks))setLocalDraft(draft);}catch{/* Optional recovery copy */}},[open,draftKey]);
   useEffect(()=>{if(!dirty||!draftKey)return;const draft={edit,savedSnapshot,at:Date.now()};try{localStorage.setItem(draftKey,JSON.stringify(draft));setLocalDraft(draft);}catch{/* Server save remains available */}},[edit,dirty,draftKey,savedSnapshot]);
   useEffect(()=>{if(edit&&!dirty&&draftKey){try{localStorage.removeItem(draftKey);}catch{/* Optional recovery copy */}setLocalDraft(null);}},[edit,dirty,draftKey]);
   const load=async()=>{const result=await preparedRequest('/api/lesson-task-sets');if(alive.current){setSets(result.sets);setOrderVersion(result.orderVersion||0);}};
@@ -65,7 +65,7 @@ export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,on
   };
   const allowForward=()=>{if(busy||!current)return false;const issues=preparedTaskIssues(current,edit.taskNumber);if(!issues.valid){focusIssues(current,issues);return false;}return true;};
   const navigate=index=>{if(busy||index===selected||index>selected&&!allowForward())return;setSelected(index);setCrop(null);setError('');};
-  const add=()=>{if(!allowForward()||edit.tasks.length>=100)return;setEdit({...edit,tasks:[...edit.tasks,blankTask(edit.taskNumber,nextPreparedTaskTitle(edit.tasks.at(-1),edit.tasks.length))]});setSelected(edit.tasks.length);setCrop(null);setSavedNotice('');};
+  const add=()=>{if(busy||edit.tasks.length>=100||(edit.tasks.length&&!allowForward()))return;setEdit({...edit,tasks:[...edit.tasks,blankTask(edit.taskNumber,nextPreparedTaskTitle(edit.tasks.at(-1),edit.tasks.length))]});setSelected(edit.tasks.length);setCrop(null);setSavedNotice('');};
   const move=direction=>{const target=selected+direction;if(busy||!edit||target<0||target>=edit.tasks.length)return;const tasks=[...edit.tasks];[tasks[selected],tasks[target]]=[tasks[target],tasks[selected]];setEdit({...edit,tasks});setSelected(target);setCrop(null);};
   const remove=()=>{if(!window.confirm('Убрать эту задачу из набора? Сохранённые уроки останутся.'))return;setEdit({...edit,tasks:edit.tasks.filter((_,i)=>i!==selected)});setSelected(Math.max(0,selected-1));setCrop(null);};
   const upload=async incoming=>{
@@ -90,7 +90,9 @@ export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,on
   };
   const save=sync=>{
     if(!edit.name.trim()){setError('Укажите название набора.');editorRef.current?.querySelector('[aria-label="Название набора"]')?.focus();return;}
-    const invalid=edit.tasks.findIndex(task=>!preparedTaskIssues(task,edit.taskNumber).valid);
+    const tasks=preparedTasksForSave(edit);
+    if(!tasks.length&&!edit.theoryImages?.length){setError('Добавьте теорию или хотя бы одну задачу.');return;}
+    const invalid=tasks.findIndex(task=>!preparedTaskIssues(task,edit.taskNumber).valid);
     if(invalid!==-1){setSelected(invalid);setCrop(null);focusIssues(edit.tasks[invalid],preparedTaskIssues(edit.tasks[invalid],edit.taskNumber));return;}
     void execute(async()=>{
       const set=await persist(false);if(!set)return;

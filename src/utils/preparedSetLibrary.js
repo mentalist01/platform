@@ -37,6 +37,17 @@ export function nextPreparedTaskTitle(previous, index) {
   return String(index + 1);
 }
 
+export function preparedTasksForSave(set) {
+  const tasks = set.tasks;
+  if (!set.theoryImages?.length || tasks.length !== 1) return tasks;
+  const [task] = tasks;
+  const title = String(task.title ?? '').trim();
+  const hasContent = (title && title !== '1') || task.images?.length || task.attachments?.length
+    || task.referenceSolutions?.length || task.answers?.some(answer => String(answer ?? '').trim())
+    || task.difficult || task.startsPart || task.format === 'manual';
+  return hasContent ? tasks : [];
+}
+
 export function preparedTaskIssues(task,taskNumber) {
   const images = !task?.images?.length;
   const {missing,invalidNumber} = preparedExpectedAnswerIssues(task,taskNumber);
