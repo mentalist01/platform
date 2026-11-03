@@ -8,12 +8,13 @@ import {BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed} from './blankWorkbook
 import {preparedSetParts} from '../src/utils/preparedSetParts.js';
 import {preparedFileSync} from '../src/utils/preparedFileSync.js';
 import {preparedAnswerSchema} from '../src/utils/preparedSharedAnswers.js';
+import {normalizePreparedTheoryDisplay} from '../src/utils/preparedTheoryDisplay.js';
 import {updatePreparedSet} from './preparedSetUpdate.js';
 import {preparedWriterView,preparedWriterAllows,releasePreparedFile,resumePreparedFile} from './preparedFileWriter.js';
 import {WorkbookLiveStore} from './workbookLiveStore.js';
 import {PreparedWorkbookHistory,currentWorkbookSolution,workbookAttempt,registerPreparedWorkbookHistory} from './preparedWorkbookHistory.js';
 import {registerWorkbookLiveRoutes,workbookLiveView} from './workbookLiveRoutes.js';
-import {preparedTaskSource,preparedRunSources,preparedSourceLatest,preparedSourceUpdates,preparedSetSequence,preparedMissingTheory,isPreparedTheory} from '../src/utils/preparedRunSources.js';
+import {preparedTaskSource,preparedRunSources,preparedSourceLatest,preparedSourceUpdates,preparedSetSequence,preparedMissingTheory,insertPreparedTheory,isPreparedTheory} from '../src/utils/preparedRunSources.js';
 import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 import {normalizePreparedAnswerGroups,preparedAnswerGroups,remapPreparedGroupAnswers,preparedGroupResultsAfterEdit} from '../src/utils/preparedAnswerGroups.js';
@@ -198,7 +199,14 @@ export class PreparedLessonTasks {
     if([19,20,21].includes(taskNumber)&&preparedSetParts({partNumber:part,tasks}).length>22-taskNumber)fail(400,'Блок игр объединяет задания 19, 20 и 21. Проверьте границы частей.');
     if(preparedSetParts({partNumber:part,tasks}).at(-1).partNumber>20)fail(400,'В наборе может быть не больше 20 частей');
     if(new Set(tasks.map(task=>task.id)).size!==tasks.length)fail(400,'Идентификаторы задач должны быть разными');
-    const set={id:previous?.id||requestedId||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,theoryImages,theoryMode,...(previous?.copiedFrom?{copiedFrom:previous.copiedFrom}:{}),...(incomplete?{draft:true}:{}),version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
+    const rawPlacements=input.theoryPlacements===undefined?previous?.theoryPlacements:input.theoryPlacements;
+    if(rawPlacements&&(typeof rawPlacements!=='object'||Array.isArray(rawPlacements)))fail(400,'Укажите место листов теории');
+    const taskIds=new Set(tasks.map(task=>task.id)),theoryPlacements={};
+    for(const image of theoryImages){const target=rawPlacements?.[image];if(target)theoryPlacements[image]=target==='end'||taskIds.has(target)?target:'end';}
+    const rawDisplay=input.theoryDisplay===undefined?previous?.theoryDisplay:input.theoryDisplay,theoryDisplay={};
+    if(rawDisplay&&(typeof rawDisplay!=='object'||Array.isArray(rawDisplay)))fail(400,'Укажите настройки листов теории');
+    for(const image of theoryImages){try{const value=normalizePreparedTheoryDisplay(rawDisplay?.[image]);if(value)theoryDisplay[image]=value;}catch(error){fail(400,error.message);}}
+    const set={id:previous?.id||requestedId||crypto.randomUUID(),teacherId:auth.id,name,taskNumber,partNumber:part,tasks,theoryImages,theoryMode,...(Object.keys(theoryPlacements).length?{theoryPlacements}:{}),...(Object.keys(theoryDisplay).length?{theoryDisplay}:{}),...(previous?.copiedFrom?{copiedFrom:previous.copiedFrom}:{}),...(incomplete?{draft:true}:{}),version:(previous?.version||0)+1,updatedAt:new Date(this.now()).toISOString()};
     this.data.sets[set.id]=set;this.save();for(const run of Object.values(this.data.runs).filter(run=>preparedRunSources(run).some(source=>source.id===set.id)&&Object.values(this.data.active).includes(run.id)))await this.notify(run,'run');return set;
   }
   assetView(assetId,runId=''){const a=this.data.assets[assetId];return a?{id:a.id,name:a.name,sizeBytes:a.size,mime:a.mime,width:a.width,height:a.height,url:`/api/lesson-task-assets/${a.id}${runId?'?run='+encodeURIComponent(runId):''}`} : null;}
@@ -208,7 +216,7 @@ export class PreparedLessonTasks {
     if(!run)return null;
     const sources=preparedSourceUpdates(run,this.data.sets);
     return {sources,...(teacher(access.auth)&&!access.readOnly?{removedSets:(run.detachedSets||[]).filter(record=>!record.restoring).map(record=>({id:record.id,setId:record.setId,name:record.name,removedAt:record.removedAt,total:record.tasks.filter(task=>!isPreparedTheory(task)).length})),firstTaskId:run.tasks[0]?.id||''}:{}),...(run.theoryFocus?{theoryFocus:run.theoryFocus}:{}),homework:Boolean(run.homework),id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,taskTotal:run.tasks.filter(task=>!isPreparedTheory(task)).length,canManage:teacher(access.auth)&&!access.readOnly,canEditFiles:!access.readOnly&&(!run.groupId||teacher(access.auth)),newTasksAvailable:teacher(access.auth)?sources.reduce((sum,source)=>sum+source.newTasksAvailable,0):0,checkingUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.checkingUpdateAvailable),filesUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.filesUpdateAvailable),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',...(isPreparedTheory(task)?{theoryStep:task.theoryStep||null,hasNext:c.index+1<run.tasks.length}:{}),setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,...(Number.isFinite(c.conditionTop)?{conditionTop:c.conditionTop}:{}),status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,answerSchema:preparedAnswerSchema(task),...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerGroups?{answerGroups:structuredClone(task.answerGroups)}:{}),...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:null,referenceSolution:preparedReferenceView(this,task,run,c,teacher(access.auth)&&!access.readOnly),...(teacher(access.auth)&&!access.readOnly&&access.auth.id===run.teacherId?preparedReferencePromotionState(this,run,c):{}),images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),live:workbookLiveView(this,run,c,a.assetId),writer:preparedWriterView(c.bindings?.[a.assetId],access.auth,this.now()),solution:this.solutionView(c.solutions?.[a.assetId]),historyCount:Math.max(c.workbookHistoryCounts?.[a.assetId]||0,c.solutions?.[a.assetId]?1:0),attempt:{...workbookAttempt(c,a.assetId),hasSaved:Boolean(currentWorkbookSolution(c,a.assetId))}})),codeRevision:c.code?.revision||0};})};
+      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',...(isPreparedTheory(task)?{theoryStep:task.theoryStep||null,theoryDisplay:task.theoryDisplay||null,previousTheoryCardId:c.previousTheoryCardId||run.cards.find(row=>row.index===c.index-1&&isPreparedTheory(run.tasks[row.index])&&preparedTaskSource(run,run.tasks[row.index]).id===source.id&&(run.tasks[row.index].theoryBefore||'')===(task.theoryBefore||''))?.id||'',nextKind:isPreparedTheory(run.tasks[c.index+1])?'theory':'task',hasNext:c.index+1<run.tasks.length}:{}),setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,...(Number.isFinite(c.conditionTop)?{conditionTop:c.conditionTop}:{}),status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,answerSchema:preparedAnswerSchema(task),...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerGroups?{answerGroups:structuredClone(task.answerGroups)}:{}),...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:null,referenceSolution:preparedReferenceView(this,task,run,c,teacher(access.auth)&&!access.readOnly),...(teacher(access.auth)&&!access.readOnly&&access.auth.id===run.teacherId?preparedReferencePromotionState(this,run,c):{}),images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),live:workbookLiveView(this,run,c,a.assetId),writer:preparedWriterView(c.bindings?.[a.assetId],access.auth,this.now()),solution:this.solutionView(c.solutions?.[a.assetId]),historyCount:Math.max(c.workbookHistoryCounts?.[a.assetId]||0,c.solutions?.[a.assetId]?1:0),attempt:{...workbookAttempt(c,a.assetId),hasSaved:Boolean(currentWorkbookSolution(c,a.assetId))}})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
@@ -262,25 +270,31 @@ export class PreparedLessonTasks {
     const height=(isPreparedTheory(task)?70:124)+Math.max(0,(task.answerGroups?preparedAnswerGroups(task).length:task.answerTable?preparedAnswerLayout(task).rows:Math.ceil(task.answers.length/2))-1)*(task.answerGroups?70:44)+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
     const source=preparedTaskSource(run,task,index),preceding=run.tasks[index-1];
     const sheets=run.cards.filter(card=>run.tasks[card.index].theoryStep&&preparedTaskSource(run,run.tasks[card.index]).id===source.id).map(card=>({card,task:run.tasks[card.index],anchor:all.find(item=>item.id===card.anchorId)})).filter(row=>row.anchor);
-    const previousSheet=task.theoryStep&&sheets.filter(row=>row.task.theoryStep.index<task.theoryStep.index).sort((a,b)=>b.task.theoryStep.index-a.task.theoryStep.index)[0];
+    const previousSheet=task.theoryStep&&sheets.filter(row=>(row.task.theoryBefore||'')===(task.theoryBefore||'')&&row.task.theoryStep.index<task.theoryStep.index).sort((a,b)=>b.task.theoryStep.index-a.task.theoryStep.index)[0];
     let point=pointOverride;
     if(!point&&previousSheet){
       const anchor=previousSheet.anchor,work=[...all,...previews];
-      const hasNotesBelow=task.theoryStep.count<=2&&work.some(item=>{
+      const blockCount=task.theoryStep.blockCount||task.theoryStep.count;
+      const hasNotesBelow=blockCount<=2&&work.some(item=>{
         if(item.id?.startsWith('prepared-'))return false;
         const box=preparedItemBox(item);
         return Object.values(box).every(Number.isFinite)&&box.bottom>anchor.y+anchor.height&&box.right>=anchor.x-120&&box.x<=anchor.x+anchor.width+120;
       });
-      point=task.theoryStep.count<=2&&!hasNotesBelow?preparedTheoryPoint(work,anchor,640*1.3,height*1.3):preparedNextPoint(work,anchor);
+      const direction=task.theoryDisplay?.placement||'auto';
+      point=direction==='right'||direction==='auto'&&blockCount<=2&&!hasNotesBelow?preparedTheoryPoint(work,anchor,640*1.3,height*1.3):preparedNextPoint(work,anchor);
     }
     if(!point&&!isPreparedTheory(task)&&preceding?.theoryStep&&preparedTaskSource(run,preceding).id===source.id&&sheets.length){
-      const x=Math.min(...sheets.map(row=>row.anchor.x)),y=Math.min(...sheets.map(row=>row.anchor.y));
-      const right=Math.max(...sheets.map(row=>row.anchor.x+row.anchor.width)),bottom=Math.max(...sheets.map(row=>row.anchor.y+row.anchor.height));
-      point=preparedNextPoint([...all,...previews],{x,y,width:right-x,height:bottom-y});
+      const block=sheets.filter(row=>(row.task.theoryBefore||'')===(preceding.theoryBefore||''));
+      if(block.length){
+        const x=Math.min(...block.map(row=>row.anchor.x)),y=Math.min(...block.map(row=>row.anchor.y));
+        const right=Math.max(...block.map(row=>row.anchor.x+row.anchor.width)),bottom=Math.max(...block.map(row=>row.anchor.y+row.anchor.height));
+        point=preparedNextPoint([...all,...previews],{x,y,width:right-x,height:bottom-y});
+      }
     }
     point||=anchor?preparedNextPoint([...all,...previews],anchor):run.cards.length?preparedNextPoint([...all,...previews],{...run.start,width:640,height:0}):run.start;
     run.awaitingFirstCard=false;
     const card=existing||{id:crypto.randomUUID(),index,anchorId:'prepared-'+crypto.randomUUID(),codeId:'prepared-'+crypto.randomUUID(),x:point.x,y:point.y,width:640,height,spawnScale:1.3,status:isPreparedTheory(task)?'theory':'active',answers:task.answers.map(()=>''),answerRevision:0,code:{text:'',input:'',output:'',revision:0},solutions:{}};
+    if(previousSheet)card.previousTheoryCardId=previousSheet.card.id;
     if(!existing)run.cards.push(card);run.teacherCardId=card.id;card.x=point.x;card.y=point.y;
     card.projectionPending=true;this.save(run);doc.transact(()=>items.push([{id:card.anchorId,type:'shape',shape:'rectangle',x:point.x,y:point.y,width:card.width*(card.spawnScale||1),height:card.height*(card.spawnScale||1),color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId}]),'prepared-lesson:place');card.projectionPending=false;this.save(run);return card;
   }
@@ -368,9 +382,10 @@ export class PreparedLessonTasks {
       run.tasks=[...run.tasks,...this.sourceTasks(run,set,added)];
       const missingTheory=preparedMissingTheory(run,set,sequence);
       if(missingTheory.length){
-        const first=run.tasks.findIndex(task=>preparedTaskSource(run,task).id===set.id),last=run.tasks.findLastIndex(task=>isPreparedTheory(task)&&preparedTaskSource(run,task).id===set.id),index=last<0?first:last+1,theory=this.sourceTasks(run,set,missingTheory);
-        run.tasks=run.tasks.map((task,i)=>({...task,sourceIndex:preparedTaskSource(run,task,i).index}));
-        run.tasks.splice(index,0,...theory);for(const row of run.cards)if(row.index>=index)row.index+=theory.length;
+        const previousIds=run.tasks.map(task=>task.id),theory=this.sourceTasks(run,set,missingTheory);
+        const tasks=run.tasks.map((task,i)=>({...task,sourceIndex:preparedTaskSource(run,task,i).index}));
+        run.tasks=insertPreparedTheory(run,tasks,set.id,theory);const positions=new Map(run.tasks.map((task,index)=>[task.id,index]));
+        for(const row of run.cards)row.index=positions.get(previousIds[row.index]);
       }
     }
     else if(input.action==='layout') {
@@ -406,7 +421,7 @@ export class PreparedLessonTasks {
     else if(input.action==='next'||input.action==='skip'){
       if(input.expectedCount!==run.cards.length)return this.publicRun(run,access);
       const last=preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray());if(input.fromCardId&&input.fromCardId!==last?.id)return this.publicRun(run,access);if(!last)return this.publicRun(run,access);if(isPreparedTheory(run.tasks[last.index]))last.status='reviewed';else if(input.action==='skip'&&last.status!=='solved'){last.status='skipped';last.skippedAt||=new Date(now).toISOString();}
-      else if(last.status!=='solved'&&last.status!=='skipped'&&last.status!=='reviewed')fail(409,'Сначала проверьте ответ или пропустите задачу');await this.addCard(run,last.index+1);if(isPreparedTheory(run.tasks[last.index]))this.theoryFocus(run);
+      else if(last.status!=='solved'&&last.status!=='skipped'&&last.status!=='reviewed')fail(409,'Сначала проверьте ответ или пропустите задачу');await this.addCard(run,last.index+1);if(isPreparedTheory(run.tasks[last.index])||isPreparedTheory(run.tasks[last.index+1]))this.theoryFocus(run);
     } else if(input.action==='claim'){requireCard();card.lease=null;return this.publicRun(run,access);}
     else if(input.action==='claim-code') {
       requireCard();const kind=input.action==='claim'?'lease':'codeLease',previous=card[kind];

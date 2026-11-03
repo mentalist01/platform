@@ -7,23 +7,50 @@ export const isPreparedTheory = task => task?.kind==='theory';
 export function preparedTheorySequence(set,mode=set.theoryMode) {
   const images=set.theoryImages||[],base={kind:'theory',format:'theory',answers:[],attachments:[],sourceIndex:-1};
   if(!images.length)return [];
-  return mode==='steps'?images.map((image,index)=>({...base,id:`theory-${set.id}-sheet-${index+1}`,title:`Теория · ${index+1}`,images:[image],theoryStep:{index,count:images.length}})):
-    [{...base,id:`theory-${set.id}`,title:'Теория',images:[...images]}];
+  const placed=Object.values(set.theoryPlacements||{}).some(Boolean),groups=new Map();
+  images.forEach((image,index)=>{const target=set.theoryPlacements?.[image]||'',before=target===set.tasks[0]?.id?'':target;if(!groups.has(before))groups.set(before,[]);groups.get(before).push({image,index});});
+  return [...groups].flatMap(([before,rows])=>{
+    const metadata=placed?{theoryBefore:before,...(mode==='steps'?{}:{theoryIndices:rows.map(row=>row.index)})}:{};
+    return mode==='steps'?rows.map(({image,index},blockIndex)=>({...base,...metadata,id:`theory-${set.id}-sheet-${index+1}`,title:`Теория · ${index+1}`,images:[image],...(set.theoryDisplay?.[image]?{theoryDisplay:set.theoryDisplay[image]}:{}),theoryStep:{index,count:images.length,...(placed?{blockIndex,blockCount:rows.length}:{})}})):
+      [{...base,...metadata,id:`theory-${set.id}${before?`-before-${before}`:''}`,title:before?'Теория между задачами':'Теория',...(set.theoryDisplay?.[rows[0].image]?{theoryDisplay:set.theoryDisplay[rows[0].image]}:{}),images:rows.map(row=>row.image)}];
+  });
 }
-// A lesson keeps its opening format. Never split an annotated legacy card or
-// collapse existing sheets when the library's display preference changes.
+// Existing lesson cards retain their format and position. Only new theory is
+// inserted at its chosen task; moving an annotated sheet remains explicit.
 export function preparedMissingTheory(run,set,sequence=preparedSetSequence(set,run.partFilters?.[set.id])) {
   const current=run.tasks.filter(task=>isPreparedTheory(task)&&preparedTaskSource(run,task).id===set.id);
-  if(current.some(task=>!task.theoryStep))return [];
-  const candidates=current.length?preparedTheorySequence(set,'steps'):sequence.filter(isPreparedTheory);
+  if(current.some(task=>!task.theoryStep&&!task.theoryIndices))return [];
+  const mode=current.length?(current.some(task=>task.theoryStep)?'steps':'together'):set.theoryMode;
+  const candidates=current.length?preparedSetSequence({...set,theoryMode:mode},run.partFilters?.[set.id]).filter(isPreparedTheory):sequence.filter(isPreparedTheory);
   const known=new Set(current.map(task=>preparedTaskSource(run,task).taskId));
   return candidates.filter(task=>!known.has(task.id));
+}
+export function insertPreparedTheory(run,tasks,setId,added){
+  const next=[...tasks];
+  for(const task of added){
+    const before=task.theoryBefore||'',owned=row=>preparedTaskSource(run,row).id===setId;
+    const last=next.findLastIndex(row=>owned(row)&&isPreparedTheory(row)&&(row.theoryBefore||'')===before);
+    const target=before&&before!=='end'?next.findIndex(row=>owned(row)&&!isPreparedTheory(row)&&preparedTaskSource(run,row).taskId===before):-1;
+    const index=last>=0?last+1:target>=0?target:before==='end'?next.findLastIndex(owned)+1:next.findIndex(owned);
+    next.splice(index<0?next.length:index,0,task);
+  }
+  return next;
+}
+export function preparedTheoryPlacementUpdates(run,set){
+  const latest=new Map(preparedSetSequence({...set,theoryMode:'steps'},run.partFilters?.[set.id]).filter(isPreparedTheory).map(task=>[task.id,task]));
+  const opened=new Set((run.cards||[]).map(card=>card.index)),updates=new Map();
+  run.tasks.forEach((task,index)=>{
+    const source=preparedTaskSource(run,task,index),incoming=latest.get(source.taskId);
+    if(source.id===set.id&&task.theoryStep&&!opened.has(index)&&incoming&&(task.theoryBefore||'')!==(incoming.theoryBefore||''))updates.set(task.id,incoming);
+  });
+  return updates;
 }
 export function preparedSetSequence(set,partNumber) {
   const tasks=preparedSetPartTasks(set,partNumber),split=set.tasks.some(task=>task.startsPart===true);
   const mapped=partNumber!==undefined||split||set.theoryImages?.length?tasks.map(task=>({...task,sourceIndex:set.tasks.indexOf(task),...(split||partNumber!==undefined?{sourcePartNumber:preparedTaskPartNumber(set,set.tasks.indexOf(task)),sourceTaskNumber:preparedPartTaskNumber(set,preparedTaskPartNumber(set,set.tasks.indexOf(task)))}:{})})):tasks;
-  if(!set.theoryImages?.length||partNumber!==undefined&&Number(partNumber)!==Number(set.partNumber||1))return mapped;
-  return [...preparedTheorySequence(set),...mapped];
+  if(!set.theoryImages?.length)return mapped;
+  const theory=preparedTheorySequence(set),all=partNumber===undefined,first=Number(partNumber)===Number(set.partNumber||1),last=Number(partNumber)===preparedTaskPartNumber(set,set.tasks.length-1);
+  return [...(all||first?theory.filter(row=>!row.theoryBefore):[]),...mapped.flatMap(task=>[...theory.filter(row=>row.theoryBefore===task.id).map(row=>({...row,sourcePartNumber:preparedTaskPartNumber(set,set.tasks.findIndex(value=>value.id===task.id))})),task]),...(all||last?theory.filter(row=>row.theoryBefore==='end'):[])];
 }
 
 // Legacy runs keep their original identity. Only newly appended tasks carry
@@ -50,7 +77,7 @@ export function preparedSourceLatest(run,set) {
     const source=preparedTaskSource(run,task,index);
     if(source.id!==set.id)return [];
     const sheet=task.theoryStep;
-    const latest=isPreparedTheory(task)?{...task,...(sheet?{images:set.theoryImages?.[sheet.index]?[set.theoryImages[sheet.index]]:task.images,theoryStep:{...sheet,count:Math.max(sheet.index+1,set.theoryImages?.length||0)}}:{images:[...(set.theoryImages||[])]})}:set.tasks.find(row=>row.id===source.taskId);
+    const latest=isPreparedTheory(task)?{...task,theoryDisplay:set.theoryDisplay?.[set.theoryImages?.[sheet?.index??task.theoryIndices?.[0]??0]],...(sheet?{images:set.theoryImages?.[sheet.index]?[set.theoryImages[sheet.index]]:task.images,theoryStep:{...sheet,count:Math.max(sheet.index+1,set.theoryImages?.length||0)}}:{images:task.theoryIndices?task.theoryIndices.map(index=>set.theoryImages?.[index]).filter(Boolean):[...(set.theoryImages||[])]})}:set.tasks.find(row=>row.id===source.taskId);
     return latest?[{...latest,id:task.id}]:[];
   });
 }
@@ -59,7 +86,7 @@ export function preparedSourceUpdates(run,sets) {
     const set=sets[source.id],sequence=set?preparedSetSequence(set,run.partFilters?.[source.id]):[],latest=preparedSourceLatest(run,set),byId=new Map(latest.map(task=>[task.id,task]));
     const known=new Set(run.tasks.filter(task=>preparedTaskSource(run,task).id===source.id).map(task=>preparedTaskSource(run,task).taskId));
     return {...source,setVersion:set?.version||source.version,
-      contentUpdateAvailable:Boolean(set&&!set.draft&&(set.name!==source.name||run.tasks.some(task=>{const row=byId.get(task.id);return row&&preparedTaskContentChanged(task,row);}))),
+      contentUpdateAvailable:Boolean(set&&!set.draft&&(set.name!==source.name||preparedTheoryPlacementUpdates(run,set).size||run.tasks.some(task=>{const row=byId.get(task.id);return row&&preparedTaskContentChanged(task,row);}))),
       theoryUpdateAvailable:Boolean(set&&!set.draft&&preparedMissingTheory(run,set,sequence).length),
       newTasksAvailable:set&&!set.draft?sequence.filter(task=>!isPreparedTheory(task)&&!known.has(task.id)).length:0,
       filesUpdateAvailable:preparedFileSync(run.tasks,latest).changed>0,
