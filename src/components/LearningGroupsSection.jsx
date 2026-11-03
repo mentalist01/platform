@@ -48,6 +48,7 @@ import { api, resolveAuthenticatedApiUrl, withStoredAuthToken } from '../service
 import TeacherHomeworkComposer from './TeacherHomeworkComposer';
 import GroupHomeworkCancellationPanel from './GroupHomeworkCancellationPanel';
 import GroupHomeworkReviewPanel from './GroupHomeworkReviewPanel.jsx';
+import {mergeLearningGroupSummaries} from '../utils/learningGroupRefresh.js';
 import LearningGroupChat from './LearningGroupChat';
 import GroupAvailability from './GroupAvailability';
 const GroupAvailabilityShare = React.lazy(() => import('./GroupAvailabilityShare'));
@@ -493,6 +494,8 @@ const LearningGroupsSection = ({
   const [groups, setGroups] = useState([]);
   const [showAvailabilityShare,setShowAvailabilityShare] = useState(false);
   const groupsRef = useRef([]);
+  const groupListRequest = useRef(0);
+  const detailRequests = useRef(new Map());
   const [selectedGroupId, setSelectedGroupId] = useState(scheduleGroupId);
   const homeworkRequestHandledRef = useRef('');
   const [loading, setLoading] = useState(true);
@@ -650,6 +653,7 @@ const LearningGroupsSection = ({
   ), [selectedGroup?.materials]);
 
   const refreshGroups = useCallback(async (preferredGroupId = '') => {
+    const request = ++groupListRequest.current;
     setLoading(true);
     setError('');
     try {
@@ -659,8 +663,9 @@ const LearningGroupsSection = ({
           ? { teacherId: cleanString(teacherId || userId) }
           : { studentId: cleanString(userId) }),
       });
+      if (groupListRequest.current !== request) return;
       const normalized = normalizeLearningGroupList(payload).map((group) => decorateGroup(group, students));
-      setGroups(normalized);
+      setGroups(current => mergeLearningGroupSummaries(current, normalized));
       if (scheduleGroupId) {
         const available = normalized.some(group => group.id === scheduleGroupId);
         setSelectedGroupId(available ? scheduleGroupId : '');
@@ -676,9 +681,10 @@ const LearningGroupsSection = ({
           || '';
       });
     } catch (requestError) {
+      if (groupListRequest.current !== request) return;
       setError(requestError?.message || 'Не удалось загрузить мини-группы.');
     } finally {
-      setLoading(false);
+      if (groupListRequest.current === request) setLoading(false);
     }
   }, [isTeacher, scheduleGroupId, students, teacherId, userId]);
 
@@ -700,6 +706,8 @@ const LearningGroupsSection = ({
   const loadGroupDetails = useCallback(async (groupId) => {
     const normalizedGroupId = cleanString(groupId);
     if (!normalizedGroupId) return;
+    const request = (detailRequests.current.get(normalizedGroupId) || 0) + 1;
+    detailRequests.current.set(normalizedGroupId, request);
     setDetailLoading(true);
     setError('');
     const baseGroup = groupsRef.current.find((group) => group.id === normalizedGroupId) || null;
@@ -713,6 +721,7 @@ const LearningGroupsSection = ({
           : api.getLearningGroupMaterials(normalizedGroupId),
         api.getLearningGroupProgress(normalizedGroupId),
       ]);
+      if (detailRequests.current.get(normalizedGroupId) !== request) return;
       const successfulValue = (index) => results[index].status === 'fulfilled' ? results[index].value : null;
       const detailPayload = successfulValue(0);
       const detail = parseGroupPayload(detailPayload, baseGroup, students);
@@ -724,11 +733,11 @@ const LearningGroupsSection = ({
       const nextGroup = decorateGroup({
         ...detail,
         homeworkDetailsLoaded: true,
-        lessons: parseLessonsPayload(lessonsPayload),
-        replayStorage: parseReplayStoragePayload(lessonsPayload),
-        assignments: parseAssignmentsPayload(assignmentsPayload),
-        materials: parseMaterialsPayload(materialsPayload),
-        progress: parseProgressPayload(progressPayload) || detail.progress || null,
+        lessons: results[1].status === 'rejected' && baseGroup?.homeworkDetailsLoaded ? baseGroup.lessons : parseLessonsPayload(lessonsPayload),
+        replayStorage: results[1].status === 'rejected' && baseGroup?.homeworkDetailsLoaded ? baseGroup.replayStorage : parseReplayStoragePayload(lessonsPayload),
+        assignments: results[2].status === 'rejected' && baseGroup?.homeworkDetailsLoaded ? baseGroup.assignments : parseAssignmentsPayload(assignmentsPayload),
+        materials: results[3].status === 'rejected' && baseGroup?.homeworkDetailsLoaded ? baseGroup.materials : parseMaterialsPayload(materialsPayload),
+        progress: results[4].status === 'rejected' && baseGroup?.homeworkDetailsLoaded ? baseGroup.progress : parseProgressPayload(progressPayload) || detail.progress || null,
       }, students);
       setGroups((current) => upsertGroup(current, nextGroup));
       const firstRejected = results.find((result) => result.status === 'rejected');
@@ -736,9 +745,10 @@ const LearningGroupsSection = ({
         setNotice('Основные данные загружены, но часть статистики пока недоступна.');
       }
     } catch (requestError) {
+      if (detailRequests.current.get(normalizedGroupId) !== request) return;
       setError(requestError?.message || 'Не удалось открыть мини-группу.');
     } finally {
-      setDetailLoading(false);
+      if (detailRequests.current.get(normalizedGroupId) === request) setDetailLoading(false);
     }
   }, [isTeacher, students]);
 
@@ -751,7 +761,7 @@ const LearningGroupsSection = ({
     if (typeof window === 'undefined') return undefined;
     const refreshAfterExternalChange = (event) => {
       if (event?.detail?.origin === transferEventOrigin.current) return;
-      void refreshGroups(selectedGroupId);
+      void refreshGroups();
       if (selectedGroupId) void loadGroupDetails(selectedGroupId);
       if (event?.detail?.transfer) setAvailabilityVersion((current) => current + 1);
     };
@@ -768,7 +778,6 @@ const LearningGroupsSection = ({
     });
     setAddStudentId(placementChoice.current?.groupId === selectedGroup.id ? placementChoice.current.studentId : '');
     setLateAddReason('');
-    setExpandedAssignmentId('');
     setAttendanceLessonId((current) => (
       current && (selectedGroup.lessons || []).some((lesson) => getLessonId(lesson) === current)
         ? current
@@ -776,6 +785,9 @@ const LearningGroupsSection = ({
           || (selectedGroup.lessons || [])[0])
     ));
   }, [selectedGroup]);
+
+  // Refreshing the same group must not close homework or its student review.
+  useEffect(() => { setExpandedAssignmentId(''); }, [selectedGroupId]);
 
   useEffect(() => {
     const choice = placementChoice.current;
@@ -1655,7 +1667,7 @@ const LearningGroupsSection = ({
             {isTeacher && <button type="button" onClick={()=>setShowAvailabilityShare(true)} className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-3.5 py-2.5 text-sm font-bold text-white transition hover:bg-white/20"><Share2 size={16}/>Поделиться временем групп</button>}
             <button
               type="button"
-              onClick={() => void refreshGroups(selectedGroupId)}
+              onClick={() => { void refreshGroups(); if (selectedGroupId) void loadGroupDetails(selectedGroupId); }}
               disabled={loading}
               className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-3.5 py-2.5 text-sm font-bold text-white transition hover:bg-white/20 disabled:opacity-60"
             >
