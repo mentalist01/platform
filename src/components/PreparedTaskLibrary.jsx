@@ -15,14 +15,14 @@ import PreparedTheoryEditor from './PreparedTheoryEditor.jsx';
 import './PreparedLessonTasks.css';
 
 const blankTask=(number,title='1')=>{const task=preparedAnswerTask({id:crypto.randomUUID(),title,difficult:false,format:'exact',answers:[''],images:[],attachments:[]},number);return Number(number)===19?enablePreparedGameAnswers(task):task;};
-export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,onSaved,activeRun,onRemoveSet,onRestoreSet,label='Задания к уроку',initiallyOpen=false}) {
+export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,onSaved,activeRun,onRemoveSet,onRestoreSet,label='Задания к уроку',initiallyOpen=false,theorySetId}) {
   const portalTarget=useFullscreenPortalTarget();
   const [open,setOpen]=useState(initiallyOpen),[sets,setSets]=useState([]),[edit,setEdit]=useState(null),[selected,setSelected]=useState(0),[files,setFiles]=useState([]);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[crop,setCrop]=useState(null),[partCount,setPartCount]=useState(1);
   const [query,setQuery]=useState(''),[orderVersion,setOrderVersion]=useState(0),[validationTaskId,setValidationTaskId]=useState('');
   const [exchange,setExchange]=useState(null),[theoryOpen,setTheoryOpen]=useState(false);
   const [savedSnapshot,setSavedSnapshot]=useState(''),[savedNotice,setSavedNotice]=useState(''),[localDraft,setLocalDraft]=useState(null);
-  const uploadRef=useRef(null),editorRef=useRef(null),alive=useRef(true);
+  const uploadRef=useRef(null),editorRef=useRef(null),alive=useRef(true),theoryTarget=useRef('');
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const identity=(()=>{try{return JSON.parse(localStorage.getItem(USER_SESSION_KEY)||'null')?.id||'';}catch{return '';}})();
   const draftKey=identity?`prepared-library-draft:${identity}:${activeRun?.id||taskNumber}`:'';
@@ -40,7 +40,15 @@ export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,on
   useEffect(()=>{
     if(!open)return;const abort=new AbortController();setLoading(true);
     Promise.all([preparedRequest('/api/lesson-task-sets',undefined,'GET',abort.signal),preparedRequest('/api/lesson-task-sources',undefined,'GET',abort.signal)])
-      .then(([a,b])=>{if(!abort.signal.aborted){setSets(a.sets);setOrderVersion(a.orderVersion||0);setFiles(b.files);}})
+      .then(([a,b])=>{if(!abort.signal.aborted){
+        setSets(a.sets);setOrderVersion(a.orderVersion||0);setFiles(b.files);
+        if(theoryTarget.current){
+          const target=a.sets.find(set=>set.id===theoryTarget.current);
+          theoryTarget.current='';
+          if(target){openEditor(target);setTheoryOpen(true);}
+          else setError('Набор для редактирования не найден');
+        }
+      }})
       .catch(e=>{if(!abort.signal.aborted)setError(e.message);}).finally(()=>{if(!abort.signal.aborted)setLoading(false);});
     return()=>abort.abort();
   },[open]);
@@ -102,5 +110,5 @@ export default function PreparedTaskLibrary({taskNumber=3,dark=false,onChoose,on
     {error&&<p role="alert" className="prepared-error">{error}</p>}{saveError&&edit&&<p role="alert" className="prepared-error">{saveError} Черновик остаётся на устройстве.</p>}
     {!edit&&exchange?<PreparedSetExchange key={exchange.set?.id||'incoming'} ownSet={exchange.set} onBack={()=>setExchange(null)} onShared={notice=>{setSavedNotice(notice);setExchange(null);}} onCopied={async result=>{await load();setSavedNotice(result.alreadyCopied?'Эта версия уже есть в твоих наборах':`Набор «${result.set.name}» добавлен в твои наборы`);setExchange(null);}}/>:!edit?<><div className="prepared-library-tabs"><button type="button" aria-pressed="true">Мои наборы</button><button type="button" onClick={()=>setExchange({})}>Доступные мне</button></div>{savedNotice&&<p role="status" className="prepared-saved-notice">{savedNotice}</p>}{localDraft&&<div className="prepared-draft-notice"><strong>Есть несохранённый набор на этом устройстве</strong><button type="button" onClick={()=>{openEditor(localDraft.edit);setSavedSnapshot(localDraft.savedSnapshot||'');}}>Продолжить черновик</button></div>}<PreparedSetList onRemove={onRemoveSet?id=>execute(async()=>{await onRemoveSet(id);setSavedNotice('Набор убран со страницы. Его можно вернуть ниже.');}):undefined} onRestore={onRestoreSet?id=>execute(async()=>{await onRestoreSet(id);setSavedNotice('Набор возвращён вместе с сохранёнными ответами и кодом.');}):undefined} activeRun={activeRun} sets={sets} query={query} setQuery={setQuery} loading={loading} busy={busy} onCreate={()=>openEditor({name:'',taskNumber:Number(taskNumber)||3,partNumber:1,tasks:[blankTask(Number(taskNumber)||3)]})} onEdit={set=>openEditor({...structuredClone(set),tasks:set.tasks.map(task=>preparedAnswerTask(task,set.taskNumber))})} onChoose={onChoose?(set,newPage)=>void execute(async()=>{await onChoose(set,newPage);setOpen(false);}):undefined} onReorder={reorder} onShare={set=>{setSavedNotice('');setExchange({set});}}/></>:<PreparedTaskEditor onTheory={()=>setTheoryOpen(true)} key={current?.id} edit={edit} setEdit={setEdit} selected={selected} current={current} busy={busy} files={files} partCount={partCount} dirty={dirty} crop={crop} setCrop={setCrop} uploadRef={uploadRef} editorRef={editorRef} onUpload={upload} onReferenceUpload={uploadReference} onCrop={applyCrop} onNavigate={navigate} onAdd={add} onMove={move} onRemove={remove} changeTask={changeTask} setError={setError} validationTaskId={validationTaskId} footer={footer}/>}
   </section></div>,portalTarget);
-  return <><button type="button" className="prepared-library-trigger" onClick={()=>{setOpen(true);setError('');}}><BookOpen size={16}/>{label}</button>{modal}{open&&edit&&theoryOpen&&<PreparedTheoryEditor display={edit.theoryDisplay||{}} onDisplayChange={theoryDisplay=>setEdit(old=>({...old,theoryDisplay}))} tasks={edit.tasks} placements={edit.theoryPlacements||{}} onPlacementsChange={theoryPlacements=>setEdit(old=>({...old,theoryPlacements}))} mode={edit.theoryMode||(edit.theoryImages?.length?'together':'steps')} onModeChange={theoryMode=>setEdit(old=>({...old,theoryMode}))} images={edit.theoryImages||[]} dark={dark} onChange={images=>setEdit(old=>({...old,theoryMode:old.theoryMode||(old.theoryImages?.length?'together':'steps'),theoryImages:images}))} onClose={()=>setTheoryOpen(false)}/>}</>;
+  return <><button type="button" className="prepared-library-trigger" onClick={()=>{theoryTarget.current=theorySetId||'';setOpen(true);setError('');}}><BookOpen size={16}/>{label}</button>{modal}{open&&edit&&theoryOpen&&<PreparedTheoryEditor initiallyOnCanvas={Boolean(theorySetId)} display={edit.theoryDisplay||{}} onDisplayChange={theoryDisplay=>setEdit(old=>({...old,theoryDisplay}))} tasks={edit.tasks} placements={edit.theoryPlacements||{}} onPlacementsChange={theoryPlacements=>setEdit(old=>({...old,theoryPlacements}))} mode={edit.theoryMode||(edit.theoryImages?.length?'together':'steps')} onModeChange={theoryMode=>setEdit(old=>({...old,theoryMode}))} images={edit.theoryImages||[]} dark={dark} onChange={images=>setEdit(old=>({...old,theoryMode:old.theoryMode||(old.theoryImages?.length?'together':'steps'),theoryImages:images}))} onClose={()=>setTheoryOpen(false)}/>}</>;
 }

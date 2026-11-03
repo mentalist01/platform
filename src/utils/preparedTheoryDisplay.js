@@ -6,7 +6,13 @@ export function normalizePreparedTheoryDisplay(value){
   if(!Number.isInteger(scalePercent)||scalePercent<25||scalePercent>200)throw Error('Размер листа должен быть от 25 до 200%');
   if(value.relativeTo!=null&&typeof value.relativeTo!=='string')throw Error('Выберите опорный лист теории');
   const relativeTo=value.relativeTo?.trim()||'';
-  return placement==='auto'&&focus==='next'&&scalePercent===100&&!relativeTo?null:{placement,focus,...(scalePercent!==100?{scalePercent}:{}),...(relativeTo?{relativeTo}:{})};
+  let offset;
+  if(value.offset!=null){
+    const gap=Number(value.offset.gap),align=Number(value.offset.align);
+    if(typeof value.offset!=='object'||Array.isArray(value.offset)||!Number.isFinite(gap)||gap<32||gap>4000||!Number.isFinite(align)||Math.abs(align)>4000)throw Error('Положение листа выходит за границы конструктора');
+    offset={gap:Math.round(gap),align:Math.round(align)};
+  }
+  return placement==='auto'&&focus==='next'&&scalePercent===100&&!relativeTo&&!offset?null:{placement,focus,...(scalePercent!==100?{scalePercent}:{}),...(relativeTo?{relativeTo}:{}),...(offset?{offset}:{})};
 }
 
 // References use image identities, so moving/cropping/copying a sheet does not
@@ -17,7 +23,7 @@ export function normalizePreparedTheoryDisplays(images,display={},placements={},
   return Object.fromEntries(images.flatMap((id,index)=>{
     let setting=normalizePreparedTheoryDisplay(display?.[id]);
     if(setting?.relativeTo&&!images.slice(0,index).some(target=>target===setting.relativeTo&&before(target)===before(id))){
-      const rest={...setting};delete rest.relativeTo;
+      const rest={...setting};delete rest.relativeTo;delete rest.offset;
       setting=normalizePreparedTheoryDisplay(rest);
     }
     return setting?[[id,setting]]:[];

@@ -9,6 +9,7 @@ import {preparedSetParts} from '../src/utils/preparedSetParts.js';
 import {preparedFileSync} from '../src/utils/preparedFileSync.js';
 import {preparedAnswerSchema} from '../src/utils/preparedSharedAnswers.js';
 import {normalizePreparedTheoryDisplays} from '../src/utils/preparedTheoryDisplay.js';
+import {preparedNextPoint,preparedTheorySheetPoint} from '../src/utils/preparedTheoryLayout.js';
 import {updatePreparedSet} from './preparedSetUpdate.js';
 import {preparedWriterView,preparedWriterAllows,releasePreparedFile,resumePreparedFile} from './preparedFileWriter.js';
 import {WorkbookLiveStore} from './workbookLiveStore.js';
@@ -55,35 +56,7 @@ export function preparedCurrentCard(run,items){
   const visible=new Set(items.map(item=>item.id));
   return run.cards.find(card=>card.id===run.teacherCardId&&visible.has(card.anchorId))||run.cards.filter(card=>visible.has(card.anchorId)).at(-1)||run.cards.at(-1);
 }
-function preparedItemBox(item){
-  const points=Array.isArray(item.points)?item.points:item.start&&item.end?[item.start,item.end]:null;
-  return points?.length?{x:Math.min(...points.map(p=>p.x)),y:Math.min(...points.map(p=>p.y)),right:Math.max(...points.map(p=>p.x)),bottom:Math.max(...points.map(p=>p.y))}:{x:Number(item.x),y:Number(item.y),right:Number(item.x)+Number(item.width),bottom:Number(item.y)+Number(item.height)};
-}
-export function preparedTheoryPoint(items,anchor,width,height){
-  const gap=48,point={x:anchor.x+anchor.width+gap,y:anchor.y};
-  const boxes=items.filter(item=>item.id!==anchor.id).map(preparedItemBox).filter(box=>Object.values(box).every(Number.isFinite));
-  // Preserve both the old sheet and any writing beside it. A new sheet goes
-  // right of intersecting work, rather than covering it or moving existing ink.
-  for(let attempt=0;attempt<=boxes.length;attempt++){
-    const overlapping=boxes.filter(box=>box.bottom>=point.y&&box.y<=point.y+height&&box.right>=point.x&&box.x<=point.x+width);
-    if(!overlapping.length)break;
-    point.x=Math.max(...overlapping.map(box=>box.right))+gap;
-  }
-  if(point.x+width>900_000)fail(409,'На этой странице мало места. Создайте следующую страницу.');
-  return point;
-}
-export function preparedNextPoint(items,anchor,width=Math.max(680,Number(anchor.width)||0)) {
-  const gap=Math.max(32,Math.min(64,Math.round(anchor.height*.12)));
-  let bottom=anchor.y+anchor.height+gap;
-  for(const item of items) {
-    if(item.id&&item.id===anchor.id)continue;
-    const box=preparedItemBox(item);
-    if(!Object.values(box).every(Number.isFinite)||box.bottom<anchor.y)continue;
-    if(box.right>=anchor.x-120&&box.x<=anchor.x+width+120)bottom=Math.max(bottom,box.bottom+gap);
-  }
-  if(bottom>900_000)fail(409,'На этой странице мало места. Создайте следующую страницу.');
-  return {x:anchor.x,y:bottom};
-}
+export {preparedTheoryPoint,preparedNextPoint} from '../src/utils/preparedTheoryLayout.js';
 
 // Secrets and future conditions live here, never in the collaborative scene.
 // Every mutation is serialized per store; persisted state precedes notification.
@@ -218,7 +191,7 @@ export class PreparedLessonTasks {
     if(!run)return null;
     const sources=preparedSourceUpdates(run,this.data.sets);
     return {sources,...(teacher(access.auth)&&!access.readOnly?{removedSets:(run.detachedSets||[]).filter(record=>!record.restoring).map(record=>({id:record.id,setId:record.setId,name:record.name,removedAt:record.removedAt,total:record.tasks.filter(task=>!isPreparedTheory(task)).length})),firstTaskId:run.tasks[0]?.id||''}:{}),...(run.theoryFocus?{theoryFocus:run.theoryFocus}:{}),homework:Boolean(run.homework),id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,taskTotal:run.tasks.filter(task=>!isPreparedTheory(task)).length,canManage:teacher(access.auth)&&!access.readOnly,canEditFiles:!access.readOnly&&(!run.groupId||teacher(access.auth)),newTasksAvailable:teacher(access.auth)?sources.reduce((sum,source)=>sum+source.newTasksAvailable,0):0,checkingUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.checkingUpdateAvailable),filesUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.filesUpdateAvailable),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',...(isPreparedTheory(task)?{theoryStep:task.theoryStep||null,theoryDisplay:task.theoryDisplay||null,previousTheoryCardId:c.previousTheoryCardId||run.cards.find(row=>row.index===c.index-1&&isPreparedTheory(run.tasks[row.index])&&preparedTaskSource(run,run.tasks[row.index]).id===source.id&&(run.tasks[row.index].theoryBefore||'')===(task.theoryBefore||''))?.id||'',nextKind:isPreparedTheory(run.tasks[c.index+1])?'theory':'task',nextTheoryPlacement:isPreparedTheory(run.tasks[c.index+1])?run.tasks[c.index+1].theoryDisplay?.placement||'auto':null,hasNext:c.index+1<run.tasks.length}:{}),setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,...(Number.isFinite(c.conditionTop)?{conditionTop:c.conditionTop}:{}),status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,answerSchema:preparedAnswerSchema(task),...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerGroups?{answerGroups:structuredClone(task.answerGroups)}:{}),...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:null,referenceSolution:preparedReferenceView(this,task,run,c,teacher(access.auth)&&!access.readOnly),...(teacher(access.auth)&&!access.readOnly&&access.auth.id===run.teacherId?preparedReferencePromotionState(this,run,c):{}),images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),live:workbookLiveView(this,run,c,a.assetId),writer:preparedWriterView(c.bindings?.[a.assetId],access.auth,this.now()),solution:this.solutionView(c.solutions?.[a.assetId]),historyCount:Math.max(c.workbookHistoryCounts?.[a.assetId]||0,c.solutions?.[a.assetId]?1:0),attempt:{...workbookAttempt(c,a.assetId),hasSaved:Boolean(currentWorkbookSolution(c,a.assetId))}})),codeRevision:c.code?.revision||0};})};
+      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',...(isPreparedTheory(task)?{compactTheory:c.compactTheory===true,theoryStep:task.theoryStep||null,theoryDisplay:task.theoryDisplay||null,previousTheoryCardId:c.previousTheoryCardId||run.cards.find(row=>row.index===c.index-1&&isPreparedTheory(run.tasks[row.index])&&preparedTaskSource(run,run.tasks[row.index]).id===source.id&&(run.tasks[row.index].theoryBefore||'')===(task.theoryBefore||''))?.id||'',nextKind:isPreparedTheory(run.tasks[c.index+1])?'theory':'task',nextTheoryPlacement:isPreparedTheory(run.tasks[c.index+1])?run.tasks[c.index+1].theoryDisplay?.placement||'auto':null,hasNext:c.index+1<run.tasks.length}:{}),setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,...(Number.isFinite(c.conditionTop)?{conditionTop:c.conditionTop}:{}),status:c.status,lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,answerSchema:preparedAnswerSchema(task),...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerGroups?{answerGroups:structuredClone(task.answerGroups)}:{}),...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:null,referenceSolution:preparedReferenceView(this,task,run,c,teacher(access.auth)&&!access.readOnly),...(teacher(access.auth)&&!access.readOnly&&access.auth.id===run.teacherId?preparedReferencePromotionState(this,run,c):{}),images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),live:workbookLiveView(this,run,c,a.assetId),writer:preparedWriterView(c.bindings?.[a.assetId],access.auth,this.now()),solution:this.solutionView(c.solutions?.[a.assetId]),historyCount:Math.max(c.workbookHistoryCounts?.[a.assetId]||0,c.solutions?.[a.assetId]?1:0),attempt:{...workbookAttempt(c,a.assetId),hasSaved:Boolean(currentWorkbookSolution(c,a.assetId))}})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
@@ -269,7 +242,7 @@ export class PreparedLessonTasks {
     const anchor=previous&&all.find(item=>item.id===previous.anchorId);
     const previews=Array.from(doc.awareness?.getStates?.().values()||[]).map(state=>state?.drawing).filter(Boolean);
     const task=run.tasks[index];
-    const height=(isPreparedTheory(task)?70:124)+Math.max(0,(task.answerGroups?preparedAnswerGroups(task).length:task.answerTable?preparedAnswerLayout(task).rows:Math.ceil(task.answers.length/2))-1)*(task.answerGroups?70:44)+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
+    const height=(isPreparedTheory(task)?16:124)+Math.max(0,(task.answerGroups?preparedAnswerGroups(task).length:task.answerTable?preparedAnswerLayout(task).rows:Math.ceil(task.answers.length/2))-1)*(task.answerGroups?70:44)+task.images.reduce((sum,id)=>{const a=this.data.assets[id];return sum+Math.min(900,Math.max(60,600*a.height/a.width))+12;},0)+task.attachments.length*230;
     const spawnScale=existing?(existing.spawnScale||1):1.3*(task.theoryStep?(task.theoryDisplay?.scalePercent||100)/100:1);
     const worldWidth=(existing?.width||640)*spawnScale,worldHeight=(existing?.height||height)*spawnScale;
     const source=preparedTaskSource(run,task,index),preceding=run.tasks[index-1];
@@ -278,22 +251,7 @@ export class PreparedLessonTasks {
     const previousSheet=earlierSheets.find(row=>row.task.images.includes(task.theoryDisplay?.relativeTo))||earlierSheets.sort((a,b)=>b.task.theoryStep.index-a.task.theoryStep.index)[0];
     let point=pointOverride;
     if(!point&&previousSheet){
-      const anchor=previousSheet.anchor,work=[...all,...previews];
-      const blockCount=task.theoryStep.blockCount||task.theoryStep.count;
-      const hasNotesBelow=blockCount<=2&&work.some(item=>{
-        if(item.id?.startsWith('prepared-'))return false;
-        const box=preparedItemBox(item);
-        return Object.values(box).every(Number.isFinite)&&box.bottom>anchor.y+anchor.height&&box.right>=anchor.x-120&&box.x<=anchor.x+anchor.width+120;
-      });
-      const direction=task.theoryDisplay?.placement||'auto';
-      if(direction==='right'||direction==='auto'&&blockCount<=2&&!hasNotesBelow)point=preparedTheoryPoint(work,anchor,worldWidth,worldHeight);
-      else{
-        // A neighbouring column must not push a sheet below an unrelated tall
-        // table. Ink keeps the usual safety margin; overlapping cards still count.
-        const anchors=new Set(run.cards.map(card=>card.anchorId));
-        const column=work.filter(item=>!anchors.has(item.id)||item.x+item.width>anchor.x&&item.x<anchor.x+worldWidth);
-        point=preparedNextPoint(column,anchor,Math.max(anchor.width,worldWidth));
-      }
+      point=preparedTheorySheetPoint([...all,...previews],previousSheet.anchor,{width:worldWidth,height:worldHeight},task.theoryDisplay,task.theoryStep.blockCount||task.theoryStep.count);
     }
     if(!point&&!isPreparedTheory(task)&&preceding?.theoryStep&&preparedTaskSource(run,preceding).id===source.id&&sheets.length){
       const block=sheets.filter(row=>(row.task.theoryBefore||'')===(preceding.theoryBefore||''));
@@ -305,7 +263,7 @@ export class PreparedLessonTasks {
     }
     point||=anchor?preparedNextPoint([...all,...previews],anchor,isPreparedTheory(task)?Math.max(anchor.width,worldWidth):undefined):run.cards.length?preparedNextPoint([...all,...previews],{...run.start,width:isPreparedTheory(task)?worldWidth:640,height:0}):run.start;
     run.awaitingFirstCard=false;
-    const card=existing||{id:crypto.randomUUID(),index,anchorId:'prepared-'+crypto.randomUUID(),codeId:'prepared-'+crypto.randomUUID(),x:point.x,y:point.y,width:640,height,spawnScale,status:isPreparedTheory(task)?'theory':'active',answers:task.answers.map(()=>''),answerRevision:0,code:{text:'',input:'',output:'',revision:0},solutions:{}};
+    const card=existing||{id:crypto.randomUUID(),index,anchorId:'prepared-'+crypto.randomUUID(),codeId:'prepared-'+crypto.randomUUID(),x:point.x,y:point.y,width:640,height,spawnScale,...(isPreparedTheory(task)?{compactTheory:true}:{}),status:isPreparedTheory(task)?'theory':'active',answers:task.answers.map(()=>''),answerRevision:0,code:{text:'',input:'',output:'',revision:0},solutions:{}};
     if(previousSheet)card.previousTheoryCardId=previousSheet.card.id;
     if(!existing)run.cards.push(card);run.teacherCardId=card.id;card.x=point.x;card.y=point.y;
     card.projectionPending=true;this.save(run);doc.transact(()=>items.push([{id:card.anchorId,type:'shape',shape:'rectangle',x:point.x,y:point.y,width:card.width*(card.spawnScale||1),height:card.height*(card.spawnScale||1),color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId}]),'prepared-lesson:place');card.projectionPending=false;this.save(run);return card;
