@@ -5,7 +5,7 @@ import PreparedTaskPicker from './PreparedTaskPicker.jsx';
 
 export default function PreparedTheoryCard({card,run,context,readOnly,style,onMeasure,present,dark,onNavigate}) {
   const element=useRef(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  const step=card.theoryStep,nextSheet=card.nextKind?card.nextKind==='theory':step&&step.index+1<step.count,NextIcon=nextSheet&&(step?.blockCount||step?.count)<=2?ArrowRight:ArrowDown;
+  const step=card.theoryStep,nextSheet=card.nextKind?card.nextKind==='theory':step&&step.index+1<step.count,NextIcon=nextSheet&&(card.nextTheoryPlacement==='right'||(!card.nextTheoryPlacement||card.nextTheoryPlacement==='auto')&&(step?.blockCount||step?.count)<=2)?ArrowRight:ArrowDown;
   const advance=async()=>{
     if(busy)return;setBusy(true);setError('');
     try{const result=await context.action(run.id,{action:'theory-next',cardId:card.id});if(onNavigate)onNavigate(result);else context.select?.(result.teacherCardId);}catch(e){setError(e.message);}finally{setBusy(false);}

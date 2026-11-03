@@ -94,3 +94,47 @@ test('explicit below overrides the two-page automatic side-by-side default',asyn
   const items=(await doc('board-display-two')).getArray('items').toArray(),[a,b]=view.cards.map(c=>items.find(i=>i.id===c.anchorId));
   assert.equal(a.x,b.x);assert.ok(b.y>a.y+a.height);
 });
+
+test('large explanation, small right table, then pages below selected sheets share one layout with pupils',async t=>{
+  const {store,auth,pupil,doc,images,make}=fixture(t);
+  store.data.assets[images[1]].height=1800;
+  const set=await make({theoryImages:images,theoryDisplay:{
+    [images[0]]:{scalePercent:150},
+    [images[1]]:{scalePercent:50,relativeTo:images[0],placement:'right',focus:'pair'},
+    [images[2]]:{scalePercent:150,relativeTo:images[0],placement:'below'},
+    [images[3]]:{scalePercent:150,relativeTo:images[2],placement:'below'},
+  }});
+  let view=await store.start(auth,{room:'board-columns',setId:set.id,x:20,y:100});
+  const items=(await doc('board-columns')).getArray('items'),anchors=()=>view.cards.map(card=>items.toArray().find(item=>item.id===card.anchorId));
+  view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[0].id});
+  const [first,second]=anchors();
+  assert.ok(Math.abs(first.width/second.width-3)<.001);assert.equal(second.x,first.x+first.width+48);assert.equal(second.y,first.y);
+  view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[1].id});
+  const third=anchors()[2];assert.equal(third.x,first.x);assert.ok(third.y>first.y+first.height);
+  assert.ok(third.y<second.y+second.height,'the neighbouring tall table must not push the left column down');
+  assert.equal(view.cards[2].previousTheoryCardId,view.cards[0].id);
+  const ink={id:'notes',type:'pen',points:[{x:third.x+20,y:third.y+third.height+40},{x:third.x+150,y:third.y+third.height+190}]};
+  items.push([ink]);
+  view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[2].id});
+  const fourth=anchors()[3];assert.equal(fourth.x,third.x);assert.ok(fourth.y>ink.points[1].y);
+  const publicView=store.publicRun(store.data.runs[view.id],{auth:pupil});
+  assert.deepEqual(publicView.cards.map(c=>[c.width,c.height,c.theoryDisplay,c.previousTheoryCardId]),view.cards.map(c=>[c.width,c.height,c.theoryDisplay,c.previousTheoryCardId]));
+  assert.deepEqual(items.toArray().find(item=>item.id==='notes'),ink);
+});
+
+test('size changes affect new sheets; live update, restart and private copy preserve existing geometry and reference identity',async t=>{
+  const {store,auth,doc,images,make}=fixture(t),set=await make({theoryDisplay:{[images[0]]:{scalePercent:150}}});
+  let view=await store.start(auth,{room:'board-new-sizes',setId:set.id,x:0,y:0});
+  const items=(await doc('board-new-sizes')).getArray('items'),before=items.toArray();
+  const updated=await store.saveSet(auth,{...set,theoryDisplay:{[images[0]]:{scalePercent:50},[images[1]]:{relativeTo:images[0],scalePercent:50,placement:'right'}}},set.id);
+  view=await store.action(auth,view.id,{action:'sync-set',setId:set.id,setVersion:updated.version});
+  assert.deepEqual(items.toArray(),before);
+  view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[0].id});
+  assert.equal(items.toArray()[0].width,1248);assert.equal(items.toArray()[1].width,416);
+  await store.recover(store.data.runs[view.id]);assert.equal(items.toArray()[0].width,1248);
+  const other={id:'copy-teacher',role:'teacher'},exchange=new PreparedSetExchange(store,()=>[{id:auth.id},other]);
+  exchange.publish(auth,set.id,{version:0,recipientIds:[other.id]});const {set:copy}=exchange.copy(other,set.id,{version:1});
+  assert.equal(copy.theoryDisplay[copy.theoryImages[1]].relativeTo,copy.theoryImages[0]);
+  assert.equal(copy.theoryDisplay[copy.theoryImages[1]].scalePercent,50);
+  assert.equal(copy.theoryDisplay[copy.theoryImages[1]].relativeTo===images[0],false);
+});

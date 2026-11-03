@@ -1,9 +1,27 @@
 export function normalizePreparedTheoryDisplay(value){
   if(value==null)return null;
   if(typeof value!=='object'||Array.isArray(value))throw Error('Укажите настройки появления листа');
-  const placement=value.placement||'auto',focus=value.focus||'next';
+  const placement=value.placement||'auto',focus=value.focus||'next',scalePercent=Number(value.scalePercent??100);
   if(!['auto','below','right'].includes(placement)||!['next','pair'].includes(focus))throw Error('Выберите расположение и вид листа теории');
-  return placement==='auto'&&focus==='next'?null:{placement,focus};
+  if(!Number.isInteger(scalePercent)||scalePercent<25||scalePercent>200)throw Error('Размер листа должен быть от 25 до 200%');
+  if(value.relativeTo!=null&&typeof value.relativeTo!=='string')throw Error('Выберите опорный лист теории');
+  const relativeTo=value.relativeTo?.trim()||'';
+  return placement==='auto'&&focus==='next'&&scalePercent===100&&!relativeTo?null:{placement,focus,...(scalePercent!==100?{scalePercent}:{}),...(relativeTo?{relativeTo}:{})};
+}
+
+// References use image identities, so moving/cropping/copying a sheet does not
+// silently redirect another sheet to a different page number. Deleted, later
+// or differently placed references fall back to the preceding available sheet.
+export function normalizePreparedTheoryDisplays(images,display={},placements={},firstTaskId=''){
+  const before=id=>placements[id]===firstTaskId?'':placements[id]||'';
+  return Object.fromEntries(images.flatMap((id,index)=>{
+    let setting=normalizePreparedTheoryDisplay(display?.[id]);
+    if(setting?.relativeTo&&!images.slice(0,index).some(target=>target===setting.relativeTo&&before(target)===before(id))){
+      const rest={...setting};delete rest.relativeTo;
+      setting=normalizePreparedTheoryDisplay(rest);
+    }
+    return setting?[[id,setting]]:[];
+  }));
 }
 
 export function preparedTheoryFrame(current,previous){
