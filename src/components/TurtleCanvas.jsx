@@ -261,10 +261,8 @@ const renderPrimitive = (context, primitive, mapPoint, scale) => {
 
 const TurtleCanvas = ({ drawing, className = '' }) => {
   const hostRef = useRef(null);
-  const scrollContentRef = useRef(null);
   const canvasRef = useRef(null);
   const pendingScrollCenterRef = useRef(null);
-  const scrollRestoreFrameRef = useRef(null);
   const previousDrawingRef = useRef(drawing);
   const panRef = useRef({ active: false, pointerId: null });
   const [isPanning, setIsPanning] = useState(false);
@@ -348,29 +346,35 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
 
   const draw = useCallback(() => {
     const host = hostRef.current;
-    const scrollContent = scrollContentRef.current;
     const canvas = canvasRef.current;
-    if (!host || !scrollContent || !canvas) return;
+    if (!host || !canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
 
-    const rect = host.getBoundingClientRect();
-    const viewportWidth = Math.max(1, Math.round(host.clientWidth || rect.width || DEFAULT_CANVAS_WIDTH));
-    const viewportHeight = Math.max(1, Math.round(host.clientHeight || rect.height || DEFAULT_CANVAS_HEIGHT));
-    const scrollScale = Math.max(1, zoom);
-    const contentWidth = Math.max(viewportWidth, Math.round(viewportWidth * scrollScale));
-    const contentHeight = Math.max(viewportHeight, Math.round(viewportHeight * scrollScale));
+    // CSS owns the scroll geometry. Rounding clientWidth/clientHeight and writing
+    // them back as element sizes can turn a fraction of a pixel into overflow.
+    const { width: viewportWidth, height: viewportHeight } = canvas.getBoundingClientRect();
+    if (viewportWidth <= 0 || viewportHeight <= 0) return;
+    const contentWidth = host.scrollWidth;
+    const contentHeight = host.scrollHeight;
+    if (previousDrawingRef.current !== drawing) {
+      previousDrawingRef.current = drawing;
+      pendingScrollCenterRef.current = { x: 0.5, y: 0.5 };
+    }
+    const pendingCenter = pendingScrollCenterRef.current;
+    if (pendingCenter) {
+      pendingScrollCenterRef.current = null;
+      host.scrollLeft = pendingCenter.x * contentWidth - host.clientWidth / 2;
+      host.scrollTop = pendingCenter.y * contentHeight - host.clientHeight / 2;
+    }
+
     const pixelRatio = Math.max(1, Math.min(MAX_DEVICE_PIXEL_RATIO, window.devicePixelRatio || 1));
     const pixelWidth = Math.max(1, Math.round(viewportWidth * pixelRatio));
     const pixelHeight = Math.max(1, Math.round(viewportHeight * pixelRatio));
 
-    scrollContent.style.width = `${contentWidth}px`;
-    scrollContent.style.height = `${contentHeight}px`;
     if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
     if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-    canvas.style.width = `${viewportWidth}px`;
-    canvas.style.height = `${viewportHeight}px`;
-    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    context.setTransform(pixelWidth / viewportWidth, 0, 0, pixelHeight / viewportHeight, 0, 0);
     context.clearRect(0, 0, viewportWidth, viewportHeight);
     context.fillStyle = normalizeColor(drawing?.background, '#ffffff');
     context.fillRect(0, 0, viewportWidth, viewportHeight);
@@ -383,8 +387,8 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
     const scale = fitScale * zoom;
     const renderedWidth = worldWidth * scale;
     const renderedHeight = worldHeight * scale;
-    const offsetX = (contentWidth - renderedWidth) / 2 - host.scrollLeft;
-    const offsetY = (contentHeight - renderedHeight) / 2 - host.scrollTop;
+    const offsetX = ((zoom > 1 ? contentWidth : viewportWidth) - renderedWidth) / 2 - host.scrollLeft;
+    const offsetY = ((zoom > 1 ? contentHeight : viewportHeight) - renderedHeight) / 2 - host.scrollTop;
     const mapPoint = (xValue, yValue) => {
       const x = toFiniteNumber(xValue);
       const y = toFiniteNumber(yValue);
@@ -397,23 +401,7 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
 
     primitives.forEach((primitive) => renderPrimitive(context, primitive, mapPoint, scale));
 
-    if (previousDrawingRef.current !== drawing) {
-      previousDrawingRef.current = drawing;
-      pendingScrollCenterRef.current = { x: 0.5, y: 0.5 };
-    }
-    const pendingCenter = pendingScrollCenterRef.current;
-    if (pendingCenter) {
-      pendingScrollCenterRef.current = null;
-      if (scrollRestoreFrameRef.current) window.cancelAnimationFrame(scrollRestoreFrameRef.current);
-      scrollRestoreFrameRef.current = window.requestAnimationFrame(() => {
-        scrollRestoreFrameRef.current = null;
-        const currentHost = hostRef.current;
-        if (!currentHost) return;
-        currentHost.scrollLeft = pendingCenter.x * currentHost.scrollWidth - currentHost.clientWidth / 2;
-        currentHost.scrollTop = pendingCenter.y * currentHost.scrollHeight - currentHost.clientHeight / 2;
-      });
-    }
-  }, [drawing?.background, drawingBounds, primitives, zoom]);
+  }, [drawing, drawingBounds, primitives, zoom]);
 
   useLayoutEffect(() => {
     let animationFrame = window.requestAnimationFrame(draw);
@@ -428,7 +416,6 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
     if (!observer) window.addEventListener('resize', scheduleDraw);
     return () => {
       window.cancelAnimationFrame(animationFrame);
-      if (scrollRestoreFrameRef.current) window.cancelAnimationFrame(scrollRestoreFrameRef.current);
       observer?.disconnect();
       host?.removeEventListener('scroll', scheduleDraw);
       if (!observer) window.removeEventListener('resize', scheduleDraw);
@@ -475,7 +462,7 @@ const TurtleCanvas = ({ drawing, className = '' }) => {
         onPointerCancel={stopPanning}
         onLostPointerCapture={stopPanning}
       >
-        <div ref={scrollContentRef} className="turtle-canvas__scroll-content">
+        <div className="turtle-canvas__scroll-content" style={{ '--turtle-scroll-scale': Math.max(1, zoom) }}>
           <canvas ref={canvasRef} role="img" aria-label={canvasLabel}>
             {canvasLabel}
           </canvas>
