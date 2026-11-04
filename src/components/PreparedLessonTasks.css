@@ -202,10 +202,11 @@
 @media(prefers-reduced-motion:reduce){.prepared-theory-enter{animation:none}}
 
 .prepared-theory-mode{display:flex;flex-wrap:wrap;gap:8px}
-.prepared-card--theory{background:transparent;border-color:transparent;box-shadow:none;overflow:visible}
+.prepared-board-layer .prepared-card--theory{background:transparent;border-color:transparent;box-shadow:none;overflow:visible}
 .prepared-card--theory.has-legacy-offset{padding-top:36px}
 .prepared-card--theory.has-legacy-offset.is-step{padding-top:52px}
-.prepared-card--theory>.prepared-card-body{background:var(--pt-panel);border-radius:12px;box-shadow:0 0 0 1px var(--pt-line),0 3px 14px #20172a0d}
+/* Keep image insets as invisible spacing so existing ink still aligns with the slide. */
+.prepared-card--theory>.prepared-card-body>img{background:transparent}
 
 .prepared-theory-canvas{display:grid;gap:8px;margin-top:10px}
 .prepared-theory-canvas-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
