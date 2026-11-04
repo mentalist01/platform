@@ -3566,9 +3566,9 @@ export const CollabSection = ({
     ? (effectiveGroupParticipantId === GROUP_SHARED_CODE_ID ? 'Общий код'
       : groupParticipantRoster.find((participant) => participant.id === effectiveGroupParticipantId)?.name || 'Ученик')
     : '';
-  const collabReadOnly = sandboxReadOnly || Boolean(isGroupLesson && (
-    readOnly || (!isTeacher && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID)
-  ));
+  const collabReadOnly = sandboxReadOnly || Boolean(isGroupLesson && readOnly);
+  const sharedGroupCode = isGroupLesson && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
+  const codeTabsReadOnly = collabReadOnly || (sharedGroupCode && !isTeacher);
   const sandboxReadOnlyCodeState = isSandbox && sandboxReadOnly
     ? (sandbox?.code && typeof sandbox.code === 'object' ? sandbox.code : sandbox)
     : null;
@@ -8413,8 +8413,7 @@ export const CollabSection = ({
     ? 'connecting'
     : status;
   const statusLabel = collabReadOnly && !isSandbox
-    ? (!readOnly && isGroupLesson && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID
-      ? 'Общий код · показывает учитель' : 'Архив · только просмотр')
+    ? 'Архив · только просмотр'
     : isSandbox
     ? (sandboxReadOnly ? 'Запись урока' : 'Локальная копия')
     : status === 'connected'
@@ -9387,8 +9386,8 @@ export const CollabSection = ({
               <Code2 size={21} />
             </span>
             <strong>Здесь можно написать или вставить код</strong>
-            <span>{isSandbox ? 'Изменения остаются только в этой копии' : isGroupLesson && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID
-              ? 'Код преподавателя виден всей группе' : 'Учитель и ученик видят правки в этом варианте'}</span>
+            <span>{isSandbox ? 'Изменения остаются только в этой копии' : sharedGroupCode
+              ? 'Все участники группы видят правки в этой вкладке' : 'Учитель и ученик видят правки в этом варианте'}</span>
             <kbd>Ctrl+V вставить · F5 запустить</kbd>
           </div>
         )}
@@ -11135,7 +11134,7 @@ export const CollabSection = ({
             onPresent={presentation.toggle}
             compareId={compareSolutionId}
             disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted}
-            readOnly={collabReadOnly}
+            readOnly={codeTabsReadOnly}
             dark={isCollabDarkUi}
             peers={remoteParticipants}
           />

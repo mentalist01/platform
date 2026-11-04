@@ -13,7 +13,7 @@ test('group code opens shared room first and preserves existing student document
   const group={id:'g',teacherId:'t',status:'active',members:roster.map(p=>({studentId:p.id,status:'active'}))};
   const access=(role,id,target)=>authorizeLearningCollabUpgrade({auth:{role,id,teacherId:'t'},requestUrl:`/collab/${groupCodeRoom(session.id,target)}`,sessions:[session],groups:[group]});
   assert.equal(access('student','a',GROUP_SHARED_CODE_ID).allowed,true);
-  assert.equal(access('student','a',GROUP_SHARED_CODE_ID).readOnly,true);
+  assert.equal(access('student','a',GROUP_SHARED_CODE_ID).readOnly,false);
   assert.equal(access('teacher','t',GROUP_SHARED_CODE_ID).readOnly,false);
   assert.equal(access('student','a','a').readOnly,false);
   assert.equal(access('student','a','b').allowed,false);

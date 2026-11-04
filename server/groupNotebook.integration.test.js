@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import os from 'node:os';import net from 'node:net';import crypto from 'node:crypto';import{spawn}from'node:child_process';import{LeveldbPersistence}from'y-leveldb';import*as Y from'yjs';import WebSocket from'ws';import{WebsocketProvider}from'y-websocket';
 import{createLearningGroup,addLearningGroupMember,startLearningGroup,createLearningLessonSession}from'./learningGroups.js';
-import{getCollabSolutionChannels,listCollabCodePages}from'../src/utils/collabSolutions.js';
+import{createEmptyCollabSolution,getCollabSolutionChannels,listCollabCodePages,listCollabSolutions}from'../src/utils/collabSolutions.js';
 
 test('group pages and private code survive finishing, new lesson, reconnect and full server restart',{timeout:process.env.GROUP_NOTEBOOK_QA_SERVE==='1'?3600_000:60000},async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'ivan-group-notebook-')),data=path.join(root,'data'),collab=path.join(root,'collab');fs.mkdirSync(data);fs.mkdirSync(collab);
@@ -28,9 +28,16 @@ test('group pages and private code survive finishing, new lesson, reconnect and 
   const drawing=await connect('board-group-g~page~'+restored.id,teacher);assert.equal(drawing.getArray('items').get(0).id,'old-stroke');
   const shared=await connect('collab-group-g',teacher),personalA=await connect('collab-group-g~student~a',a),personalB=await connect('collab-group-g~student~b',b);
   const solution=doc=>getCollabSolutionChannels(doc,listCollabCodePages(doc).find(p=>p.id===restored.id).mainSolutionId);
-  const readonlyShared=await connect('collab-group-g',a);readonlyShared.getText('monaco').insert(0,'forbidden shared change');
+  const sharedA=await connect('collab-group-g',a),sharedB=await connect('collab-group-g',b);
   const denied=await new Promise((resolve,reject)=>{const ws=new WebSocket(base.replace('http','ws')+'/collab/board-group-g~page~unknown-page?_auth='+encodeURIComponent(teacher));ws.once('unexpected-response',(_req,res)=>{res.resume();ws.terminate();resolve(res.statusCode);});ws.once('open',()=>{ws.close();reject(Error('Unknown page connected'));});ws.on('error',()=>{});});assert.equal(denied,403);
   assert.equal(solution(shared).codeText.toString(),'print(42)');assert.equal(solution(personalA).codeText.toString(),'private ~student~a');assert.equal(solution(personalB).codeText.toString(),'private ~student~b');
+  solution(sharedA).codeText.insert(solution(sharedA).codeText.length,'\nprint("group")');
+  await wait(()=>[shared,sharedB].every(doc=>solution(doc).codeText.toString()==='print(42)\nprint("group")'));
+  const numbered=createEmptyCollabSolution(shared,{name:'12',pageId:restored.id});
+  await wait(()=>listCollabSolutions(sharedB).some(tab=>tab.id===numbered.id));
+  const taskCode=doc=>getCollabSolutionChannels(doc,numbered.id).codeText;
+  taskCode(sharedB).insert(0,'print(12)');
+  await wait(()=>[shared,sharedA].every(doc=>taskCode(doc).toString()==='print(12)'));
   await request('/api/lesson-pages?room=collab-group-g~student~b',a,undefined,'GET',403);await request('/api/lesson-pages?room=board-group-g~pages',await login('other'),undefined,'GET',403);
   await request('/api/lesson-pages?room=board-group-g~pages',await login('c'),undefined,'GET',403);
   await request('/api/learning-groups/g/lessons/current-lesson',teacher,{status:'completed'},'PATCH');
@@ -43,7 +50,9 @@ test('group pages and private code survive finishing, new lesson, reconnect and 
   close();await wait(()=>{try{const d=new Y.Doc();Y.applyUpdate(d,fs.readFileSync(path.join(dir,name('board-group-g~page~'+restored.id))));return d.getArray('items').length===2;}catch{return false;}});await stop();await start();teacher=await login('teacher');a=await login('a');
   assert.equal((await pages(teacher)).pages.length,initial.pages.length+1);
   const again=await connect('board-group-g~page~'+restored.id,teacher),againA=await connect('collab-group-g~student~a',a);
-  const againShared=await connect('collab-group-g',teacher);assert.equal(againShared.getText('monaco').toString(),'');
+  const againShared=await connect('collab-group-g',teacher);
+  assert.equal(solution(againShared).codeText.toString(),'print(42)\nprint("group")');
+  assert.equal(taskCode(againShared).toString(),'print(12)');
   assert.equal(again.getArray('items').length,2);assert.equal(solution(againA).codeText.toString(),'private ~student~a\nprint(99)');
   assert.deepEqual(fs.readFileSync(path.join(dir,name('board-lesson-old-lesson'))),sourceBytes,'original lesson snapshot unchanged');
   // Membership changes close an already authorized notebook connection.

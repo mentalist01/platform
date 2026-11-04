@@ -550,13 +550,7 @@ export const authorizeLearningCollabUpgrade = ({ requestUrl, ...options } = {}) 
   const role = normalizeText(options?.auth?.role, 40).toLowerCase();
   const readOnly = Boolean(
     access.allowed
-    && (access.readOnly || (pageRoom?.book && !['teacher','admin'].includes(role))
-    || (access.target?.groupNotebook && access.target.kind==='collab' && role==='student')
-    || (access.target?.targetType === 'lesson' && (
-      access.readOnly
-      || normalizeText(access.target?.session?.status, 40) === 'completed'
-      || (access.target?.kind === 'collab' && role === 'student')
-    )))
+    && (access.readOnly || (pageRoom?.book && !['teacher', 'admin'].includes(role)))
   );
   return { ...access, readOnly, docName,
     ...(pageRoom && access.target ? {target:{...access.target,roomId:docName,boardPageId:pageRoom.pageId,boardPagesBook:pageRoom.book}} : {}),

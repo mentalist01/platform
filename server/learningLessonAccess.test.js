@@ -351,12 +351,13 @@ test('collab upgrade extracts one decoded document name and applies the same ACL
   const access = authorizeLearningCollabUpgrade({
     requestUrl: `/collab/${encodedDocName}`,
     auth: { role: 'student', id: 'student-a' },
-    sessions: [session],
+    sessions: [{ ...session, status: 'active', startAt: new Date().toISOString() }],
     groups: [group],
     students: legacyStudents,
   });
   assert.equal(access.allowed, true);
   assert.equal(access.docName, `collab-lesson-${session.id}`);
+  assert.equal(access.readOnly, false);
 
   const completedAccess = authorizeLearningCollabUpgrade({
     requestUrl: `/collab/${encodedDocName}`,
