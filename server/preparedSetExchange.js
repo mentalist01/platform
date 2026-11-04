@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import {remapPreparedSetLayout} from '../src/utils/preparedSetLayout.js';
 
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const staff=auth=>{if(!['teacher','admin'].includes(auth?.role)||!auth.id)fail(403,'Обмен доступен преподавателям');};
@@ -61,6 +62,7 @@ export class PreparedSetExchange {
     if(previous)return {set:this.store.setView(previous),alreadyCopied:true};
     const assets=this.assets(set),ids=new Map(assets.map(asset=>[asset.id,crypto.randomUUID()])),taskIds=new Map(set.tasks.map(task=>[task.id,crypto.randomUUID()]));
     const copy={...clone(set),id:crypto.randomUUID(),teacherId:auth.id,version:1,updatedAt:new Date(this.store.now()).toISOString(),copiedFrom:{setId:set.id,setVersion:set.version,teacherId:share.teacherId,authorName:this.author(share.teacherId)},theoryImages:(set.theoryImages||[]).map(id=>ids.get(id)),theoryDisplay:Object.fromEntries(Object.entries(set.theoryDisplay||{}).filter(([id])=>ids.has(id)).map(([id,value])=>[ids.get(id),clone(value)])),theoryPlacements:Object.fromEntries(Object.entries(set.theoryPlacements||{}).filter(([id])=>ids.has(id)).map(([id,target])=>[ids.get(id),taskIds.get(target)||'end'])),tasks:set.tasks.map(task=>({...clone(task),id:taskIds.get(task.id),images:task.images.map(image=>ids.get(image)),...(task.referenceSolutions?.length?{referenceSolutions:task.referenceSolutions.map(file=>({...clone(file),assetId:ids.get(file.assetId),sourceFileId:undefined}))}:{}),attachments:task.attachments.map(file=>({...clone(file),assetId:ids.get(file.assetId),sourceFileId:''}))}))};
+    if(set.boardLayout)copy.boardLayout=remapPreparedSetLayout(set.boardLayout,taskIds,ids);
     for(const value of Object.values(copy.theoryDisplay))if(value.relativeTo)value.relativeTo=ids.get(value.relativeTo)||'';
     for(const asset of assets)this.store.data.assets[ids.get(asset.id)]={...clone(asset),id:ids.get(asset.id),teacherId:auth.id};
     this.store.data.sets[copy.id]=copy;

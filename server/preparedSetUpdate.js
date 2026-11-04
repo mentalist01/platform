@@ -52,6 +52,7 @@ export function updatePreparedSet(store,run,set){
       attachments:preparedFileSync([task],[incoming]).tasks[0].attachments};
     if(incoming.theoryStep)next.theoryStep={...incoming.theoryStep};
     delete next.theoryDisplay;if(incoming.theoryDisplay)next.theoryDisplay={...incoming.theoryDisplay};
+    delete next.boardDisplay;if(incoming.boardDisplay)next.boardDisplay=structuredClone(incoming.boardDisplay);
     delete next.answerTable;delete next.answerCountOverride;delete next.answerGroups;
     if(incoming.answerGroups)next.answerGroups=structuredClone(incoming.answerGroups);
     delete next.referenceSolutions;

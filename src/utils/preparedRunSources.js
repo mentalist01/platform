@@ -2,6 +2,7 @@ import {preparedSetPartTasks,preparedTaskPartNumber,preparedPartTaskNumber} from
 import {preparedFileSync} from './preparedFileSync.js';
 import {preparedAnswerTableChanged} from './preparedAnswerTable.js';
 import {preparedTaskContentChanged} from './preparedTaskContent.js';
+import {preparedLayoutKey} from './preparedSetLayout.js';
 
 export const isPreparedTheory = task => task?.kind==='theory';
 export function preparedTheorySequence(set,mode=set.theoryMode) {
@@ -48,9 +49,13 @@ export function preparedTheoryPlacementUpdates(run,set){
 export function preparedSetSequence(set,partNumber) {
   const tasks=preparedSetPartTasks(set,partNumber),split=set.tasks.some(task=>task.startsPart===true);
   const mapped=partNumber!==undefined||split||set.theoryImages?.length?tasks.map(task=>({...task,sourceIndex:set.tasks.indexOf(task),...(split||partNumber!==undefined?{sourcePartNumber:preparedTaskPartNumber(set,set.tasks.indexOf(task)),sourceTaskNumber:preparedPartTaskNumber(set,preparedTaskPartNumber(set,set.tasks.indexOf(task)))}:{})})):tasks;
-  if(!set.theoryImages?.length)return mapped;
+  const withLayout=cards=>set.boardLayout?cards.map(card=>{
+    const boardDisplay=set.boardLayout[preparedLayoutKey(card)];
+    return boardDisplay?{...card,boardDisplay}:card;
+  }):cards;
+  if(!set.theoryImages?.length)return withLayout(mapped);
   const theory=preparedTheorySequence(set),all=partNumber===undefined,first=Number(partNumber)===Number(set.partNumber||1),last=Number(partNumber)===preparedTaskPartNumber(set,set.tasks.length-1);
-  return [...(all||first?theory.filter(row=>!row.theoryBefore):[]),...mapped.flatMap(task=>[...theory.filter(row=>row.theoryBefore===task.id).map(row=>({...row,sourcePartNumber:preparedTaskPartNumber(set,set.tasks.findIndex(value=>value.id===task.id))})),task]),...(all||last?theory.filter(row=>row.theoryBefore==='end'):[])];
+  return withLayout([...(all||first?theory.filter(row=>!row.theoryBefore):[]),...mapped.flatMap(task=>[...theory.filter(row=>row.theoryBefore===task.id).map(row=>({...row,sourcePartNumber:preparedTaskPartNumber(set,set.tasks.findIndex(value=>value.id===task.id))})),task]),...(all||last?theory.filter(row=>row.theoryBefore==='end'):[])]);
 }
 
 // Legacy runs keep their original identity. Only newly appended tasks carry
@@ -78,7 +83,7 @@ export function preparedSourceLatest(run,set) {
     if(source.id!==set.id)return [];
     const sheet=task.theoryStep;
     const latest=isPreparedTheory(task)?{...task,theoryDisplay:set.theoryDisplay?.[set.theoryImages?.[sheet?.index??task.theoryIndices?.[0]??0]],...(sheet?{images:set.theoryImages?.[sheet.index]?[set.theoryImages[sheet.index]]:task.images,theoryStep:{...sheet,count:Math.max(sheet.index+1,set.theoryImages?.length||0)}}:{images:task.theoryIndices?task.theoryIndices.map(index=>set.theoryImages?.[index]).filter(Boolean):[...(set.theoryImages||[])]})}:set.tasks.find(row=>row.id===source.taskId);
-    return latest?[{...latest,id:task.id}]:[];
+    return latest?[{...latest,id:task.id,boardDisplay:set.boardLayout?.[preparedLayoutKey({...latest,id:source.taskId})]}]:[];
   });
 }
 export function preparedSourceUpdates(run,sets) {

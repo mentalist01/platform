@@ -9,4 +9,5 @@ export const preparedTaskContentChanged=(before,after)=>
   JSON.stringify(before.images)!==JSON.stringify(after.images)||
   JSON.stringify(before.theoryStep||null)!==JSON.stringify(after.theoryStep||null)||
   JSON.stringify(before.theoryDisplay||null)!==JSON.stringify(after.theoryDisplay||null)||
+  JSON.stringify(before.boardDisplay||null)!==JSON.stringify(after.boardDisplay||null)||
   JSON.stringify(before.referenceSolutions||[])!==JSON.stringify(after.referenceSolutions||[])||preparedCheckingChanged(before,after);

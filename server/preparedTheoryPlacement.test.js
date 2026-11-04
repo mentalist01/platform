@@ -8,6 +8,7 @@ import {PreparedLessonTasks} from './preparedLessonTasks.js';
 import {PreparedSetExchange} from './preparedSetExchange.js';
 import {preparedSetSequence,preparedSourceLatest} from '../src/utils/preparedRunSources.js';
 import {COLLAB_SOLUTIONS_MAP_KEY} from '../src/utils/collabSolutions.js';
+import {placePreparedCard} from '../src/utils/preparedSetLayout.js';
 
 const A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
@@ -31,6 +32,45 @@ test('real tasks and theory interleave in one queue; only tasks require answers 
   view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[2].id});assert.equal(view.cards[3].taskId,B);assert.equal(view.cards[3].answerCount,1);assert.equal(view.cards[3].sourceIndex,1);
   view=await store.action(auth,view.id,{action:'skip',expectedCount:4,fromCardId:view.cards[3].id});assert.equal(view.cards[4].kind,'theory');assert.equal(view.cards[4].hasNext,false);
   assert.equal((await doc('collab-teacher-pupil')).getMap(COLLAB_SOLUTIONS_MAP_KEY).size,2);
+});
+
+test('mixed layout places tasks and theory at configured anchors; unopened theory preview is private',async t=>{
+  const {store,auth,pupil,doc,images,make}=fixture(t);
+  const theoryKey='theory:'+images[0];
+  const set=await make({
+    theoryImages:[images[0]],theoryPlacements:{[images[0]]:B},
+    boardLayout:{
+      [theoryKey]:{relativeTo:'task:'+A,placement:'right',focus:'pair',scalePercent:50},
+      ['task:'+B]:{relativeTo:'task:'+A,placement:'below',scalePercent:100},
+    },
+  });
+  let view=await store.start(auth,{room:'board-mixed',setId:set.id,x:42,y:60});
+  const first=view.cards[0],items=(await doc('board-mixed')).getArray('items'),anchor=items.get(0);
+  items.push([{id:'note',type:'text',x:anchor.x+anchor.width-20,y:anchor.y+40,width:240,height:65}]);
+  const upcoming=view.nextTheoryPreview,{width,height,scale}=upcoming.geometry;
+  const predicted=placePreparedCard(items.toArray(),upcoming.recipe,{width:width*scale,height:height*scale});
+  assert.equal(upcoming.fromCardId,first.id);
+  assert.equal(upcoming.images[0].id,images[0]);
+  assert.equal(store.publicRun(store.data.runs[view.id],{auth:pupil}).nextTheoryPreview,undefined);
+  assert.equal(store.publicRun(store.data.runs[view.id],{auth,readOnly:true}).nextTheoryPreview,undefined);
+  assert.equal(items.length,2);
+  view=await store.action(auth,view.id,{action:'skip',fromCardId:first.id,expectedCount:1});
+  const theory=view.cards[1],theoryAnchor=items.get(2);
+  assert.deepEqual({x:theoryAnchor.x,y:theoryAnchor.y},predicted);
+  assert.ok(theoryAnchor.x>anchor.x+anchor.width+200);
+  assert.equal(theoryAnchor.width,416);
+  assert.equal(theory.focusAnchorId,anchor.id);
+  assert.equal(view.nextTheoryPreview,undefined);
+  const updated=await make({id:set.id,version:set.version,theoryImages:[images[0]],theoryPlacements:{[images[0]]:B},
+    boardLayout:{...set.boardLayout,['task:'+B]:{relativeTo:'task:'+A,placement:'below',scalePercent:125}}});
+  const before=items.toArray();
+  view=await store.action(auth,view.id,{action:'sync-set',setId:set.id,setVersion:updated.version});
+  assert.deepEqual(items.toArray(),before);
+  view=await store.action(auth,view.id,{action:'theory-next',cardId:theory.id});
+  assert.equal(view.cards[2].taskId,B);
+  assert.equal(items.get(3).x,anchor.x);
+  assert.ok(items.get(3).y>anchor.y+anchor.height);
+  assert.equal(items.get(3).width,1040);
 });
 
 test('new theory is inserted before its selected existing task by both live update actions, preserving cards, code and ink',async t=>{
