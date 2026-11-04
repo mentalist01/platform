@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { preparedRuntimeFiles, preparedFileOpenExample } from './preparedRuntimeFiles.js';
+import { preparedRuntimeCardForCode, preparedRuntimeFiles, preparedFileOpenExample } from './preparedRuntimeFiles.js';
 
 test('prepared Python inputs keep legacy names and select files independently for each exercise', () => {
   const original = { assetId: 'original', name: '17_вариант.txt', url: '/original' };
@@ -19,4 +19,16 @@ test('ambiguous names and path traversal cannot silently select a different inpu
     assert.throws(() => preparedRuntimeFiles([{ name }]), /имя входного файла/);
   }
   assert.equal(preparedRuntimeFiles([{ name: '../hidden.pdf', runtime: false }]).length, 0);
+});
+test('prepared files follow the exact linked tab or the selected card on a regular tab', () => {
+  const first = { id: 'first', codeId: 'prepared-first', taskNumber: 17, attachments: [{ name: '17_1.txt' }] };
+  const second = { id: 'second', codeId: 'prepared-second', taskNumber: 24, attachments: [{ name: '24.txt' }] };
+  const theory = { id: 'theory', kind: 'theory', codeId: 'prepared-theory' };
+  const run = { mode: 'prepared', cards: [first, second, theory] };
+  assert.equal(preparedRuntimeCardForCode(run, second.id, first.codeId, true), first);
+  assert.equal(preparedRuntimeCardForCode(run, second.id, 'main', true), second);
+  assert.equal(preparedRuntimeCardForCode(run, second.id, 'prepared-deleted', true), null);
+  assert.equal(preparedRuntimeCardForCode(run, theory.id, 'main', true), null);
+  assert.equal(preparedRuntimeCardForCode(run, second.id, 'main', false), null);
+  assert.equal(preparedRuntimeCardForCode({ ...run, mode: 'plain' }, second.id, 'main', true), null);
 });

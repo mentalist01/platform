@@ -15,3 +15,13 @@ export function preparedRuntimeFiles(attachments = []) {
 }
 
 export const preparedFileOpenExample = name => `open(${JSON.stringify(name)})`;
+
+export function preparedRuntimeCardForCode(run, selectedCardId, codeId, onBoardPage) {
+  if (!onBoardPage || !run || !codeId) return null;
+  const linked = run.cards.find(card => card.kind !== 'theory' && card.codeId === codeId);
+  if (linked) return linked;
+  // A regular code tab on the same page can be used to solve the selected task.
+  // A removed or unsynced prepared tab must never inherit another task's files.
+  if (run.mode !== 'prepared' || codeId.startsWith('prepared-')) return null;
+  return run.cards.find(card => card.kind !== 'theory' && card.id === selectedCardId) || null;
+}

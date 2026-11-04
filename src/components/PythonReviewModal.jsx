@@ -273,6 +273,7 @@ const PythonReviewModal = ({
   groupProgressLoading = false,
   groupProgressError = '',
   onGroupProgressRefresh,
+  initialQuestionIndex = 0,
   onQuestionChange,
   lessonWorkspace = null,
   lessonTopics = [],
@@ -913,10 +914,11 @@ const PythonReviewModal = ({
 
   useEffect(() => {
     const list = Array.isArray(subsectionModel.questions) ? subsectionModel.questions : [];
+    const firstIndex = list[initialQuestionIndex] ? initialQuestionIndex : 0;
     setQuestions(list);
-    setCurrentIndex(0);
+    setCurrentIndex(firstIndex);
     setSelectedSubsectionId(
-      subsectionModel.questionSectionByIndex.get(0)
+      subsectionModel.questionSectionByIndex.get(firstIndex)
       || subsectionModel.subsections.find((section) => section.count > 0)?.id
       || PYTHON_DEFAULT_SUBSECTION_ID
     );
@@ -955,7 +957,7 @@ const PythonReviewModal = ({
         })
         .catch((err) => console.error(err));
     }
-  }, [task?.number, subsectionModel, studentId, PYTHON_LEVEL_ID]);
+  }, [task?.number, subsectionModel, studentId, PYTHON_LEVEL_ID, initialQuestionIndex]);
 
   useEffect(() => {
     if (!questions.length) return;

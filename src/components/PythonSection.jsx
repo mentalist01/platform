@@ -666,6 +666,29 @@ const PythonSection = ({
   }, [openTask, role, taskList, onOpenTaskHandled, selectPythonTarget, studentId]);
 
   useEffect(() => {
+    if (role !== 'teacher' || !openTask?.lessonStudentId || testsDb === null) return;
+    if (openTask.lessonStudentId !== effectiveStudentId) {
+      selectPythonTarget(openTask.lessonStudentId);
+      return;
+    }
+    const target = taskList.find((task) => Number(task.number) === Number(openTask.taskNumber))
+      || normalizePythonTaskCatalog(testsDb[PYTHON_TASKS_CATALOG_KEY], defaultTaskList)
+        .find((task) => Number(task.number) === Number(openTask.taskNumber));
+    const questions = buildPythonSubsectionModel(getPythonTaskEntry(testsDb, openTask.taskNumber), PYTHON_LEVEL_ID).questions;
+    const questionIndex = openTask.questionId
+      ? questions.findIndex((question) => String(question.id) === String(openTask.questionId))
+      : Number(openTask.questionNumber) - 1;
+    if (target && questions[questionIndex]) {
+      setActiveTaskSectionId(String(target.sectionId || 'topics'));
+      setActiveQuestionIndex(questionIndex);
+      setReviewTask({ ...target, initialQuestionIndex: questionIndex });
+    } else {
+      setDataError('Не удалось открыть задачу из домашки. Проверьте, есть ли она в теме Python.');
+    }
+    onOpenTaskHandled?.();
+  }, [role, openTask, testsDb, effectiveStudentId, selectPythonTarget, taskList, defaultTaskList, PYTHON_LEVEL_ID, onOpenTaskHandled]);
+
+  useEffect(() => {
     if (role !== 'student') return;
     if (!activeTask) {
       if (openTask) return;
@@ -699,7 +722,7 @@ const PythonSection = ({
       setManageTaskNumber(taskList[0].number);
     }
     setEditingQuestionId(null);
-    setReviewTask(null);
+    setReviewTask((current) => (current && taskList.some((task) => task.number === current.number) ? current : null));
     setNewTaskTitle('');
     setNewTaskPrompt('');
     setNewStarterCode('');
@@ -3059,6 +3082,7 @@ const PythonSection = ({
           key={`${codeSyncRoomId}:${reviewTask.number}`}
           theme={theme}
           task={reviewTask}
+          initialQuestionIndex={reviewTask.initialQuestionIndex}
           groupMode={groupMode}
           groupName={groupWorkspace.group?.name||''}
           groupProgress={groupProgress}

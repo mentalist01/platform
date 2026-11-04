@@ -674,6 +674,7 @@ const ScheduleSection = ({
   onSelectStudent,
   studentsLoading,
   onOpenTask,
+  onOpenPythonHomeworkQuestion,
   onOpenMockGoal,
   solvedRefreshKey,
   openLessonKey = '',
@@ -875,6 +876,15 @@ const ScheduleSection = ({
   const homeworkRewardDialogTriggerRef = React.useRef(null);
   const studentsList = students || [];
   const effectiveStudentId = role === 'teacher' ? activeStudentId : studentId;
+  const getPythonHomeworkQuestionAction = (goal) => {
+    if (onOpenPythonHomeworkQuestion) {
+      return (number, questionId) => onOpenPythonHomeworkQuestion(goal.taskNumber, number, questionId);
+    }
+    if (onOpenTask) {
+      return (number) => onOpenTask(goal.taskNumber, goal.levelId, goal.targetNumbers, { questionIndex: number - 1 });
+    }
+    return undefined;
+  };
   useEffect(() => { setShowPaceHistory(false); }, [effectiveStudentId]);
   const canRequestIndividualSchedule = role === 'student'
     && individualScheduleAccess?.studentId === effectiveStudentId
@@ -3546,7 +3556,7 @@ const ScheduleSection = ({
                 <div className="student-today-homework__goal-controls mt-3 flex flex-wrap items-end justify-between gap-3">
                   {isPythonTaskNumber(goalView.taskNumber) ? (
                     <PythonHomeworkTasks taskEntry={testsDb?.[String(goalView.taskNumber)]} levelId={goalView.levelId} items={targetItems}
-                      onOpenQuestion={onOpenTask ? number => onOpenTask(goalView.taskNumber, goalView.levelId, goalView.targetNumbers, { questionIndex: number - 1 }) : undefined} />
+                      onOpenQuestion={getPythonHomeworkQuestionAction(goalView)} />
                   ) : <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
                     {targetItems.map((item) => {
                       const itemLabel = item.num ?? item.label ?? item.taskKey;
@@ -3578,7 +3588,7 @@ const ScheduleSection = ({
                       {actionLabel}
                       <ArrowRight size={15} />
                     </button>
-                  ) : (
+                  ) : onOpenPythonHomeworkQuestion && isPythonTaskNumber(goalView.taskNumber) && targetItems.length ? null : (
                     <div className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-purple-200 bg-white/80 px-3 py-2 text-xs font-bold text-purple-700">
                       Цель доступна в разделе «Практика»
                     </div>
@@ -4374,7 +4384,7 @@ const ScheduleSection = ({
                   </div>
                   {goalView.targetNumbers.length > 0 && (isPythonTaskNumber(goalView.taskNumber) ? (
                     <PythonHomeworkTasks taskEntry={testsDb?.[String(goalView.taskNumber)]} levelId={goalView.levelId} items={goalView.targetStatus}
-                      onOpenQuestion={onOpenTask ? number => onOpenTask(goalView.taskNumber, goalView.levelId, goalView.targetNumbers, { questionIndex: number - 1 }) : undefined} />
+                      onOpenQuestion={getPythonHomeworkQuestionAction(goalView)} />
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
                       {goalView.targetStatus.map((item) => (

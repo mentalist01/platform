@@ -21,11 +21,11 @@ import {isStudentViewTab,readStoredAuthUser,writeStoredAuthUser,removeStoredAuth
 import BoardMinimap from './components/BoardMinimap.jsx';
 import { BoardFileUpload, BoardFileDownloads } from './components/BoardFiles.jsx';
 import PreparedLessonBoard from './components/PreparedLessonBoard.jsx';
-import {preparedRuntimeFiles} from './utils/preparedRuntimeFiles.js';
+import {preparedRuntimeCardForCode,preparedRuntimeFiles} from './utils/preparedRuntimeFiles.js';
 import {PYODIDE_INDEX_URL,PYODIDE_FALLBACK_URL} from './python/pyodideRuntime.js';
 import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
-import {lessonBookForCodeRoom} from './utils/lessonPageSelection.js';
+import {lessonBookForCodeRoom,lessonCodePageId} from './utils/lessonPageSelection.js';
 import { normalizeBoardFileFields, drawBoardFileCard } from './utils/boardFile.js';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
@@ -3715,12 +3715,14 @@ export const CollabSection = ({
     ? groupNotebookCode(learningGroupId,effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?'':effectiveGroupParticipantId)
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
-  const preparedBook = isSandbox || (isGroupLesson && effectiveGroupParticipantId !== GROUP_SHARED_CODE_ID) ? '' : lessonBookForCodeRoom(roomId);
+  const preparedBook = isSandbox ? '' : lessonBookForCodeRoom(roomId);
   const [preparedPage] = useLessonPageSelection(preparedBook,role,userId);
   const preparedRoom = !pythonExplanation && preparedBook ? preparedBook.slice(0,-6)+(preparedPage==='main'?'':`~page~${preparedPage}`) : null;
   const preparedContext = usePreparedLesson(preparedRoom);
   const preparedActive = preparedContext.run?.mode === 'prepared';
-  const preparedCodeCard = preparedContext.run?.cards.find(card=>card.codeId===activeSolutionId);
+  const onPreparedCodePage = activeCodePageId === lessonCodePageId(preparedPage);
+  const preparedCodeCard = preparedRuntimeCardForCode(preparedContext.run, preparedContext.selectedId, activeSolutionId, onPreparedCodePage);
+  const canFollowPreparedCode = !isGroupLesson || effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
   const preparedCodeSelectionRef = useRef('');
   const collabDocumentReady = Boolean(
     roomId && (isSandbox || documentSynced)
@@ -6067,13 +6069,13 @@ export const CollabSection = ({
     });
   }, []);
 
-  const resolveSelectedRuntimeFiles = useCallback(async () => {
+  const resolveSelectedRuntimeFiles = useCallback(async (preparedAttachments) => {
     const reservedRuntimePath = COLLAB_TEST_FILE_RUNTIME_NAME.toLowerCase();
     const payload = [{
       name: COLLAB_TEST_FILE_RUNTIME_NAME,
       bytes: new TextEncoder().encode(normalizeCollabTextFileContent(testFileText)),
     }];
-    for(const asset of preparedRuntimeFiles(isSandbox?sandbox?.runtimeFiles||[]:preparedCodeCard?.attachments||[])) {
+    for(const asset of preparedRuntimeFiles(isSandbox?sandbox?.runtimeFiles||[]:preparedAttachments||[])) {
       if(asset.sizeBytes>16*1024*1024)throw Error('Входной файл задачи должен быть не больше 16 МБ.');
       if(payload.some(file=>file.name.toLowerCase()===asset.runtimeName.toLowerCase()))throw Error(`Имя ${asset.runtimeName} уже используется во вводе и файлах.`);
       const response=await apiFetch(asset.url);if(!response.ok)throw Error(`Не удалось получить файл ${asset.runtimeName}`);
@@ -6151,7 +6153,7 @@ export const CollabSection = ({
       });
     });
     return payload;
-  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText, preparedCodeCard, isSandbox, sandbox?.runtimeFiles]);
+  }, [selectedTaskFiles, getTaskFileUrl, getRuntimePathForTaskFile, getRuntimePathVariantsForTaskFile, testFileText, isSandbox, sandbox?.runtimeFiles]);
 
   const handleUploadTaskFiles = async (fileList) => {
     if (isSandbox || collabReadOnly) return;
@@ -7218,7 +7220,12 @@ export const CollabSection = ({
     });
     let runtimeFilesPayload = [];
     try {
-      runtimeFilesPayload = await resolveSelectedRuntimeFiles();
+      const runningCodeId = activeSolutionIdRef.current;
+      const runningCodePage = collabDocRef.current ? getCollabSolutionPageId(collabDocRef.current, runningCodeId) : activeCodePageId;
+      const runtimeCard = preparedRuntimeCardForCode(
+        preparedContext.run, preparedContext.selectedId, runningCodeId, runningCodePage === lessonCodePageId(preparedPage)
+      );
+      runtimeFilesPayload = await resolveSelectedRuntimeFiles(runtimeCard?.attachments);
     } catch (err) {
       if (runSessionRef.current !== sessionId) return;
       const message = err?.message || '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b \u0437\u0430\u0434\u0430\u043d\u0438\u044f.';
@@ -9220,18 +9227,18 @@ export const CollabSection = ({
   }, [activeSolutionDeleted, codeSolutions, collabDocumentReady, compareSolutionId, isSandbox, solutionActionsBusy, pageMainSolutionId]);
   useEffect(() => {
     const card=preparedContext.run?.cards.find(entry=>entry.id===preparedContext.selectedId);
-    const key=preparedActive&&card?`${preparedContext.run.id}:${card.id}`:'';
+    const key=canFollowPreparedCode&&preparedActive&&card?`${preparedContext.run.id}:${card.id}`:'';
     if(!key){preparedCodeSelectionRef.current='';return;}
     if(preparedCodeSelectionRef.current===key||!collabDocumentReady||runLoading||localRunBusyRef.current||!codeSolutions.some(solution=>solution.id===card.codeId))return;
     if(selectSolutionRef.current?.(card.codeId))preparedCodeSelectionRef.current=key;
-  },[preparedActive,preparedContext.run,preparedContext.selectedId,collabDocumentReady,runLoading,codeSolutions]);
-  useEffect(()=>{if(!preparedActive)return;preparedContext.setBusy(preparedContext.selectedId,runLoading);return()=>preparedContext.setBusy(preparedContext.selectedId,false);},[preparedActive,preparedContext.selectedId,preparedContext.setBusy,runLoading]);
+  },[canFollowPreparedCode,preparedActive,preparedContext.run,preparedContext.selectedId,collabDocumentReady,runLoading,codeSolutions]);
+  useEffect(()=>{if(!canFollowPreparedCode||!preparedActive)return;preparedContext.setBusy(preparedContext.selectedId,runLoading);return()=>preparedContext.setBusy(preparedContext.selectedId,false);},[canFollowPreparedCode,preparedActive,preparedContext.selectedId,preparedContext.setBusy,runLoading]);
   const selectCodeSolution = (id) => {
     if (!collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) return;
     presentation.leave(false);
     setCompareSolutionId(null);
     if (!selectSolutionRef.current?.(id)) setSolutionError('Не удалось открыть вариант. Дождитесь подключения и повторите.');
-    else {const linked=preparedContext.run?.cards.find(card=>card.codeId===id);if(linked)preparedContext.select(linked.id);}
+    else if (canFollowPreparedCode) {const linked=preparedContext.run?.cards.find(card=>card.codeId===id);if(linked)preparedContext.select(linked.id);}
   };
   const createCodeSection = (name) => {
     if (collabReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) {
@@ -23402,6 +23409,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
   };
 
+  const handleOpenPythonHomeworkQuestion = (taskNumber, questionNumber, questionId) => {
+    if (user.role !== 'teacher' || !activeStudentId || !isPythonTaskNumber(taskNumber)) return;
+    setPendingOpenTask({
+      taskNumber: normalizeTaskNumber(taskNumber),
+      lessonStudentId: activeStudentId,
+      questionNumber,
+      questionId,
+    });
+    setPendingOpenMockExamId(null);
+    navigateToView('python');
+    setMenuOpen(false);
+  };
+
   const handleOpenMockGoal = (mockExamId = null, initialTaskNumber = null, options = {}) => {
     if (user.role !== 'student') return;
     const normalizedMockExamId = normalizeMockExamId(mockExamId);
@@ -26349,6 +26369,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={handleSelectStudent}
               studentsLoading={studentsLoading}
               onOpenTask={user.role === 'student' ? handleOpenTask : null}
+              onOpenPythonHomeworkQuestion={user.role === 'teacher' ? handleOpenPythonHomeworkQuestion : null}
               groups={lessonTargetGroups}
               teacherId={user.role === 'teacher' ? user.id : ''}
               onOpenMockGoal={user.role === 'student' ? handleOpenMockGoal : null}

@@ -20,7 +20,7 @@ export default function PythonHomeworkTasks({ taskEntry, levelId = 'python', ite
           const Tag = onOpenQuestion ? 'button' : 'div';
           return <Tag key={item.questionId || item.num} type={onOpenQuestion ? 'button' : undefined}
             className={`python-homework-tasks__item ${item.solved ? 'is-solved' : ''}`}
-            onClick={onOpenQuestion ? () => onOpenQuestion(item.num) : undefined}
+            onClick={onOpenQuestion ? () => onOpenQuestion(item.num, item.questionId) : undefined}
             aria-label={onOpenQuestion ? `Открыть задачу №${item.num}: ${item.title}${item.solved ? ' — выполнено' : ''}` : undefined}>
             <b className="python-homework-tasks__number">№{item.num}</b><span>{item.title}</span>
             {item.solved ? <Check className="python-homework-tasks__status" size={18} aria-label="Выполнено" />
