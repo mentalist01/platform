@@ -6,7 +6,7 @@ import {preparedAnswerGroups} from '../utils/preparedAnswerGroups.js';
 import {preparedSetSequence} from '../utils/preparedRunSources.js';
 import {preparedTaskTitle} from '../utils/preparedTaskTitle.js';
 import {preparedTheoryDropSetting} from '../utils/preparedTheoryLayout.js';
-import {preparedTheoryFrame} from '../utils/preparedTheoryDisplay.js';
+import {preparedTheoryCameraRange,preparedTheoryFrame} from '../utils/preparedTheoryDisplay.js';
 import {preparedCardGeometry,preparedFocusReference,preparedLayoutKey,preparedPlacementRecipe,placePreparedCard} from '../utils/preparedSetLayout.js';
 
 const clampZoom=value=>Math.max(.015,Math.min(3,value));
@@ -56,7 +56,8 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
   const active=preview?rows.at(-1):rows.find(row=>row.id===selected)||rows[0];
   const reference=rows.find(row=>row.anchorId===active?.referenceId);
   const focusReference=rows.find(row=>row.anchorId===active?.focusId);
-  const frame=preview?(preparedTheoryFrame(active,focusReference)||active):union(rows);
+  const shot=preview&&preparedTheoryCameraRange(sequence,step);
+  const frame=preview?(shot?union(layout.rows.slice(shot.from,shot.to+1)):preparedTheoryFrame(active,focusReference)||active):union(rows);
   const camera=view||fit(frame,viewport);
   const label=row=>row.theory?row.card.title:preparedTaskTitle(row.card,row.card.sourceIndex??edit.tasks.findIndex(task=>task.id===row.card.id));
   const currentSetting=row=>{
@@ -172,8 +173,20 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
         <label>Карточка <select value={active?.id||''} onChange={event=>selectRow(event.target.value)}>{rows.map(row=><option value={row.id} key={row.id}>{row.index+1}. {label(row)}</option>)}</select></label>
         {active&&<label>Размер <input type="range" min="25" max="200" aria-label="Размер карточки" value={setting.scalePercent||100} onChange={event=>setSetting({scalePercent:Number(event.target.value)})}/><output>{setting.scalePercent||100}%</output></label>}
         {reference&&<><label>Опора <select value={reference.id} onChange={event=>setSetting({relativeTo:event.target.value,offset:undefined})}>{rows.slice(0,active.index).map(row=><option key={row.id} value={row.id}>{label(row)}</option>)}</select></label>
-          <label>Положение <select value={setting.placement||'auto'} onChange={event=>setSetting({placement:event.target.value,offset:undefined})}><option value="auto">Автоматически</option><option value="below">Снизу</option><option value="right">Справа</option></select></label>
-          <label>Камера <select value={setting.focus||'next'} onChange={event=>setSetting({focus:event.target.value})}><option value="next">Новая карточка</option><option value="pair">Новая и опорная</option></select></label></>}
+          <label>Положение <select value={setting.placement||'auto'} onChange={event=>setSetting({placement:event.target.value,offset:undefined})}><option value="auto">Автоматически</option><option value="below">Снизу</option><option value="right">Справа</option></select></label></>}
+        {(active?.theory||reference)&&<label title={active.theory?'Авто сохраняет общий кадр, пока не закончится выбранный диапазон или блок. Листы открываются по очереди.':undefined}>Камера
+          <select value={setting.focus||'next'} onChange={event=>setSetting({focus:event.target.value,nextCards:event.target.value==='range'?3:undefined})}>
+            {active.theory&&<option value="next">Авто</option>}
+            <option value={active.theory?'single':'next'}>Новая карточка</option>
+            {(reference||setting.focus==='pair')&&<option value="pair">Новая и опорная</option>}
+            {active.theory&&<><option value="block">Весь блок теории</option><option value="range">Текущая и следующие</option></>}
+          </select>
+        </label>}
+        {active?.theory&&setting.focus==='range'&&<label>Следующих листов
+          <select value={setting.nextCards??3} onChange={event=>setSetting({nextCards:Number(event.target.value)})}>
+            {Array.from({length:7},(_,index)=><option key={index+1}>{index+1}</option>)}
+          </select>
+        </label>}
         {active?.card.boardDisplay&&<button type="button" onClick={()=>onSetting(active.id,null)}>Сбросить раскладку карточки</button>}
         {active?.theory&&edit.tasks.length>0&&<label>Показывать <select value={active.card.theoryBefore||''} onChange={event=>{
           const before=event.target.value,theoryPlacements={...edit.theoryPlacements};

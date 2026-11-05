@@ -73,6 +73,35 @@ test('mixed layout places tasks and theory at configured anchors; unopened theor
   assert.equal(items.get(3).width,1040);
 });
 
+test('a shared theory frame holds through the selected steps without publishing unrevealed cards',async t=>{
+  const {store,auth,pupil,doc,images,make}=fixture(t);
+  const set=await make({theoryImages:images,boardLayout:{
+    ['theory:'+images[0]]:{focus:'range',nextCards:2},
+    ['theory:'+images[1]]:{placement:'right',scalePercent:60},
+    ['theory:'+images[2]]:{placement:'below',relativeTo:'theory:'+images[0]},
+  }});
+  const room='board-camera';
+  let view=await store.start(auth,{room,setId:set.id,x:100,y:120});
+  const items=(await doc(room)).getArray('items');
+  const frame=view.cards[0].theoryCameraFrame;
+  assert.ok(frame.width>items.get(0).width&&frame.height>items.get(0).height);
+  for(let step=0;step<3;step++){
+    const pupilView=store.publicRun(store.data.runs[view.id],{auth:pupil});
+    assert.equal(items.length,step+1);
+    assert.equal(pupilView.cards.length,step+1);
+    assert.equal(pupilView.theoryFocus.cardId,view.cards[step].id);
+    assert.deepEqual(pupilView.cards[step].theoryCameraFrame,frame);
+    assert.deepEqual(pupilView.cards.flatMap(card=>card.images.map(image=>image.id)),images.slice(0,step+1));
+    const anchor=items.get(step);
+    assert.ok(anchor.x+anchor.width<=frame.x+frame.width&&anchor.y+anchor.height<=frame.y+frame.height);
+    view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[step].id});
+  }
+  assert.equal(view.cards[3].theoryCameraFrame,undefined);
+  view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[3].id});
+  assert.equal(view.cards[4].taskId,A);
+  assert.equal(view.cards[4].theoryCameraFrame,undefined);
+});
+
 test('new theory is inserted before its selected existing task by both live update actions, preserving cards, code and ink',async t=>{
   for(const action of ['sync-set','sync-queue']){
     const {store,auth,doc,images,make}=fixture(t),set=await make({theoryImages:[]});

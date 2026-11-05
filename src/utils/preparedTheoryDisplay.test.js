@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizePreparedTheoryDisplay,normalizePreparedTheoryDisplays,preparedTheoryFrame} from './preparedTheoryDisplay.js';
+import {normalizePreparedTheoryDisplay,normalizePreparedTheoryDisplays,preparedTheoryCameraRange,preparedTheoryFrame} from './preparedTheoryDisplay.js';
 import {preparedBoardView} from './preparedBoardView.js';
 
 test('sheet display defaults preserve the old route; unsupported settings are rejected',()=>{
@@ -11,6 +11,20 @@ test('sheet display defaults preserve the old route; unsupported settings are re
   for(const value of [[],true,{placement:'left'},{focus:'all'}])assert.throws(()=>normalizePreparedTheoryDisplay(value));
   assert.deepEqual(normalizePreparedTheoryDisplay({scalePercent:50,relativeTo:'first'}),{placement:'auto',focus:'next',scalePercent:50,relativeTo:'first'});
   for(const value of [{scalePercent:0},{scalePercent:201},{scalePercent:'no'},{scalePercent:NaN},{relativeTo:2}])assert.throws(()=>normalizePreparedTheoryDisplay(value));
+});
+
+test('theory camera holds a block or the current sheet and the chosen number of following sheets',()=>{
+  const sheet=(focus='next',nextCards,sourceSetId='a')=>({kind:'theory',sourceSetId,boardDisplay:normalizePreparedTheoryDisplay({focus,nextCards})});
+  const sequence=[sheet('range',2),sheet(),sheet(),sheet(),sheet('block'),sheet(),{kind:'task'},sheet('block'),sheet('next',undefined,'b')];
+  assert.deepEqual(sequence.map((_,index)=>preparedTheoryCameraRange(sequence,index)),[
+    {from:0,to:2},{from:0,to:2},{from:0,to:2},null,{from:0,to:5},{from:0,to:5},null,null,null
+  ]);
+  const withOverride=[sheet('block'),sheet('single'),sheet(),sheet('range',1),sheet()];
+  assert.deepEqual(withOverride.map((_,index)=>preparedTheoryCameraRange(withOverride,index)),[
+    {from:0,to:4},null,null,{from:3,to:4},{from:3,to:4}
+  ]);
+  assert.equal(normalizePreparedTheoryDisplay({focus:'range'}).nextCards,3);
+  for(const nextCards of [0,8,1.5,'wrong'])assert.throws(()=>normalizePreparedTheoryDisplay({focus:'range',nextCards}));
 });
 
 test('sheet references survive reorder by identity; deleted or cross-block references fall back without losing size',()=>{

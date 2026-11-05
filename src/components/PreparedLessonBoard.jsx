@@ -102,7 +102,7 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
     const legacyReference=card?.theoryDisplay?.focus==='pair'?run?.cards.find(row=>row.id===card.previousTheoryCardId)?.anchorId:null;
     const referenceId=card?.focusAnchorId===undefined?legacyReference:card.focusAnchorId;
     const reference=referenceId&&items.current.find(item=>item.id===referenceId);
-    const frame=preparedTheoryFrame(anchor,reference);
+    const frame=preparedTheoryFrame(anchor,card?.theoryCameraFrame||reference);
     if(frame){soloZoom.current??=zoom;focus(frame,{...options,fit:true});}
     else {focus(anchor,{...options,...(soloZoom.current!==null?{zoom:soloZoom.current}:{})});soloZoom.current=null;}
   };

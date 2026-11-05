@@ -9,7 +9,7 @@ import {BLANK_WORKBOOK_ODS, workbookSolutionFormatAllowed} from './blankWorkbook
 import {preparedSetParts} from '../src/utils/preparedSetParts.js';
 import {preparedFileSync} from '../src/utils/preparedFileSync.js';
 import {preparedAnswerSchema} from '../src/utils/preparedSharedAnswers.js';
-import {normalizePreparedTheoryDisplays} from '../src/utils/preparedTheoryDisplay.js';
+import {normalizePreparedTheoryDisplays,preparedTheoryCameraRange,preparedTheoryFrame} from '../src/utils/preparedTheoryDisplay.js';
 import {preparedNextPoint} from '../src/utils/preparedTheoryLayout.js';
 import {normalizePreparedSetLayout,preparedLayoutKey,preparedCardGeometry,preparedPlacementRecipe,placePreparedCard,preparedFocusReference} from '../src/utils/preparedSetLayout.js';
 import {updatePreparedSet} from './preparedSetUpdate.js';
@@ -212,6 +212,44 @@ export class PreparedLessonTasks {
     const recipe=preparedPlacementRecipe(task,prior,preparedTaskSource(run,preceding).id===source.id?preceding:null,placed.at(-1),run.start);
     return {geometry,recipe};
   }
+  setTheoryCamera(run,card,boardItems){
+    const range=preparedTheoryCameraRange(run.tasks,card.index);
+    if(!range){delete card.theoryCamera;return;}
+    const {from,to}=range;
+    const key=JSON.stringify(run.tasks.slice(from,to+1).map(task=>[task.id,preparedTaskSource(run,task).version]));
+    const anchors=new Map(boardItems.map(item=>[item.id,item]));
+    const previous=run.cards.find(row=>row.id===run.teacherCardId)?.theoryCamera;
+    const current=anchors.get(card.anchorId);
+    if(previous?.key===key&&current){
+      const {x,y,width,height}=previous.frame;
+      if(current.x>=x&&current.y>=y&&current.x+current.width<=x+width&&current.y+current.height<=y+height){
+        card.theoryCamera=previous;
+        return;
+      }
+    }
+    const placed=run.cards.filter(row=>anchors.has(row.anchorId));
+    const projected=[...boardItems];
+    let frame=null;
+    for(let index=from;index<=to;index++){
+      const existing=placed.find(row=>row.index===index);
+      let box=anchors.get(existing?.anchorId);
+      if(!box){
+        const {geometry,recipe}=this.cardPlacement({...run,cards:placed},index);
+        const size={width:geometry.width*geometry.scale,height:geometry.height*geometry.scale};
+        let point;
+        try{point=placePreparedCard(projected,recipe,size);}catch(error){
+          // A forecast must never prevent revealing the current sheet.
+          if(error.status===409)continue;
+          throw error;
+        }
+        const anchorId='prepared-camera-'+index;
+        box={id:anchorId,...point,...size};
+        placed.push({index,anchorId});projected.push(box);
+      }
+      frame=preparedTheoryFrame(frame,box)||box;
+    }
+    if(frame)card.theoryCamera={key,frame:{x:frame.x,y:frame.y,width:frame.width,height:frame.height}};
+  }
   nextTheoryPreview(run){
     const current=run.cards.find(card=>card.id===run.teacherCardId)||run.cards.at(-1);
     if(!current||isPreparedTheory(run.tasks[current.index]))return undefined;
@@ -225,7 +263,7 @@ export class PreparedLessonTasks {
     if(!run)return null;
     const sources=preparedSourceUpdates(run,this.data.sets);
     return {sources,...(teacher(access.auth)&&!access.readOnly?{removedSets:(run.detachedSets||[]).filter(record=>!record.restoring).map(record=>({id:record.id,setId:record.setId,name:record.name,removedAt:record.removedAt,total:record.tasks.filter(task=>!isPreparedTheory(task)).length})),firstTaskId:run.tasks[0]?.id||'',nextTheoryPreview:this.nextTheoryPreview(run)}:{}),...(run.theoryFocus?{theoryFocus:run.theoryFocus}:{}),homework:Boolean(run.homework),id:run.id,room:run.room,groupId:run.groupId,name:run.name,setId:run.setId,taskNumber:run.taskNumber,partNumber:run.partNumber,mode:run.mode,auto:run.auto,version:run.version,total:run.tasks.length,taskTotal:run.tasks.filter(task=>!isPreparedTheory(task)).length,canManage:teacher(access.auth)&&!access.readOnly,canEditFiles:!access.readOnly&&(!run.groupId||teacher(access.auth)),newTasksAvailable:teacher(access.auth)?sources.reduce((sum,source)=>sum+source.newTasksAvailable,0):0,checkingUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.checkingUpdateAvailable),filesUpdateAvailable:teacher(access.auth)&&sources.some(source=>source.filesUpdateAvailable),setVersion:this.data.sets[run.setId]?.version||run.setVersion,readOnly:access.readOnly,teacherCardId:run.teacherCardId||'',cards:run.cards.map(c=>{
-      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',...(isPreparedTheory(task)?{compactTheory:c.compactTheory===true,theoryStep:task.theoryStep||null,theoryDisplay:task.theoryDisplay||null,previousTheoryCardId:c.previousTheoryCardId||run.cards.find(row=>row.index===c.index-1&&isPreparedTheory(run.tasks[row.index])&&preparedTaskSource(run,run.tasks[row.index]).id===source.id&&(run.tasks[row.index].theoryBefore||'')===(task.theoryBefore||''))?.id||'',nextKind:isPreparedTheory(run.tasks[c.index+1])?'theory':'task',nextTheoryPlacement:isPreparedTheory(run.tasks[c.index+1])?run.tasks[c.index+1].theoryDisplay?.placement||'auto':null,hasNext:c.index+1<run.tasks.length}:{}),setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,...(Number.isFinite(c.conditionTop)?{conditionTop:c.conditionTop}:{}),status:c.status,...(c.focusAnchorId!==undefined?{focusAnchorId:c.focusAnchorId}:{}),lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,answerSchema:preparedAnswerSchema(task),...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerGroups?{answerGroups:structuredClone(task.answerGroups)}:{}),...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:null,referenceSolution:preparedReferenceView(this,task,run,c,teacher(access.auth)&&!access.readOnly),...(teacher(access.auth)&&!access.readOnly&&access.auth.id===run.teacherId?preparedReferencePromotionState(this,run,c):{}),images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),live:workbookLiveView(this,run,c,a.assetId),writer:preparedWriterView(c.bindings?.[a.assetId],access.auth,this.now()),solution:this.solutionView(c.solutions?.[a.assetId]),historyCount:Math.max(c.workbookHistoryCounts?.[a.assetId]||0,c.solutions?.[a.assetId]?1:0),attempt:{...workbookAttempt(c,a.assetId),hasSaved:Boolean(currentWorkbookSolution(c,a.assetId))}})),codeRevision:c.code?.revision||0};})};
+      const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',...(isPreparedTheory(task)?{compactTheory:c.compactTheory===true,theoryStep:task.theoryStep||null,theoryDisplay:task.theoryDisplay||null,previousTheoryCardId:c.previousTheoryCardId||run.cards.find(row=>row.index===c.index-1&&isPreparedTheory(run.tasks[row.index])&&preparedTaskSource(run,run.tasks[row.index]).id===source.id&&(run.tasks[row.index].theoryBefore||'')===(task.theoryBefore||''))?.id||'',nextKind:isPreparedTheory(run.tasks[c.index+1])?'theory':'task',nextTheoryPlacement:isPreparedTheory(run.tasks[c.index+1])?run.tasks[c.index+1].theoryDisplay?.placement||'auto':null,hasNext:c.index+1<run.tasks.length}:{}),setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,...(Number.isFinite(c.conditionTop)?{conditionTop:c.conditionTop}:{}),status:c.status,...(c.focusAnchorId!==undefined?{focusAnchorId:c.focusAnchorId}:{}),...(c.theoryCamera?{theoryCameraFrame:c.theoryCamera.frame}:{}),lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,answerSchema:preparedAnswerSchema(task),...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerGroups?{answerGroups:structuredClone(task.answerGroups)}:{}),...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:null,referenceSolution:preparedReferenceView(this,task,run,c,teacher(access.auth)&&!access.readOnly),...(teacher(access.auth)&&!access.readOnly&&access.auth.id===run.teacherId?preparedReferencePromotionState(this,run,c):{}),images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),live:workbookLiveView(this,run,c,a.assetId),writer:preparedWriterView(c.bindings?.[a.assetId],access.auth,this.now()),solution:this.solutionView(c.solutions?.[a.assetId]),historyCount:Math.max(c.workbookHistoryCounts?.[a.assetId]||0,c.solutions?.[a.assetId]?1:0),attempt:{...workbookAttempt(c,a.assetId),hasSaved:Boolean(currentWorkbookSolution(c,a.assetId))}})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
   async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
@@ -272,9 +310,11 @@ export class PreparedLessonTasks {
     if(index===undefined)index=(preparedCurrentCard(run,all)?.index??-1)+1;
     if(!Number.isInteger(index)||index<0||index>=run.tasks.length)return;
     const existing=run.cards.find(card=>card.index===index);
-    if(existing&&all.some(item=>item.id===existing.anchorId)){run.teacherCardId=existing.id;return existing;}
-    if(all.length>=10_000)fail(409,'На доске слишком много объектов');
     const previews=Array.from(doc.awareness?.getStates?.().values()||[]).map(state=>state?.drawing).filter(Boolean);
+    if(existing&&all.some(item=>item.id===existing.anchorId)){
+      this.setTheoryCamera(run,existing,[...all,...previews]);run.teacherCardId=existing.id;return existing;
+    }
+    if(all.length>=10_000)fail(409,'На доске слишком много объектов');
     const task=run.tasks[index], visible=new Set(all.map(item=>item.id));
     const {geometry,recipe}=this.cardPlacement(run,index,existing,visible);
     const {width,height,scale:spawnScale}=geometry;
@@ -291,8 +331,10 @@ export class PreparedLessonTasks {
     if(previousSheet)card.previousTheoryCardId=previousSheet.id;
     const focusAnchorId=preparedFocusReference(recipe);
     card.focusAnchorId=focusAnchorId||null;
-    if(!existing)run.cards.push(card);run.teacherCardId=card.id;card.x=point.x;card.y=point.y;
-    card.projectionPending=true;this.save(run);doc.transact(()=>items.push([{id:card.anchorId,type:'shape',shape:'rectangle',x:point.x,y:point.y,width:card.width*(card.spawnScale||1),height:card.height*(card.spawnScale||1),color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId}]),'prepared-lesson:place');card.projectionPending=false;this.save(run);return card;
+    if(!existing)run.cards.push(card);card.x=point.x;card.y=point.y;
+    const anchor={id:card.anchorId,type:'shape',shape:'rectangle',x:point.x,y:point.y,width:card.width*(card.spawnScale||1),height:card.height*(card.spawnScale||1),color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId};
+    this.setTheoryCamera(run,card,[...boardItems,anchor]);run.teacherCardId=card.id;
+    card.projectionPending=true;this.save(run);doc.transact(()=>items.push([anchor]),'prepared-lesson:place');card.projectionPending=false;this.save(run);return card;
   }
   async taskCatalog(auth,id){
     const {run,access}=await this.getRun(auth,id);if(!teacher(auth)||access.readOnly)fail(403,'Выбор задач доступен преподавателю');
