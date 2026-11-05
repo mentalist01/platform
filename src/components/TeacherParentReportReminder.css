@@ -20,6 +20,8 @@
 .parent-report-reminder__list article>button,.parent-report-reminder__dialog footer button{display:flex;align-items:center;justify-content:center;gap:7px;padding:10px 12px;border:1px solid #ddd1fb;border-radius:11px;color:#7c3aed;font-size:12px;font-weight:750}
 .parent-report-reminder__dialog footer{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 24px;background:inherit;border-top:1px solid rgb(var(--ink)/.08)}
 .parent-report-reminder__dialog footer span{font-size:11px;color:var(--report-muted)}
+.parent-report-reminder__footer-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-left:auto}
+.parent-report-reminder__footer-actions button:disabled{opacity:.5;cursor:default}
 .parent-report-reminder__error{padding:0 24px;color:#e11d48;font-size:12px}
 .parent-report-reminder__dialog button:focus-visible,.parent-report-reminder__entry:focus-visible{outline:3px solid #a78bfa;outline-offset:3px}
 html[data-theme=dark] .parent-report-reminder__dialog{--report-muted:#a6b1c7;border-color:#453a62}

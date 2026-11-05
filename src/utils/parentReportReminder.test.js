@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parentReportPeriod, parentReportRecipients, personalizeParentReport, readParentReportSnooze, snoozeParentReports } from './parentReportReminder.js';
+import { parentReportPeriod, parentReportRecipients, PARENT_REPORT_NEXT_CYCLE, personalizeParentReport, readParentReportSnooze, skipParentReportReminder, snoozeParentReports } from './parentReportReminder.js';
 
 test('monthly reminder runs from the 25th through the next Moscow 15th inclusive', () => {
   assert.equal(parentReportPeriod(Date.parse('2026-10-24T20:59:59Z')).due, false);
@@ -37,4 +37,20 @@ test('parent greeting uses the entered name and leaves the report facts and stud
   assert.equal(personalizeParentReport('Здравствуйте! Подвожу итоги.\nДомашка 70%.', ' Наталья  Ивановна '), 'Здравствуйте, Наталья Ивановна! Подвожу итоги.\nДомашка 70%.');
   assert.equal(personalizeParentReport('Здравствуйте! Итоги.', ''), 'Здравствуйте! Итоги.');
   assert.equal(personalizeParentReport('Привет, Иван! Твои итоги.', 'Наталья'), 'Привет, Иван! Твои итоги.');
+});
+
+test('skipping October preserves that dismissal on reopen and lets the November reminder appear', () => {
+  const data = new Map();
+  const storage = { getItem: key => data.get(key), setItem: (key, value) => data.set(key, value) };
+  const november6 = Date.parse('2026-11-06T12:00:00+03:00');
+  const october = parentReportPeriod(november6).month;
+  assert.equal(october, '2026-10');
+  assert.equal(skipParentReportReminder('teacher-a', october, storage), PARENT_REPORT_NEXT_CYCLE);
+  assert.equal(snoozeParentReports('teacher-a', november6, storage, october), PARENT_REPORT_NEXT_CYCLE);
+  assert.equal(readParentReportSnooze('teacher-a', october, storage), PARENT_REPORT_NEXT_CYCLE);
+  assert.equal(readParentReportSnooze('teacher-b', october, storage), '');
+  const next = parentReportPeriod(Date.parse('2026-11-25T12:00:00+03:00'));
+  assert.equal(next.month, '2026-11');
+  assert.equal(next.due, true);
+  assert.equal(readParentReportSnooze('teacher-a', next.month, storage), '');
 });

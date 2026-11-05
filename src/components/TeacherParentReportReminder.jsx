@@ -4,13 +4,13 @@ import { ArrowRight, Check, FileText, X } from 'lucide-react';
 import { api } from '../services/api';
 import useStudentParentContacts from '../hooks/useStudentParentContacts';
 import { isCurrentStudent } from '../utils/studentStudyStatus';
-import { parentReportPeriod, parentReportRecipients, readParentReportSnooze, snoozeParentReports } from '../utils/parentReportReminder';
+import { parentReportPeriod, parentReportRecipients, PARENT_REPORT_NEXT_CYCLE, readParentReportSnooze, skipParentReportReminder, snoozeParentReports } from '../utils/parentReportReminder';
 import StudentMonthlyReportModal from './StudentMonthlyReportModal';
 import './TeacherParentReportReminder.css';
 
 const deviceStorage = () => { try { return window.localStorage; } catch { return undefined; } };
 
-function ReportRecipientsDialog({ rows, month, busy, error, onOpen, onSent, onClose }) {
+function ReportRecipientsDialog({ rows, month, busy, error, skipped, onOpen, onSent, onClose, onSkip }) {
   const dialog = useRef(null);
   const pending = rows.filter(row => !row.sent).length;
   const monthLabel = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' }).format(new Date(`${month}-15T12:00:00Z`));
@@ -32,7 +32,15 @@ function ReportRecipientsDialog({ rows, month, busy, error, onOpen, onSent, onCl
         <label><input type="checkbox" checked={sent} disabled={Boolean(busy)} onChange={event => onSent(student, event.target.checked)} aria-label={`Отчёт отправлен · ${student.name}`} />{sent ? 'Отправлен' : 'Отчёт ещё не отправлен'}</label></div>
       <button type="button" onClick={() => onOpen(student)} aria-label={`Открыть отчёт · ${student.name}`}>Открыть отчёт <ArrowRight size={15} /></button>
     </article>)}</div>
-    <footer><span>Отправка остаётся под вашим контролем.</span><button type="button" onClick={onClose}>Напомнить завтра</button></footer>
+    <footer>
+      <span>{skipped ? 'Следующее напоминание будет за новый отчётный месяц.' : 'Отправка остаётся под вашим контролем.'}</span>
+      <div className="parent-report-reminder__footer-actions">
+        {skipped ? <button type="button" onClick={onClose}>Закрыть</button> : <>
+          {pending > 0 && <button type="button" disabled={Boolean(busy)} onClick={onSkip}>Отправлю в следующем месяце</button>}
+          <button type="button" onClick={onClose}>Напомнить завтра</button>
+        </>}
+      </div>
+    </footer>
   </dialog>, document.body);
 }
 
@@ -44,7 +52,10 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
   const reportMonth = typeof open === 'string' && open ? open : period.month;
   const rows = useMemo(() => parentReportRecipients(students, contacts, reportMonth), [students, contacts, reportMonth]);
   const pending = rows.filter(row => !row.sent).length;
-  const until = dismissed?.month === period.month ? dismissed.until : readParentReportSnooze(userId, period.month, deviceStorage());
+  const reportDismissal = month => dismissed?.userId === userId && dismissed.month === month
+    ? dismissed.until : readParentReportSnooze(userId, month, deviceStorage());
+  const until = reportDismissal(period.month);
+  const skipped = reportDismissal(reportMonth) === PARENT_REPORT_NEXT_CYCLE;
   useEffect(() => {
     const tick = () => setNow(getNow());
     const sync = () => { setDismissed(null); tick(); };
@@ -53,11 +64,17 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
     return () => { window.clearInterval(timer); window.removeEventListener('focus', tick); window.removeEventListener('storage', sync); };
   }, [getNow]);
   useEffect(() => {
-    if (!paused && !loading && !contactError && period.due && pending && until <= period.date && !open && !selected
+    if (!paused && !loading && !contactError && period.due && pending && until !== PARENT_REPORT_NEXT_CYCLE
+      && until <= period.date && !open && !selected
       && document.visibilityState !== 'hidden' && !document.querySelector('[aria-modal="true"], dialog[open]')) setOpen(period.month);
   }, [paused, loading, contactError, period.due, period.date, period.month, pending, until, open, selected, now]);
-  const dismiss = () => {
-    setDismissed({ month: reportMonth, until: snoozeParentReports(userId, getNow(), deviceStorage(), reportMonth) }); setOpen(false); setError('');
+  const dismiss = (skip = false) => {
+    const until = skip || skipped
+      ? skipParentReportReminder(userId, reportMonth, deviceStorage())
+      : snoozeParentReports(userId, getNow(), deviceStorage(), reportMonth);
+    setDismissed({ userId, month: reportMonth, until });
+    setOpen(false);
+    setError('');
   };
   const markSent = async (student, sent) => {
     if (busy) return;
@@ -71,8 +88,9 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
   if (paused || (!rows.length && !contactError)) return null;
   const selectedStudent = selected && students.find(student => student.id === selected.id);
   return <>
-    {showEntry && <button type="button" className="parent-report-reminder__entry" onClick={() => { setOpen(period.month); setError(''); }}><FileText size={17} />Отчёты родителям{pending > 0 && <b>{pending}</b>}</button>}
-    {open && !selected && <ReportRecipientsDialog rows={rows} month={reportMonth} busy={busy} error={error || contactError} onOpen={student => setSelected({ id: student.id, month: reportMonth })} onSent={markSent} onClose={dismiss} />}
+    {showEntry && <button type="button" className="parent-report-reminder__entry" onClick={() => { setOpen(period.month); setError(''); }}><FileText size={17} />Отчёты родителям{pending > 0 && until !== PARENT_REPORT_NEXT_CYCLE && <b>{pending}</b>}</button>}
+    {open && !selected && <ReportRecipientsDialog rows={rows} month={reportMonth} busy={busy} error={error || contactError} skipped={skipped}
+      onOpen={student => setSelected({ id: student.id, month: reportMonth })} onSent={markSent} onClose={() => dismiss()} onSkip={() => dismiss(true)} />}
     {selectedStudent && <StudentMonthlyReportModal key={selectedStudent.id} student={selectedStudent} initialMonth={selected.month} onStudentUpdated={onStudentUpdated} onClose={() => setSelected(null)} />}
   </>;
 }

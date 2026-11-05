@@ -21,13 +21,20 @@ export function parentReportRecipients(students = [], contacts = {}, month) {
 }
 
 export const parentReportSnoozeKey = (userId, month) => `ivan100:parent-report-reminder:${userId}:${month}`;
+export const PARENT_REPORT_NEXT_CYCLE = 'next-cycle';
 export function readParentReportSnooze(userId, month, storage) {
   try { return storage?.getItem(parentReportSnoozeKey(userId, month)) || ''; } catch { return ''; }
 }
 export function snoozeParentReports(userId, now, storage, month = parentReportPeriod(now).month) {
+  if (readParentReportSnooze(userId, month, storage) === PARENT_REPORT_NEXT_CYCLE) return PARENT_REPORT_NEXT_CYCLE;
   const until = parentReportPeriod(Number(now) + 24 * 60 * 60_000).date;
   try { storage?.setItem(parentReportSnoozeKey(userId, month), until); } catch { /* The current tab can still dismiss. */ }
   return until;
+}
+
+export function skipParentReportReminder(userId, month, storage) {
+  try { storage?.setItem(parentReportSnoozeKey(userId, month), PARENT_REPORT_NEXT_CYCLE); } catch { /* The current tab can still dismiss. */ }
+  return PARENT_REPORT_NEXT_CYCLE;
 }
 
 export function personalizeParentReport(text, name) {
