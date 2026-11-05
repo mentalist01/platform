@@ -52,6 +52,7 @@ test('code page stacks synchronize through authenticated rooms and survive serve
     connections.push({ doc, provider }); await wait(() => provider.synced); return doc;
   };
   const closeConnections = () => { for (const { doc, provider } of connections.splice(0)) { provider.destroy(); doc.destroy(); } };
+  let notifications;
   try {
     await start();
     const teacher = await login('teacher-a-code'), student = await login('a-code'), other = await login('teacher-b-code');
@@ -60,6 +61,13 @@ test('code page stacks synchronize through authenticated rooms and survive serve
       ws.once('error', reject); ws.once('open', () => { ws.close(); resolve(); });
     }), /403/);
     const teacherDoc = await connect(teacher), studentDoc = await connect(student);
+    const focusApi = (token, body) => fetch(`${base}/api/lesson-code-focus?studentId=a`, {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}),
+    });
+    const lockRequest = { studentId: 'a', room: 'collab-teacher-a-a', locked: true };
+    assert.equal((await focusApi(other, lockRequest)).status, 403);
+    assert.equal((await focusApi(student, lockRequest)).status, 403);
     getCollabSolutionChannels(teacherDoc, 'main').codeText.insert(0, 'print("original")');
     for (const id of ['8', '9', '10', '11']) {
       createEmptyCollabSolution(teacherDoc, { id, name: id, createdAt: Number(id) });
@@ -68,6 +76,22 @@ test('code page stacks synchronize through authenticated rooms and survive serve
     const page = createCollabCodePage(teacherDoc, { id: 'lesson-two', name: 'Второй урок' });
     createEmptyCollabSolution(teacherDoc, { id: 'second-8', name: '8', pageId: page.id });
     await wait(() => listCollabPageSolutions(studentDoc, page.id).length === 2);
+    const [teacherProvider, studentProvider] = connections.map(row => row.provider);
+    teacherProvider.awareness.setLocalState({ solutionId: '8', codeTabFocused: true });
+    studentProvider.awareness.setLocalState({ solutionId: 'second-8', codeTabFocused: true });
+    await wait(() => teacherProvider.awareness.getStates().get(studentDoc.clientID)?.solutionId === 'second-8');
+    const messages = [];
+    notifications = new WebSocket(`${base.replace('http', 'ws')}/notifications?_auth=${student}`);
+    notifications.on('message', data => messages.push(JSON.parse(data.toString())));
+    await wait(() => messages.some(message => message.type === 'ready'));
+    const locked = await focusApi(teacher, lockRequest);
+    const lockResult = await locked.json();
+    assert.equal(locked.status, 200, JSON.stringify(lockResult));
+    assert.equal(lockResult.focus.solutionId, 'second-8');
+    assert.equal(lockResult.focus.pageId, page.id);
+    assert.deepEqual((await (await focusApi(student)).json()).focus, lockResult.focus);
+    await wait(() => messages.some(message => message.type === 'lesson-code-focus' && message.focus?.solutionId === 'second-8'));
+    notifications.close();
     const channels = getCollabSolutionChannels(studentDoc, 'second-8');
     channels.codeText.insert(0, 'print("second")'); channels.testFileText.insert(0, 'second file');
     channels.runMap.set('stdinDraft', 'second input'); channels.runMap.set('output', 'second output');
@@ -77,6 +101,11 @@ test('code page stacks synchronize through authenticated rooms and survive serve
     restoreCollabCodePage(studentDoc, page.id); await wait(() => listCollabCodePages(teacherDoc).length === 2);
     closeConnections(); await new Promise(resolve => setTimeout(resolve, 250)); await stop(); await start();
     const restored = await connect(await login('teacher-a-code'));
+    const restoredStudent = await login('a-code'), restoredTeacher = await login('teacher-a-code');
+    assert.deepEqual((await (await focusApi(restoredStudent)).json()).focus, lockResult.focus);
+    const unlocked = await focusApi(restoredTeacher, { studentId: 'a', locked: false });
+    assert.equal(unlocked.status, 200);
+    assert.equal((await (await focusApi(restoredStudent)).json()).focus, null);
     await wait(() => listCollabCodePages(restored).length === 2);
     assert.deepEqual(listCollabPageSolutions(restored).map(row => row.name), ['Основной код', '8', '9', '10', '11']);
     assert.equal(getCollabSolutionChannels(restored, page.mainSolutionId).codeText.toString(), '');
@@ -88,6 +117,7 @@ test('code page stacks synchronize through authenticated rooms and survive serve
       await new Promise(resolve => process.once('SIGINT', resolve));
     }
   } finally {
+    notifications?.close();
     closeConnections(); await stop();
     if (process.env.CODE_PAGES_QA_SERVE !== '1') fs.rmSync(root, { recursive: true, force: true });
   }

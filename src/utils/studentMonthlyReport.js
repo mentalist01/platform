@@ -1,6 +1,6 @@
 import { homeworkPracticeText, lessonTopicWithNumbers, monthlyHomeworkPractice } from './studentMonthlyPractice.js';
 import { composeParentReportFocus, inferStudentReportFocus } from './studentReportFocus.js';
-import { homeworkAssessmentEntries } from './homeworkStats.js';
+import { getHomeworkPythonMinimum, homeworkAssessmentEntries } from './homeworkStats.js';
 import { hasPythonHomeworkPractice } from './homeworkAssessment.js';
 
 const REPORT_TIME_ZONE = 'Europe/Moscow';
@@ -434,13 +434,16 @@ const buildStudentFacingText = ({
         deltaFromPreviousMonth: metrics.homework.deltaFromPreviousMonth,
         pickPhrase,
       }));
-  } else {
+  } else if (!metrics.homework.belowPythonMinimumCount) {
     lines.push('', metrics.homework.pythonPracticeCount ? 'Выполнение домашки — 100%: задания ЕГЭ в этом месяце не задавались. По Python попробуй сначала решить задачи сам, а то, что не получится, разберём вместе на уроке.' : 'Домашних заданий в этом месяце не было.');
+  }
+  if (metrics.homework.belowPythonMinimumCount) {
+    lines.push('', 'Домашка с заданиями ЕГЭ и Python попадёт в статистику, когда ты решишь хотя бы 60% обязательных задач по Python.');
   }
 
   const practiceText = homeworkPracticeText(metrics.homework.practice, { studentAudience: true, solved: getStudentGrammar(studentName).solved });
   if (practiceText) lines.push('', practiceText);
-  if (metrics.homework.pythonPracticeCount && metrics.homework.assignedCount) lines.push('', 'Задачи по Python — практика перед уроком. То, что не получится самостоятельно, разберём вместе; на оценку выполнения домашней работы по ЕГЭ это не влияет.');
+  if (metrics.homework.pythonPracticeCount && metrics.homework.assignedCount) lines.push('', 'Процент выполнения считается по задачам ЕГЭ. Задачи по Python, которые не получатся самостоятельно, разберём вместе.');
   if (metrics.mocks.count > 0) {
     lines.push('', buildStudentMockJourneyText({ mocks: metrics.mocks, pickPhrase }));
   } else {
@@ -492,7 +495,9 @@ export const buildStudentMonthlyReport = ({
   }).format(new Date(Date.UTC(reportYear, reportMonthNumber - 1, 15, 12)));
   const messageMonthLabel = reportYear === currentYear ? monthName : `${monthName} ${reportYear} года`;
   const assessmentEntries = homeworkAssessmentEntries(homeworkEntries);
-  const pythonPracticeCount = (Array.isArray(homeworkEntries) ? homeworkEntries : []).filter(entry => getHomeworkMonthKey(entry) === normalizedMonth && hasPythonHomeworkPractice(entry)).length;
+  const monthEntries = (Array.isArray(homeworkEntries) ? homeworkEntries : []).filter(entry => getHomeworkMonthKey(entry) === normalizedMonth);
+  const pythonPracticeCount = monthEntries.filter(hasPythonHomeworkPractice).length;
+  const belowPythonMinimumCount = monthEntries.filter(entry => getHomeworkPythonMinimum(entry)?.met === false).length;
   const homeworks = assessmentEntries
     .filter((entry) => getHomeworkMonthKey(entry) === normalizedMonth);
   const previousMonthKey = getPreviousMonthKey(normalizedMonth);
@@ -532,7 +537,7 @@ export const buildStudentMonthlyReport = ({
   });
   const overdueHomeworks = incompleteHomeworks.filter((entry) => !upcomingHomeworks.includes(entry));
   const evaluatedHomeworks = homeworks.filter((entry) => !upcomingHomeworks.includes(entry));
-  const practiceOnly = homeworks.length === 0 && pythonPracticeCount > 0;
+  const practiceOnly = homeworks.length === 0 && pythonPracticeCount > 0 && !belowPythonMinimumCount;
   const lessonTopics = normalizeLessonTopicLabels(lessons.map(entry => lessonTopicWithNumbers(entry?.topic, taskTitles, taskPresentation)), 30);
   const practice = monthlyHomeworkPractice(Array.isArray(homeworkEntries) ? homeworkEntries : [], normalizedMonth, nowMs, taskTitles, taskPresentation);
   const lessonTopicCount = countLessonTopicLabels(lessonTopics);
@@ -566,6 +571,7 @@ export const buildStudentMonthlyReport = ({
       practiceOnly,
       assignedCount: homeworks.length,
       pythonPracticeCount,
+      belowPythonMinimumCount,
       completedCount: completedHomeworks.length,
       onTimeCount: completedHomeworks.filter((entry) => entry?.completedOnTime === true).length,
       lateCount: completedHomeworks.filter((entry) => entry?.completedOnTime === false).length,
@@ -650,8 +656,11 @@ export const buildStudentMonthlyReport = ({
     lines.push('', metrics.homework.averagePercent == null
       ? 'По домашней работе за этот месяц пока нет результата.'
       : buildHomeworkProgressText({ studentName, averagePercent: metrics.homework.averagePercent, pickPhrase }));
-  } else {
+  } else if (!metrics.homework.belowPythonMinimumCount) {
     lines.push('', metrics.homework.pythonPracticeCount ? 'Выполнение домашки — 100%: задания ЕГЭ в этом месяце не задавались. По Python сначала предлагаю попробовать задачи самостоятельно. То, что пока не получается, разбираем вместе на уроке: здесь не требуется сразу решить всё без помощи.' : 'Домашних заданий в этом месяце не было.');
+  }
+  if (metrics.homework.belowPythonMinimumCount) {
+    lines.push('', 'Смешанные работы учитываются после выполнения хотя бы 60% обязательных задач по Python.');
   }
 
   if (!highlightMock) lines.push('', mockText);

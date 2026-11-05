@@ -14,9 +14,9 @@ function fixture(t,group=false){
   const store=new PreparedLessonTasks({directory,board:doc,code:doc,sourceFiles:async()=>[],authorize:async who=>access(who)});
   const image=store.putAsset(auth,Buffer.from('condition'),'condition.png','image/png',{width:600,height:160}).id;
   t.after(()=>{for(const d of docs.values())d.destroy();fs.rmSync(directory,{recursive:true,force:true});});
-  const start=async()=>{const set=await store.saveSet(auth,{name:'Практика',taskNumber:4,tasks:[1,2,3].map(n=>({title:String(n),images:[image],answers:[String(n)]}))});return store.start(auth,{room:'board-task-follow',setId:set.id,x:100,y:150});};
+  const start=async({theory=false}={})=>{const set=await store.saveSet(auth,{name:'Практика',taskNumber:4,theoryImages:theory?[image]:[],theoryMode:'steps',tasks:[1,2,3].map(n=>({title:String(n),images:[image],answers:[String(n)]}))});return store.start(auth,{room:'board-task-follow',setId:set.id,x:100,y:150});};
   const student=view=>store.publicRun(store.data.runs[view.id],access(pupil));
-  const solve=async view=>{const card=view.cards.find(c=>c.id===view.teacherCardId);view=await store.action(pupil,view.id,{action:'answer',cardId:card.id,answerSchema:card.answerSchema,patches:[{index:0,value:card.title}]});return store.action(pupil,view.id,{action:'check',cardId:card.id,answerSchema:card.answerSchema});};
+  const solve=async (view,cardId=view.teacherCardId)=>{const card=view.cards.find(c=>c.id===cardId);view=await store.action(pupil,view.id,{action:'answer',cardId:card.id,answerSchema:card.answerSchema,patches:[{index:0,value:card.title}]});return store.action(pupil,view.id,{action:'check',cardId:card.id,answerSchema:card.answerSchema});};
   return {store,auth,pupil,doc,start,student,solve};
 }
 
@@ -47,4 +47,25 @@ test('auto advance retains celebration on the solved card; a pupil looking elsew
   assert.equal(after.theoryFocus.afterSolve,solvedId);assert.equal(preparedTheoryFollowTarget(before,after,solvedId),null);
   assert.equal(preparedTheoryFollowTarget(before,after,'another-card').selectedId,view.cards[1].id);
   assert.equal(preparedTheoryFollowTarget(after,{...after,version:999},solvedId),null);
+});
+
+test('the active exercise advances even while the teacher refers back to its theory',async t=>{
+  const f=fixture(t);
+  let view=await f.start({theory:true});
+  const sheet=view.cards[0];
+  view=await f.store.action(f.auth,view.id,{action:'auto',value:true});
+  view=await f.store.action(f.auth,view.id,{action:'theory-next',cardId:sheet.id});
+  const exercise=view.cards[1];
+  const before=await f.store.action(f.auth,view.id,{action:'focus',cardId:sheet.id});
+  const beforePupil=f.student(before);
+
+  const result=await f.solve(before,exercise.id);
+  const next=result.cards[2];
+  assert.equal(next?.title,'2');
+  assert.equal(result.cards[1].status,'solved');
+  assert.equal(result.theoryFocus.afterSolve,exercise.id);
+  const afterTeacher={...result,canManage:true};
+  assert.equal(preparedTheoryFollowTarget(before,afterTeacher,sheet.id)?.selectedId,next.id);
+  assert.equal(preparedTheoryFollowTarget(before,afterTeacher,exercise.id),null);
+  assert.equal(preparedTheoryFollowTarget(beforePupil,result,exercise.id),null);
 });

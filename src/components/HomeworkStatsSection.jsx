@@ -20,6 +20,7 @@ import {
 import {
   HOMEWORK_STAT_STATE,
   buildHomeworkStatistics,
+  getHomeworkPythonMinimum,
   homeworkAssessmentEntries,
   summarizeHomeworkStatistics,
 } from '../utils/homeworkStats';
@@ -311,11 +312,16 @@ const HomeworkStatsSection = ({
   const selectedAcademicYear = resolvedSelectedYear === 'all'
     ? null
     : yearOptions.find((year) => year.key === resolvedSelectedYear) || null;
-  const summary = useMemo(
-    () => summarizeHomeworkStatistics(allStatistics.filter(entry => resolvedSelectedYear === 'all'
-      || !resolvedSelectedYear || entry.academicYear?.key === resolvedSelectedYear)),
+  const periodStatistics = useMemo(
+    () => allStatistics.filter(entry => resolvedSelectedYear === 'all'
+      || !resolvedSelectedYear || entry.academicYear?.key === resolvedSelectedYear),
     [allStatistics, resolvedSelectedYear]
   );
+  const summary = useMemo(() => summarizeHomeworkStatistics(periodStatistics), [periodStatistics]);
+  const waitingForPython = useMemo(() => periodStatistics.map(entry => ({
+    entry, minimum: getHomeworkPythonMinimum(entry),
+  })).filter(({ minimum }) => minimum?.met === false), [periodStatistics]);
+  const latestWaitingForPython = waitingForPython.at(-1);
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -487,12 +493,15 @@ const HomeworkStatsSection = ({
             </span>
             <div>
               <strong className={`block ${dark ? 'text-white' : 'text-slate-900'}`}>
-                {summary.practiceOnly ? 'Выполнение домашки — 100%' : filteredStatistics.length === 0
+                {latestWaitingForPython ? 'Работа пока не учитывается в статистике'
+                  : summary.practiceOnly ? 'Выполнение домашки — 100%' : filteredStatistics.length === 0
                   ? 'В выбранном периоде нет домашки по ЕГЭ'
                   : 'В выбранном периоде пока нечего сравнивать'}
               </strong>
               <span className="mt-0.5 block text-xs leading-relaxed">
-                {summary.practiceOnly
+                {latestWaitingForPython
+                  ? `Для учёта смешанной домашки нужно решить хотя бы 60% обязательных задач по Python.`
+                  : summary.practiceOnly
                   ? 'ЕГЭ не задано. Python — практика без оценки; её фактический прогресс виден в домашке и разделе «Изучение Python».'
                   : filteredStatistics.length === 0
                   ? 'Python остаётся практикой без оценки. Прогресс по нему виден в домашке и разделе «Изучение Python». Можно также посмотреть динамику пробников.'
@@ -1146,8 +1155,13 @@ const HomeworkStatsSection = ({
           }`}>
             <Info size={14} className="mt-0.5 shrink-0 text-indigo-500" />
             <span>
-              Здесь оценивается домашняя работа по ЕГЭ. Python — практика перед разбором на уроке:
-              она не снижает средний процент и не тратит сердца. Прогресс по задачам сохранён в домашке и разделе «Изучение Python».
+              Процент считается по заданиям ЕГЭ. Если в той же домашке задан Python, работа попадает в статистику после выполнения хотя бы 60% обязательных задач Python.
+              Прогресс виден в домашке и разделе «Изучение Python».
+              {latestWaitingForPython && (
+                <span className="block">
+                  Работ ниже порога: {waitingForPython.length}. Последняя: «{latestWaitingForPython.entry.title}» — решено {latestWaitingForPython.minimum.completedCount} из {latestWaitingForPython.minimum.totalCount} по Python, для учёта нужно {latestWaitingForPython.minimum.requiredCount}.
+                </span>
+              )}
               Если у старых решений нет даты, отдельные значения могут быть приблизительными.
             </span>
           </div>

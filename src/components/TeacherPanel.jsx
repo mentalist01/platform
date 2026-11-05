@@ -30,6 +30,7 @@ import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import StudentMonthlyReportModal from './StudentMonthlyReportModal';
+import MessageTemplatesButton from './MessageTemplatesButton.jsx';
 import StudentContactLinks from './StudentContactLinks';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import StudentGroupAccess from './StudentGroupAccess.jsx';
@@ -3465,6 +3466,7 @@ const TeacherPanel = ({
                           </span>
                         </p>
                         <div className="mt-2"><StudentContactLinks studentId={student.id} studentName={student.name} compact /></div>
+                        {role === 'teacher' && <MessageTemplatesButton students={visibleStudentsList} initialStudentId={student.id} initialCategory="trial" />}
                         <StudentPlacementNote studentId={student.id} studentName={student.name} />
                         <StudentGroupAccess key={student.id} student={student} onUpdated={onStudentUpdated} />
                       </>

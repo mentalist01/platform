@@ -25,7 +25,7 @@ import {preparedRuntimeCardForCode,preparedRuntimeFiles} from './utils/preparedR
 import {PYODIDE_INDEX_URL,PYODIDE_FALLBACK_URL} from './python/pyodideRuntime.js';
 import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
-import {lessonBookForCodeRoom,lessonCodePageId} from './utils/lessonPageSelection.js';
+import {lessonBookForCodeRoom,lessonCodePageId,lessonBoardPageId} from './utils/lessonPageSelection.js';
 import { normalizeBoardFileFields, drawBoardFileCard } from './utils/boardFile.js';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
@@ -199,6 +199,7 @@ import {
   normalizePushErrorMessage,
 } from './utils/push';
 import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
+import { LESSON_CODE_FOCUS_EVENT, useLessonCodeFocus } from './hooks/useLessonCodeFocus.js';
 import { createSegmentedAudioRecorder } from './utils/segmentedAudioRecorder';
 import { loadCollaborativeEditorRuntime, loadYjsRuntime } from './utils/collaborationRuntime';
 import {
@@ -289,6 +290,8 @@ const loadTeacherFinanceSection = () => import('./components/TeacherFinanceSecti
 const loadTeacherLessonStartPrompt = () => import('./components/TeacherLessonStartPrompt');
 const loadTeacherPanel = () => import('./components/TeacherPanel');
 const loadTeacherStudentChatsSection = () => import('./components/TeacherStudentChatsSection');
+const loadMessageTemplates = () => import('./components/MessageTemplates.jsx');
+const MessageTemplates = React.lazy(loadMessageTemplates);
 const loadSessionManagementSection = () => import('./components/SessionManagementSection');
 
 const AdminPanel = React.lazy(loadAdminPanel);
@@ -348,6 +351,7 @@ const VIEW_SECTION_LOADERS = Object.freeze({
   'teacher-settings': loadTeacherPanel,
   'teacher-calendar': loadTeacherCalendarSection,
   'teacher-comms': loadTeacherComms,
+  'message-templates': loadMessageTemplates,
 });
 const viewSectionPrefetches = new Map();
 
@@ -3513,6 +3517,14 @@ export const CollabSection = ({
     });
   }, [isGroupLesson, learningParticipantIds, students, userId, userName]);
   const [activeGroupParticipantId, setActiveGroupParticipantId] = useState(GROUP_SHARED_CODE_ID);
+  const focusStudentId = isTeacher
+    ? (isGroupLesson ? (activeGroupParticipantId === GROUP_SHARED_CODE_ID ? '' : activeGroupParticipantId) : activeStudentId)
+    : role === 'student' ? userId : '';
+  const codeFocus = useLessonCodeFocus(isSandbox || pythonExplanation ? '' : focusStudentId);
+  const studentCodeFocus = role === 'student' ? codeFocus.focus : null;
+  const studentCodeFocusRef = useRef(null);
+  studentCodeFocusRef.current = studentCodeFocus;
+  const [codeFocusBusy, setCodeFocusBusy] = useState(false);
   const codeLessonRef = useRef(learningLessonId);
   const [groupParticipantOrder, setGroupParticipantOrder] = useState([]);
   useEffect(() => {
@@ -3558,7 +3570,9 @@ export const CollabSection = ({
     return ordered;
   }, [groupParticipantOrder, groupParticipantRoster]);
   const effectiveGroupParticipantId = isGroupLesson
-    ? (activeGroupParticipantId || GROUP_SHARED_CODE_ID)
+    ? (studentCodeFocus?.groupId === learningGroupId
+      ? (studentCodeFocus.room === groupNotebookCode(learningGroupId) ? GROUP_SHARED_CODE_ID : userId)
+      : (activeGroupParticipantId || GROUP_SHARED_CODE_ID))
     : '';
   const groupCodePresence = useGroupCodePresence({ enabled: isGroupLesson && isTeacher && !readOnly,
     groupId: learningGroupId, lessonId: learningLessonId });
@@ -3568,7 +3582,7 @@ export const CollabSection = ({
     : '';
   const collabReadOnly = sandboxReadOnly || Boolean(isGroupLesson && readOnly);
   const sharedGroupCode = isGroupLesson && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
-  const codeTabsReadOnly = collabReadOnly || (sharedGroupCode && !isTeacher);
+  const codeTabsReadOnly = collabReadOnly || Boolean(studentCodeFocus) || (sharedGroupCode && !isTeacher);
   const sandboxReadOnlyCodeState = isSandbox && sandboxReadOnly
     ? (sandbox?.code && typeof sandbox.code === 'object' ? sandbox.code : sandbox)
     : null;
@@ -3710,13 +3724,15 @@ export const CollabSection = ({
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
   const canSaveToNotesTarget = groupNotesTarget
     ? Boolean(isTeacher && learningParticipantIds.length > 0)
-    : Boolean(effectiveStudentId);
+    : Boolean(effectiveStudentId && !studentCodeFocus);
   const liveRoomId = pythonExplanation ? pythonExplanationCodeRoom(teacherId,effectiveStudentId,learningGroupId) : isGroupLesson
     ? groupNotebookCode(learningGroupId,effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?'':effectiveGroupParticipantId)
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const preparedBook = isSandbox ? '' : lessonBookForCodeRoom(roomId);
-  const [preparedPage] = useLessonPageSelection(preparedBook,role,userId);
+  const [selectedBoardPage] = useLessonPageSelection(preparedBook,role,userId);
+  const pinnedCode = studentCodeFocus?.room === roomId ? studentCodeFocus : null;
+  const preparedPage = pinnedCode ? lessonBoardPageId(pinnedCode.pageId) : selectedBoardPage;
   const preparedRoom = !pythonExplanation && preparedBook ? preparedBook.slice(0,-6)+(preparedPage==='main'?'':`~page~${preparedPage}`) : null;
   const preparedContext = usePreparedLesson(preparedRoom);
   const preparedActive = preparedContext.run?.mode === 'prepared';
@@ -3725,8 +3741,30 @@ export const CollabSection = ({
   const canFollowPreparedCode = !isGroupLesson || effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
   const preparedCodeSelectionRef = useRef('');
   const collabDocumentReady = Boolean(
-    roomId && (isSandbox || documentSynced)
+    roomId && (isSandbox || (documentSynced && (role !== 'student' || codeFocus.ready)
+      && (!studentCodeFocus || (pinnedCode && activeSolutionId === pinnedCode.solutionId))))
   );
+  const toggleCodeFocus = async () => {
+    if (!focusStudentId || codeFocusBusy || !codeFocus.ready) return;
+    setCodeFocusBusy(true);
+    setSolutionError('');
+    try {
+      const result = await preparedRequest('/api/lesson-code-focus', {
+        studentId: focusStudentId, room: liveRoomId, locked: !codeFocus.focus,
+      });
+      codeFocus.accept(result.focus);
+    } catch (error) {
+      setSolutionError(error.message);
+    } finally {
+      setCodeFocusBusy(false);
+    }
+  };
+  useEffect(() => {
+    if (!studentCodeFocus) return;
+    setCompareSolutionId(null);
+    setSaveModalOpen(false);
+    setDeletedSolution(null);
+  }, [studentCodeFocus]);
   useEffect(() => {
     activeSolutionIdRef.current = DEFAULT_COLLAB_SOLUTION_ID;
     setActiveSolutionId(DEFAULT_COLLAB_SOLUTION_ID);
@@ -4259,7 +4297,7 @@ export const CollabSection = ({
     () => clampNotesPdfHeight(isMobileViewport ? 220 : (isCollabFullscreen ? 360 : (isDesktopCollabCompact ? 220 : 300))),
     [clampNotesPdfHeight, isMobileViewport, isCollabFullscreen, isDesktopCollabCompact]
   );
-  const isNotesBoardMode = notesPanelMode === COLLAB_TOP_PANE_MODE_BOARD;
+  const isNotesBoardMode = Boolean(studentCodeFocus) || notesPanelMode === COLLAB_TOP_PANE_MODE_BOARD;
   const useBoardGlassCodePanel = notesPdfPanelOpen && isNotesBoardMode;
   const canResizeTopPane = notesPdfPanelOpen && (isNotesBoardMode || Boolean(selectedNotesPdfFile));
   const isFullscreenDark = isCollabFullscreen && isDarkTheme;
@@ -7833,6 +7871,11 @@ export const CollabSection = ({
     ytext.observe(handleReplayCodeChange);
     provider.awareness.setLocalStateField('user', { name: localName, color: localColor, role });
     provider.awareness.setLocalStateField('solutionId', activeSolutionIdRef.current);
+    const reportTabFocus = () => provider.awareness.setLocalStateField('codeTabFocused', !document.hidden && document.hasFocus());
+    reportTabFocus();
+    window.addEventListener('focus', reportTabFocus);
+    window.addEventListener('blur', reportTabFocus);
+    document.addEventListener('visibilitychange', reportTabFocus);
     provider.awareness.setLocalStateField('selection', null);
     provider.awareness.setLocalStateField('outputSelection', null);
     provider.awareness.setLocalStateField('testFileSelection', null);
@@ -7896,7 +7939,9 @@ export const CollabSection = ({
         try {
           const saved = JSON.parse(window.localStorage.getItem(pageStorageKey) || '{}');
           pageSelectionsRef.current = new Map(Object.entries(saved?.byPage || {}));
-          selectSolutionRef.current?.(resolveCollabPageSelection(doc, saved).solutionId);
+          const focus = studentCodeFocusRef.current;
+          selectSolutionRef.current?.(focus?.room === roomId
+            ? focus.solutionId : resolveCollabPageSelection(doc, saved).solutionId);
         } catch { /* Room data remains usable when local preferences are unavailable. */ }
       }
       setDocumentSynced(true);
@@ -8067,6 +8112,8 @@ export const CollabSection = ({
     solutionPages.observe(syncSolutionCatalog);
     syncSolutionCatalog();
     const switchSolution = (nextId) => {
+      const focus = studentCodeFocusRef.current;
+      if (focus && (focus.room !== roomId || focus.solutionId !== nextId)) return false;
       const pageId = getCollabSolutionPageId(doc, nextId);
       if (disposed || localRunBusyRef.current || !listCollabCodePages(doc).some(page => page.id === pageId)
         || !listCollabSolutions(doc).some((item) => item.id === nextId)) return false;
@@ -8149,6 +8196,9 @@ export const CollabSection = ({
 
     return () => {
       if (selectSolutionRef.current === switchSolution) selectSolutionRef.current = null;
+      window.removeEventListener('focus', reportTabFocus);
+      window.removeEventListener('blur', reportTabFocus);
+      document.removeEventListener('visibilitychange', reportTabFocus);
       solutionCatalog.unobserve(syncSolutionCatalog);
       deletedSolutions.unobserve(syncSolutionCatalog);
       solutionOrder.unobserve(syncSolutionCatalog);
@@ -8952,7 +9002,7 @@ export const CollabSection = ({
     },
   ];
 
-  const saveModal = !isSandbox && saveModalOpen ? (
+  const saveModal = !isSandbox && !studentCodeFocus && saveModalOpen ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
       <div className="surface-card modal-card rounded-3xl w-full max-w-5xl p-4 sm:p-5 md:p-6 shadow-2xl relative">
         <button
@@ -9209,7 +9259,7 @@ export const CollabSection = ({
   const presentation = useCollabSolutionPresentation({
     awareness: collabAwarenessRef.current,
     solutions: codeSolutions,
-    enabled: collabDocumentReady && !isSandbox,
+    enabled: collabDocumentReady && !isSandbox && !studentCodeFocus,
     isTeacher,
     activeId: activeSolutionId,
     compareId: compareSolutionId,
@@ -9217,6 +9267,11 @@ export const CollabSection = ({
     onSelect: (id) => selectSolutionRef.current?.(id),
     onCompare: setCompareSolutionId,
   });
+  useEffect(() => {
+    if (!pinnedCode || !documentSynced || runLoading || localRunBusyRef.current) return;
+    presentation.leave(false);
+    selectSolutionRef.current?.(pinnedCode.solutionId);
+  }, [pinnedCode, documentSynced, runLoading, codeSolutions, presentation.leave]);
   useEffect(() => {
     if (!collabDocumentReady || isSandbox) return;
     if (compareSolutionId && !codeSolutions.some((item) => item.id === compareSolutionId)) setCompareSolutionId(null);
@@ -9257,13 +9312,13 @@ export const CollabSection = ({
     setSolutionNotice(`Созданы вкладки: ${added.map(solution => solution.name).join(', ')}.`);
   };
   const requireCodePageEditing = () => {
-    if (collabReadOnly || !collabDocumentReady || !collabDocRef.current || solutionActionsBusy || localRunBusyRef.current) {
+    if (codeTabsReadOnly || !collabDocumentReady || !collabDocRef.current || solutionActionsBusy || localRunBusyRef.current) {
       throw new Error('Дождитесь подключения и завершения текущей операции.');
     }
     return collabDocRef.current;
   };
   const selectCodePage = pageId => {
-    if (!collabDocumentReady || solutionActionsBusy || localRunBusyRef.current || !collabDocRef.current) return;
+    if (studentCodeFocus || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current || !collabDocRef.current) return;
     const selection = resolveCollabPageSelection(collabDocRef.current, { pageId, byPage: Object.fromEntries(pageSelectionsRef.current) });
     selectCodeSolution(selection.solutionId);
   };
@@ -9294,7 +9349,8 @@ export const CollabSection = ({
     }
   };
   const deleteCodeSolution = (id) => {
-    if (collabReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) throw new Error('Дождитесь завершения текущей операции.');
+    if (codeFocus.focus?.room === roomId && codeFocus.focus?.solutionId === id) throw new Error('Сначала откройте ученику доступ к остальным вкладкам.');
+    if (codeTabsReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) throw new Error('Дождитесь завершения текущей операции.');
     const solution = codeSolutions.find((item) => item.id === id);
     deleteCollabSolution(collabDocRef.current, id);
     setDeletedSolution(solution);
@@ -9309,6 +9365,7 @@ export const CollabSection = ({
     } catch (error) { setSolutionError(error.message); }
   };
   const changeCodeComparison = (id) => {
+    if (studentCodeFocus) return;
     presentation.leave(!id);
     setCompareSolutionId(id);
   };
@@ -9367,7 +9424,7 @@ export const CollabSection = ({
           options={editorOptions}
           loading={editorLoadingState}
         />
-        {compareSolutionId && !isSandbox && (
+        {compareSolutionId && !isSandbox && !studentCodeFocus && (
           <div className="collab-solutions-comparison-overlay">
             <React.Suspense fallback={<div role="status">Загружаем сравнение…</div>}>
               <CollabSolutionCompare
@@ -9391,7 +9448,9 @@ export const CollabSection = ({
             <kbd>Ctrl+V вставить · F5 запустить</kbd>
           </div>
         )}
-        {showEditorConnectionLoading && (
+        {studentCodeFocus && !pinnedCode ? (
+          <div className="collab-code-loading-overlay" role="status">Преподаватель оставил доступ к вкладке «{studentCodeFocus.solutionName}» в другом занятии.</div>
+        ) : showEditorConnectionLoading && (
           <div className="collab-code-loading-overlay" role="status" aria-live="polite">
             {editorLoadingState}
           </div>
@@ -10068,12 +10127,13 @@ export const CollabSection = ({
               { id: COLLAB_TOP_PANE_MODE_BOARD, label: 'Доска', icon: Brush },
             ].map((modeOption) => {
               const Icon = modeOption.icon;
-              const active = notesPanelMode === modeOption.id;
+              const active = (isNotesBoardMode ? COLLAB_TOP_PANE_MODE_BOARD : COLLAB_TOP_PANE_MODE_PDF) === modeOption.id;
               return (
                 <button
                   key={modeOption.id}
                   type="button"
                   onClick={() => handleTopPaneModeChange(modeOption.id)}
+                  disabled={Boolean(studentCodeFocus && modeOption.id === COLLAB_TOP_PANE_MODE_PDF)}
                   className={`inline-flex items-center gap-1 rounded-lg transition ${
                     isSplitCollabLayout ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-0.5 text-[10px]'
                   } ${
@@ -10611,6 +10671,7 @@ export const CollabSection = ({
         <button
           type="button"
           onClick={() => setSaveModalOpen(true)}
+          disabled={!canSaveToNotesTarget}
           className="collab-code-action-icon"
           title="Сохранить в конспекты"
           aria-label="Сохранить в конспекты"
@@ -11097,6 +11158,8 @@ export const CollabSection = ({
           <React.Suspense fallback={<div role="status" className="collab-solutions__notice">Загружаем страницы кода…</div>}>
           <CollabCodePages key={`pages:${roomId}`} pages={codePages} activeId={activeCodePageId}
             onSelect={selectCodePage} roomId={roomId} role={role} userId={userId}
+            lockedPageId={studentCodeFocus ? pinnedCode?.pageId || '' : null}
+            protectedPageId={isTeacher && codeFocus.focus?.room === roomId ? codeFocus.focus?.pageId : null}
             disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted} readOnly={collabReadOnly} dark={isCollabDarkUi}
             peers={remoteParticipants.map(peer => ({ ...peer, pageId: codeSolutions.find(solution => solution.id === peer.solutionId)?.pageId }))}/>
           </React.Suspense>
@@ -11119,6 +11182,7 @@ export const CollabSection = ({
             activeParticipantId={effectiveGroupParticipantId}
             participantPresence={groupCodePresence}
             onSelectParticipant={(participantId) => {
+              if (studentCodeFocus) return;
               if (participantId === effectiveGroupParticipantId) {
                 selectCodeSolution(pageMainSolutionId);
                 return;
@@ -11128,6 +11192,11 @@ export const CollabSection = ({
             }}
             onReorderParticipants={reorderGroupParticipantTabs}
             onCompare={changeCodeComparison}
+            focusLock={studentCodeFocus}
+            canToggleFocus={isTeacher && !collabReadOnly && !pythonExplanation && Boolean(focusStudentId)}
+            focusLocked={Boolean(codeFocus.focus)}
+            focusBusy={codeFocusBusy || !codeFocus.ready}
+            onToggleFocus={toggleCodeFocus}
             canPresent={isTeacher && !collabReadOnly}
             presenting={presentation.presenting}
             followingName={presentation.following?.name || ''}
@@ -11149,6 +11218,7 @@ export const CollabSection = ({
         {activeSolutionDeleted && <div role="status" className="collab-solutions__notice">Этот вариант удалён. Завершите текущую операцию, чтобы перейти к основному коду.</div>}
         {!deletedSolution && solutionNotice && <div role="status" className="collab-solutions__notice">{solutionNotice}</div>}
         {solutionError && <div role="alert" className="collab-solutions__error">{solutionError}</div>}
+        {studentCodeFocus && <div role="status" className="collab-solutions__notice"><Lock size={14} aria-hidden="true"/> Доступна только вкладка «{studentCodeFocus.solutionName}».</div>}
 
         {isSplitCollabLayout ? (
           <div
@@ -18525,6 +18595,7 @@ const STUDENT_ROSTER_FOCUS_REVALIDATE_MS = 15_000;
 const STUDENT_ROSTER_PICKER_REVALIDATE_MS = 5_000;
 
 const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, onThemeToggle, onUserUpdated }) => {
+  const studentCodeFocusState = useLessonCodeFocus(user.role === 'student' ? user.id : '');
   const STUDENT_CALL_SECTION_ENABLED = true;
   const TEACHER_COMMS_VIEW = 'teacher-comms';
   const TEACHER_COMMS_TABS = PLATFORM_CHATS_ENABLED ? ['signup-chats', 'student-chats', 'notifications'] : [];
@@ -18558,6 +18629,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         'board',
         'teacher',
         'teacher-students',
+        'message-templates',
         'teacher-settings',
         'study-plan',
         ...(PLATFORM_CHATS_ENABLED ? [TEACHER_COMMS_VIEW] : []),
@@ -20027,6 +20099,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         { id: 'teacher', label: 'Тесты', icon: Settings },
         { id: 'study-plan', label: 'План подготовки', icon: MapIcon },
         { id: 'teacher-students', label: 'Список учеников', icon: Users },
+        { id: 'message-templates', label: 'Шаблоны сообщений', icon: MessageSquare },
         { id: 'teacher-settings', label: 'Настройки', icon: Settings },
         ...(PLATFORM_CHATS_ENABLED ? [{ id: TEACHER_COMMS_VIEW, label: 'Чаты и уведомления', icon: MessageSquare }] : []),
         { id: 'notes', label: 'Конспекты', icon: Folder }
@@ -20427,6 +20500,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             return;
           }
           const liveType = String(payload?.type || '').trim();
+          if (liveType === 'lesson-code-focus') {
+            window.dispatchEvent(new CustomEvent(LESSON_CODE_FOCUS_EVENT, { detail: payload }));
+            return;
+          }
+          if (liveType === 'ready') window.dispatchEvent(new CustomEvent(LESSON_CODE_FOCUS_EVENT));
           if (liveType === 'presence-snapshot') {
             const nextOnlineUserIds = new Set(
               (Array.isArray(payload?.users) ? payload.users : [])
@@ -26819,7 +26897,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 renderStudentBoard={({studentId,initialPageId,onPageChange,participantIds})=><BoardSection groupId={studySubjectGroup(studentId)} participantIds={participantIds||[]} role="teacher" userId={user.id} userName={user.name} teacherId={user.id} tasks={tasksWithTitles} students={currentStudentsWithNicknames} activeStudentId={studentId} theme={theme} embedded hideStudentPicker containedDialogs readOnly studyPreview initialPageId={initialPageId} onPageChange={onPageChange}/>}/>
             </React.Suspense>
           )}
-          {view === 'notes' && (
+          {view === 'notes' && (studentCodeFocusState.focus || !studentCodeFocusState.ready) && (
+            <div className="surface-panel rounded-2xl p-6" role="status">
+              {studentCodeFocusState.focus
+                ? <><Lock size={18} className="mr-2 inline-block" /> Преподаватель закрыл конспекты на время самостоятельного решения.</>
+                : 'Проверяем доступ к конспектам…'}
+            </div>
+          )}
+          {view === 'notes' && studentCodeFocusState.ready && !studentCodeFocusState.focus && (
             <NotesSection
               theme={theme}
               role={user.role}
@@ -26930,6 +27015,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               canManageGlobalTaskContent={user.role === 'admin' || user.canManageGlobalTaskContent === true}
             />
           )}
+          {user.role === 'teacher' && view === 'message-templates' && <MessageTemplates students={studentsWithNicknames} initialStudentId={activeStudentId} />}
           {isTeacherCommsView && (
             <div className="space-y-4">
               <div className="surface-panel rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm sm:p-3">

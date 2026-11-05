@@ -48,14 +48,16 @@ export function preparedCardGeometry(card, assets, answerRows, existing) {
 // The builder, live placement and the teacher's preview share these rules.
 export function preparedPlacementRecipe(card, priorCards, previousCard, lastCard, start) {
   const display = card.boardDisplay;
-  const reference = display && (priorCards.find(row => row.key === display.relativeTo) || priorCards.at(-1));
+  const previousTask = card.kind !== 'theory' && priorCards.findLast(row => row.card.kind !== 'theory');
+  const preceding = previousTask || priorCards.at(-1);
+  const reference = display && (display.relativeTo ? priorCards.find(row => row.key === display.relativeTo) : preceding);
   const earlierSheets = card.theoryStep ? priorCards.filter(row =>
     row.card.theoryStep && (row.card.theoryBefore || '') === (card.theoryBefore || '')
     && row.card.theoryStep.index < card.theoryStep.index) : [];
   const sheet = earlierSheets.find(row => row.card.images.includes(card.theoryDisplay?.relativeTo)) || earlierSheets.at(-1);
-  const previousBlock = card.kind !== 'theory' && previousCard?.theoryStep ? priorCards.filter(row =>
+  const previousBlock = card.kind !== 'theory' && !previousTask && previousCard?.theoryStep ? priorCards.filter(row =>
     row.card.theoryStep && (row.card.theoryBefore || '') === (previousCard.theoryBefore || '')) : [];
-  return {start, lastId: lastCard?.anchorId, referenceId: reference?.anchorId, sheetId: sheet?.anchorId,
+  return {start, lastId: preceding?.anchorId || lastCard?.anchorId, referenceId: reference?.anchorId, sheetId: sheet?.anchorId,
     blockIds: previousBlock.map(row => row.anchorId), display, legacyDisplay: card.theoryDisplay,
     sheetCount: card.theoryStep?.blockCount || card.theoryStep?.count, theory: card.kind === 'theory'};
 }

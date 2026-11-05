@@ -1,7 +1,7 @@
 const SECTIONS = [
   { id: 'nav-schedule', label: 'Расписание', description: 'Занятия, группы и встречи', views: ['schedule', 'teacher-calendar', 'groups', 'meetings'] },
   { id: 'lesson', label: 'Урок', description: 'Звонок, доска и совместный код', views: ['call', 'board', 'collab'] },
-  { id: 'nav-students', label: 'Ученики', description: 'Список, оценки и чаты', views: ['teacher-students', 'progress', 'rating', 'teacher-comms'] },
+  { id: 'nav-students', label: 'Ученики', description: 'Список, оценки и чаты', views: ['teacher-students', 'progress', 'rating', 'teacher-comms', 'message-templates'] },
   { id: 'nav-materials', label: 'Материалы', description: 'План, тесты, конспекты и записи', views: ['study-plan', 'python', 'teacher', 'notes', 'recording'] },
   { id: 'nav-management', label: 'Управление', description: 'Финансы и настройки', views: ['finance', 'teacher-settings'] },
 ];
@@ -25,6 +25,7 @@ const SEARCH_WORDS = {
   progress: 'результаты прогресс домашняя работа дз',
   rating: 'баллы',
   'teacher-comms': 'чат переписка сообщения уведомления',
+  'message-templates': 'шаблон сообщения переписка мессенджер отзыв пробное занятость',
   'study-plan': 'план подготовки маршрут холст егэ темы части',
   python: 'питон программирование задачи',
   teacher: 'тест пробник задания экзамен',

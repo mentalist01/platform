@@ -66,6 +66,7 @@ import { getMonthlyMockCompletionDetails } from './monthlyMockResult.js';
 import {monthlyAttemptContext,monthlyQuotaError} from './monthlyMockAttemptPolicy.js';
 import {monthlyAssignedMonths,mockAttemptMonth,getMonthlyAttemptRecords,normalizeMonthlyMockSurrenders} from '../src/utils/monthlyMockAttemptPolicy.js';
 import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
+import { registerMessageTemplates } from './messageTemplates.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
 import { normalizeGroupHomeworkCancellations, registerGroupHomeworkCancellations } from './groupHomeworkCancellations.js';
@@ -367,6 +368,7 @@ import {
 import { installReadOnlyYWebsocketMessageFilter } from './collabReadOnly.js';
 import { normalizeCollabCodeDocument } from '../src/utils/collabSolutions.js';
 import { groupCodePresence } from './groupCodePresence.js';
+import { findStudentCodeLocation, isSavedLessonCode, LESSON_CODE_FOCUS_MS } from './lessonCodeFocus.js';
 import {
   createLearningLessonAnswerMessage,
   filterLearningLessonAnswerMessages,
@@ -1656,6 +1658,14 @@ const writeJsonFileAtomic = (filePath, data, options = {}) => {
   backupJsonFileBeforeWrite(filePath);
   writeFileAtomic(filePath, stringifyJsonForStorage(data), 'utf8', options);
 };
+const lessonCodeFocusFile = path.join(dataDir, 'lesson-code-focus.json');
+let lessonCodeFocusRecords;
+const readLessonCodeFocusRecords = () => lessonCodeFocusRecords ??= readJsonObjectFileStrict(lessonCodeFocusFile);
+const getLessonCodeFocus = studentId => {
+  const focus = readLessonCodeFocusRecords()[studentId];
+  return focus?.expiresAt > Date.now() ? focus : null;
+};
+const studentCodeFocusActive = auth => isStudentRole(auth) && Boolean(getLessonCodeFocus(auth.id));
 const getJsonStorageHash = (serialized) => crypto
   .createHash('sha1')
   .update(serialized)
@@ -22196,6 +22206,9 @@ const handleUploadRequest = (req, res) => {
     : readFilesDb().find((entry) => (
       !isWorkbookQuestionVirtualSource(entry) && entry?.storageName === safeName
     ));
+  if (isSavedLessonCode(ownedFile) && studentCodeFocusActive(req.auth)) {
+    return res.status(403).send('Преподаватель временно закрыл сохранённые решения.');
+  }
   const boardAssetGrants = isBoardAsset
     ? readBoardAssetsDb().filter((entry) => entry.storageName === safeName)
     : [];
@@ -24122,6 +24135,12 @@ const handleLessonPages=async(req,res)=>{
   if(!scope||getLearningSubscriptionRoomError(req.auth,access))return forbid(res);
   const canEdit=(isTeacherRole(req.auth)||isAdminRole(req.auth))&&!access.readOnly;
   if(req.method==='POST'&&!canEdit)return forbid(res);
+  if (req.method === 'POST' && req.body?.action === 'delete') {
+    const pageId = req.body.id === 'main' ? 'page-main' : req.body.id;
+    const usedByFocus = Object.values(readLessonCodeFocusRecords()).some(focus =>
+      focus.expiresAt > Date.now() && focus.pageId === pageId && scope.codes.includes(focus.room));
+    if (usedByFocus) return res.status(409).json({ error: 'Сначала откройте ученику доступ к остальным вкладкам кода.' });
+  }
   try {
     await ensureGroupNotebook(access);
     const result=req.method==='POST'?await lessonPageCatalog.change(scope,req.body):{book:await lessonPageCatalog.ensure(scope)};
@@ -24130,6 +24149,45 @@ const handleLessonPages=async(req,res)=>{
 };
 app.get('/api/lesson-pages',handleLessonPages);
 app.post('/api/lesson-pages',handleLessonPages);
+app.get('/api/lesson-code-focus', (req, res) => {
+  const studentId = isStudentRole(req.auth) ? req.auth.id : String(req.query.studentId || '');
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  res.set('Cache-Control', 'no-store').json({ focus: getLessonCodeFocus(student.id) });
+});
+app.post('/api/lesson-code-focus', (req, res) => {
+  if (!isTeacherRole(req.auth) && !isAdminRole(req.auth)) return forbid(res);
+  const { studentId, room, locked } = req.body || {};
+  const student = ensureStudentAccess(req, res, studentId);
+  if (!student) return;
+  if (typeof locked !== 'boolean') return res.status(400).json({ error: 'Укажите состояние блокировки.' });
+  let focus = null;
+  if (locked) {
+    const access = authorizeLearningCollabUpgrade({ requestUrl: '/collab/' + encodeURIComponent(String(room || '')), auth: req.auth,
+      students: readStudentsDb(), groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+      sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [] });
+    const target = access.target;
+    const individual = target?.kind === 'collab' && target.studentId === student.id;
+    const group = target?.kind === 'collab-private' && target.groupNotebook
+      && target.privateStudentId === student.id;
+    if (!access.allowed || access.readOnly || (!individual && !group)) return forbid(res);
+    const rooms = group ? [room, groupNotebookCode(target.groupId)] : [room];
+    const location = findStudentCodeLocation(getLoadedCollabDocs(), rooms, student.id);
+    if (!location) return res.status(409).json({ error: 'Попросите ученика открыть вкладку кода, в которой он будет работать.' });
+    focus = { ...location, groupId: group ? target.groupId : '', expiresAt: Date.now() + LESSON_CODE_FOCUS_MS };
+  }
+  const records = Object.fromEntries(Object.entries(readLessonCodeFocusRecords()).filter(([, value]) => value.expiresAt > Date.now()));
+  if (focus) records[student.id] = focus;
+  else delete records[student.id];
+  writeJsonFileAtomic(lessonCodeFocusFile, records);
+  lessonCodeFocusRecords = records;
+  notificationClientsBySocket.forEach(client => {
+    if (client.auth?.id === student.id || client.auth?.id === student.teacherId) {
+      sendNotificationPayload(client.ws, { type: 'lesson-code-focus', studentId: student.id, focus });
+    }
+  });
+  return res.json({ focus });
+});
 registerPreparedTaskRoutes(app,preparedLessonTasks);
 registerMockExamBoardTasks(app,preparedLessonTasks,{
   resolveSource:async(auth,source)=>{
@@ -25837,6 +25895,12 @@ setInterval(async () => {
     }
   } finally { teacherCalendarEditsRecovering = false; }
 }, 60000).unref();
+
+registerMessageTemplates(app, {
+  dataDir, groups: readLearningGroupsDb, students: readStudentsDb, progress: readProgressDb,
+  tests: readTestsDbForTeacher, catalog: LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS,
+  getEntries: (teacherId, throughDay, fromDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay, { fromDay }),
+});
 
 registerGroupPlacement(app, {
   store: studentAvailabilityStore,
@@ -36348,9 +36412,10 @@ app.get('/api/student-search', async (req, res) => {
   );
   const studentData = getStudentData(student.id);
   const teacherId = normalizeTeacherId(student.teacherId);
+  const hideSavedCode = studentCodeFocusActive(req.auth);
   const visibleFiles = enrichFilesWithFolderPath(
     readFilesDb().filter((file) => {
-      if (isWorkbookQuestionVirtualSource(file)) return false;
+      if (isWorkbookQuestionVirtualSource(file) || (hideSavedCode && isSavedLessonCode(file))) return false;
       if (String(file?.studentId || '').trim() === student.id) return true;
       if (isLearningGroupNotesFile(file)) {
         return canReadLearningGroupNotesFileForStudent(file, student.id);
@@ -36425,7 +36490,9 @@ app.get('/api/student-search', async (req, res) => {
     skippedFiles += visibleFiles.length - STUDENT_SEARCH_MAX_FILES;
   }
 
-  collectStudentSavedCodeSearchCandidates({ student, studentData, taskTitles, testsDb, addCandidate });
+  if (!hideSavedCode) {
+    collectStudentSavedCodeSearchCandidates({ student, studentData, taskTitles, testsDb, addCandidate });
+  }
   collectStudentQuestionSearchCandidates({ testsDb, taskTitles, addCandidate });
   collectStudentMockSearchCandidates({ student, studentData, taskTitles, testsDb, addCandidate });
   collectStudentHomeworkSearchCandidates({ studentData, addCandidate });
@@ -42867,6 +42934,7 @@ app.get('/api/files/:id/image-tiles/:level/:tileName', async (req, res) => {
 });
 
 app.get('/api/files', (req, res) => {
+  const filterSavedCode = studentCodeFocusActive(req.auth) ? files => files.filter(file => !isSavedLessonCode(file)) : files => files;
   if (req.query.learningGroupId) {
     const group = ensureLearningGroupReadAccess(req,res,String(req.query.learningGroupId));
     if (!group) return;
@@ -42874,7 +42942,7 @@ app.get('/api/files', (req, res) => {
       (isLearningGroupNotesFile(entry) && entry.groupId===group.id
         && (isTeacherRole(req.auth)||isAdminRole(req.auth)||canReadLearningGroupNotesFileForStudent(entry,req.auth.id)))
       || (isLessonSharedFile(entry)&&entry.teacherId===group.teacherId)));
-    return res.json(enrichFilesWithFolderPath(files,readFoldersDb()));
+    return res.json(enrichFilesWithFolderPath(filterSavedCode(files),readFoldersDb()));
   }
   const { taskNumber, category, studentId } = req.query;
   const requestedStudentId = typeof studentId === 'string' ? studentId.trim() : '';
@@ -42915,7 +42983,7 @@ app.get('/api/files', (req, res) => {
   }
   if(effectiveStudentId)files.push(...preparedLessonTasks.notesForStudent(effectiveStudentId,req.auth).filter(file=>(!taskNumber||file.taskNumber===Number(taskNumber))&&(!category||file.category===category)));
   const folders = readFoldersDb();
-  res.json(enrichFilesWithFolderPath(files, folders));
+  res.json(enrichFilesWithFolderPath(filterSavedCode(files), folders));
 });
 
 app.post('/api/files', upload.single('file'), (req, res) => {

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createGroupHomeworkFixture } from './groupHomework.fixture.js';
 import { HomeworkLivesStore, livesMonth, estimateHomeworkPlan } from './homeworkLives.js';
 
-test('API exempts Python, repairs old damage and reports EGE without altering assignments or solutions', { timeout: 60000 }, async () => {
+test('API exempts Python from lives, requires its minimum for mixed reports, and preserves assignments and solutions', { timeout: 60000 }, async () => {
   const now = Date.now(), ago = days => new Date(now - days * 86400000).toISOString();
   const homework = (id, goals) => ({ id, issuedAt: ago(4), dueAt: ago(1), goals });
   const py = { type: 'task', taskNumber: 101, levelId: 'python', targetQuestions: [1], targetQuestionIds: ['python-question'] };
@@ -36,7 +36,8 @@ test('API exempts Python, repairs old damage and reports EGE without altering as
     assert.equal(practice.history[0].waivedById, 'python-practice-policy');
     const month = livesMonth(now);
     const report = await f.request(`/api/student-month-report?studentId=student-a&month=${month}`, f.tokens['teacher-a']);
-    assert.equal(report.metrics.homework.averagePercent, 100);
+    assert.equal(report.metrics.homework.averagePercent, null);
+    assert.match(report.parentText, /60%/u);
     assert.equal(report.metrics.homework.practice.find(g => g.taskNumber === 4).solvedCount, 1);
     const practiceReport = await f.request(`/api/student-month-report?studentId=student-b&month=${month}`, f.tokens['teacher-a']);
     assert.equal(practiceReport.metrics.homework.averagePercent, 100);

@@ -12,12 +12,12 @@ import {preparedAnswerSchema} from '../src/utils/preparedSharedAnswers.js';
 import {normalizePreparedTheoryDisplays,preparedTheoryCameraRange,preparedTheoryFrame} from '../src/utils/preparedTheoryDisplay.js';
 import {preparedNextPoint} from '../src/utils/preparedTheoryLayout.js';
 import {normalizePreparedSetLayout,preparedLayoutKey,preparedCardGeometry,preparedPlacementRecipe,placePreparedCard,preparedFocusReference} from '../src/utils/preparedSetLayout.js';
-import {updatePreparedSet} from './preparedSetUpdate.js';
+import {updatePreparedSet,updatePreparedTheoryQueue} from './preparedSetUpdate.js';
 import {preparedWriterView,preparedWriterAllows,releasePreparedFile,resumePreparedFile} from './preparedFileWriter.js';
 import {WorkbookLiveStore} from './workbookLiveStore.js';
 import {PreparedWorkbookHistory,currentWorkbookSolution,workbookAttempt,registerPreparedWorkbookHistory} from './preparedWorkbookHistory.js';
 import {registerWorkbookLiveRoutes,workbookLiveView} from './workbookLiveRoutes.js';
-import {preparedTaskSource,preparedRunSources,preparedSourceLatest,preparedSourceUpdates,preparedSetSequence,preparedMissingTheory,insertPreparedTheory,isPreparedTheory} from '../src/utils/preparedRunSources.js';
+import {preparedTaskSource,preparedRunSources,preparedSourceLatest,preparedSourceUpdates,preparedSetSequence,preparedTheorySyncPlan,isPreparedTheory} from '../src/utils/preparedRunSources.js';
 import {projectPreparedCode} from './preparedCodeProjection.js';
 import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 import {normalizePreparedAnswerGroups,preparedAnswerGroups,remapPreparedGroupAnswers,preparedGroupResultsAfterEdit} from '../src/utils/preparedAnswerGroups.js';
@@ -58,6 +58,20 @@ export function preparedCurrentCard(run,items){
   const visible=new Set(items.map(item=>item.id));
   return run.cards.find(card=>card.id===run.teacherCardId&&visible.has(card.anchorId))||run.cards.filter(card=>visible.has(card.anchorId)).at(-1)||run.cards.at(-1);
 }
+
+function canAutoAdvancePreparedCard(run, card, items) {
+  const current = preparedCurrentCard(run, items);
+  if (current === card) return true;
+  if (!current || current.index >= card.index) return false;
+
+  // The teacher can refer back to the explanation while the pupil solves the
+  // next exercise. Only bridge theory sheets that are already on the board.
+  const visible = new Set(items.map(item => item.id));
+  const shownIndices = new Set(run.cards.filter(row => visible.has(row.anchorId)).map(row => row.index));
+  return shownIndices.has(card.index) && run.tasks.slice(current.index, card.index)
+    .every((task, offset) => isPreparedTheory(task) && shownIndices.has(current.index + offset));
+}
+
 export {preparedTheoryPoint,preparedNextPoint} from '../src/utils/preparedTheoryLayout.js';
 
 // Secrets and future conditions live here, never in the collaborative scene.
@@ -421,14 +435,14 @@ export class PreparedLessonTasks {
       if(set.draft)fail(409,'Дополните условия и ответы перед подключением новых задач');
       const known=new Set(run.tasks.filter(task=>preparedTaskSource(run,task).id===set.id).map(task=>preparedTaskSource(run,task).taskId));
       const sequence=preparedSetSequence(set,run.partFilters?.[set.id]),added=sequence.filter(task=>!isPreparedTheory(task)&&!known.has(task.id));if(run.tasks.filter(task=>!isPreparedTheory(task)).length+added.length>100)fail(409,'На странице может быть не больше 100 задач. Создайте новую страницу.');
-      run.tasks=[...run.tasks,...this.sourceTasks(run,set,added)];
-      const missingTheory=preparedMissingTheory(run,set,sequence);
-      if(missingTheory.length){
-        const previousIds=run.tasks.map(task=>task.id),theory=this.sourceTasks(run,set,missingTheory);
+      const theoryPlan=preparedTheorySyncPlan(run,set),newTasks=this.sourceTasks(run,set,added);
+      if(theoryPlan.pending.length||theoryPlan.remove.size){
+        const previousIds=run.tasks.map(task=>task.id);
         const tasks=run.tasks.map((task,i)=>({...task,sourceIndex:preparedTaskSource(run,task,i).index}));
-        run.tasks=insertPreparedTheory(run,tasks,set.id,theory);const positions=new Map(run.tasks.map((task,index)=>[task.id,index]));
+        run.tasks=updatePreparedTheoryQueue(this,run,set,[...tasks,...newTasks],theoryPlan);
+        const positions=new Map(run.tasks.map((task,index)=>[task.id,index]));
         for(const row of run.cards)row.index=positions.get(previousIds[row.index]);
-      }
+      }else run.tasks=[...run.tasks,...newTasks];
     }
     else if(input.action==='layout') {
       if(!Array.isArray(input.cards)||input.cards.length>200)fail(400,'Неверные размеры карточек');
@@ -505,7 +519,13 @@ export class PreparedLessonTasks {
       if(run.homework&&!correct)card.homeworkWrongCount=(card.homeworkWrongCount||0)+1;
       card.lastResult=correct?'correct':'wrong';card.lease=null;if(complete){card.status='solved';card.solvedBy=actorKey(auth);
         if(this.achievementContext){try{const context=await this.achievementContext(run,auth,access);card.solveReceipt=preparedSolveReceipt(run,card,this.data.assets,context,now);card.achievementPending=true;}catch(error){console.warn('[lesson-achievements] context unavailable:',error.message);}this.save(run);}
-        if(run.auto&&card===preparedCurrentCard(run,(await this.board(run.room)).getArray('items').toArray())&&await this.addCard(run,card.index+1))this.theoryFocus(run,card.id);}
+        if (run.auto && card.index + 1 < run.tasks.length) {
+          const items = (await this.board(run.room)).getArray('items').toArray();
+          if (canAutoAdvancePreparedCard(run, card, items) && await this.addCard(run, card.index + 1)) {
+            this.theoryFocus(run, card.id);
+          }
+        }
+      }
     } else if(input.action==='release') {requireCard();for(const kind of ['lease','codeLease'])if(card[kind]?.key===input.leaseKey)card[kind]=null;}
     else if(input.action==='code') {
       lease('codeLease');if(Number(input.revision)!==card.code.revision)fail(409,'Код обновлён другим участником. Ваш текст сохранён локально.');

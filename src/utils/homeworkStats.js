@@ -3,6 +3,7 @@ import { getTaskPresentation } from './taskPresentation.js';
 import { isMockAttemptForHomework, resolveHomeworkTaskTargetDescriptors } from './homeworkComposer.js';
 import { mergeGroupHomeworkCarryover } from './groupHomeworkCarryover.js';
 import { isPythonHomeworkGoal, isPythonPracticeHomework } from './homeworkAssessment.js';
+import { isOptionalHomeworkGoal } from './homeworkAssignmentTier.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -260,6 +261,7 @@ const buildTaskGoal = ({
     taskNumber,
     ...presentation,
     levelId,
+    ...(isOptionalHomeworkGoal(goal) ? { assignmentTier: goal.assignmentTier } : {}),
     items,
     estimated: items.some((item) => item.estimated) || getStoredTargetQuestionIds(goal).length === 0,
   };
@@ -627,8 +629,7 @@ export const buildHomeworkStatistics = ({
   });
 };
 
-// Keep original task progress intact. Only this projection is used for grades,
-// report percentages and the assessment timeline, including mixed assignments.
+// Project the EGE result without changing either subject's task progress.
 export const getHomeworkAssessment = entry => {
   if (!entry || entry.practiceOnly || isPythonPracticeHomework(entry)) return null;
   const allGoals = Array.isArray(entry.goals) ? entry.goals : [];
@@ -657,8 +658,28 @@ export const getHomeworkAssessment = entry => {
   };
 };
 
+export const getHomeworkPythonMinimum = entry => {
+  const goals = Array.isArray(entry?.goals) ? entry.goals : [];
+  if (!goals.some(goal => !isPythonHomeworkGoal(goal) && goal.items?.length > 0)) return null;
+  const states = new Map();
+  for (const goal of goals) {
+    if (!isPythonHomeworkGoal(goal) || isOptionalHomeworkGoal(goal)) continue;
+    for (const item of goal.items || []) {
+      states.set(item.id, Boolean(states.get(item.id) || isCompletedState(item.state)));
+    }
+  }
+  if (!states.size) return null;
+  const completedCount = [...states.values()].filter(Boolean).length;
+  const requiredCount = Math.ceil(states.size * 3 / 5);
+  return { completedCount, requiredCount, totalCount: states.size, met: completedCount >= requiredCount };
+};
+
+const getHomeworkStatisticsAssessment = entry => (
+  getHomeworkPythonMinimum(entry)?.met === false ? null : getHomeworkAssessment(entry)
+);
+
 export const homeworkAssessmentEntries = (entries = []) => (
-  (Array.isArray(entries) ? entries : []).map(getHomeworkAssessment).filter(Boolean)
+  (Array.isArray(entries) ? entries : []).map(getHomeworkStatisticsAssessment).filter(Boolean)
 );
 
 // Calendar presentation includes a neutral 100% for Python-only work. Keep it
@@ -710,7 +731,7 @@ export const summarizeHomeworkStatistics = (entries = []) => {
 };
 
 export const isHomeworkReadyForOverallStatistics = (entry, nowMs = Date.now()) => {
-  entry = getHomeworkAssessment(entry);
+  entry = getHomeworkStatisticsAssessment(entry);
   if (!entry || Number(entry.totalCount) <= 0) return false;
   if (Number(entry.percent) >= 100) return true;
   if (entry.isOverdue === true) return true;

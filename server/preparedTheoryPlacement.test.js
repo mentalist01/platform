@@ -129,6 +129,37 @@ test('changing placement moves only unopened steps in the queue; annotated sheet
   const tasks=store.data.runs[view.id].tasks;assert.deepEqual(tasks.map(task=>task.title),['Теория · 1','1','Теория · 2','2','Теория · 3']);assert.equal(view.cards[0].id,first.id);assert.deepEqual(items.toArray(),before);assert.equal(tasks[0].theoryBefore||'','');
 });
 
+test('reordering library sheets keeps the right image at each task boundary on an existing board',async t=>{
+  for(const action of ['sync-set','sync-queue']){
+    const {store,auth,doc,images,make}=fixture(t);
+    const [intro,countIf,newSheet,condition]=images;
+    const set=await make({theoryImages:[intro,countIf],theoryPlacements:{[countIf]:B}});
+    const room='board-reordered-theory';
+    let view=await store.start(auth,{room,setId:set.id,x:40,y:60});
+    const introCard=view.cards[0],run=store.data.runs[view.id];
+    // Simulate a board saved before sheet identities were tied to images.
+    run.tasks.filter(row=>row.theoryStep).forEach(row=>{row.id=`theory-${set.id}-sheet-${row.theoryStep.index+1}`;});
+    view=await store.action(auth,view.id,{action:'theory-next',cardId:introCard.id});
+    const question=view.cards[1],items=(await doc(room)).getArray('items'),before=items.toArray();
+    const updated=await make({id:set.id,version:set.version,theoryImages:[newSheet,countIf,intro],
+      theoryPlacements:{[newSheet]:B,[countIf]:'end'},
+      boardLayout:{['theory:'+newSheet]:{relativeTo:'task:'+A,placement:'right'},
+        ['task:'+B]:{relativeTo:'task:'+A,placement:'below'}},
+      tasks:[{id:A,images:[condition],answers:['01']},{id:B,images:[condition],answers:['10']}]});
+    view=await store.action(auth,view.id,{action,setId:set.id,setVersion:updated.version});
+    assert.equal(view.cards[0].images[0].id,intro);
+    assert.equal(view.nextTheoryPreview.images[0].id,newSheet);
+    assert.deepEqual(items.toArray(),before);
+    view=await store.action(auth,view.id,{action:'skip',fromCardId:question.id,expectedCount:2});
+    assert.equal(view.cards[2].images[0].id,newSheet);
+    assert.ok(items.get(2).x>items.get(1).x);
+    view=await store.action(auth,view.id,{action:'theory-next',cardId:view.cards[2].id});
+    assert.equal(view.cards[3].taskId,B);
+    assert.equal(items.get(3).x,items.get(1).x);
+    assert.equal(view.nextTheoryPreview.images[0].id,countIf);
+  }
+});
+
 test('private sharing remaps placement to the copied task and image identities; deleting a target keeps theory at the end',async t=>{
   const {store,auth,images,make}=fixture(t),set=await make({theoryPlacements:{[images[0]]:B}}),other={id:'other',role:'teacher'};
   const exchange=new PreparedSetExchange(store,()=>[{id:auth.id},{id:other.id}]);exchange.publish(auth,set.id,{version:0,recipientIds:[other.id]});

@@ -19,6 +19,8 @@ import StudentParentContact from './StudentParentContact';
 import useStudentParentContacts from '../hooks/useStudentParentContacts';
 import { parentContactSnapshot } from '../services/studentParentContacts';
 import { copyParentMessage, normalizeStudentParentContact } from '../utils/studentParentContact';
+import MessageTemplatesButton from './MessageTemplatesButton.jsx';
+import ReviewRequestStatus from './ReviewRequestStatus.jsx';
 import { personalizeParentReport, parentReportPeriod } from '../utils/parentReportReminder';
 import { composeParentReportFocus, REPORT_FOCUS_LABELS, updateUntouchedReportDrafts } from '../utils/studentReportFocus';
 
@@ -375,7 +377,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose?.();
+      if (event.key === 'Escape' && !document.querySelector('dialog[open]')) onClose?.();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -594,6 +596,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
         {!error && !loading && <footer className="student-month-report__footer">
               <span>{audience === 'parent' && parentContact?.url ? `${parentName ? `Родитель · ${parentName}. ` : ''}«Отправить» скопирует текст и откроет контакт. Отправьте сообщение и поставьте отметку.` : 'Отчёт не отправляется сам — вы сначала видите и проверяете готовый текст.'}</span>
               <div>
+                <MessageTemplatesButton label="Попросить отзыв" students={[student]} initialStudentId={student.id} initialCategory="review" reviewMonth={month} parentRecipient={audience === 'parent'} />
                 <button type="button" onClick={handleDownload} disabled={!text.trim()}>
                   <Download size={16} /> Текст
                 </button>
@@ -610,6 +613,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
                   {shareState === 'shared' ? 'Отправлено' : (shareState === 'copied' ? 'Скопировано' : 'Отправить')}
                 </button>}
               </div>
+              <ReviewRequestStatus key={student.id + '/' + month} studentId={student.id} month={month} />
             </footer>
         }
       </section>

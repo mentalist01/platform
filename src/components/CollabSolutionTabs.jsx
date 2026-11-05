@@ -1,7 +1,7 @@
 import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronLeft, ChevronRight, Columns2, Layers3, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Columns2, Layers3, Lock, LockOpen, Pencil, Plus, Trash2, Presentation, X } from 'lucide-react';
 import { DEFAULT_COLLAB_SOLUTION_ID, MAX_COLLAB_SOLUTIONS, planNumberedCollabSolutions } from '../utils/collabSolutions';
 import './CollabSolutionTabs.css';
 
@@ -41,6 +41,11 @@ export default function CollabSolutionTabs({
   dark = false,
   peers = [],
   participantPresence = null,
+  focusLock = null,
+  canToggleFocus = false,
+  focusLocked = false,
+  focusBusy = false,
+  onToggleFocus,
 }) {
   const portalTarget=useFullscreenPortalTarget();
   const inputId = useId();
@@ -73,7 +78,10 @@ export default function CollabSolutionTabs({
   const activeSolution = solutions.find((solution) => solution.id === activeId);
   const comparisonSolution = solutions.find((solution) => solution.id === compareId);
   const otherSolutions = solutions.filter((solution) => solution.id !== activeId);
-  const canEdit = !disabled && !readOnly;
+  const canEdit = !disabled && !readOnly && !focusLock;
+  const isTabLocked = entry => Boolean(focusLock && (entry.kind === 'participant'
+    ? entry.id !== activeParticipantId || mainSolutionId !== focusLock.solutionId
+    : entry.id !== focusLock.solutionId));
   const comparing = Boolean(compareId && comparisonSolution && compareId !== activeId);
   let batchNames = [], batchError = '';
   if (batch) {
@@ -207,7 +215,7 @@ export default function CollabSolutionTabs({
   };
 
   const selectTabEntry = (entry) => {
-    if (!entry) return;
+    if (!entry || isTabLocked(entry)) return;
     if (entry.kind === 'participant') onSelectParticipant?.(entry.id);
     else selectSolution(entry.id);
   };
@@ -221,7 +229,7 @@ export default function CollabSolutionTabs({
     else return;
     event.preventDefault();
     const next = tabEntries[nextIndex];
-    if (!next || disabled) return;
+    if (!next || disabled || isTabLocked(next)) return;
     selectTabEntry(next);
     tabsRef.current?.querySelectorAll('[role="tab"]')[nextIndex]?.focus();
   };
@@ -309,6 +317,7 @@ export default function CollabSolutionTabs({
 
   const renderTab = (entry, index) => {
     const isParticipant = entry.kind === 'participant';
+    const locked = isTabLocked(entry);
     const selected = isParticipant
       ? entry.id === activeParticipantId && activeId === mainSolutionId
       : entry.id === activeId;
@@ -332,9 +341,9 @@ export default function CollabSolutionTabs({
         data-collab-tab-key={entry.key}
         data-collab-tab-kind={entry.kind}
         data-collab-tab-group={groupKey(entry)}
-        aria-label={entry.preparedGroup?`${entry.preparedGroup.name} · ${entry.name}`:undefined}
+        aria-label={locked ? `${entry.name}, закрыто преподавателем` : entry.preparedGroup ? `${entry.preparedGroup.name} · ${entry.name}` : undefined}
         className={`collab-solutions__tab${selected ? ' is-active' : ''}${isParticipant ? ' is-participant' : ''}${isDragged ? ' is-dragging' : ''}${isDropTarget ? ` is-drop-${dragging.side}` : ''}`}
-        disabled={disabled}
+        disabled={disabled || locked}
         onPointerDown={(event) => startTabLongPress(event, entry)}
         onClick={() => {
           if (suppressClickRef.current) {
@@ -358,6 +367,7 @@ export default function CollabSolutionTabs({
         }}
         title={`${entry.preparedGroup?`${entry.preparedGroup.name} · `:''}${entry.name}${presenceLabel ? ` · ${presenceLabel}` : ''}${viewerNames ? ` · Смотрят: ${viewerNames}` : ''}${canReorder ? ' · Удерживайте, чтобы переместить' : ''}${canEdit && !isParticipant ? ' · Правая кнопка — действия' : ''}`}
       >
+        {locked && <Lock size={12} aria-hidden="true" />}
         <span className="collab-solutions__name">{entry.name}</span>
         {presence && <span className={`collab-solutions__presence${presence.online && !participantPresence.unavailable ? ' is-online' : ''}`}
           aria-label={presenceLabel}>
@@ -393,6 +403,15 @@ export default function CollabSolutionTabs({
           {(tabScroll.before || tabScroll.after) && <button type="button" className="collab-solutions__scroll" aria-label="Следующие вкладки кода" title="Прокрутить вкладки вправо" disabled={!tabScroll.after} onClick={() => scrollTabs(1)}><ChevronRight size={15}/></button>}
         </div>
         <div className="collab-solutions__actions">
+          {canToggleFocus && (
+            <button type="button" className={`collab-solutions__button${focusLocked ? ' is-active' : ''}`}
+              aria-pressed={focusLocked} disabled={focusBusy || (disabled && !focusLocked)}
+              title={focusLocked ? 'Вернуть ученику доступ к вкладкам и конспектам' : 'Оставить ученику только его текущую вкладку'}
+              aria-label={focusLocked ? 'Открыть вкладки и конспекты ученику' : 'Закрыть остальные вкладки и конспекты ученику'}
+              onClick={onToggleFocus}>
+              {focusLocked ? <Lock size={15} /> : <LockOpen size={15} />}
+            </button>
+          )}
           {!readOnly && (
               <button
                 type="button"
@@ -427,7 +446,7 @@ export default function CollabSolutionTabs({
                 setChoosingComparison(false);
               } else setChoosingComparison(true);
             }}
-            disabled={disabled || otherSolutions.length === 0}
+            disabled={disabled || Boolean(focusLock) || otherSolutions.length === 0}
             aria-label="Сравнить варианты кода"
             aria-expanded={comparing || choosingComparison}
             title={otherSolutions.length ? 'Сравнить код двух вариантов' : 'Создайте ещё один вариант для сравнения'}
@@ -528,7 +547,7 @@ export default function CollabSolutionTabs({
         </form>
       )}
 
-      {(comparing || choosingComparison) && (
+      {!focusLock && (comparing || choosingComparison) && (
         <div className="collab-solutions__comparison">
           <span className="collab-solutions__comparison-label">«{activeSolution?.name || 'Текущий вариант'}» сравнить с</span>
           <select

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHomeworkStatistics, homeworkAssessmentEntries, summarizeHomeworkStatistics, isHomeworkReadyForOverallStatistics } from './homeworkStats.js';
+import { buildHomeworkStatistics, getHomeworkPythonMinimum, homeworkAssessmentEntries, summarizeHomeworkStatistics, isHomeworkReadyForOverallStatistics } from './homeworkStats.js';
 import { buildStudentMonthlyReport } from './studentMonthlyReport.js';
 import { getHomeworkCompletionProgress, isPythonPracticeHomework } from './homeworkAssessment.js';
 import { buildCalendarHomeworkProgressEntries, resolveCalendarEventHomeworkProgress } from './calendarHomeworkProgress.js';
@@ -30,8 +30,11 @@ test('Python progress and attempts survive, while only EGE contributes to grades
 });
 
 test('a mixed homework is assessed using only EGE, including the deadline result', () => {
-  const [mixed] = stats([work('mixed', [python, ege])]);
-  assert.equal(mixed.percent, 50);
+  const solvedData = structuredClone(data);
+  solvedData.solvedByTask[101].python = { solved: ['py'], answerHistory: { py: [{ ...success, correct: false }, success] } };
+  const [mixed] = buildHomeworkStatistics({ homeworks: [work('mixed', [python, ege])], studentData: solvedData, testsDb, nowMs });
+  assert.equal(mixed.percent, 100);
+  assert.equal(mixed.totalWrongAttempts, 1);
   const [assessment] = homeworkAssessmentEntries([mixed]);
   assert.equal(assessment.percent, 100);
   assert.equal(assessment.checkpointPercent, 100);
@@ -43,6 +46,39 @@ test('a mixed homework is assessed using only EGE, including the deadline result
   const [unfinished] = buildHomeworkStatistics({ homeworks: [work('mixed', [python, ege])], testsDb, nowMs,
     studentData: { solvedByTask: { 101: { python: { solved: ['py'], answerHistory: { py: [success] } } } } } });
   assert.equal(homeworkAssessmentEntries([unfinished])[0].percent, 0);
+});
+
+test('mixed homework enters the statistics at exactly 60% of the required Python tasks', () => {
+  const pythonGoal = { ...python, includeAll: true, targetQuestions: [1, 2, 3, 4, 5], targetQuestionIds: ['py', 'p2', 'p3', 'p4', 'p5'] };
+  const optional = { ...goal(102, 'python', 'optional'), assignmentTier: 'optional' };
+  const testBank = { ...testsDb, 101: { python: pythonGoal.targetQuestionIds.map(id => ({ id })) }, 102: { python: [{ id: 'optional' }] } };
+  const entries = (solved, source) => buildHomeworkStatistics({
+    homeworks: [work('mixed', [pythonGoal, python, ege, optional], { source })], testsDb: testBank, nowMs,
+    studentData: { solvedByTask: { ...data.solvedByTask, 101: { python: { solved } } } },
+  });
+
+  for (const source of [undefined, 'learning-group']) {
+    const pending = entries(['py', 'p2'], source);
+    assert.deepEqual(getHomeworkPythonMinimum(pending[0]), { completedCount: 2, requiredCount: 3, totalCount: 5, met: false });
+    assert.equal(homeworkAssessmentEntries(pending).length, 0);
+    assert.equal(isHomeworkReadyForOverallStatistics(pending[0], nowMs), false);
+    assert.equal(summarizeHomeworkStatistics(pending).homeworkCount, 0);
+
+    const eligible = entries(['py', 'p2', 'p3'], source);
+    const [assessment] = homeworkAssessmentEntries(eligible);
+    assert.equal(assessment.percent, 100);
+    assert.equal(assessment.totalCount, 1);
+    assert.equal(isHomeworkReadyForOverallStatistics(eligible[0], nowMs), true);
+    assert.equal(homeworkAssessmentEntries([assessment])[0], assessment);
+  }
+
+  const report = buildStudentMonthlyReport({ student: { name: 'Лев' }, month: '2026-10', homeworkEntries: entries(['py', 'p2']), nowMs });
+  assert.equal(report.metrics.homework.averagePercent, null);
+  assert.equal(report.metrics.homework.practiceOnly, false);
+  for (const text of [report.parentText, report.studentText]) {
+    assert.match(text, /60%/u);
+    assert.doesNotMatch(text, /100%|ЕГЭ в этом месяце не задавались/u);
+  }
 });
 
 test('legacy Python, theory-only practice and empty banks never become zero-percent graded homework', () => {

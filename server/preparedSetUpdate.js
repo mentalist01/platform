@@ -1,5 +1,5 @@
 import {preparedAnswerGroups,remapPreparedGroupAnswers} from '../src/utils/preparedAnswerGroups.js';
-import {preparedTaskSource,preparedSetSequence,preparedSourceLatest,preparedMissingTheory,insertPreparedTheory,preparedTheoryPlacementUpdates,isPreparedTheory} from '../src/utils/preparedRunSources.js';
+import {preparedTaskSource,preparedSetSequence,preparedSourceLatest,preparedTheorySyncPlan,insertPreparedTheory,isPreparedTheory} from '../src/utils/preparedRunSources.js';
 import {preparedCheckingChanged} from '../src/utils/preparedTaskContent.js';
 import {preparedAnswerIndices,preparedAnswerTableChanged} from '../src/utils/preparedAnswerTable.js';
 import {preparedFileSync} from '../src/utils/preparedFileSync.js';
@@ -34,10 +34,17 @@ function updatedCard(card,before,after){
     ...(schema?{answerRevision:card.answerRevision+1,lease:null}:{})};
 }
 
+export function updatePreparedTheoryQueue(store,run,set,tasks,plan=preparedTheorySyncPlan(run,set)){
+  const ids=new Map([...plan.matches].map(([id,task])=>[task.id,id]));
+  const pending=store.sourceTasks(run,set,plan.pending).map(task=>({...task,id:ids.get(task.sourceTaskId)||task.id}));
+  return insertPreparedTheory(run,tasks.filter(task=>!plan.remove.has(task.id)),set.id,pending);
+}
+
 // Apply one validated library version only to the requested lesson. No polling,
 // respawning, board rewrites or replay of code snapshots is involved.
 export function updatePreparedSet(store,run,set){
-  const latest=new Map(preparedSourceLatest(run,set).map(task=>[task.id,task]));
+  const theoryPlan=preparedTheorySyncPlan(run,set);
+  const latest=new Map(preparedSourceLatest(run,set,theoryPlan).map(task=>[task.id,task]));
   const cardsByIndex=new Map(run.cards.map(card=>[card.index,card]));
   const cardUpdates=new Map();
   let tasks=run.tasks.map((task,index)=>{
@@ -51,6 +58,7 @@ export function updatePreparedSet(store,run,set){
       format:incoming.format,answerMode:incoming.answerMode||'combined',answers:[...incoming.answers],images:[...incoming.images],
       attachments:preparedFileSync([task],[incoming]).tasks[0].attachments};
     if(incoming.theoryStep)next.theoryStep={...incoming.theoryStep};
+    if(incoming.theoryIndices)next.theoryIndices=[...incoming.theoryIndices];
     delete next.theoryDisplay;if(incoming.theoryDisplay)next.theoryDisplay={...incoming.theoryDisplay};
     delete next.boardDisplay;if(incoming.boardDisplay)next.boardDisplay=structuredClone(incoming.boardDisplay);
     delete next.answerTable;delete next.answerCountOverride;delete next.answerGroups;
@@ -70,13 +78,7 @@ export function updatePreparedSet(store,run,set){
   const added=sequence.filter(task=>!isPreparedTheory(task)&&!known.has(task.id));
   if(tasks.filter(task=>!isPreparedTheory(task)).length+added.length>100)fail('На странице может быть не больше 100 задач. Создайте новую страницу.');
   tasks=[...tasks,...store.sourceTasks(run,set,added)];
-  const theory=preparedMissingTheory(run,set,sequence);
-  if(theory.length)tasks=insertPreparedTheory(run,tasks,set.id,store.sourceTasks(run,set,theory));
-  const placement=preparedTheoryPlacementUpdates(run,set);
-  if(placement.size){
-    const moved=tasks.filter(task=>placement.has(task.id)).map(task=>({...task,theoryBefore:placement.get(task.id).theoryBefore||'',theoryStep:{...placement.get(task.id).theoryStep}}));
-    tasks=insertPreparedTheory(run,tasks.filter(task=>!placement.has(task.id)),set.id,moved);
-  }
+  tasks=updatePreparedTheoryQueue(store,run,set,tasks,theoryPlan);
   const positions=new Map(tasks.map((task,index)=>[task.id,index]));
   const cards=run.cards.map(card=>({...cardUpdates.get(card.id)||card,index:positions.get(run.tasks[card.index].id)}));
   const patch={tasks,cards,...(run.setId===set.id?{name:set.name,setVersion:set.version}:{})};
