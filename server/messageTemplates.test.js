@@ -6,7 +6,7 @@ import express from 'express';
 import test from 'node:test';
 import { registerMessageTemplates, messageAvailabilityWeek, rankMessageGroups } from './messageTemplates.js';
 import { getCalendarFreeIntervalsByDay } from '../src/utils/calendarAvailabilityShare.js';
-import { fillMessageTemplate, missingMessageVariables } from '../src/utils/messageTemplates.js';
+import { DEFAULT_MESSAGE_TEMPLATES, fillMessageTemplate, missingMessageVariables } from '../src/utils/messageTemplates.js';
 
 test('messages preserve punctuation and unknown placeholders; pasted numbers are never interpreted as replacement patterns', () => {
   const text = fillMessageTemplate('{{имя}}, {{группа}} — {{расписание}}. {{имя}}', { имя: '$& Иван', группа: 'Группа 3' });
@@ -37,14 +37,21 @@ test('group suggestions use current members and the furthest Python topic before
   const solved = (number, ids) => ({ solvedByTask: { [number]: { python: { solved: ids } } } });
   const groups = [
     { id: 'later', name: 'Группа 1', teacherId: 't', members: [{ studentId: 'later', status: 'active' }], schedule: [] },
-    { id: 'early', name: 'Группа 3', teacherId: 't', members: [{ studentId: 'early', status: 'active' }, { studentId: 'former', status: 'removed' }], schedule: [{ weekdayKey: 'tuesday', time: '16:00' }] },
+    { id: 'early', name: 'Группа 3', teacherId: 't', members: [{ studentId: 'early', status: 'active' }, { studentId: 'former', status: 'removed' }], schedule: [{ weekdayKey: 'tuesday', time: '16:00' }, { weekdayKey: 'thursday', time: '19:00' }] },
     { id: 'old', teacherId: 't', status: 'completed', members: [] },
   ];
   const ranked = rankMessageGroups({ groups, students, testsDb, catalog,
+    entries: [{ groupId: 'early', weekdayKey: 'friday', time: '17:00' }, { groupId: 'later', weekdayKey: 'wednesday', time: '18:30' }],
     progressDb: { early: solved(101, ['one', 'two']), later: solved(105, ['loop']), former: solved(105, ['loop']) } });
   assert.deepEqual(ranked.map(group => group.id), ['early', 'later']);
   assert.equal(ranked[0].topicTitle, 'Ввод');
-  assert.equal(ranked[0].schedule, 'вторник в 16:00');
+  const body = DEFAULT_MESSAGE_TEMPLATES.find(template => template.id === 'after-trial').body;
+  const messages = ranked.map(({ schedule, scheduleDays }) => fillMessageTemplate(body, { расписание: schedule, 'дни группы': scheduleDays }));
+  assert.match(messages[0], /вторник в 16:00 и четверг в 19:00/);
+  assert.match(messages[0], /перейдёшь к ним на вторник и четверг\./);
+  assert.match(messages[1], /среда в 18:30/);
+  assert.match(messages[1], /перейдёшь к ним на среду\./);
+  assert.deepEqual(messages.map(missingMessageVariables), [[], []]);
 });
 
 test('template writes persist per teacher, reject stale edits, and never expose the calendar to pupils', async t => {

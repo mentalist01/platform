@@ -13,7 +13,7 @@ import './MessageTemplates.css';
 const emptyTemplate = () => ({ id: crypto.randomUUID(), name: '', body: '', category: 'other', attachAvailability: false, revision: '' });
 const weekLabel = start => new Date(start + 'T12:00:00+03:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'Europe/Moscow' });
 const releaseImage = image => { if (image?.url) URL.revokeObjectURL(image.url); };
-const includesGroup = body => /\{\{\s*(?:группа|расписание)\s*\}\}/.test(body || '');
+const includesGroup = body => /\{\{\s*(?:группа|расписание|дни группы)\s*\}\}/.test(body || '');
 
 export default function MessageTemplates({ students = [], initialStudentId = '', initialCategory = '', parentRecipient = false, reviewMonth: initialReviewMonth, onClose }) {
   const [templates, setTemplates] = useState(null), [selectedId, setSelectedId] = useState('');
@@ -34,10 +34,11 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
   const template = templates?.find(row => row.id === selectedId);
   const attachAvailability = attachmentOverride ?? Boolean(template?.attachAvailability);
   const needsGroups = includesGroup(template?.body);
+  const needsLessonCount = /\{\{\s*занятия\s*\}\}/.test(template?.body || '');
   const student = students.find(row => row.id === studentId);
   const group = context?.groups.find(row => row.id === groupId) || (!groupId ? context?.groups[0] : null);
   const variables = { имя: recipient === 'parent' ? contact?.name : student?.name,
-    группа: group?.name, расписание: group?.schedule, занятия: lessonCount };
+    группа: group?.name, расписание: group?.schedule, 'дни группы': group?.scheduleDays, занятия: lessonCount };
   const generatedText = fillMessageTemplate(template?.body, variables);
   const text = draftText ?? generatedText;
   const missing = missingMessageVariables(text);
@@ -164,7 +165,7 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
           {contextError && <p role="alert" className="message-templates__warning">{contextError}<button type="button" disabled={contextBusy} onClick={() => setRefresh(value => value + 1)}>Повторить загрузку</button></p>}
           {context?.groups.map(row => <button type="button" key={row.id} aria-pressed={group?.id === row.id} className={group?.id === row.id ? 'is-selected' : ''} onClick={() => setGroupId(row.id)}><span><strong>{row.name}</strong><small>{row.topicTitle} · решено {row.coveredCount}{!row.memberCount ? ' · нет участников' : ''}</small></span><small>{row.schedule || 'Расписание ещё не задано'}</small></button>)}
           {context && !context.groups.length && <p>Активных групп пока нет. Можно изменить готовый текст вручную.</p>}
-          <label>Занятий перед переходом<input value={lessonCount} maxLength={30} onChange={event => setLessonCount(event.target.value)} /></label>
+          {needsLessonCount && <label>Занятий перед переходом<input value={lessonCount} maxLength={30} onChange={event => setLessonCount(event.target.value)} /></label>}
         </section>}
         <div className="message-templates__title"><label htmlFor={messageId}><strong>Готовое сообщение</strong></label>{draftText !== null && <button type="button" onClick={() => setDraftText(null)}><RefreshCcw size={14} />Обновить по шаблону</button>}</div>
         <textarea id={messageId} className="message-templates__message" value={text} rows={9} maxLength={20000} onChange={event => setDraftText(event.target.value)} />

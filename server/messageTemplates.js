@@ -13,6 +13,10 @@ const minuteOf = value => {
   return match && Number(match[1]) < 24 && Number(match[2]) < 60 ? Number(match[1]) * 60 + Number(match[2]) : NaN;
 };
 const cancelled = entry => entry.cancelled || entry.isCancelled || ['cancelled', 'canceled'].includes(entry.status);
+const groupDayNames = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье'];
+const groupScheduleList = new Intl.ListFormat('ru', { type: 'conjunction' });
+const oldAfterTrialBody = '{{имя}}, расписываю подробнее, как будем заниматься. Занятия будут на платформе — перед стартом всё покажу и расскажу, как подключаться.\n\nПредлагаю присоединиться к группе «{{группа}}». Расписание группы — {{расписание}}. Ребята уже немного продвинулись в Python, поэтому сначала предлагаю {{занятия}} индивидуальных занятия, чтобы догнать группу. После этого можно будет перейти в группу.\n\nПрикрепляю свободное время для дополнительных занятий. Посмотри, какие дни и время тебе подходят.';
+const afterTrialBody = DEFAULT_MESSAGE_TEMPLATES.find(template => template.id === 'after-trial').body;
 
 export function messageAvailabilityWeek(entries, start, now = Date.now()) {
   const events = [];
@@ -47,16 +51,19 @@ export function rankMessageGroups({ groups, students, progressDb, testsDb, catal
       total: progress.topics[topic.number]?.totalQuestions || 0 }));
     const lastTopic = covered.findLastIndex(topic => topic.covered > 0);
     const current = covered[lastTopic];
-    const slots = [...(group.schedule || []), ...entries.filter(entry => entry.groupId === group.id && !entry.learningGroupMatchAmbiguous)]
+    const toSlots = schedule => schedule
       .filter(entry => !cancelled(entry) && (!entry.date || entry.date >= moscowDay(now)))
       .map(entry => ({ day: entry.date ? weekdayIndex(entry.date) : AVAILABILITY_WEEKDAYS.indexOf(entry.weekdayKey), time: entry.time }))
       .filter(entry => entry.day >= 0 && entry.day <= 6 && Number.isFinite(minuteOf(entry.time)));
-    const schedule = [...new Map(slots.map(slot => [`${slot.day}/${slot.time}`, slot])).values()]
-      .sort((a, b) => a.day - b.day || minuteOf(a.time) - minuteOf(b.time))
-      .map(slot => `${AVAILABILITY_DAY_NAMES[slot.day].toLocaleLowerCase('ru-RU')} в ${slot.time}`).join(', ');
+    const fixed = toSlots(group.schedule || []);
+    const slots = fixed.length ? fixed : toSlots(entries.filter(entry => entry.groupId === group.id && !entry.learningGroupMatchAmbiguous));
+    const ordered = [...new Map(slots.map(slot => [`${slot.day}/${slot.time}`, slot])).values()]
+      .sort((a, b) => a.day - b.day || minuteOf(a.time) - minuteOf(b.time));
+    const schedule = groupScheduleList.format(ordered.map(slot => `${AVAILABILITY_DAY_NAMES[slot.day].toLocaleLowerCase('ru-RU')} в ${slot.time}`));
+    const scheduleDays = groupScheduleList.format([...new Set(ordered.map(slot => groupDayNames[slot.day]))]);
     return { id: group.id, name: group.name, memberCount: progress.memberCount, lastTopic,
       topicTitle: current?.title || 'Начало курса', coveredCount: covered.reduce((sum, row) => sum + row.covered, 0),
-      topicCovered: current?.covered || 0, topicTotal: current?.total || 0, schedule };
+      topicCovered: current?.covered || 0, topicTotal: current?.total || 0, schedule, scheduleDays };
   }).sort((a, b) => Number(!a.memberCount) - Number(!b.memberCount) || a.lastTopic - b.lastTopic
     || a.topicCovered - b.topicCovered || a.coveredCount - b.coveredCount || a.name.localeCompare(b.name, 'ru-RU'));
 }
@@ -69,7 +76,9 @@ export function registerMessageTemplates(app, deps) {
     if (data.version !== 1 || !data.teachers || typeof data.teachers !== 'object' || Array.isArray(data.teachers)) throw Error('Invalid message templates storage');
     return data.teachers;
   };
-  const list = (data, teacherId) => data[teacherId] || DEFAULT_MESSAGE_TEMPLATES.map(template => ({ ...template, revision: 'default' }));
+  const list = (data, teacherId) => data[teacherId]?.map(template =>
+    template.id === 'after-trial' && template.body === oldAfterTrialBody ? { ...template, body: afterTrialBody } : template
+  ) || DEFAULT_MESSAGE_TEMPLATES.map(template => ({ ...template, revision: 'default' }));
   deps.telegram?.register(app, (teacherId, templateId) => list(read(), teacherId).find(template => template.id === templateId));
   const write = data => {
     fs.mkdirSync(deps.dataDir, { recursive: true });
