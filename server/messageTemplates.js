@@ -70,6 +70,7 @@ export function registerMessageTemplates(app, deps) {
     return data.teachers;
   };
   const list = (data, teacherId) => data[teacherId] || DEFAULT_MESSAGE_TEMPLATES.map(template => ({ ...template, revision: 'default' }));
+  deps.telegram?.register(app, (teacherId, templateId) => list(read(), teacherId).find(template => template.id === templateId));
   const write = data => {
     fs.mkdirSync(deps.dataDir, { recursive: true });
     const temporary = `${filename}.${randomUUID()}.tmp`;
@@ -125,8 +126,14 @@ export function registerMessageTemplates(app, deps) {
       || typeof body.body !== 'string' || !body.body.trim() || body.body.length > 10000
       || !Object.hasOwn(MESSAGE_TEMPLATE_CATEGORIES, body.category) || typeof body.attachAvailability !== 'boolean') fail('Укажите название, текст и категорию шаблона. Текст — до 10 000 символов.');
     if (!previous && (!/^[a-zA-Z0-9-]{1,80}$/.test(req.params.id) || templates.length >= 100)) fail('Можно сохранить до 100 шаблонов.');
+    const telegramVideoId = body.telegramVideoId ?? previous?.telegramVideoId ?? '';
+    if (telegramVideoId && (typeof telegramVideoId !== 'string'
+      || (telegramVideoId !== previous?.telegramVideoId && !deps.telegram?.hasVideo(req.auth.id, telegramVideoId)))) {
+      fail('Выберите видео из вашего Telegram-бота.');
+    }
     const template = { id: req.params.id, name: body.name.trim(), body: body.body.trim(), category: body.category,
-      attachAvailability: body.attachAvailability, revision: randomUUID(), updatedAt: new Date().toISOString() };
+      attachAvailability: body.attachAvailability, ...(telegramVideoId ? { telegramVideoId } : {}),
+      revision: randomUUID(), updatedAt: new Date().toISOString() };
     data[req.auth.id] = previous ? templates.map(row => row.id === template.id ? template : row) : [...templates, template];
     write(data);
     return { template, templates: data[req.auth.id] };

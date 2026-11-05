@@ -34,3 +34,15 @@
 @media(max-width:720px){.message-templates__workspace{grid-template-columns:minmax(0,1fr)}.message-templates__library{border-right:0;border-bottom:1px solid var(--mt-line);max-height:260px;overflow:auto}.message-templates__composer,.message-templates__editor,.message-templates__header{padding:18px}.message-templates h2{font-size:22px}.message-templates-dialog{width:calc(100vw - 14px);max-height:calc(100dvh - 14px)}}
 .review-request-status button.review-request-status__received[aria-pressed=true]{background:#ecfdf5;border-color:#6ee7b7;color:#047857}
 .student-month-report__footer{flex-wrap:wrap}.student-month-report__footer>.review-request-status{flex:1 0 100%}
+.message-templates__telegram {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px;
+  border: 1px solid var(--mt-line);
+  border-radius: 15px;
+  background: var(--mt-soft);
+}
+.message-templates__telegram-settings { padding: 16px 24px; border-bottom: 1px solid var(--mt-line); }
+.message-templates__telegram-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.message-templates__telegram a { color: var(--mt-accent); text-decoration: underline; }

@@ -7,6 +7,7 @@ import { copyParentMessage } from '../utils/studentParentContact.js';
 import { studentContacts } from '../services/studentContacts.js';
 import { parentContacts } from '../services/studentParentContacts.js';
 import ReviewRequestStatus from './ReviewRequestStatus.jsx';
+import MessageTemplateTelegram from './MessageTemplateTelegram.jsx';
 import './MessageTemplates.css';
 
 const emptyTemplate = () => ({ id: crypto.randomUUID(), name: '', body: '', category: 'other', attachAvailability: false, revision: '' });
@@ -25,6 +26,8 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
   const [contextBusy, setContextBusy] = useState(false), [image, setImage] = useState(null), [imageError, setImageError] = useState('');
   const [contextError, setContextError] = useState('');
   const [contact, setContact] = useState(null);
+  const [telegramSettings, setTelegramSettings] = useState(false);
+  const [telegramRevision, setTelegramRevision] = useState(0);
   const [reviewMonth, setReviewMonth] = useState(initialReviewMonth || currentReviewMonth);
   const imageRef = useRef(null), messageInput = useRef(null), busyRef = useRef(false);
   const messageId = useId();
@@ -121,7 +124,16 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
     && (row.name + ' ' + row.body).toLocaleLowerCase('ru-RU').includes(query.trim().toLocaleLowerCase('ru-RU')));
 
   return <section className="message-templates" aria-label="Шаблоны сообщений">
-    <header className="message-templates__header"><div><span>ПЕРЕПИСКА БЕЗ ПОВТОРНОГО НАБОРА</span><h2>Шаблоны сообщений</h2><p>Выберите шаблон, проверьте текст и скопируйте в мессенджер.</p></div>{onClose && <button type="button" aria-label="Закрыть шаблоны" onClick={onClose}><X size={21} /></button>}</header>
+    <header className="message-templates__header"><div><span>ПЕРЕПИСКА БЕЗ ПОВТОРНОГО НАБОРА</span><h2>Шаблоны сообщений</h2><p>Выберите шаблон, проверьте текст и подготовьте отправку.</p></div>
+      <div className="message-templates__telegram-actions">
+        <button type="button" aria-expanded={telegramSettings} onClick={() => {
+          if (telegramSettings) setTelegramRevision(value => value + 1);
+          setTelegramSettings(!telegramSettings);
+        }}>{telegramSettings ? 'Закрыть настройки Telegram' : 'Настроить Telegram'}</button>
+        {onClose && <button type="button" aria-label="Закрыть шаблоны" onClick={onClose}><X size={21} /></button>}
+      </div>
+    </header>
+    {telegramSettings && <div className="message-templates__telegram-settings"><MessageTemplateTelegram mode="settings" /></div>}
     {error && <div role="alert" className="message-templates__error">{error}<button type="button" disabled={busy} onClick={() => execute(loadTemplates)}>Обновить список шаблонов</button></div>}
     {notice && <p role="status" className="message-templates__notice"><Check size={16} />{notice}</p>}
     <div className="message-templates__workspace">
@@ -130,7 +142,7 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
         <label className="message-templates__search"><Search size={16} /><input type="search" aria-label="Найти шаблон" placeholder="Найти шаблон" value={query} onChange={event => setQuery(event.target.value)} /></label>
         <select aria-label="Категория шаблонов" value={category} onChange={event => setCategory(event.target.value)}><option value="">Все шаблоны</option>{Object.entries(MESSAGE_TEMPLATE_CATEGORIES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
         {!templates && !error && <p role="status">Загружаем шаблоны…</p>}
-        {filtered.map(row => <button type="button" disabled={busy} className={'message-templates__template' + (row.id === selectedId && !editor ? ' is-selected' : '')} aria-pressed={row.id === selectedId && !editor} key={row.id} onClick={() => choose(row.id)}><FileText size={18} /><span><strong>{row.name}</strong><small>{MESSAGE_TEMPLATE_CATEGORIES[row.category]}{row.attachAvailability ? ' · с занятостью' : ''}</small></span></button>)}
+        {filtered.map(row => <button type="button" disabled={busy} className={'message-templates__template' + (row.id === selectedId && !editor ? ' is-selected' : '')} aria-pressed={row.id === selectedId && !editor} key={row.id} onClick={() => choose(row.id)}><FileText size={18} /><span><strong>{row.name}</strong><small>{MESSAGE_TEMPLATE_CATEGORIES[row.category]}{row.attachAvailability ? ' · с занятостью' : ''}{row.telegramVideoId ? ' · с видео' : ''}</small></span></button>)}
         {templates && !filtered.length && <p>Подходящих шаблонов пока нет.</p>}
       </aside>
       {editor ? <form className="message-templates__editor" onSubmit={event => { event.preventDefault(); void saveTemplate(); }}>
@@ -140,6 +152,8 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
         <label>Текст шаблона<textarea ref={messageInput} required maxLength={10000} rows={12} value={editor.body} onChange={event => setEditor({ ...editor, body: event.target.value })} /></label>
         <div className="message-templates__variables"><span>Вставить подстановку</span>{MESSAGE_TEMPLATE_VARIABLES.map(name => <button type="button" key={name} onClick={() => { const node = messageInput.current, start = node.selectionStart, end = node.selectionEnd, value = '{{' + name + '}}'; setEditor({ ...editor, body: editor.body.slice(0, start) + value + editor.body.slice(end) }); requestAnimationFrame(() => { node.focus(); node.setSelectionRange(start + value.length, start + value.length); }); }}>{'{{' + name + '}}'}</button>)}</div>
         <label className="message-templates__check"><input type="checkbox" checked={editor.attachAvailability} onChange={event => setEditor({ ...editor, attachAvailability: event.target.checked })} />Прикреплять актуальную картинку свободного времени</label>
+        {!telegramSettings && <MessageTemplateTelegram key={editor.id + '/' + telegramRevision} mode="edit" videoId={editor.telegramVideoId}
+          onVideoChange={telegramVideoId => setEditor(previous => previous && { ...previous, telegramVideoId })} />}
         <footer><button type="button" disabled={busy} onClick={() => setEditor(null)}>Отмена</button><button type="submit" className="message-templates__primary" disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить шаблон'}</button></footer>
       </form> : template ? <div className="message-templates__composer">
         <div className="message-templates__title"><h3>{template.name}</h3><div><button type="button" disabled={busy} onClick={() => setEditor({ ...template })}><Pencil size={15} />Изменить</button><button type="button" disabled={busy} aria-label="Удалить выбранный шаблон" onClick={() => { if (window.confirm('Удалить шаблон «' + template.name + '»?')) void deleteTemplate(); }}><Trash2 size={15} /></button></div></div>
@@ -160,6 +174,10 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
           {attachAvailability && <><div className="message-templates__fields"><label>Неделя<select value={weekOffset} onChange={event => setWeekOffset(Number(event.target.value))}>{[0, 1, 2, 3, 4].map(offset => <option key={offset} value={offset}>{offset === 0 ? 'Текущая' : offset === 1 ? 'Следующая' : 'Через ' + offset + ' недели'}</option>)}</select></label><button type="button" disabled={contextBusy} onClick={() => setRefresh(value => value + 1)}><RefreshCcw size={15} />Обновить занятость</button></div>
             {contextBusy ? <p role="status">Проверяем календарь…</p> : (contextError || context?.calendarError || imageError) ? <p role="alert" className="message-templates__warning">{contextError || context?.calendarError || imageError}</p> : validImage ? <><small>С {weekLabel(context.weekStart)} · Москва · подготовлено {new Date(context.generatedAt).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })}</small><img src={image.url} alt="Свободное время для дополнительных занятий" /></> : <p role="status">Готовим картинку…</p>}</>}
         </section>
+        {template.telegramVideoId && recipient === 'student' && !telegramSettings && <MessageTemplateTelegram
+          key={template.id + '/' + studentId + '/' + telegramRevision} mode="send" student={student} template={template}
+          caption={text} canSend={Boolean(text.trim() && !missing.length && (!attachAvailability || validImage))}
+          availabilityPng={validImage ? image.blob : null} />}
         <footer><button type="button" disabled={busy || !text.trim() || missing.length > 0} onClick={copyText}><ClipboardCopy size={16} />Копировать текст</button>{attachAvailability && <><button type="button" disabled={!validImage} onClick={downloadImage}><Download size={16} />Скачать PNG</button><button type="button" className="message-templates__primary" disabled={busy || !validImage || !text.trim() || missing.length > 0} onClick={copyPacket}><ClipboardCopy size={16} />Текст и картинка</button></>}{contact?.url && <a href={contact.url} target="_blank" rel="noopener noreferrer">Открыть контакт {recipient === 'parent' ? 'родителя' : 'ученика'} ↗</a>}</footer>
       </div> : <div className="message-templates__empty"><MessageSquare size={34} /><h3>Выберите или создайте шаблон</h3><p>Он сохранится в вашем кабинете и будет доступен на других устройствах.</p></div>}
     </div>

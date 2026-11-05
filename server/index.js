@@ -67,6 +67,7 @@ import {monthlyAttemptContext,monthlyQuotaError} from './monthlyMockAttemptPolic
 import {monthlyAssignedMonths,mockAttemptMonth,getMonthlyAttemptRecords,normalizeMonthlyMockSurrenders} from '../src/utils/monthlyMockAttemptPolicy.js';
 import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
 import { registerMessageTemplates } from './messageTemplates.js';
+import { createMessageTemplateTelegram } from './messageTemplateTelegram.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
 import { normalizeGroupHomeworkCancellations, registerGroupHomeworkCancellations } from './groupHomeworkCancellations.js';
@@ -23084,6 +23085,14 @@ const studentViewRouteOptions = {
 const studentViewHandoffs = createStudentViewHandoffs();
 registerStudentViewRoutes(app, { ...studentViewRouteOptions, handoffs: studentViewHandoffs, resolveParent: getAuthSession, publicRoutes: true });
 
+const messageTemplateTelegram = createMessageTemplateTelegram({
+  dataDir, students: readStudentsDb,
+  secret: process.env.TELEGRAM_TEMPLATE_ENCRYPTION_KEY,
+  publicUrl: process.env.APP_PUBLIC_URL || 'https://ivan100.ru',
+  reservedTokens: [process.env.TELEGRAM_HELP_BOT_TOKEN, process.env.TELEGRAM_BOT_TOKEN],
+});
+messageTemplateTelegram.registerWebhook(app);
+
 app.use('/api', (req, res, next) => {
   const token = getAuthTokenFromRequest(req);
   const session = getAuthSession(token, req);
@@ -25898,6 +25907,7 @@ setInterval(async () => {
 
 registerMessageTemplates(app, {
   dataDir, groups: readLearningGroupsDb, students: readStudentsDb, progress: readProgressDb,
+  telegram: messageTemplateTelegram,
   tests: readTestsDbForTeacher, catalog: LEADERBOARD_PROFILE_DEFAULT_PYTHON_TASKS,
   getEntries: (teacherId, throughDay, fromDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay, { fromDay }),
 });
