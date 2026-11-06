@@ -77,8 +77,8 @@ export {preparedTheoryPoint,preparedNextPoint} from '../src/utils/preparedTheory
 // Secrets and future conditions live here, never in the collaborative scene.
 // Every mutation is serialized per store; persisted state precedes notification.
 export class PreparedLessonTasks {
-  constructor({directory,authorize,board,code,sourceFiles,saveNotes,achievementContext,onAchievement,now=()=>Date.now()}) {
-    this.directory=directory;this.authorize=authorize;this.board=board;this.code=code;this.sourceFiles=sourceFiles;this.saveNotes=saveNotes;this.achievementContext=achievementContext;this.onAchievement=onAchievement;this.now=now;
+  constructor({directory,authorize,board,code,sourceFiles,saveNotes,achievementContext,onAchievement,onCodeAdvance,now=()=>Date.now()}) {
+    this.directory=directory;this.authorize=authorize;this.board=board;this.code=code;this.sourceFiles=sourceFiles;this.saveNotes=saveNotes;this.achievementContext=achievementContext;this.onAchievement=onAchievement;this.onCodeAdvance=onCodeAdvance;this.now=now;
     fs.mkdirSync(directory,{recursive:true});this.assetsDir=path.join(directory,'assets');fs.mkdirSync(this.assetsDir,{recursive:true});
     this.file=path.join(directory,'state.json');
     this.data=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):{version:1,sets:{},assets:{},runs:{},active:{},sessions:{}};
@@ -280,8 +280,21 @@ export class PreparedLessonTasks {
       const task=run.tasks[c.index],source=preparedTaskSource(run,task,c.index);return {kind:isPreparedTheory(task)?'theory':'task',...(isPreparedTheory(task)?{compactTheory:c.compactTheory===true,theoryStep:task.theoryStep||null,theoryDisplay:task.theoryDisplay||null,previousTheoryCardId:c.previousTheoryCardId||run.cards.find(row=>row.index===c.index-1&&isPreparedTheory(run.tasks[row.index])&&preparedTaskSource(run,run.tasks[row.index]).id===source.id&&(run.tasks[row.index].theoryBefore||'')===(task.theoryBefore||''))?.id||'',nextKind:isPreparedTheory(run.tasks[c.index+1])?'theory':'task',nextTheoryPlacement:isPreparedTheory(run.tasks[c.index+1])?run.tasks[c.index+1].theoryDisplay?.placement||'auto':null,hasNext:c.index+1<run.tasks.length}:{}),setId:source.id,setName:source.name,taskNumber:source.taskNumber,partNumber:source.partNumber,sourceIndex:source.index,id:c.id,index:c.index,taskId:task.id,title:task.title,anchorId:c.anchorId,codeId:c.codeId,width:c.width,height:c.height,...(Number.isFinite(c.conditionTop)?{conditionTop:c.conditionTop}:{}),status:c.status,...(c.focusAnchorId!==undefined?{focusAnchorId:c.focusAnchorId}:{}),...(c.theoryCamera?{theoryCameraFrame:c.theoryCamera.frame}:{}),lastResult:c.lastResult,answers:c.answers,answerRevision:c.answerRevision,answerSchema:preparedAnswerSchema(task),...(teacher(access.auth)&&!access.readOnly?{referenceAnswers:[...task.answers]}:{}),difficult:task.difficult===true,...(teacher(access.auth)&&!access.readOnly?{achievementParticipants:(c.solveReceipt?.participants||[]).map(person=>({...person,independent:(c.independentStudentIds||[]).includes(person.id)}))}:{}),format:task.format,...(task.answerGroups?{answerGroups:structuredClone(task.answerGroups)}:{}),...(task.answerTable?{answerTable:task.answerTable}:{}),answerMode:task.answerMode||'combined',fieldResults:task.answerMode==='independent'?task.answers.map((_,i)=>c.fieldResults?.[i]||null):[],answerCount:isPreparedTheory(task)?0:task.answers.length||1,lease:null,referenceSolution:preparedReferenceView(this,task,run,c,teacher(access.auth)&&!access.readOnly),...(teacher(access.auth)&&!access.readOnly&&access.auth.id===run.teacherId?preparedReferencePromotionState(this,run,c):{}),images:task.images.map(id=>this.assetView(id,run.id)),attachments:task.attachments.map(a=>({...this.assetView(a.assetId,run.id),assetId:a.assetId,runtime:a.runtime!==false,runtimeName:a.runtimeName||a.name,helper:helperSupported(run,a.name,c),helperText:textWorkbook(run,a.name,c),live:workbookLiveView(this,run,c,a.assetId),writer:preparedWriterView(c.bindings?.[a.assetId],access.auth,this.now()),solution:this.solutionView(c.solutions?.[a.assetId]),historyCount:Math.max(c.workbookHistoryCounts?.[a.assetId]||0,c.solutions?.[a.assetId]?1:0),attempt:{...workbookAttempt(c,a.assetId),hasSaved:Boolean(currentWorkbookSolution(c,a.assetId))}})),codeRevision:c.code?.revision||0};})};
   }
   solutionView(solution){return solution?{id:solution.id,name:solution.name,revision:solution.revision,sizeBytes:solution.size,updatedAt:solution.updatedAt,savedBy:solution.savedBy,url:`/api/lesson-task-solutions/${solution.id}`} : null;}
-  async projectCode(run){if(this.code)projectPreparedCode(await this.code(run.room.split('~page~')[0].replace(/^board-/,'collab-')),run);}
-  async notify(run,kind='run',cardId=''){await this.projectCode(run);const change={runId:run.id,version:run.version,mode:run.mode,kind,cardId,at:this.now()};const doc=await this.board(run.room);doc.getMap('preparedTaskState').set('change',change);const book=await this.board(run.room.split('~page~')[0].split('~student~')[0]+'~pages');book.getMap('preparedTaskSignals').set(run.room,change);}
+  async projectCode(run){
+    if(!this.code)return;
+    const room=run.room.split('~page~')[0].replace(/^board-/,'collab-'),doc=await this.code(room);
+    projectPreparedCode(doc,run);
+    return {room,doc};
+  }
+  async notify(run,kind='run',cardId='',previousFocusRevision){
+    const code=await this.projectCode(run);
+    const change={runId:run.id,version:run.version,mode:run.mode,kind,cardId,at:this.now()};
+    const doc=await this.board(run.room);doc.getMap('preparedTaskState').set('change',change);
+    const book=await this.board(run.room.split('~page~')[0].split('~student~')[0]+'~pages');book.getMap('preparedTaskSignals').set(run.room,change);
+    if(!code||!this.onCodeAdvance||run.homework||run.mode!=='prepared'||!(run.theoryFocus?.revision>previousFocusRevision))return;
+    const next=run.cards.find(card=>card.id===run.theoryFocus?.cardId);
+    if(next&&!isPreparedTheory(run.tasks[next.index]))this.onCodeAdvance(run,code,next.codeId);
+  }
   async start(auth,input,trustedSet){return this.lock(async()=>{
     const access=await this.access(auth,input.room,true);if(!teacher(auth))fail(403,'Начать набор может преподаватель');
     const set=trustedSet||this.data.sets[input.setId];if(!set||set.teacherId!==auth.id)fail(404,'Набор не найден');
@@ -294,8 +307,9 @@ export class PreparedLessonTasks {
     if(old?.detachedSets?.some(record=>record.setId===set.id))fail(409,'Этот набор был убран со страницы. Верните его через список наборов.');
     const run={...(old||{}),id:old?.id||crypto.randomUUID(),teacherCardId:'',awaitingFirstCard:input.deferFirstCard===true,room:input.room,teacherId:set.teacherId,name:set.name,taskNumber:set.taskNumber,partNumber:filter??set.partNumber,setId:set.id,setVersion:set.version,...(filter!==undefined?{partFilters:{[set.id]:filter}}:{}),tasks:structuredClone(preparedSetSequence(set,filter)),cards:[],version:(old?.version||0)+1,mode:'prepared',auto:false,participantIds:access.participantIds||[],studentId:access.studentId||'',groupId:access.groupId||'',start:{x,y},createdAt:new Date(this.now()).toISOString()};
     this.data.runs[run.id]=run;this.data.active[run.room]=run.id;this.save(run);this.save();
+    const previousFocusRevision=run.theoryFocus?.revision||0;
     if(!run.awaitingFirstCard){await this.addCard(run);this.theoryFocus(run);this.save(run);}
-    await this.notify(run);return this.publicRun(run,access);
+    await this.notify(run,'run','',previousFocusRevision);return this.publicRun(run,access);
   });}
   sourceTasks(run,set,tasks=preparedSetSequence(set)) {
     const known=new Set(run.tasks.map(task=>task.id));
@@ -362,6 +376,7 @@ export class PreparedLessonTasks {
   async repair(run,pendingOnly=false){const doc=await this.board(run.room),items=doc.getArray('items');for(const c of run.cards){if(pendingOnly&&!c.projectionPending)continue;if(!items.toArray().some(i=>i.id===c.anchorId)&&!c.deleted&&Number.isFinite(c.x))doc.transact(()=>items.push([{id:c.anchorId,type:'shape',shape:'rectangle',x:c.x,y:c.y,width:c.width*(c.spawnScale||1),height:c.height*(c.spawnScale||1),color:'#ddd6ee',strokeWidth:1,authorId:run.teacherId}]),'prepared-lesson:repair');c.projectionPending=false;}}
   async action(auth,id,input){return this.lock(async()=>{
     const {run,access}=await this.getRun(auth,id,true),manage=teacher(auth),card=run.cards.find(c=>c.id===input.cardId),now=this.now();
+    const previousFocusRevision=run.theoryFocus?.revision||0;
     const requireCard=()=>{if(!card)fail(404,'Задача не найдена');};
     if(card&&isPreparedTheory(run.tasks[card.index])&&['claim','answer','check','confirm-independent','claim-code','code'].includes(input.action))fail(400,'Теория не требует ответа и не считается решённой задачей');
     const lease=(kind='lease')=>{requireCard();const previous=card[kind];if(!previous||previous.until<now||previous.actor!==actorKey(auth)||previous.key!==input.leaseKey)fail(409,`${previous?.name||'Другой участник'} редактирует поле либо время ввода истекло. Возьмите ввод заново.`);};
@@ -538,7 +553,7 @@ export class PreparedLessonTasks {
       else resumePreparedFile(this,run,card,input.assetId,auth);
     }
     else fail(400,'Неизвестное действие');
-    run.version++;if(input.action==='code')this.atomic(path.join(this.runsDir,`${run.id}-${card.id}.code.json`),card.code);this.save(run);if(card?.achievementPending)await this.flushAchievement(run,card);await this.notify(run,input.action==='code'||input.action==='claim-code'?'code':'run',card?.id||'');
+    run.version++;if(input.action==='code')this.atomic(path.join(this.runsDir,`${run.id}-${card.id}.code.json`),card.code);this.save(run);if(card?.achievementPending)await this.flushAchievement(run,card);await this.notify(run,input.action==='code'||input.action==='claim-code'?'code':'run',card?.id||'',previousFocusRevision);
     if(input.action==='code'||input.action==='claim-code')return {id:run.id,room:run.room,version:run.version,changeOnly:'code'};
     return {...this.publicRun(run,access),result:card?.lastResult};
   });}

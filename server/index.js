@@ -367,7 +367,7 @@ import {
   resolveGoogleCalendarLearningGroupMatch,
 } from './googleCalendarLearningGroups.js';
 import { installReadOnlyYWebsocketMessageFilter } from './collabReadOnly.js';
-import { normalizeCollabCodeDocument } from '../src/utils/collabSolutions.js';
+import { COLLAB_SOLUTIONS_DELETED_KEY, COLLAB_SOLUTIONS_MAP_KEY, getCollabSolutionPageId, normalizeCollabCodeDocument } from '../src/utils/collabSolutions.js';
 import { groupCodePresence } from './groupCodePresence.js';
 import { findStudentCodeLocation, isSavedLessonCode, LESSON_CODE_FOCUS_MS } from './lessonCodeFocus.js';
 import {
@@ -1667,6 +1667,32 @@ const getLessonCodeFocus = studentId => {
   return focus?.expiresAt > Date.now() ? focus : null;
 };
 const studentCodeFocusActive = auth => isStudentRole(auth) && Boolean(getLessonCodeFocus(auth.id));
+const notifyLessonCodeFocus = (studentId, teacherId, focus) => {
+  notificationClientsBySocket.forEach(client => {
+    if (client.auth?.id === studentId || client.auth?.id === teacherId) {
+      sendNotificationPayload(client.ws, { type: 'lesson-code-focus', studentId, focus });
+    }
+  });
+};
+const advanceLessonCodeFocus = (run, { room, doc }, solutionId) => {
+  const records = readLessonCodeFocusRecords();
+  const solution = doc.getMap(COLLAB_SOLUTIONS_MAP_KEY).get(solutionId);
+  if (!solution || doc.getMap(COLLAB_SOLUTIONS_DELETED_KEY).get(solutionId) === true) return;
+  const pageId = getCollabSolutionPageId(doc, solutionId);
+  const now = Date.now();
+  const updated = Object.entries(records).filter(([studentId, focus]) =>
+    focus.expiresAt > now && focus.room === room && focus.pageId === pageId &&
+    (focus.groupId || '') === (run.groupId || '') && (run.groupId || studentId === run.studentId) &&
+    focus.solutionId !== solutionId);
+  if (!updated.length) return;
+  const next = { ...records };
+  for (const [studentId, focus] of updated) {
+    next[studentId] = { ...focus, solutionId, solutionName: solution.name };
+  }
+  writeJsonFileAtomic(lessonCodeFocusFile, next);
+  lessonCodeFocusRecords = next;
+  for (const [studentId] of updated) notifyLessonCodeFocus(studentId, run.teacherId, next[studentId]);
+};
 const getJsonStorageHash = (serialized) => crypto
   .createHash('sha1')
   .update(serialized)
@@ -21900,6 +21926,7 @@ const preparedLessonTasks = new PreparedLessonTasks({
   },
   board:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
   code:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
+  onCodeAdvance:advanceLessonCodeFocus,
   achievementContext:async(run,auth,access)=>run.homework?{participants:[],lessonId:''}:lessonAchievementContext(run,auth,{target:access.target,students:readStudentsDb(),sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],connections:[...collabWss.clients].map(ws=>({auth:ws.learningCollabAuth,target:ws.learningCollabTarget,readOnly:ws.learningCollabReadOnly,open:ws.readyState===1}))}),
   onAchievement:async(run,card)=>{
     if(run.homework){setStudentData(run.studentId,getStudentData(run.studentId));notifyScheduleSyncUpdate({scope:'homework-progress',action:'prepared-task-solved',teacherId:run.teacherId,studentId:run.studentId,entryId:run.homework.homeworkId});return;}
@@ -24201,11 +24228,7 @@ app.post('/api/lesson-code-focus', (req, res) => {
   else delete records[student.id];
   writeJsonFileAtomic(lessonCodeFocusFile, records);
   lessonCodeFocusRecords = records;
-  notificationClientsBySocket.forEach(client => {
-    if (client.auth?.id === student.id || client.auth?.id === student.teacherId) {
-      sendNotificationPayload(client.ws, { type: 'lesson-code-focus', studentId: student.id, focus });
-    }
-  });
+  notifyLessonCodeFocus(student.id, student.teacherId, focus);
   return res.json({ focus });
 });
 registerPreparedTaskRoutes(app,preparedLessonTasks);

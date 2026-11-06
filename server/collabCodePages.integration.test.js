@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import sharp from 'sharp';
 import WebSocket from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -112,6 +113,64 @@ test('code page stacks synchronize through authenticated rooms and survive serve
     const saved = getCollabSolutionChannels(restored, 'second-8');
     assert.equal(saved.codeText.toString(), 'print("second")'); assert.equal(saved.testFileText.toString(), 'second file');
     assert.equal(saved.runMap.get('stdinDraft'), 'second input'); assert.equal(saved.runMap.get('output'), 'second output');
+
+    const request = async (route, token, body, status = 200) => {
+      const form = body instanceof FormData;
+      const response = await fetch(base + route, {
+        headers: { Authorization: `Bearer ${token}`, ...(!form && body ? { 'Content-Type': 'application/json' } : {}) },
+        ...(body ? { method: 'POST', body: form ? body : JSON.stringify(body) } : {}),
+      });
+      const data = await response.json();
+      assert.equal(response.status, status, JSON.stringify(data) + logs.slice(-500));
+      return data;
+    };
+    const image = new FormData();
+    const png = await sharp({ create: { width: 40, height: 40, channels: 4, background: 'white' } }).png().toBuffer();
+    image.append('file', new Blob([png], { type: 'image/png' }), 'condition.png');
+    const { id: imageId } = await request('/api/lesson-task-images', restoredTeacher, image, 201);
+    const set = await request('/api/lesson-task-sets', restoredTeacher, {
+      name: 'Проверка замка', taskNumber: 5,
+      tasks: ['1', '2', '3'].map(title => ({ title, images: [imageId], answers: ['42'], format: 'exact' })),
+    }, 201);
+    const { run } = await request('/api/lesson-task-runs', restoredTeacher, {
+      room: 'board-teacher-a-a~page~' + page.id, setId: set.id, x: 0, y: 0,
+    }, 201);
+    const pupil = await connect(restoredStudent);
+    const first = run.cards[0];
+    const pupilProvider = connections.find(row => row.doc === pupil).provider;
+    await wait(() => listCollabPageSolutions(pupil, page.id).some(solution => solution.id === first.codeId));
+    pupilProvider.awareness.setLocalState({ solutionId: first.codeId, codeTabFocused: true });
+    const restoredTeacherProvider = connections.find(row => row.doc === restored).provider;
+    await wait(() => restoredTeacherProvider.awareness.getStates().get(pupil.clientID)?.solutionId === first.codeId);
+    const initialPin = (await (await focusApi(restoredTeacher, lockRequest)).json()).focus;
+    assert.equal(initialPin?.solutionId, first.codeId);
+    await request('/api/lesson-task-runs', restoredTeacher, {
+      room: 'board-teacher-a-a', setId: set.id, x: 0, y: 0,
+    }, 201);
+    assert.deepEqual((await (await focusApi(restoredStudent)).json()).focus, initialPin, 'Another board page keeps its own code tabs');
+    const updates = [];
+    notifications = new WebSocket(`${base.replace('http', 'ws')}/notifications?_auth=${restoredStudent}`);
+    notifications.on('message', data => updates.push(JSON.parse(data.toString())));
+    await wait(() => updates.some(message => message.type === 'ready'));
+    const action = (token, body) => request(`/api/lesson-task-runs/${run.id}/action`, token, body);
+    const checkPin = async card => {
+      const focus = (await (await focusApi(restoredStudent)).json()).focus;
+      assert.deepEqual(focus, { ...initialPin, solutionId: card.codeId, solutionName: card.title });
+      assert.equal(JSON.parse(fs.readFileSync(path.join(data, 'lesson-code-focus.json'), 'utf8')).a.solutionId, card.codeId);
+      await wait(() => updates.some(message => message.type === 'lesson-code-focus' && message.focus?.solutionId === card.codeId));
+    };
+    await action(restoredTeacher, { action: 'auto', value: true });
+    await action(restoredStudent, { action: 'answer', cardId: first.id, revision: 0, answers: ['42'] });
+    const { run: advanced } = await action(restoredStudent, { action: 'check', cardId: first.id, revision: 1 });
+    const second = advanced.cards[1];
+    await checkPin(second);
+    await action(restoredTeacher, { action: 'focus', cardId: first.id });
+    assert.equal((await (await focusApi(restoredStudent)).json()).focus.solutionId, second.codeId);
+    await action(restoredTeacher, { action: 'focus', cardId: second.id });
+    const { run: skipped } = await action(restoredTeacher, { action: 'skip', expectedCount: 2, fromCardId: second.id });
+    await checkPin(skipped.cards[2]);
+    notifications.close();
+
     if (process.env.CODE_PAGES_QA_SERVE === '1') {
       closeConnections(); console.log(`CODE_PAGES_QA ${JSON.stringify({ base, root })}`);
       await new Promise(resolve => process.once('SIGINT', resolve));
