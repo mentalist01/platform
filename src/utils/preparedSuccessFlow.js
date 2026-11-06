@@ -1,4 +1,5 @@
-export const PREPARED_SUCCESS_DELAY_MS=1100;
+// Allow the 1.62 s celebration in PreparedSolveCelebration.css to finish.
+export const PREPARED_SUCCESS_DELAY_MS=1650;
 
 // Keep the result in view before choosing the next card. Repeated Yjs refreshes
 // do not restart the timer; navigation and leaving the lesson cancel it.

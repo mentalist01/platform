@@ -8,6 +8,7 @@ import PreparedConditionImage from './PreparedConditionImage.jsx';
 import PreparedAnswerStatus from './PreparedAnswerStatus.jsx';
 import PreparedFileHandoff from './PreparedFileHandoff.jsx';
 import PreparedSolveCelebration from './PreparedSolveCelebration.jsx';
+import './PreparedSolveCelebration.css';
 import {getExternalApiOrigin} from '../utils/runtimeUrls.js';
 import {getWorkbookHelperInstall} from '../utils/workbookHelperInstall.js';
 import {requestLessonPages} from '../services/lessonPages.js';
@@ -80,9 +81,9 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
       {canEditFiles&&<input ref={upload} type="file" hidden onChange={event=>{const file=event.target.files?.[0];if(!file)return;const assetId=event.target.dataset.assetId,revision=event.target.dataset.revision;event.target.value='';void perform(async()=>{const form=new FormData();form.append('file',file);form.append('cardId',card.id);form.append('assetId',assetId);form.append('revision',revision);await preparedRequest(`/api/lesson-task-runs/${run.id}/solution`,form);context.refresh();setMessage('Решение сохранено на доске и в конспектах.');});}}/>}
 
     </div>
+    {context.celebrationCardId===card.id&&<PreparedSolveCelebration group={Boolean(run.groupId)}/>}
     </div>
     <div className="prepared-card-body">{card.images.map((asset,i)=><PreparedConditionImage key={asset.id} asset={asset} alt={`Условие задачи ${card.index+1}, изображение ${i+1}`}/>)}</div>
-    {context.celebrationCardId===card.id&&<PreparedSolveCelebration group={Boolean(run.groupId)}/>}
   </article>;
 }
 

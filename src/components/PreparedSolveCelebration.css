@@ -1,0 +1,136 @@
+/* Position the effect against the visible controls, even when the condition
+   has its own world anchor. The effect never participates in card measurement. */
+.prepared-card.is-celebrating:not(.prepared-card--anchored)>.prepared-card-controls {
+  position: relative;
+}
+.prepared-card.is-celebrating::after,
+.prepared-card--anchored.is-celebrating>.prepared-card-controls::after {
+  content: "";
+  position: absolute;
+  z-index: 9;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(from 215deg, transparent 4%, #ad6df0 24%, #fff0cc 36%, #68e4b7 50%, transparent 66%);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: prepared-solve-outline 1.45s ease-out both;
+}
+.prepared-solve-celebration {
+  position: absolute;
+  z-index: 8;
+  inset: 0 0 auto;
+  height: 168px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px 14px 0 0;
+  overflow: clip;
+  pointer-events: none;
+  user-select: none;
+}
+.prepared-success-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, #f0e6ff 4%, #f2ebffe8 34%, #e6fff47a 67%, transparent 100%);
+  animation: prepared-solve-flash 1.62s ease-out both;
+}
+.prepared-success-award {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 13px 27px 13px 14px;
+  max-width: calc(100% - 20px);
+  border-radius: 24px;
+  border: 1px solid #eee2ff;
+  background: linear-gradient(135deg, #fff 2%, #f4ecff 64%, #e7fff2);
+  box-shadow: 0 15px 42px #59349539, 0 0 20px #d5b8ff85, inset 0 1px 1px #fff;
+  transform-origin: 75% 12%;
+  animation: prepared-solve-award 1.62s both;
+}
+.prepared-success-copy { display: grid; gap: 3px; }
+.prepared-success-copy strong {
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 850;
+  letter-spacing: -.045em;
+  color: #392062;
+}
+.prepared-success-copy small { color: #594473; font-size: 12px; font-weight: 650; }
+.prepared-success-seal {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  border: 1px solid #ad80ec;
+  color: #fff;
+  background: linear-gradient(145deg, #b881ff, #7736cf 68%, #5628ac);
+  box-shadow: 0 6px 13px #7338c64a, inset 0 1px 2px #fff9;
+}
+.prepared-success-twinkle,
+.prepared-success-particles i:nth-child(3n) {
+  clip-path: polygon(50% 0,61% 38%,100% 50%,61% 62%,50% 100%,39% 62%,0 50%,39% 38%);
+}
+.prepared-success-twinkle {
+  position: absolute;
+  top: -13px;
+  right: 7px;
+  width: 30px;
+  height: 30px;
+  background: linear-gradient(145deg, #fff, #fbe1a8 55%, #c895f5);
+}
+.prepared-success-orbit {
+  position: absolute;
+  width: min(79%, 390px);
+  height: 99px;
+  border: 1px solid #a96bef;
+  border-inline-start-color: transparent;
+  border-radius: 50%;
+  box-shadow: 0 0 14px #a96bef38;
+  --orbit-tilt: -13deg;
+  animation: prepared-solve-orbit 1s .16s ease-out both;
+}
+.prepared-success-orbit--mint {
+  --orbit-tilt: 12deg;
+  border-color: #42cda3;
+  border-inline-end-color: transparent;
+  animation-delay: .24s;
+}
+.prepared-success-particles { position: absolute; inset: 50% auto auto 50%; }
+.prepared-success-particles i {
+  position: absolute;
+  width: var(--spark-size);
+  height: var(--spark-size);
+  border-radius: 2px;
+  background: var(--spark-color);
+  animation: prepared-solve-spark 1.05s var(--spark-delay) cubic-bezier(.1,.55,.26,1) both;
+}
+@keyframes prepared-solve-award {
+  0% { opacity: 0; transform: translate(35%, -55%) scale(.42) rotate(-10deg); }
+  22% { opacity: 1; transform: translate(0, 1%) scale(1.09) rotate(2deg); }
+  36%, 72% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0); }
+  100% { opacity: 0; transform: translate(34%, -50%) scale(.43) rotate(6deg); }
+}
+@keyframes prepared-solve-flash { 0%, 100% { opacity: 0; } 19%, 65% { opacity: .88; } }
+@keyframes prepared-solve-outline { 0%, 100% { opacity: 0; } 26% { opacity: 1; } 64% { opacity: .63; } }
+@keyframes prepared-solve-orbit {
+  0% { opacity: 0; transform: rotate(var(--orbit-tilt)) scale(.38); }
+  38% { opacity: .7; }
+  100% { opacity: 0; transform: rotate(var(--orbit-tilt)) scale(1.13); }
+}
+@keyframes prepared-solve-spark {
+  0% { opacity: 0; transform: scale(.2); }
+  15% { opacity: 1; }
+  65% { opacity: .9; }
+  100% { opacity: 0; transform: translate(var(--spark-x),var(--spark-y)) rotate(var(--spark-spin)) scale(.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prepared-success-award { animation: none; }
+  .prepared-success-flash, .prepared-success-orbit, .prepared-success-particles,
+  .prepared-card.is-celebrating::after,
+  .prepared-card--anchored.is-celebrating>.prepared-card-controls::after { display: none; }
+}
