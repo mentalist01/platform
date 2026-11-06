@@ -140,6 +140,7 @@ const QuickAction = ({ icon, eyebrow, title, hint, badge, onClick, tone = 'pytho
 
 const StudentTodayOverview = ({
   studentName,
+  hasGroupHomeworkGuide = false,
   homeworkEntry,
   goals = [],
   chatUnreadCount = 0,
@@ -416,10 +417,10 @@ const StudentTodayOverview = ({
             Домашка · {dateLabel}
           </div>
           <h2 className="student-today-overview__headline mt-1 text-2xl font-black tracking-tight text-slate-950 md:text-[30px]">
-            {`С чего начнём, ${getFirstName(studentName)}?`}
+            {hasGroupHomeworkGuide ? 'Быстрые действия' : `С чего начнём, ${getFirstName(studentName)}?`}
           </h2>
         </div>
-        <span className="text-xs font-medium text-slate-500">Один понятный следующий шаг</span>
+        {!hasGroupHomeworkGuide && <span className="text-xs font-medium text-slate-500">Один понятный следующий шаг</span>}
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)]">

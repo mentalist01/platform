@@ -1478,6 +1478,72 @@ test('learning groups keep shared work isolated while legacy student schedules r
       { token: teacher.token }
     );
     assert.deepEqual(allGroupsAfterCompletion.groups.map((group) => group.id), [groupId]);
+
+    const transitionRequest = (route, options = {}) => jsonRequest(baseUrl, route, { token: teacher.token, ...options });
+    const startAt = new Date(Date.now() + 3 * 86400000);
+    const date = startAt.toISOString().slice(0, 10);
+    const target = (await transitionRequest('/api/learning-groups', {
+      method: 'POST', status: 201, body: { name: 'Transition group', studentIds: ['student-a'] },
+    })).group;
+    const targetPath = `/api/learning-groups/${target.id}`;
+    await transitionRequest(`${targetPath}/start`, { method: 'POST', body: {} });
+    await transitionRequest(`${targetPath}/schedule`, {
+      method: 'PUT', body: { schedule: [{ date, time: '18:00', durationMinutes: 60 }] },
+    });
+    const nextIndividual = await transitionRequest('/api/student-schedule', {
+      method: 'POST', body: { studentId: 'student-b', date, time: '15:00', durationMinutes: 60 },
+    });
+    const createGroupHomework = (title, dueAt) => transitionRequest(`${targetPath}/assignments`, {
+      method: 'POST', status: 201, body: { title, content: title, dueAt },
+    }).then(result => result.assignment.id);
+    const assignedId = await createGroupHomework('Give this homework', assignmentDueAt);
+    const skippedId = await createGroupHomework('Skip this homework', assignmentDueAt);
+    const expiredId = await createGroupHomework('Expired homework', new Date(Date.now() - 86400000).toISOString());
+
+    const planPath = '/api/students/student-b/group-preparation';
+    const savePlan = { method: 'PATCH', body: { groupId: target.id, note: 'Cover loops', revision: '' } };
+    await transitionRequest(planPath, { ...savePlan, token: foreignTeacher.token, status: 403 });
+    const { plan } = await transitionRequest(planPath, savePlan);
+    assert.equal(plan.note, 'Cover loops');
+    assert.equal((await transitionRequest('/api/student-group-preparations')).plans['student-b'].groupId, target.id);
+    await transitionRequest('/api/student-group-preparations', { token: studentB.token, status: 403 });
+    await transitionRequest(planPath, { ...savePlan, status: 409 });
+    assert.equal((await transitionRequest(targetPath)).group.memberCount, 1);
+
+    const preview = await transitionRequest(`${planPath}/preview`);
+    assert.deepEqual(preview.assignments.map(assignment => assignment.id).sort(), [assignedId, skippedId].sort());
+    assert.equal(preview.nextLesson.startAt, new Date(`${date}T18:00:00+03:00`).toISOString());
+    assert.ok(preview.individualLessons.some(lesson => lesson.startAt === new Date(`${date}T15:00:00+03:00`).toISOString()));
+    const join = assignmentIds => ({ method: 'POST', body: { revision: plan.revision, assignmentIds } });
+    await transitionRequest(`${planPath}/join`, { ...join([expiredId]), status: 409 });
+    const joined = await transitionRequest(`${planPath}/join`, join([assignedId]));
+    assert.equal(joined.group.id, target.id);
+    assert.equal(joined.plan.groupId, '');
+    await transitionRequest(`${planPath}/join`, join([assignedId]));
+    assert.equal((await transitionRequest(targetPath)).group.memberCount, 2);
+    const homeworkAfterJoin = await transitionRequest('/api/student-next-lesson', { token: studentB.token });
+    assert.deepEqual(homeworkAfterJoin.homeworks.filter(homework => homework.learningGroupId === target.id)
+      .map(homework => homework.learningAssignmentId), [assignedId]);
+    const individualAfterJoin = await transitionRequest('/api/student-schedule', { token: studentB.token });
+    assert.ok(individualAfterJoin.some(entry => entry.id === nextIndividual.id));
+
+    const weekdayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+    const pythonWeekday = weekdayKeys[weekday];
+    const egeWeekday = weekdayKeys[(weekday + 2) % 7];
+    await transitionRequest(`${targetPath}/schedule`, {
+      method: 'PUT', body: { schedule: [{ weekdayKey: pythonWeekday, time: '18:00' }, { weekdayKey: egeWeekday, time: '18:00' }] },
+    });
+    await transitionRequest(targetPath, { method: 'PATCH', body: { studyPlan: { mode: 'split', pythonWeekday } } });
+    const manualLesson = (await transitionRequest(`${targetPath}/lessons`, {
+      method: 'POST', status: 201, body: { startAt: `${date}T18:00:00+03:00`, topic: 'Manual Python lesson' },
+    })).lesson;
+    const scheduleForGuide = () => transitionRequest('/api/student-schedule?includeOptions=1', { token: studentB.token });
+    const guideSchedule = await scheduleForGuide();
+    assert.ok([...guideSchedule.schedule, ...guideSchedule.groupHomeworkSlots]
+      .some(entry => entry.lessonId === manualLesson.id && entry.studyTrack === 'python'));
+    await transitionRequest(`${targetPath}/lessons/${manualLesson.id}`, { method: 'PATCH', body: { status: 'cancelled' } });
+    assert.ok(!(await scheduleForGuide()).groupHomeworkSlots.some(entry => entry.lessonId === manualLesson.id));
   } finally {
     await stopServer(child);
     fs.rmSync(tempRoot, { recursive: true, force: true });

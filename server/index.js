@@ -37,7 +37,7 @@ import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } f
 import { moveGoogleCalendarLesson, listGoogleCalendarLessonEvents } from './googleCalendarWriteback.js';
 import { lessonStart } from '../src/utils/lessonReschedule.js';
 import { createAvailabilityStore, registerGroupAvailability, materializeAvailabilityPlans } from './groupAvailability.js';
-import { approvedGroupStudySchedule } from '../src/utils/groupStudyPlan.js';
+import { approvedGroupStudySchedule, groupLessonStudyTrack } from '../src/utils/groupStudyPlan.js';
 import { createGroupCalendarSync } from './groupCalendarSync.js';
 import { ensureGoogleCalendarGroupLesson } from './googleCalendarWriteback.js';
 import {registerGroupAvailabilityShare} from './groupAvailabilityShare.js';
@@ -16763,6 +16763,12 @@ const createPaymentScheduleReadContext = () => createStudentBalanceReadContext({
   readPaymentNotifications: readPaymentNotificationsDb,
 });
 
+const getGroupCalendarStudyTrack = (group, entry) => {
+  const participationSlot = entry.participationSlot || (entry.calendarOriginalStartAt
+    ? participationOccurrence({ ...entry, startAt: entry.calendarOriginalStartAt }).slot : '');
+  return groupLessonStudyTrack(group, { ...entry, participationSlot });
+};
+
 const buildStudentSchedulePaymentState = ({
   teacherId,
   studentId,
@@ -16969,12 +16975,17 @@ const buildStudentSchedulePaymentResponse = async (student, schedule = [], {incl
 
   const marksDb = readTeacherCalendarMarksDb();
   const teacherMarks = normalizeTeacherCalendarMarks(marksDb[teacherId]);
-  const baseSchedule = filterTeacherCalendarCancelledSchedule(
-    teacherId,
-    rawBaseSchedule.filter(entry => !entry.isLearningGroupEvent || isGroupEntryAssigned(entry, studentId, null, readContext)
-      || hasGroupEntryPaidMark({ ...entry, teacherId }, studentId, readContext)),
-    teacherMarks
-  );
+  const visibleSchedule = rawBaseSchedule.flatMap(entry => {
+    if (!entry.groupId && !entry.isLearningGroupEvent) return entry;
+    const groupHomeworkParticipant = isGroupEntryAssigned(entry, studentId, null, readContext);
+    if (entry.isLearningGroupEvent && !groupHomeworkParticipant
+      && !hasGroupEntryPaidMark({ ...entry, teacherId }, studentId, readContext)) return [];
+    const group = readContext.groups().find(row => row.id === entry.groupId);
+    const studyTrack = group?.studyPlan
+      ? getGroupCalendarStudyTrack(group, resolveGroupParticipationOccurrence(entry, readContext)) : '';
+    return { ...entry, studyTrack, groupHomeworkParticipant };
+  });
+  const baseSchedule = filterTeacherCalendarCancelledSchedule(teacherId, visibleSchedule, teacherMarks);
   if (!includePayments) return baseSchedule;
   const nowInfo = getStudentSchedulePaymentNowInfo();
   if (!Number.isFinite(nowInfo.todayNumber)) return baseSchedule;
@@ -25050,6 +25061,7 @@ const buildNextLessonFromHomeworkEntry = (entry) => {
       learningGroupId: entry.learningGroupId,
       learningGroupName: entry.learningGroupName || '',
       learningAssignmentId: entry.learningAssignmentId || '',
+      learningAssignmentLessonId: entry.learningAssignmentLessonId || '',
       learningAssignmentTitle: entry.learningAssignmentTitle || '',
       learningAssignmentStatus: entry.learningAssignmentStatus || '',
       learningAssignmentUpdatedAt: entry.learningAssignmentUpdatedAt || '',
@@ -25158,6 +25170,7 @@ function synchronizeLearningGroupHomeworksForStudent(studentIdValue) {
       learningGroupId: group.id,
       learningGroupName: group.name,
       learningAssignmentId: assignment.id,
+      learningAssignmentLessonId: assignment.lessonId || '',
       learningAssignmentTitle: assignment.title || '',
       studyTrack: homeworkTemplate.studyTrack || '',
       carryoverEge: homeworkTemplate.studyTrack !== 'python' && homeworkTemplate.carryoverEge === true,
@@ -25267,6 +25280,11 @@ const synchronizeLearningGroupAssignmentRecipients = (group, options = {}) => {
   }
   return changed;
 };
+
+const listGroupPreparationHomework = (groupId, now = Date.now()) => readLearningAssignmentsDb().filter(assignment => (
+  assignment.groupId === groupId && !assignment.deletedAt && assignment.recipientMode !== 'selected'
+  && getLearningAssignmentState(assignment, now).status === 'assigned'
+));
 
 const isStudentHomeworkEntrySubmitted = (entry) => {
   if (!entry || typeof entry !== 'object') return false;
@@ -26091,6 +26109,21 @@ app.patch('/api/learning-groups/:groupId', handleLearningRoute((req, res) => {
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
 }));
 
+const persistLearningGroupNewMember = (group, student, actorId, lateAddReason) => {
+  const updated = addLearningGroupMember(group, student, { actorId, lateAddReason });
+  const groups = replaceLearningStoreEntry(readLearningGroupsDb(), updated);
+  const poll = availabilityStore.get(group.id);
+  const answer = poll && !Object.prototype.hasOwnProperty.call(poll.answers || {}, student.id)
+    ? seedLearningStudentAvailability(group, student.id, poll.config) : null;
+  if (answer) {
+    poll.answers ||= {};
+    poll.answers[student.id] = answer;
+    poll.updatedAt = Date.now();
+    commitLearningGroupsAvailability(groups, { ...availabilityStore.all(), [group.id]: poll });
+  } else writeLearningGroupsDb(groups);
+  return updated;
+};
+
 app.post('/api/learning-groups/:groupId/members', handleLearningRoute(async (req, res) => {
   const initialGroup = ensureLearningGroupManageAccess(req, res, req.params.groupId);
   if (!initialGroup) return;
@@ -26100,26 +26133,159 @@ app.post('/api/learning-groups/:groupId/members', handleLearningRoute(async (req
     const student = findStudentById(req.body?.studentId);
     if (!student) failLearningRequest('Ученик не найден', 'student_not_found', 404);
     assertStudentAvailableForLearningGroup(student.id, group.teacherId, group.id);
-    const updated = addLearningGroupMember(group, student, {
-      actorId: req.auth.id,
-      lateAddReason: req.body?.lateAddReason || req.body?.overrideReason,
-    });
-    const groups = replaceLearningStoreEntry(readLearningGroupsDb(), updated);
-    const poll = availabilityStore.get(group.id);
-    const answer = poll && !Object.prototype.hasOwnProperty.call(poll.answers || {}, student.id)
-      ? seedLearningStudentAvailability(group, student.id, poll.config) : null;
-    if (answer) {
-      poll.answers ||= {};
-      poll.answers[student.id] = answer;
-      poll.updatedAt = Date.now();
-      commitLearningGroupsAvailability(groups, { ...availabilityStore.all(), [group.id]: poll });
-    } else writeLearningGroupsDb(groups);
+    const updated = persistLearningGroupNewMember(group, student, req.auth.id, req.body?.lateAddReason || req.body?.overrideReason);
     synchronizeLearningGroupAssignmentRecipients(updated, { addedStudentId: student.id });
     syncLearningGroupUpcomingLessonParticipants(updated);
     notifyLearningGroupScheduleAccess(updated);
     return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
   });
 }));
+
+const groupPreparationStore = createRescheduleStore(path.join(dataDir, 'student-group-preparations.json'));
+const listPreparationGroups = teacherId => readLearningGroupsDb().filter(group => (
+  group.teacherId === teacherId && !group.deletedAt && group.status !== 'completed'
+));
+const preparationGroupSummary = ({ id, name }) => ({ id, name });
+const readGroupPreparation = student => {
+  const plan = groupPreparationStore.get(student.id);
+  return plan?.teacherId === student.teacherId ? plan : { groupId: '', note: '', revision: '' };
+};
+const publicGroupPreparation = plan => ({
+  groupId: plan.groupId, note: plan.note, revision: plan.revision, joining: Boolean(plan.joining),
+});
+const preparationRoute = handler => handleLearningRoute((req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (!LEARNING_GROUPS_ENABLED) return res.status(404).json({ error: 'Мини-группы отключены' });
+  if (!isTeacherRole(req.auth)) return forbid(res);
+  return handler(req, res);
+});
+const studentPreparationRoute = handler => preparationRoute((req, res) => {
+  const student = ensureStudentAccess(req, res, req.params.id);
+  if (!student) return;
+  if (!isCurrentStudent(student)) failLearningRequest('Ученик должен быть в списке занимающихся.', 'inactive_student', 409);
+  return handler(req, res, student);
+});
+const requirePreparationGroup = (student, groupId) => {
+  const group = getLearningGroupById(groupId);
+  if (!group || group.teacherId !== student.teacherId || group.status === 'completed') {
+    failLearningRequest('Выбранная группа больше недоступна.', 'preparation_group_unavailable', 409);
+  }
+  return group;
+};
+const assertPreparationRevision = (plan, revision) => {
+  if (plan.revision !== revision) {
+    failLearningRequest('План изменился в другом окне. Обновите список учеников.', 'preparation_changed', 409);
+  }
+};
+
+app.get('/api/student-group-preparations', preparationRoute((req, res) => {
+  const groups = listPreparationGroups(req.auth.id);
+  const plans = groupPreparationStore.all().filter(plan => plan.teacherId === req.auth.id);
+  const memberships = groups.flatMap(group => getActiveLearningGroupMembers(group)
+    .map(member => [member.studentId, preparationGroupSummary(group)]));
+  return res.json({
+    groups: groups.map(preparationGroupSummary),
+    plans: Object.fromEntries(plans.map(plan => [plan.id, publicGroupPreparation(plan)])),
+    memberships: Object.fromEntries(memberships),
+  });
+}));
+
+app.patch('/api/students/:id/group-preparation', studentPreparationRoute((req, res, student) =>
+  withTeacherCalendarLock(student.teacherId, () => {
+    const { groupId, note, revision } = req.body || {};
+    if (typeof groupId !== 'string' || typeof note !== 'string' || note.length > 1000) {
+      failLearningRequest('Выберите группу и введите заметку до 1000 символов.', 'invalid_preparation');
+    }
+    const previous = readGroupPreparation(student);
+    assertPreparationRevision(previous, revision);
+    if (previous.joining && listPreparationGroups(student.teacherId).some(group => group.id === previous.groupId)) {
+      failLearningRequest('Сначала завершите начатый переход.', 'preparation_in_progress', 409);
+    }
+    if (groupId) {
+      requirePreparationGroup(student, groupId);
+      assertStudentAvailableForLearningGroup(student.id, student.teacherId);
+    }
+    const plan = groupPreparationStore.put({
+      id: student.id, teacherId: student.teacherId, groupId, note: groupId ? note.trim() : '', revision: crypto.randomUUID(),
+    });
+    return res.json({ plan: publicGroupPreparation(plan) });
+  })
+));
+
+app.get('/api/students/:id/group-preparation/preview', studentPreparationRoute(async (req, res, student) => {
+  const plan = readGroupPreparation(student);
+  const group = requirePreparationGroup(student, plan.groupId);
+  const schedule = await getLessonReplaySchedule(student, req.auth);
+  const now = new Date();
+  const day = getDatePartsInCalendarTimeZone(now).dayKey;
+  const individualLessons = expandLessonScheduleOccurrences({
+    studentId: student.id,
+    schedule: schedule.filter(entry => !entry.groupId && !entry.isLearningGroupEvent),
+    fromDayKey: day,
+    toDayKey: shiftLessonReplayDayKey(day, 30),
+    timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
+  }).filter(lesson => lesson.startMs > now.getTime())
+    .map(({ key, startMs, endMs }) => ({ key, startAt: new Date(startMs).toISOString(), endAt: new Date(endMs).toISOString() }));
+  const nextLesson = getLearningGroupNextLesson(group, now, req.auth);
+  const assignments = listGroupPreparationHomework(group.id, now.getTime()).map(assignment => ({
+    id: assignment.id, title: assignment.title, track: assignment.homework?.studyTrack,
+    dueAt: assignment.homework?.dueAt || assignment.dueAt,
+  }));
+  return res.json({
+    group: preparationGroupSummary(group), revision: plan.revision, assignments, individualLessons,
+    nextLesson: nextLesson ? { startAt: nextLesson.startAt, endAt: nextLesson.endAt } : null,
+    selectedAssignmentIds: plan.joining?.assignmentIds || [],
+    joining: Boolean(plan.joining),
+  });
+}));
+
+app.post('/api/students/:id/group-preparation/join', studentPreparationRoute((req, res, student) =>
+  withTeacherCalendarLock(student.teacherId, () => {
+    let plan = readGroupPreparation(student);
+    assertPreparationRevision(plan, req.body?.revision);
+    if (plan.completedGroupId) {
+      const group = requirePreparationGroup(student, plan.completedGroupId);
+      if (!isLearningGroupMember(group, student.id, { activeOnly: true })) {
+        failLearningRequest('Ученик больше не состоит в этой группе.', 'member_not_found', 409);
+      }
+      return res.json({ group: preparationGroupSummary(group), plan: publicGroupPreparation(plan) });
+    }
+    const group = requirePreparationGroup(student, plan.groupId);
+    assertStudentAvailableForLearningGroup(student.id, student.teacherId, group.id);
+    const alreadyMember = getActiveLearningGroupMembers(group).some(member => member.studentId === student.id);
+    const homework = listGroupPreparationHomework(group.id);
+    if (!plan.joining) {
+      const ids = req.body?.assignmentIds;
+      if (!Array.isArray(ids) || ids.some(id => !homework.some(assignment => assignment.id === id))) {
+        failLearningRequest('Список открытых заданий изменился. Откройте переход заново.', 'preparation_homework_changed', 409);
+      }
+      if (alreadyMember) failLearningRequest('Ученик уже состоит в этой группе.', 'member_already_active', 409);
+      // Store the confirmed selection before writing the roster so a retry can finish the same transition.
+      plan = groupPreparationStore.put({ ...plan, joining: { assignmentIds: [...new Set(ids)] } });
+    }
+    const updated = alreadyMember ? group
+      : persistLearningGroupNewMember(group, student, req.auth.id, 'Подготовка на индивидуальных занятиях завершена.');
+    const additions = new Map(homework.filter(assignment => plan.joining.assignmentIds.includes(assignment.id)
+      && !assignment.recipientIds.includes(student.id)).map(assignment => [
+      assignment.id,
+      updateLearningAssignment(assignment, { recipientIds: [...assignment.recipientIds, student.id] }),
+    ]));
+    if (additions.size) writeLearningAssignmentsDb(readLearningAssignmentsDb().map(assignment => additions.get(assignment.id) || assignment));
+    if (plan.joining.assignmentIds.length) {
+      const { createdEntries } = synchronizeLearningGroupHomeworksForStudent(student.id);
+      createdEntries.filter(entry => plan.joining.assignmentIds.includes(entry.learningAssignmentId)).forEach(entry => {
+        notifyStudentAboutNewHomework(student, entry).catch(error => console.error('[push] group homework notify failed:', error));
+        broadcastHomeworkAssigned(student, entry);
+      });
+    }
+    syncLearningGroupUpcomingLessonParticipants(updated);
+    notifyLearningGroupScheduleAccess(updated);
+    const completed = groupPreparationStore.put({
+      id: student.id, teacherId: student.teacherId, groupId: '', note: '', revision: plan.revision, completedGroupId: group.id,
+    });
+    return res.json({ group: preparationGroupSummary(updated), plan: publicGroupPreparation(completed) });
+  })
+));
 
 app.delete('/api/learning-groups/:groupId/members/:studentId', handleLearningRoute(async (req, res) => {
   const initialGroup = ensureLearningGroupManageAccess(req, res, req.params.groupId);
@@ -35021,10 +35187,44 @@ app.get('/api/student-schedule', async (req, res) => {
   const responseSchedule = await buildStudentSchedulePaymentResponse(student, schedule, {includePayments:req.query.purpose!=='lesson'});
   if (req.query.includeOptions === '1') {
     res.setHeader('Cache-Control', 'no-store');
-    return res.json({ schedule: responseSchedule, canRequestIndividualSchedule: canRequestIndividualSchedule(student.id) });
+    const canRequest = canRequestIndividualSchedule(student.id);
+    const groupHomeworkSlots = !canRequest && isStudentRole(req.auth)
+      ? getAdditionalGroupHomeworkSlots(student, responseSchedule)
+      : [];
+    return res.json({ schedule: responseSchedule, canRequestIndividualSchedule: canRequest, groupHomeworkSlots });
   }
   res.json(responseSchedule);
 });
+
+function getAdditionalGroupHomeworkSlots(student, schedule) {
+  const groups = readLearningGroupsDb().filter(group => !group.deletedAt && group.status === 'active'
+    && group.teacherId === student.teacherId && isLearningGroupMember(group, student.id, { activeOnly: true }));
+  if (!groups.length) return [];
+  const readContext = createPaymentScheduleReadContext();
+  const scheduledIds = new Set(schedule.map(entry => entry.lessonId).filter(Boolean));
+  const sessions = readContext.resolvedLessons();
+  const now = Date.now();
+  const marks = normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[student.teacherId]);
+  const candidates = groups.flatMap(group => {
+    const groupSessions = sessions.filter(lesson => lesson.groupId === group.id);
+    if (!groupSessions.length) return group.schedule.filter(entry => isGroupLessonAssigned(group, student.id, entry))
+      .map(entry => ({
+        id: entry.id, date: entry.date, time: entry.time, weekdayKey: entry.weekdayKey,
+        repeatFrom: entry.repeatFrom, repeatUntil: entry.repeatUntil, excludedDates: entry.excludedDates,
+        groupId: group.id, isLearningGroupEvent: true, studyTrack: getGroupCalendarStudyTrack(group, entry),
+      }));
+    return groupSessions.filter(lesson => lesson.status === 'scheduled' && Date.parse(lesson.startAt) > now
+      && !scheduledIds.has(lesson.id) && isGroupLessonAssigned(group, student.id, lesson)).map(lesson => {
+      const { day: date, time, slot } = participationOccurrence(lesson);
+      return {
+        id: `learning-group-session-${lesson.id}`, groupId: group.id, isLearningGroupEvent: true,
+        lessonId: lesson.id, date, time, startAt: lesson.startAt,
+        studyTrack: getGroupCalendarStudyTrack(group, { ...lesson, participationSlot: lesson.participationSlot || slot }),
+      };
+    });
+  });
+  return filterTeacherCalendarCancelledSchedule(student.teacherId, candidates, marks);
+}
 
 const getLessonTopicsRange = (fromValue, toValue) => {
   const todayKey = normalizeLessonDayKey(getDatePartsInCalendarTimeZone(new Date())?.dayKey)

@@ -20,6 +20,8 @@ import StudentSearchSelect from './StudentSearchSelect';
 const LearningGroupsSection = React.lazy(() => import('./LearningGroupsSection'));
 import { buildLearningGroupTargetValue, parseLessonTargetValue } from '../utils/lessonTargets';
 import { partitionConcurrentHomeworks, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
+import { getGroupHomeworkPriority } from '../utils/groupHomeworkPriority';
+import GroupHomeworkGuide, { GroupHomeworkTrace } from './GroupHomeworkGuide.jsx';
 import { getLearningAssignmentState } from '../utils/learningAssignmentState';
 import { getHomeworkCompletionProgress } from '../utils/homeworkAssessment';
 import StudentLessonDetailModal from './StudentLessonDetailModal';
@@ -666,6 +668,7 @@ const formatScheduleRequestStatusLabel = (status) => {
 const ScheduleSection = ({
   role,
   showHeader = true,
+  renderStudentOverview,
   studentId,
   students,
   groups = [],
@@ -809,6 +812,7 @@ const ScheduleSection = ({
   const [lessonDetailReloadKey, setLessonDetailReloadKey] = useState(0);
   const [scheduleCompactMode, setScheduleCompactMode] = useState(false);
   const [lessonSchedule, setLessonSchedule] = useState([]);
+  const [groupHomeworkSlots, setGroupHomeworkSlots] = useState([]);
   const [individualScheduleAccess, setIndividualScheduleAccess] = useState(null);
   const [lessonTopicsByOccurrence, setLessonTopicsByOccurrence] = useState({});
   const [lessonTopicsLoading, setLessonTopicsLoading] = useState(false);
@@ -856,6 +860,8 @@ const ScheduleSection = ({
   const [visibleHomeworkDayPlans, setVisibleHomeworkDayPlans] = useState({});
   const [homeworkRewardDialogEntryId, setHomeworkRewardDialogEntryId] = useState('');
   const [homeworkClock, setHomeworkClock] = useState(() => Date.now());
+  const priorityHomeworkRef = React.useRef(null);
+  const [homeworkTrace, setHomeworkTrace] = useState({ id: '', run: 0 });
   const [offlineHomeworkState, setOfflineHomeworkState] = useState({
     status: 'idle',
     savedAt: '',
@@ -1052,6 +1058,7 @@ const ScheduleSection = ({
   const loadSchedule = useCallback(async () => {
     if (!effectiveStudentId) {
       setLessonSchedule([]);
+      setGroupHomeworkSlots([]);
       setIndividualScheduleAccess(null);
       setScheduleEditingId(null);
       setScheduleForm({ ...DEFAULT_SCHEDULE_FORM });
@@ -1061,10 +1068,12 @@ const ScheduleSection = ({
     try {
       const data = await api.getStudentSchedule(requestStudentId, true);
       setLessonSchedule(sortScheduleEntries(Array.isArray(data?.schedule) ? data.schedule : []));
+      setGroupHomeworkSlots(data?.groupHomeworkSlots || []);
       setIndividualScheduleAccess({ studentId: effectiveStudentId, allowed: data?.canRequestIndividualSchedule === true });
       setScheduleError('');
     } catch (err) {
       setLessonSchedule([]);
+      setGroupHomeworkSlots([]);
       setIndividualScheduleAccess(null);
       setScheduleError(err?.message || err);
     } finally {
@@ -1383,6 +1392,7 @@ const ScheduleSection = ({
       if (scheduleResult.status === 'fulfilled') {
         const data = scheduleResult.value;
         setLessonSchedule(sortScheduleEntries(Array.isArray(data?.schedule) ? data.schedule : []));
+        setGroupHomeworkSlots(data?.groupHomeworkSlots || []);
         setIndividualScheduleAccess({ studentId: effectiveStudentId, allowed: data?.canRequestIndividualSchedule === true });
         setScheduleError('');
       } else {
@@ -2865,9 +2875,24 @@ const ScheduleSection = ({
     testsDbError,
   ]);
 
-  const { active: activeHomeworkEntries, history: previousHomeworkEntries } = partitionConcurrentHomeworks(
+  const { active: deadlineOrderedHomework, history: previousHomeworkEntries } = partitionConcurrentHomeworks(
     sortedHomeworks, homeworkClock
   );
+  const homeworkPriority = role === 'student' && !loading && !scheduleLoading
+    ? getGroupHomeworkPriority(deadlineOrderedHomework, [...editableLessonSchedule, ...groupHomeworkSlots], homeworkClock)
+    : null;
+  const priorityEntries = homeworkPriority?.entries || [];
+  const activeHomeworkEntries = priorityEntries.length > 0
+    ? [...priorityEntries, ...deadlineOrderedHomework.filter(entry => !priorityEntries.includes(entry))]
+    : deadlineOrderedHomework;
+  const openPriorityHomework = () => {
+    const target = priorityHomeworkRef.current;
+    if (!target || !priorityEntries[0]) return;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ behavior: reducedMotion ? 'instant' : 'smooth', block: 'start' });
+    setHomeworkTrace(previous => ({ id: priorityEntries[0].id, run: previous.run + 1 }));
+  };
   useEffect(() => {
     const now = Date.now();
     const nextDeadline = sortedHomeworks
@@ -3270,6 +3295,7 @@ const ScheduleSection = ({
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
     const isNextSection = section === 'next' || section === 'active';
+    const isPriority = isNextSection && priorityEntries.includes(entry);
     const dateText = formatDate(entry?.issuedAt);
     const isLearningGroupHomework = String(entry?.source || '').trim() === 'learning-group'
       && Boolean(String(entry?.learningGroupId || '').trim());
@@ -3615,6 +3641,11 @@ const ScheduleSection = ({
                   {learningAssignmentTitle || 'Домашняя работа'}
                 </h4>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {isPriority && (
+                    <span className="group-homework-guide__badge">
+                      {homeworkPriority.start ? 'К ближайшему уроку' : 'Ближайший срок'}
+                    </span>
+                  )}
                   {isLearningGroupHomework && (
                     <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700">
                       {learningGroupName ? `Мини-группа: ${learningGroupName}` : 'Домашка мини-группы'}
@@ -5295,6 +5326,8 @@ const ScheduleSection = ({
 
   return (
     <div className="space-y-4 md:space-y-6 animate-fadeIn" data-tour="schedule">
+      {homeworkPriority && <GroupHomeworkGuide priority={homeworkPriority} onOpen={openPriorityHomework} />}
+      {renderStudentOverview?.(Boolean(homeworkPriority))}
       {showHeader && (
       <div className="schedule-shell__hero relative overflow-hidden rounded-3xl border border-purple-200/70 bg-gradient-to-br from-white via-purple-50/75 to-sky-50/70 p-4 md:p-6 shadow-[0_16px_34px_rgba(99,102,241,0.14)]">
         <div aria-hidden className="schedule-shell__hero-glow--a pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full bg-purple-200/40 blur-2xl" />
@@ -6014,8 +6047,15 @@ const ScheduleSection = ({
           )
         ) : (
           <div className="space-y-4 md:space-y-6">
-            <div ref={nextHomeworkFlyRef}>
+            <div ref={node => {
+              if (nextHomeworkFlyRef) nextHomeworkFlyRef.current = node;
+              priorityHomeworkRef.current = priorityEntries.length > 0 ? node : null;
+            }} tabIndex={priorityEntries.length > 0 ? -1 : undefined} role={priorityEntries.length > 0 ? 'region' : undefined}
+              aria-label={priorityEntries.length > 0 ? (homeworkPriority.start ? 'Домашка к ближайшему уроку' : 'Домашка с ближайшим сроком') : undefined}
+              className={priorityEntries.length > 0 ? 'group-homework-guide__target' : undefined}>
               {renderHomeworkEntryCard(nextHomeworkEntry, 'next')}
+              {priorityEntries.length > 0 && homeworkTrace.id === nextHomeworkEntry?.id && homeworkTrace.run > 0
+                && <GroupHomeworkTrace key={homeworkTrace.run} />}
             </div>
             {activeHomeworkEntries.slice(1).map(entry => <div key={entry.id}>
               {renderHomeworkEntryCard(entry, 'active', entry.id)}

@@ -34,6 +34,7 @@ import MessageTemplatesButton from './MessageTemplatesButton.jsx';
 import StudentContactLinks from './StudentContactLinks';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import StudentGroupAccess from './StudentGroupAccess.jsx';
+import StudentGroupPreparation from './StudentGroupPreparation.jsx';
 import {OpenStudentSessionButton} from './StudentViewSession.jsx';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import {
@@ -263,6 +264,27 @@ const TeacherPanel = ({
   const isStudentsMode = mode === 'students';
   const isSettingsMode = mode === 'settings';
   const [isStudentsExpanded, setIsStudentsExpanded] = useState(isStudentsMode);
+  const [groupPreparations, setGroupPreparations] = useState(null);
+  const [groupPreparationError, setGroupPreparationError] = useState('');
+  useEffect(() => {
+    if (role !== 'teacher' || !isStudentsExpanded || !isStudentsMode) return;
+    let cancelled = false;
+    setGroupPreparations(null);
+    setGroupPreparationError('');
+    api.getStudentGroupPreparations().then(result => {
+      if (!cancelled) setGroupPreparations(result);
+    }).catch(error => {
+      if (!cancelled && error.status !== 404) setGroupPreparationError(error.message);
+    });
+    return () => { cancelled = true; };
+  }, [role, teacherId, isStudentsExpanded, isStudentsMode]);
+  const updateGroupPreparation = (studentId, { plan, group }) => {
+    setGroupPreparations(previous => previous && ({
+      ...previous,
+      plans: { ...previous.plans, [studentId]: plan },
+      memberships: group ? { ...previous.memberships, [studentId]: group } : previous.memberships,
+    }));
+  };
   const [livesOverviewOpen, setLivesOverviewOpen] = useState(false);
   const closeLivesOverview = useCallback(() => setLivesOverviewOpen(false), []);
   const [monthlyMockStudentId, setMonthlyMockStudentId] = useState(null);
@@ -3032,6 +3054,7 @@ const TeacherPanel = ({
           })}
         </div>
 
+        {groupPreparationError && <p className="mb-2 text-sm text-red-600" role="alert">Не удалось загрузить планы перехода в группу. {groupPreparationError}</p>}
         {role === 'teacher' && <div className="monthly-mock-roster-tools">
           <span>Пробник за {monthlyMocks.data?.period?.label || 'этот месяц'} · хотя бы один завершённый</span>
           <button type="button" onClick={() => setMonthlyMockStudentId('')}>Все пробники и настройки</button>
@@ -3466,8 +3489,15 @@ const TeacherPanel = ({
                           </span>
                         </p>
                         <div className="mt-2"><StudentContactLinks studentId={student.id} studentName={student.name} compact /></div>
-                        {role === 'teacher' && <MessageTemplatesButton students={visibleStudentsList} initialStudentId={student.id} initialCategory="trial" />}
+                        {role === 'teacher' && <MessageTemplatesButton students={visibleStudentsList} initialStudentId={student.id} initialCategory="trial"
+                          initialGroupId={groupPreparations?.groups.some(group => group.id === groupPreparations.plans[student.id]?.groupId)
+                            ? groupPreparations.plans[student.id].groupId : ''} />}
                         <StudentPlacementNote studentId={student.id} studentName={student.name} />
+                        {role === 'teacher' && studentIsCurrent && groupPreparations
+                          && (groupPreparations.groups.length > 0 || groupPreparations.plans[student.id]?.groupId)
+                          && <StudentGroupPreparation key={student.id} student={student} groups={groupPreparations.groups}
+                            plan={groupPreparations.plans[student.id]} membership={groupPreparations.memberships[student.id]}
+                            onUpdate={result => updateGroupPreparation(student.id, result)} />}
                         <StudentGroupAccess key={student.id} student={student} onUpdated={onStudentUpdated} />
                       </>
                     )}

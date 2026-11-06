@@ -1,0 +1,35 @@
+.group-preparation {
+  margin-block: 12px;
+  border-radius: 13px;
+  background: var(--mt-soft);
+}
+
+.group-preparation__bar,
+.group-preparation__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.group-preparation__bar { padding: 5px 9px; }
+
+.group-preparation button.group-preparation__toggle {
+  flex: 1;
+  justify-content: flex-start;
+  text-align: left;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mt-accent);
+}
+
+.group-preparation__toggle span { flex: 1; }
+.group-preparation__toggle[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
+.group-preparation__fields { display: grid; gap: 10px; padding: 0 14px 14px; }
+.group-preparation__fields textarea { min-height: 56px; }
+.group-preparation__status { margin: 6px 14px 10px !important; }
+.group-preparation-dialog { width: min(570px, calc(100vw - 24px)); }
+.group-preparation-dialog legend { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+.group-preparation-dialog label + label { margin-top: 8px; }
+.group-preparation-dialog ul { list-style: disc; padding-inline-start: 20px; margin-block: 4px; font-size: 13px; }
+.group-preparation-dialog footer { justify-content: flex-end; }

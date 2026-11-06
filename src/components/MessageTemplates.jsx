@@ -15,12 +15,12 @@ const weekLabel = start => new Date(start + 'T12:00:00+03:00').toLocaleDateStrin
 const releaseImage = image => { if (image?.url) URL.revokeObjectURL(image.url); };
 const includesGroup = body => /\{\{\s*(?:группа|расписание|дни группы)\s*\}\}/.test(body || '');
 
-export default function MessageTemplates({ students = [], initialStudentId = '', initialCategory = '', parentRecipient = false, reviewMonth: initialReviewMonth, onClose }) {
+export default function MessageTemplates({ students = [], initialStudentId = '', initialGroupId = '', initialCategory = '', parentRecipient = false, reviewMonth: initialReviewMonth, onClose }) {
   const [templates, setTemplates] = useState(null), [selectedId, setSelectedId] = useState('');
   const [query, setQuery] = useState(''), [category, setCategory] = useState(initialCategory);
   const [editor, setEditor] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [studentId, setStudentId] = useState(initialStudentId), [recipient, setRecipient] = useState(parentRecipient ? 'parent' : 'student');
-  const [groupId, setGroupId] = useState(''), [lessonCount, setLessonCount] = useState('2–3');
+  const [groupId, setGroupId] = useState(initialGroupId), [lessonCount, setLessonCount] = useState('2–3');
   const [draftText, setDraftText] = useState(null), [attachmentOverride, setAttachmentOverride] = useState(null);
   const [weekOffset, setWeekOffset] = useState(0), [context, setContext] = useState(null), [refresh, setRefresh] = useState(0);
   const [contextBusy, setContextBusy] = useState(false), [image, setImage] = useState(null), [imageError, setImageError] = useState('');
@@ -158,7 +158,10 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
         <footer><button type="button" disabled={busy} onClick={() => setEditor(null)}>Отмена</button><button type="submit" className="message-templates__primary" disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить шаблон'}</button></footer>
       </form> : template ? <div className="message-templates__composer">
         <div className="message-templates__title"><h3>{template.name}</h3><div><button type="button" disabled={busy} onClick={() => setEditor({ ...template })}><Pencil size={15} />Изменить</button><button type="button" disabled={busy} aria-label="Удалить выбранный шаблон" onClick={() => { if (window.confirm('Удалить шаблон «' + template.name + '»?')) void deleteTemplate(); }}><Trash2 size={15} /></button></div></div>
-        <div className="message-templates__fields"><label>Ученик<select value={studentId} onChange={event => setStudentId(event.target.value)}><option value="">Выберите ученика</option>{students.map(row => <option key={row.id} value={row.id}>{row.nickname || row.name}</option>)}</select></label><label>Кому<select value={recipient} onChange={event => setRecipient(event.target.value)}><option value="student">Ученику</option><option value="parent">Родителю</option></select></label></div>
+        <div className="message-templates__fields"><label>Ученик<select value={studentId} onChange={event => {
+          setStudentId(event.target.value);
+          if (initialGroupId) setGroupId(event.target.value === initialStudentId ? initialGroupId : '');
+        }}><option value="">Выберите ученика</option>{students.map(row => <option key={row.id} value={row.id}>{row.nickname || row.name}</option>)}</select></label><label>Кому<select value={recipient} onChange={event => setRecipient(event.target.value)}><option value="student">Ученику</option><option value="parent">Родителю</option></select></label></div>
         {template.category === 'review' && studentId && <><label>Месяц отчёта<input type="month" value={reviewMonth} onChange={event => { if (event.target.value) setReviewMonth(event.target.value); }} /></label><ReviewRequestStatus key={studentId + '/' + reviewMonth} studentId={studentId} month={reviewMonth} /></>}
         {needsGroups && <section className="message-templates__groups"><h4><Users size={16} />Группы от начального уровня Python</h4><p>По самой дальней теме, в которой есть решения участников группы. Прогресс учитывает задачи, решённые хотя бы одним участником.</p>
           {contextBusy && !context && <p role="status">Проверяем прогресс групп…</p>}

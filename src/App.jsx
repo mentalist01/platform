@@ -26393,8 +26393,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             if (prompt.groupId) setPendingGroupAvailabilityRequest({ id: `availability:${Date.now()}`, groupId: prompt.groupId });
             navigateToView('groups');
           }} /></React.Suspense>}
-          {view === 'schedule' && user.role === 'student' && (
+          {view === 'schedule' && (
+            <ScheduleSection
+              renderStudentOverview={hasGroupHomeworkGuide => user.role === 'student' ? (
             <StudentTodayOverview
+              hasGroupHomeworkGuide={hasGroupHomeworkGuide}
               studentName={user.name}
               homeworkEntry={goalState?.entry || null}
               goals={goalGoals}
@@ -26435,9 +26438,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onOpenLesson={() => navigateToView(studentDefaultLessonView)}
               onOpenChat={PLATFORM_CHATS_ENABLED ? () => navigateToView('chat') : null}
             />
-          )}
-          {view === 'schedule' && (
-            <ScheduleSection
+              ) : null}
               role={user.role}
               showHeader={user.role !== 'student'}
               studentId={user.id}
