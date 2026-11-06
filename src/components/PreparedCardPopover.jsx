@@ -19,7 +19,7 @@ export default function PreparedCardPopover({label,title,icon,buttonText,childre
       const upward=height>below&&above>below,space=Math.max(70,upward?above:below);
       const top=upward?Math.max(bounds.top+12,rect.top-Math.min(height,space)-7):rect.bottom+7;
       const style=getComputedStyle(anchor.current),theme=Object.fromEntries(['panel','bg','text','muted','line','accent','soft','green','green-bg'].map(key=>['--pt-'+key,style.getPropertyValue('--pt-'+key)]));
-      setPlacement(previous=>{const next={...theme,left,top,width,maxHeight:space,fontFamily:style.fontFamily};return JSON.stringify(previous)===JSON.stringify(next)?previous:next;});
+      setPlacement(previous=>{const next={...theme,left,top,width,maxHeight:space,fontFamily:style.fontFamily,colorScheme:style.colorScheme};return JSON.stringify(previous)===JSON.stringify(next)?previous:next;});
     };
     position();const observer=new ResizeObserver(position);observer.observe(popup.current);
     window.addEventListener('resize',position);document.addEventListener('scroll',position,true);
