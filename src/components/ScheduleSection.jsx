@@ -3628,7 +3628,7 @@ const ScheduleSection = ({
       };
 
       return (
-        <article key={key} className="student-today-homework-card relative overflow-hidden rounded-[26px] border border-purple-200/85 bg-white/94 p-4 shadow-[0_18px_42px_rgba(99,102,241,0.13)] md:p-5">
+        <article key={key} className={`student-today-homework-card relative overflow-hidden rounded-[26px] border border-purple-200/85 bg-white/94 p-4 shadow-[0_18px_42px_rgba(99,102,241,0.13)] md:p-5${isPriority ? ' group-homework-guide__priority-card' : ''}`}>
           <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-purple-100/70 blur-3xl" />
           <header className="student-today-homework__header relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
