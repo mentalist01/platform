@@ -3495,10 +3495,10 @@ const TeacherPanel = ({
                         <StudentPlacementNote studentId={student.id} studentName={student.name} />
                         {role === 'teacher' && studentIsCurrent && groupPreparations
                           && (groupPreparations.groups.length > 0 || groupPreparations.plans[student.id]?.groupId)
-                          && <StudentGroupPreparation key={student.id} student={student} groups={groupPreparations.groups}
+                          && <StudentGroupPreparation student={student} groups={groupPreparations.groups}
                             plan={groupPreparations.plans[student.id]} membership={groupPreparations.memberships[student.id]}
                             onUpdate={result => updateGroupPreparation(student.id, result)} />}
-                        <StudentGroupAccess key={student.id} student={student} onUpdated={onStudentUpdated} />
+                        <StudentGroupAccess student={student} onUpdated={onStudentUpdated} />
                       </>
                     )}
                   </div>

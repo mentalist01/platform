@@ -14,7 +14,7 @@ export default function GroupHomeworkGuide({ priority, onOpen }) {
   const timeLabel = start
     ? `${lessonDate.format(start)} МСК`
     : `Сдать до ${lessonDate.format(deadline)} МСК`;
-  const label = start ? 'К ближайшему групповому уроку' : 'Ближайший срок сдачи';
+  const label = start ? 'Домашка к следующему занятию' : 'Ближайшая домашка';
 
   if (!entry) return <aside className="group-homework-guide group-homework-guide--empty" aria-label={label}>
     <CalendarDays size={23} aria-hidden="true" />
