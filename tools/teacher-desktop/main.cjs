@@ -148,7 +148,17 @@ async function tabAction(action, value) {
   try {
     const focused=[...detachedTabs.values()].find(host=>host.window===BrowserWindow.getFocusedWindow());
     if(action==='tab-detach'||action==='tab-detach-drag')return await detachPlatformTab(value,action==='tab-detach-drag');
-    if(action==='tab-menu'){Menu.buildFromTemplate([{label:'Перенести в отдельное окно',click:()=>void tabAction('tab-detach',value)}]).popup({window:mainWindow});return;}
+    if (action === 'tab-menu') {
+      if (!platformTabs.localTabs.some(tab => tab.id === String(value))) return;
+      Menu.buildFromTemplate([
+        { label: 'Дублировать вкладку',
+          enabled: platformTabs.tabs.length < platformTabs.maxTabs && Boolean(platformTabs.duplicateSource(value)),
+          click: () => void tabAction('tab-duplicate', value) },
+        { label: 'Перенести в отдельное окно', click: () => void tabAction('tab-detach', value) },
+      ]).popup({ window: mainWindow });
+      return;
+    }
+    if (action === 'tab-duplicate') return await platformTabs.duplicate(value);
     if(action==='tab-reload'&&focused)return await focused.reload();
     if(action==='tab-close'&&value==null&&focused)return focused.close();
     if (action === 'tab-new') return await platformTabs.add();

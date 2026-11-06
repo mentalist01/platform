@@ -11,12 +11,14 @@ class PlatformTabs {
   forContents(contents){return this.tabs.find(tab=>tab.view.webContents===contents)||null;}
   emit(){this.onState({tabs:this.localTabs.map(tab=>({id:tab.id,title:tab.title,page:tab.page,audible:!tab.view.webContents.isDestroyed()&&tab.view.webContents.isCurrentlyAudible()})),activeTabId:this.activeId,page:this.active?.page||'loading'});for(const tab of this.tabs)if(tab.detached)tab.onDetachedState?.();}
   enqueue(action){const result=this.queue.catch(()=>{}).then(action);this.queue=result;return result;}
-  async add(url=PLATFORM_URL+'&view=progress') {
+  async add(url=PLATFORM_URL+'&view=progress', afterTab=null) {
     if(!isPlatform(url)||new URL(url).protocol!=='https:')throw Error('Во вкладках доступна только платформа ivan100.ru.');
     if(this.tabs.length>=this.maxTabs)throw Error('Открыто 12 вкладок. Закройте одну из них перед добавлением новой.');
     const view=this.createView(),contents=view.webContents;
     const tab={id:String(contents.id),view,title:'Платформа',page:'loading',privateReasons:new Set(['platform'])};
-    this.tabs.push(tab);this.attach(view);view.setVisible(false);if(this.bounds)view.setBounds(this.bounds);
+    const index=this.tabs.indexOf(afterTab);
+    this.tabs.splice(index < 0 ? this.tabs.length : index+1,0,tab);
+    this.attach(view);view.setVisible(false);if(this.bounds)view.setBounds(this.bounds);
     contents.on('page-title-updated',(_event,title)=>{if(!tab.customTitle){tab.title=String(title||'Платформа').slice(0,100);this.emit();}});
     contents.on('did-finish-load',()=>{tab.page='ready';if(this.active===tab){this.showActive();if(!this.overlay)contents.focus();}this.emit();});
     const failed=()=>{tab.page='error';if(this.active===tab)this.showActive();this.emit();};
@@ -28,6 +30,16 @@ class PlatformTabs {
     try{await this.activate(tab.id);}catch(error){tab.page='error';this.emit();throw error;}
     void this.load(tab,url);
     return tab.id;
+  }
+  duplicateSource(id) {
+    const tab = this.localTabs.find(tab => tab.id === String(id));
+    if (!tab || tab.page !== 'ready' || tab.view.webContents.isDestroyed()) return null;
+    const url = tab.view.webContents.getURL();
+    return isPlatform(url) ? { tab, url } : null;
+  }
+  async duplicate(id) {
+    const source = this.duplicateSource(id);
+    return source ? this.add(source.url, source.tab) : null;
   }
   async load(tab,url) {
     tab.page='loading';tab.customTitle=false;tab.privateReasons.add('platform');this.showActive();this.emit();

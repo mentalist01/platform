@@ -18660,6 +18660,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const urlParams = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search)
     : null;
+  const isDesktopTeacher = user.role === 'teacher' && typeof window !== 'undefined' && Boolean(window.teacherDesktop?.isDesktop);
   const urlRequestedView = String(urlParams?.get('view') || '').trim();
   const urlRequestedChatId = String(urlParams?.get('chatId') || '').trim();
   const normalizedUrlRequestedView = normalizeTeacherView(urlRequestedView);
@@ -18678,7 +18679,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ? (normalizeStoredOpenTask(storedLocation?.openTask)
         || (storedView === 'python' ? fallbackPythonOpenTask : null))
     : null;
-  const storedActiveStudentId = normalizeTeacherStudentId(reloadCall?.studentId || storedLocation?.activeStudentId);
+  const desktopStudentId = isDesktopTeacher ? urlParams?.get('desktopStudentId') : null;
+  const storedActiveStudentId = normalizeTeacherStudentId(reloadCall?.studentId || (desktopStudentId ?? storedLocation?.activeStudentId));
+  const desktopLessonToRestore = useRef(isDesktopTeacher
+    && ['call', 'board', 'collab'].includes(normalizedUrlRequestedView)
+    && urlParams?.get('desktopGroupId') && urlParams?.get('desktopLessonId')
+    ? { groupId: urlParams.get('desktopGroupId'), lessonId: urlParams.get('desktopLessonId') }
+    : null);
   const shouldPreferReviewHome = false;
   const initialView = reloadCall && isCallViewAvailable ? 'call' : (normalizedUrlRequestedView && allowedViews.includes(normalizedUrlRequestedView))
     ? normalizedUrlRequestedView
@@ -20230,6 +20237,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (typeof window.teacherDesktop?.setTabTitle === 'function')
       void window.teacherDesktop.setTabTitle(desktopTabTitle).catch(() => {});
   }, [desktopTabTitle]);
+  useEffect(() => {
+    if (!isDesktopTeacher || desktopLessonToRestore.current || lessonTargetSelectionLoading) return;
+    const url = new URL(window.location.href);
+    if (url.pathname !== '/') return;
+    const comms = view === TEACHER_COMMS_VIEW;
+    url.searchParams.set('view', comms ? teacherCommsTab : view);
+    url.searchParams.set('desktopStudentId', activeStudentId || '');
+    const chatId = comms && (teacherCommsTab === 'student-chats' ? teacherStudentChatId : teacherSignupChatId);
+    if (chatId) url.searchParams.set('chatId', chatId);
+    else url.searchParams.delete('chatId');
+    if (['call', 'board', 'collab'].includes(view) && activeLearningLesson) {
+      url.searchParams.set('desktopGroupId', activeLearningLesson.groupId);
+      url.searchParams.set('desktopLessonId', activeLearningLesson.lessonId);
+    } else {
+      url.searchParams.delete('desktopGroupId');
+      url.searchParams.delete('desktopLessonId');
+    }
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+  }, [isDesktopTeacher, view, activeStudentId, activeLearningLesson, lessonTargetSelectionLoading,
+    teacherCommsTab, teacherStudentChatId, teacherSignupChatId]);
   const mobileNavLabels = {
     'nav-schedule': 'Расписание',
     'nav-students': 'Ученики',
@@ -21960,7 +21987,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     };
   }, [refreshStudentLessonWorkspace, user.role]);
 
-  const handleSelectLessonTarget = useCallback(async (targetValue) => {
+  const handleSelectLessonTarget = useCallback(async (targetValue, requestedLessonId) => {
     if (user.role !== 'teacher') return;
     const target = parseLessonTargetValue(targetValue);
     const requestId = lessonTargetSelectionRequestRef.current + 1;
@@ -22030,14 +22057,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .sort((left, right) => parseStart(left) - parseStart(right))[0] || null;
       const latestScheduledLesson = liveLessons
         .sort((left, right) => parseStart(right) - parseStart(left))[0] || null;
-      const lesson = activeLesson || currentScheduledLesson || upcomingLesson || latestScheduledLesson;
+      const lesson = requestedLessonId
+        ? lessonById.get(requestedLessonId)
+        : activeLesson || currentScheduledLesson || upcomingLesson || latestScheduledLesson;
       if (!lesson) {
-        throw new Error('У группы пока нет занятия. Добавьте его в Google Календарь или в разделе «Мини-группы».');
+        throw new Error(requestedLessonId ? 'Занятие из исходной вкладки больше недоступно.'
+          : 'У группы пока нет занятия. Добавьте его в Google Календарь или в разделе «Мини-группы».');
       }
       if (lessonTargetSelectionRequestRef.current !== requestId) return;
 
       handleOpenLearningGroupLesson({
         ...lesson,
+        ...(requestedLessonId ? { replayActive: false } : {}),
         lessonId: String(lesson.lessonId || lesson.id || '').trim(),
         groupId: selectedGroup.id,
         participantIds: Array.isArray(lesson.participantIds) && lesson.participantIds.length > 0
@@ -22070,7 +22101,16 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   ]);
 
   useEffect(() => {
+    const lesson = desktopLessonToRestore.current;
+    if (!lesson || lesson.started) return;
+    lesson.started = true;
+    void handleSelectLessonTarget(buildLearningGroupTargetValue(lesson.groupId), lesson.lessonId)
+      .finally(() => { desktopLessonToRestore.current = null; });
+  }, [handleSelectLessonTarget]);
+
+  useEffect(() => {
     if (user.role !== 'teacher' || !['call', 'board', 'collab'].includes(view) || !activeStudentId) return;
+    if (desktopLessonToRestore.current || (isDesktopTeacher && activeLearningLesson?.groupId)) return;
     const group = activeLearningGroupByStudentId.get(String(activeStudentId || '').trim());
     if (!group || activeLearningLesson?.groupId === group.id) return;
     void handleSelectLessonTarget(buildLearningGroupTargetValue(group.id));
@@ -22079,6 +22119,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     activeLearningLesson?.groupId,
     activeStudentId,
     handleSelectLessonTarget,
+    isDesktopTeacher,
     user.role,
     view,
   ]);

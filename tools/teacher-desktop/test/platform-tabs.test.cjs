@@ -7,6 +7,7 @@ function fixture(){
   const tabs=new PlatformTabs({
     createView:()=>{
       const contents=Object.assign(new EventEmitter(),{id:++next,destroyed:false,loads:0,reloads:0,state:{},isDestroyed(){return this.destroyed},isCurrentlyAudible(){return this.audible===true},focus(){},async loadURL(url){this.url=url;this.loads++;this.emit('did-finish-load')},reload(){this.reloads++;this.emit('did-finish-load')},close(){this.destroyed=true;this.emit('destroyed')}});
+      contents.getURL = () => contents.url || '';
       const view={webContents:contents,setBounds(value){this.bounds=value;},setVisible(value){this.visible=value;events.push(['visible',String(contents.id),value])}};views.push(view);return view;
     },attach(){},detach:view=>detached.push(view),onState:state=>states.push(state),onActive(){},
     privacy:async(reason,hidden)=>{events.push(['privacy',reason,hidden]);},afterPaint:async contents=>{events.push(['paint',String(contents.id)]);},
@@ -21,6 +22,25 @@ test('tab switches keep the original document, call and WebContents alive; reloa
   await f.tabs.activate(one);assert.equal(original.visible,true);assert.deepEqual(original.webContents.state,{board:'saved strokes',code:'print(1)',call:'connected'});
   await f.tabs.activate(two);await f.tabs.reload();assert.equal(f.views[1].webContents.reloads,1);assert.equal(original.webContents.reloads,0);assert.equal(original.webContents.loads,1);
   f.tabs.setOverlay(true);assert.equal(f.views.some(view=>view.visible),false);f.tabs.setOverlay(false);assert.equal(f.views[1].visible,true);
+});
+test('duplicating a background tab opens its current route beside it without reloading it', async () => {
+  const f = fixture();
+  const sourceId = await f.add();
+  const otherId = await f.add();
+  const original = f.views[0].webContents;
+  original.url = 'https://ivan100.ru/?desktop=teacher&view=call&desktopStudentId=student-1';
+  original.state = { call: 'connected' };
+
+  const duplicateId = await f.tabs.duplicate(sourceId);
+  await f.settle();
+
+  assert.deepEqual(f.states.at(-1).tabs.map(tab => tab.id), [sourceId, duplicateId, otherId]);
+  assert.equal(f.tabs.activeId, duplicateId);
+  assert.equal(f.views[2].webContents.getURL(), original.getURL());
+  assert.deepEqual(f.views[2].webContents.state, {});
+  assert.equal(original.loads, 1);
+  assert.equal(original.destroyed, false);
+  assert.deepEqual(original.state, { call: 'connected' });
 });
 test('private background pages do not mask a lesson, but become masked before being displayed',async()=>{
   const f=fixture(),one=await f.add(),two=await f.add();await f.tabs.activate(one);f.events.length=0;
