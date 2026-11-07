@@ -340,7 +340,13 @@ task(105, 2, 'first-negative', 'Номер первого отрицательн
      'n = int(input())\nanswer = 0\nfor i in range(1,n+1):\n    x = int(input())\n    if x < 0 and answer == 0:\n        answer = i\nprint(answer)', series, lambda xs:next((i for i,x in enumerate(xs,1) if x<0),0), encode=stream, extra=random_series)
 task(105, 2, 'equal-adjacent', 'Сколько соседей равны', 'хранение предыдущего значения без списка',
      'Посчитайте пары соседних равных чисел. В серии 7, 7, 7 есть две такие пары.', 'N 1..100 и N целых чисел от -1000 до 1000 на отдельных строках.', 'Количество пар.', 'n = int(input())\nprevious = int(input())\ncount = 0',
-     'n = int(input())\nprevious = int(input())\ncount = 0\nfor i in range(n-1):\n    x = int(input())\n    if x == previous:\n        count += 1\n    previous = x\nprint(count)', series, lambda xs:sum(a==b for a,b in zip(xs,xs[1:])), encode=stream, extra=random_series)
+     'n = int(input())\nprevious = int(input())\ncount = 0\nfor i in range(n-1):\n    x = int(input())\n    if x == previous:\n        count += 1\n    previous = x\nprint(count)',
+     # Generic random streams almost never contain adjacent equal values.
+     # Keep the original example, then distinguish a previous-value update
+     # from comparing every number with the first or counting disjoint pairs.
+     [[3,-1,0,4], [0], [7,7,7], [5,5,2,3], [1,2,2], [1,2,1],
+      [-1000,-1000,0,0,1000,1000], [0,0,1,0,0], [7]*100, [i%2 for i in range(100)]],
+     lambda xs:sum(a==b for a,b in zip(xs,xs[1:])), encode=stream, extra=random_series)
 task(105, 3, 'min-position-last', 'Последний минимум', 'выбор последней позиции при равных экстремумах',
      'Найдите минимальное значение и номер его последнего вхождения. Нумерация с 1.', 'N 1..100, затем N целых чисел от -1000 до 1000 на отдельных строках.', 'Минимум и его последняя позиция через пробел.', 'n = int(input())\nbest = int(input())\nposition = 1',
      'n = int(input())\nbest = int(input())\nposition = 1\nfor i in range(2,n+1):\n    x = int(input())\n    if x <= best:\n        best = x\n        position = i\nprint(best, position)', series + [[2,1,1,3]], lambda xs:f'{min(xs)} {len(xs)-xs[::-1].index(min(xs))}', encode=stream, extra=random_series)
