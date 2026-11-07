@@ -7,6 +7,7 @@ import StudentSearchSelect from './StudentSearchSelect';
 import { getRtcWsUrl, resolveApiUrl } from '../utils/runtimeUrls';
 import { rtcVideoBudget } from '../utils/rtcVideoBudget';
 import { preferH264ForVideoSender } from '../utils/rtcVideoCodec';
+import { SCREEN_CAPTURE_MAX_FPS, createScreenVideoSampler, createScreenVideoController, screenVideoProfile, createVideoSenderTuner } from '../utils/rtcScreenQuality';
 import { normalizeRtcParticipantIds, resolveCallRtcRoom } from '../utils/rtcRooms';
 import { createSegmentedAudioRecorder } from '../utils/segmentedAudioRecorder';
 import { useCallAlertSounds } from '../hooks/useCallAlertSounds';
@@ -41,7 +42,7 @@ const VIDEO_MAX_BITRATE = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_BITRATE'
 const CAMERA_MAX_BITRATE = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_BITRATE', 1200000);
 const CAMERA_MIN_BITRATE = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MIN_BITRATE', 220000);
 const SCREEN_MIN_BITRATE = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MIN_BITRATE', 500000);
-const SCREEN_MAX_FRAMERATE = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_FRAMERATE', 60);
+const SCREEN_MAX_FRAMERATE = Math.min(SCREEN_CAPTURE_MAX_FPS, getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_FRAMERATE', SCREEN_CAPTURE_MAX_FPS));
 const SCREEN_MAX_WIDTH = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_WIDTH', 1920);
 const SCREEN_MAX_HEIGHT = getPositiveNumberFromEnv('VITE_RTC_SCREEN_MAX_HEIGHT', 1080);
 const CAMERA_MAX_FRAMERATE = getPositiveNumberFromEnv('VITE_RTC_CAMERA_MAX_FRAMERATE', 30);
@@ -418,9 +419,6 @@ const getConnectionAdaptiveProfile = (quality, highVideoLoad = false) => {
   const baseProfile = normalizedQuality === 'poor'
     ? {
       audioBitrate: Math.max(AUDIO_MIN_BITRATE, Math.round(AUDIO_MAX_BITRATE * 0.7)),
-      screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(VIDEO_MAX_BITRATE * 0.35)),
-      screenFramerate: Math.max(10, Math.min(SCREEN_MAX_FRAMERATE, 18)),
-      screenScale: 1.9,
       cameraBitrate: Math.max(CAMERA_MIN_BITRATE, Math.round(CAMERA_MAX_BITRATE * 0.36)),
       cameraFramerate: Math.max(8, Math.min(CAMERA_MAX_FRAMERATE, 14)),
       cameraScale: 2.1,
@@ -429,9 +427,6 @@ const getConnectionAdaptiveProfile = (quality, highVideoLoad = false) => {
     : normalizedQuality === 'ok'
       ? {
         audioBitrate: Math.max(AUDIO_MIN_BITRATE, Math.round(AUDIO_MAX_BITRATE * 0.86)),
-        screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(VIDEO_MAX_BITRATE * 0.58)),
-        screenFramerate: Math.max(14, Math.min(SCREEN_MAX_FRAMERATE, 30)),
-        screenScale: 1.35,
         cameraBitrate: Math.max(CAMERA_MIN_BITRATE, Math.round(CAMERA_MAX_BITRATE * 0.62)),
         cameraFramerate: Math.max(12, Math.min(CAMERA_MAX_FRAMERATE, 22)),
         cameraScale: 1.45,
@@ -439,9 +434,6 @@ const getConnectionAdaptiveProfile = (quality, highVideoLoad = false) => {
       }
       : {
         audioBitrate: AUDIO_MAX_BITRATE,
-        screenBitrate: VIDEO_MAX_BITRATE,
-        screenFramerate: SCREEN_MAX_FRAMERATE,
-        screenScale: 1,
         cameraBitrate: CAMERA_MAX_BITRATE,
         cameraFramerate: CAMERA_MAX_FRAMERATE,
         cameraScale: 1,
@@ -454,9 +446,6 @@ const getConnectionAdaptiveProfile = (quality, highVideoLoad = false) => {
 
   return {
     ...baseProfile,
-    screenBitrate: Math.max(SCREEN_MIN_BITRATE, Math.round(baseProfile.screenBitrate * 0.62)),
-    screenFramerate: Math.max(10, Math.min(baseProfile.screenFramerate, 24)),
-    screenScale: Math.max(baseProfile.screenScale, 1.55),
     cameraBitrate: Math.max(CAMERA_MIN_BITRATE, Math.round(baseProfile.cameraBitrate * 0.72)),
     cameraFramerate: Math.max(10, Math.min(baseProfile.cameraFramerate, 20)),
     cameraScale: Math.max(baseProfile.cameraScale, 1.4),
@@ -1554,7 +1543,24 @@ const CallSection = ({
   const relayConnectionRetryTriedRef = useRef(false);
   const connectionQualityRef = useRef('ok');
   const highVideoLoadRef = useRef(false);
+  const screenSenderHealthRef = useRef(new WeakMap());
+  const videoParameterErrorsRef = useRef(new WeakMap());
+  const videoSenderTunerRef = useRef(null);
+  if (!videoSenderTunerRef.current) videoSenderTunerRef.current = createVideoSenderTuner(
+    (sender, error) => videoParameterErrorsRef.current.set(sender, error?.name || 'OperationError'),
+    sender => videoParameterErrorsRef.current.delete(sender),
+  );
+  const getScreenSenderHealth = useCallback(sender => {
+    if (!sender?.track) return null;
+    let state = screenSenderHealthRef.current.get(sender);
+    if (!state || state.trackId !== sender.track.id) {
+      state = { trackId: sender.track.id, sampler: createScreenVideoSampler(), controller: createScreenVideoController() };
+      screenSenderHealthRef.current.set(sender, state);
+    }
+    return state;
+  }, []);
   const statsTimerRef = useRef(null);
+  const statsPollBusyRef = useRef(false);
   const lastInboundAudioRef = useRef(new Map());
   const lastRemoteInboundAudioRef = useRef(new Map());
   const remoteScreenShareStateRef = useRef(new Map());
@@ -2050,8 +2056,12 @@ const CallSection = ({
     if (!sender || typeof sender.getParameters !== 'function') return;
     const kind = options?.kind === 'camera' ? 'camera' : 'screen';
     const quality = normalizeConnectionQuality(options?.quality || connectionQualityRef.current);
-    const profile = getConnectionAdaptiveProfile(quality, highVideoLoadRef.current);
     const isCamera = kind === 'camera';
+    const profile = isCamera ? getConnectionAdaptiveProfile(quality, highVideoLoadRef.current) : screenVideoProfile({
+      quality, highVideoLoad: highVideoLoadRef.current,
+      controller: getScreenSenderHealth(sender)?.controller.profile(),
+      bitrate: VIDEO_MAX_BITRATE, minBitrate: SCREEN_MIN_BITRATE, framerate: SCREEN_MAX_FRAMERATE,
+    });
     const settings = sender.track?.getSettings?.() || {};
     const { maxBitrate, maxFramerate, scaleResolutionDownBy } = rtcVideoBudget({
       group: isGroupLesson, peers: peersRef.current.size, camera: isCamera,
@@ -2060,21 +2070,16 @@ const CallSection = ({
       scale: Math.max(1, isCamera ? profile.cameraScale : profile.screenScale),
       width: settings.width || 1920, height: settings.height || 1080,
     });
-    try {
-      const params = sender.getParameters() || {};
-      const encodings = Array.isArray(params.encodings) ? params.encodings : [{}];
-      encodings[0] = {
-        ...(encodings[0] || {}),
+    void videoSenderTunerRef.current(sender, {
+      encoding: {
         maxBitrate,
         maxFramerate,
         scaleResolutionDownBy,
         priority: isCamera ? (quality === 'poor' ? 'high' : 'medium') : 'high',
-      };
-      params.degradationPreference = profile.degradationPreference;
-      params.encodings = encodings;
-      sender.setParameters(params).catch(() => {});
-    } catch {}
-  }, [isGroupLesson]);
+      },
+      degradationPreference: profile.degradationPreference,
+    });
+  }, [isGroupLesson, getScreenSenderHealth]);
 
   const retuneAllPeerSenders = useCallback((qualityOverride) => {
     const quality = normalizeConnectionQuality(qualityOverride || connectionQualityRef.current);
@@ -2738,13 +2743,13 @@ const CallSection = ({
             try { pc.removeTrack(currentSender); } catch {}
             senderToTune = pc.addTrack(track, localStreamRef.current);
             peerState[senderKey] = senderToTune;
-            if (videoKind === 'screen' && window.teacherDesktop) preferH264ForVideoSender(pc, senderToTune);
+            if (videoKind === 'screen') preferH264ForVideoSender(pc, senderToTune);
           }
           tuneVideoSender(senderToTune, { kind: videoKind });
           return;
         }
         peerState[senderKey] = pc.addTrack(track, localStreamRef.current);
-        if (videoKind === 'screen' && window.teacherDesktop) preferH264ForVideoSender(pc, peerState[senderKey]);
+        if (videoKind === 'screen') preferH264ForVideoSender(pc, peerState[senderKey]);
         tuneVideoSender(peerState[senderKey], { kind: videoKind });
         return;
       }
@@ -2790,6 +2795,9 @@ const CallSection = ({
   }, []);
 
   const pollConnectionStats = useCallback(async () => {
+    if (statsPollBusyRef.current) return;
+    statsPollBusyRef.current = true;
+    try {
     const peers = Array.from(peersRef.current.entries());
     if (!peers.length) {
       connectionQualityRef.current = 'ok';
@@ -2817,6 +2825,7 @@ const CallSection = ({
     const rttSamples = [];
     const outboundRttSamples = [];
     const routeLabels = [];
+    const screenVideo = [];
 
     for (const [peerId, peerState] of peers) {
       const pc = peerState?.pc;
@@ -2861,6 +2870,47 @@ const CallSection = ({
       });
       const routeLabel = getRtcRouteLabel(statsReport);
       if (routeLabel !== 'Проверяется') routeLabels.push(routeLabel);
+
+      const transceivers = pc.getTransceivers?.() || [];
+      const recordVideo = (sample, control = {}, parameterError) => {
+        if (!sample?.measured) return;
+        screenVideo.push({ peerId, ...sample, ...control });
+        const entry = { ...sample, ...control, route: routeLabel, parameterError };
+        const signature = JSON.stringify([sample.limitation, control.cpu, control.network, sample.codec, parameterError]);
+        peerState.videoDiagnostics ||= new Map();
+        const last = peerState.videoDiagnostics.get(sample.direction);
+        if (last && now - last.at < (last.signature === signature ? 30000 : 5000)) return;
+        const ws = wsRef.current, roomId = activeRoomRef.current;
+        if (!roomId || !ws || ws.readyState !== WebSocket.OPEN) return;
+        try {
+          ws.send(JSON.stringify({ type: 'video-diagnostic', roomId, peerId, ...entry }));
+          peerState.videoDiagnostics.set(sample.direction, { at: now, signature });
+        } catch { /* Measurements must not affect a lesson. */ }
+      };
+      if (peerState.cameraSender?.track?.readyState === 'live') tuneVideoSender(peerState.cameraSender, { kind: 'camera' });
+      const sender = peerState.screenSender;
+      if (sender?.track?.readyState === 'live' && sender.track === localScreenTrackRef.current) {
+        const health = getScreenSenderHealth(sender);
+        const mid = transceivers.find(item => item.sender === sender)?.mid;
+        const sample = health.sampler.sample(statsReport, { direction: 'outbound', mid, trackId: sender.track.id });
+        health.controller.sample(sample, now);
+        // Also applies the initial budget once negotiation creates encodings.
+        // Unchanged parameters are skipped by the serialized tuner.
+        tuneVideoSender(sender, { kind: 'screen' });
+        recordVideo(sample, health.controller.profile(), videoParameterErrorsRef.current.get(sender));
+      }
+      const meta = peerMetaRef.current.get(peerId), remoteStream = remoteStreamsRef.current.get(peerId);
+      if (meta?.isScreenSharing) {
+        const tracks = getLiveVideoTracks(remoteStream);
+        const track = getVideoTrackById(remoteStream, meta.screenTrackId)
+          || tracks.find(item => inferVideoTrackKind(item) === 'screen')
+          || (!meta.isCameraEnabled && tracks.length === 1 ? tracks[0] : null);
+        if (track) {
+          peerState.screenReceiveSampler ||= createScreenVideoSampler();
+          const mid = transceivers.find(item => item.receiver?.track === track)?.mid;
+          recordVideo(peerState.screenReceiveSampler.sample(statsReport, { direction: 'inbound', mid, trackId: track.id }));
+        }
+      } else peerState.screenReceiveSampler?.reset();
 
       statsReport.forEach((report) => {
         if (report.type === 'inbound-rtp' && report.kind === 'audio' && !report.isRemote) {
@@ -2952,8 +3002,10 @@ const CallSection = ({
       outboundRttMs,
       outboundMeasured,
       route: routeLabels[0] || 'Проверяется',
+      screenVideo,
     });
-  }, [retuneAllPeerSenders,listenOnly,sendWs,setPeerAudioState]);
+    } finally { statsPollBusyRef.current = false; }
+  }, [retuneAllPeerSenders,listenOnly,sendWs,setPeerAudioState,getScreenSenderHealth,tuneVideoSender]);
 
   const startConnectionStatsPolling = useCallback(() => {
     if (statsTimerRef.current) return;
@@ -2985,6 +3037,8 @@ const CallSection = ({
     lastInboundAudioRef.current.clear();
     lastRemoteInboundAudioRef.current.clear();
     videoTrackStreamsRef.current.clear();
+    screenSenderHealthRef.current = new WeakMap();
+    videoParameterErrorsRef.current = new WeakMap();
     setRemotePeers([]);
     setSpeakingByPeer({});
     setVolumeByPeer({});
@@ -6876,6 +6930,14 @@ const CallSection = ({
                     )}
                     {' '}· RTT: {Math.round(Math.max(connectionStats.rttMs, connectionStats.outboundRttMs))} мс
                   </p>
+                  {connectionStats.screenVideo?.map(sample => (
+                    <p key={`${sample.peerId}:${sample.direction}`} className={connectionHintClass}>
+                      Демонстрация · {sample.direction === 'outbound' ? 'отправка' : 'приём'}:
+                      {' '}{sample.width && sample.height ? `${sample.width}×${sample.height} · ` : ''}
+                      {Math.round(sample.fps || 0)} кадров/с · {Math.round((sample.bitrate || 0) / 1000)} кбит/с
+                      {sample.limitation === 'cpu' ? ' · ограничение обработки видео' : sample.limitation === 'bandwidth' ? ' · ограничение видеоканала' : ''}
+                    </p>
+                  ))}
                 </details>
               )}
 

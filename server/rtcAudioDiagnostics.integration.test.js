@@ -22,6 +22,9 @@ test('audio diagnostics are scoped to the authenticated room; repairing one pair
   assert.equal(second.inbox.some(x=>x.type==='signal'||x.type==='peer-left'),false);
   teacher.send({type:'audio-diagnostic',peerId:first.id,event:'blocked',code:'NotAllowedError',observerId:'forged',sdp:'secret',token:'secret'});
   teacher.send({type:'audio-diagnostic',peerId:outsider.id,event:'recovering'});
+  teacher.send({type:'video-diagnostic',peerId:first.id,direction:'inbound',fps:12,codec:'video/H264',observerId:'forged',sdp:'secret'});
+  teacher.send({type:'video-diagnostic',peerId:outsider.id,direction:'inbound',fps:1});
+  teacher.send({type:'video-diagnostic',peerId:teacher.id,direction:'inbound',fps:1});
   teacher.send({type:'signal',targetId:first.id,signal:{audioProgress:{epoch:'test',packets:20,enabled:true}}});
   assert.equal((await first.take('signal')).signal.audioProgress.packets,20);
   const file=path.join(f.data,'rtc-audio-diagnostics.json');
@@ -29,5 +32,10 @@ test('audio diagnostics are scoped to the authenticated room; repairing one pair
   const rows=JSON.parse(fs.readFileSync(file,'utf8'));assert.equal(rows.length,1);
   assert.equal(rows[0].observerId,'teacher-a');assert.equal(rows[0].peerId,'student-a');assert.equal(rows[0].roomId,room);
   assert.ok(!JSON.stringify(rows).includes('secret'));assert.ok(!JSON.stringify(rows).includes('forged'));
+  const videoFile=path.join(f.data,'rtc-video-diagnostics.json');
+  for(let i=0;i<600&&!fs.existsSync(videoFile);i++)await new Promise(r=>setTimeout(r,10));
+  const videoRows=JSON.parse(fs.readFileSync(videoFile,'utf8'));assert.equal(videoRows.length,1);
+  assert.equal(videoRows[0].observerId,'teacher-a');assert.equal(videoRows[0].peerId,'student-a');assert.equal(videoRows[0].roomId,room);
+  assert.equal(videoRows[0].codec,'video/h264');assert.ok(!JSON.stringify(videoRows).includes('secret'));assert.ok(!JSON.stringify(videoRows).includes('forged'));
   for(const socket of [teacher,first,second]){socket.send({type:'ping'});assert.equal((await socket.take('pong')).type,'pong');}
 });
