@@ -28,7 +28,7 @@ import {registerPreparedImageStripRoutes} from './preparedImageStrip.js';
 import {preparedSolveReceipt} from './lessonAchievements.js';
 import {removePreparedSet,restorePreparedSet,projectPreparedSetRemovals,preparedStoredCards,preparedSolutionEntries} from './preparedSetRemoval.js';
 import {uploadPreparedReference,normalizePreparedReferences,preparedReferenceView,preparedReferenceAsset} from './preparedReferenceSolutions.js';
-import {preparedReferencePromotionState,promotePreparedReference,migratePreparedReferenceDismissals} from './preparedReferencePromotion.js';
+import {preparedReferencePromotionState,promotePreparedReference,migratePreparedReferenceDismissals,preparedReferenceReplacementView,replacePreparedReference} from './preparedReferencePromotion.js';
 
 const digest=value=>crypto.createHash('sha256').update(value).digest('hex');
 const text=(value,max=160)=>String(value??'').replace(/\0/g,'').trim().slice(0,max);
@@ -606,6 +606,8 @@ export function registerPreparedTaskRoutes(app,store){
   registerPreparedImageStripRoutes(app,store);
   app.post('/api/lesson-task-reference-files',workbookUpload.single('file'),handler(async(req,res)=>res.status(201).json(store.assetView((await store.lock(()=>uploadPreparedReference(store,req.auth,req.file))).id))));
   app.post('/api/lesson-task-runs/:id/cards/:cardId/reference-promotion',handler(async(req,res)=>res.json(await store.lock(()=>promotePreparedReference(store,req.auth,req.params.id,req.params.cardId,req.body)))));
+  app.get('/api/lesson-task-runs/:id/cards/:cardId/reference-replacement',handler(async(req,res)=>res.json(await store.lock(()=>preparedReferenceReplacementView(store,req.auth,req.params.id,req.params.cardId)))));
+  app.post('/api/lesson-task-runs/:id/cards/:cardId/reference-replacement',handler(async(req,res)=>res.json(await store.lock(()=>replacePreparedReference(store,req.auth,req.params.id,req.params.cardId,req.body)))));
   app.get('/api/lesson-task-runs/:id/cards/:cardId/reference-solution/:assetId',handler(async(req,res)=>{const asset=await preparedReferenceAsset(store,req.auth,req.params.id,req.params.cardId,req.params.assetId);res.setHeader('Cache-Control','private, no-store');res.attachment(asset.name);res.type('application/octet-stream');res.sendFile(store.assetFile(asset));}));
   app.get('/api/lesson-task-sets',handler(async(req,res)=>{const result=store.listSets(req.auth);res.json({...result,sets:result.sets.filter(s=>!req.query.taskNumber||s.taskNumber===Number(req.query.taskNumber)).map(s=>store.setView(s))});}));
   app.put('/api/lesson-task-set-order',handler(async(req,res)=>{const result=await store.lock(()=>store.reorderSets(req.auth,req.body));res.json({...result,sets:result.sets.map(set=>store.setView(set))});}));

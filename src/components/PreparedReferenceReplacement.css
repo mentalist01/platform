@@ -1,0 +1,21 @@
+.prepared-reference-replacement { width: min(100%, 550px); }
+.prepared-reference-replacement header h2 { font-size: 23px; line-height: 1.25; }
+.prepared-reference-replacement header small { color: var(--pt-muted); font-size: 11px; }
+.prepared-reference-replacement p { color: var(--pt-muted); font-size: 13px; line-height: 1.6; }
+.prepared-reference-replacement .prepared-error { color: #b42344; }
+.prepared-replacement-label { display: grid; gap: 7px; margin: 17px 0 12px; font-size: 11px; color: var(--pt-muted); }
+.prepared-replacement-label select { width: 100%; padding: 10px; border: 1px solid var(--pt-line); border-radius: 9px; color: var(--pt-text); background: var(--pt-panel); font: inherit; }
+.prepared-replacement-current { display: flex; align-items: center; gap: 9px; padding: 11px; border: 1px solid var(--pt-line); border-radius: 10px; color: var(--pt-text); overflow-wrap: anywhere; }
+.prepared-replacement-current svg { flex: none; color: var(--pt-muted); }
+.prepared-replacement-divider { display: flex; align-items: center; gap: 7px; margin: 15px 0 10px; font-size: 12px; color: var(--pt-accent); }
+.prepared-replacement-sources { display: flex; gap: 7px; flex-wrap: wrap; }
+.prepared-replacement-sources button[aria-pressed=true] { border-color: var(--pt-accent); color: var(--pt-accent); background: var(--pt-soft); }
+.prepared-reference-replacement .prepared-replacement-refresh { margin-top: 12px; font-size: 11px; }
+.prepared-replacement-upload { margin-top: 12px; }
+.prepared-replacement-file { display: flex; align-items: center; gap: 10px; padding: 13px; margin: 14px 0; border: 1px solid var(--pt-line); border-radius: 11px; background: var(--pt-bg); }
+.prepared-replacement-file>svg { flex: none; color: var(--pt-accent); }
+.prepared-replacement-file>div { min-width: 0; flex: 1; }
+.prepared-replacement-file strong { display: block; font-size: 13px; color: var(--pt-text); overflow-wrap: anywhere; }
+.prepared-replacement-file small { display: block; margin-top: 3px; font-size: 11px; color: var(--pt-muted); }
+.prepared-replacement-file a { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--pt-accent); }
+.prepared-reference-replacement .prepared-replacement-note { font-size: 12px; }

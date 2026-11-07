@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import * as Y from 'yjs';
 import {PreparedLessonTasks} from './preparedLessonTasks.js';
-import {promotePreparedReference} from './preparedReferencePromotion.js';
-import {preparedReferenceAsset} from './preparedReferenceSolutions.js';
+import {promotePreparedReference,preparedReferenceReplacementView,replacePreparedReference} from './preparedReferencePromotion.js';
+import {preparedReferenceAsset,uploadPreparedReference} from './preparedReferenceSolutions.js';
 
 const teacher={id:'t',role:'teacher',name:'Teacher'},pupil={id:'p',role:'student',name:'Pupil'},other={id:'x',role:'teacher'};
 async function fixture(t){
@@ -117,4 +117,82 @@ test('legacy per-card declines migrate into durable source-task decisions withou
   const different={...copy,setId:otherSet.id,tasks:otherSet.tasks};
   assert.ok(restarted.publicRun(different,{auth:teacher}).cards[0].referencePromotion,'a different library set is independent');
   const before=fs.readFileSync(restarted.file,'utf8');new PreparedLessonTasks(f.deps);assert.equal(fs.readFileSync(restarted.file,'utf8'),before,'migration is idempotent');
+});
+
+test('replacing a published reference uses the latest saved file and updates compatible pupil boards without moving ink',async t=>{
+  const f=await fixture(t);
+  const peer=await f.store.start(teacher,{room:'board-reference-peer',setId:f.set.id,x:100,y:200});
+  await f.save();await f.solve();await f.attach();
+  const oldId=f.set.tasks[0].referenceSolutions[0].assetId;
+  await f.save('corrected later solution');
+  const anchors=structuredClone(f.doc.getArray('items').toArray());
+  const answers=structuredClone(f.card.answers),codeId=f.card.codeId,revision=f.card.answerRevision;
+  const offer=await preparedReferenceReplacementView(f.store,teacher,f.raw.id,f.card.id);
+  const file=offer.files[0];
+  const input={expectedSetVersion:offer.expectedSetVersion,expectedReferenceIds:offer.expectedReferenceIds,referenceId:oldId,assetId:file.assetId,solutionId:file.id,revision:file.revision};
+  assert.equal(f.view().referenceReplacementAvailable,true);
+  assert.equal('referenceReplacementAvailable' in f.view(pupil),false);
+  assert.equal((await f.store.lock(()=>replacePreparedReference(f.store,teacher,f.raw.id,f.card.id,input))).replaced,true);
+  const newId=f.set.tasks[0].referenceSolutions[0].assetId;
+  assert.notEqual(newId,oldId);
+  assert.equal(fs.readFileSync(f.store.assetFile(await preparedReferenceAsset(f.store,pupil,f.raw.id,f.card.id,newId)),'utf8'),'corrected later solution');
+  await assert.rejects(preparedReferenceAsset(f.store,pupil,f.raw.id,f.card.id,oldId),{status:404});
+  const peerRun=f.store.data.runs[peer.id];
+  assert.equal(peerRun.tasks[0].referenceSolutions[0].assetId,newId);
+  assert.deepEqual(f.store.publicRun(peerRun,{auth:pupil}).cards[0].referenceSolution,{available:false,files:[]});
+  await assert.rejects(preparedReferenceAsset(f.store,pupil,peer.id,peer.cards[0].id,newId),{status:403});
+  assert.deepEqual(f.doc.getArray('items').toArray(),anchors);
+  assert.deepEqual(f.card.answers,answers);assert.equal(f.card.codeId,codeId);assert.equal(f.card.answerRevision,revision);
+  assert.equal(f.card.solutions[f.input.id].revision,file.revision);
+  await assert.rejects(replacePreparedReference(f.store,teacher,f.raw.id,f.card.id,input),{status:409},'a repeated stale click cannot replace the newer choice');
+  // Recover a lesson snapshot left stale after library persistence.
+  f.raw.tasks[0].referenceSolutions=[{assetId:oldId}];f.store.save(f.raw);
+  const restarted=new PreparedLessonTasks(f.deps);
+  assert.equal(restarted.publicRun(restarted.data.runs[f.raw.id],{auth:teacher}).cards[0].referenceSolution.files[0].id,newId);
+  await assert.rejects(preparedReferenceAsset(restarted,pupil,f.raw.id,f.card.id,oldId),{status:404});
+  assert.equal(fs.readFileSync(f.store.assetFile(f.store.data.assets[oldId]),'utf8'),'saved-v1');
+});
+
+test('replacement rejects other users, changed questions, stale saves, concurrent reference changes and foreign uploads',async t=>{
+  const f=await fixture(t);await f.save();await f.solve();await f.attach();
+  const offer=await preparedReferenceReplacementView(f.store,teacher,f.raw.id,f.card.id);
+  const file=offer.files[0],input={...offer,referenceId:offer.references[0].id,assetId:file.assetId,solutionId:file.id,revision:file.revision};
+  for(const actor of [pupil,other]){
+    await assert.rejects(preparedReferenceReplacementView(f.store,actor,f.raw.id,f.card.id),{status:403});
+    await assert.rejects(replacePreparedReference(f.store,actor,f.raw.id,f.card.id,input),{status:403});
+  }
+  const authorize=f.store.authorize;
+  f.store.authorize=async auth=>({allowed:true,auth,readOnly:true});
+  await assert.rejects(replacePreparedReference(f.store,teacher,f.raw.id,f.card.id,input),{status:403});
+  f.store.authorize=authorize;
+  await f.save('new save');
+  await assert.rejects(replacePreparedReference(f.store,teacher,f.raw.id,f.card.id,input),{status:409});
+  const foreign=uploadPreparedReference(f.store,other,{originalname:'foreign.xlsx',buffer:Buffer.from('foreign')});
+  await assert.rejects(replacePreparedReference(f.store,teacher,f.raw.id,f.card.id,{...input,referenceAssetId:foreign.id}),{status:403});
+  const original=structuredClone(f.set.tasks[0].referenceSolutions);
+  f.set.version++;
+  await assert.rejects(replacePreparedReference(f.store,teacher,f.raw.id,f.card.id,input),{status:409});
+  f.set.tasks[0].answers=['changed'];
+  await assert.rejects(preparedReferenceReplacementView(f.store,teacher,f.raw.id,f.card.id),{status:409});
+  assert.deepEqual(f.set.tasks[0].referenceSolutions,original);
+});
+
+test('an uploaded replacement can change one of several reference files before solving',async t=>{
+  const f=await fixture(t);
+  const first=uploadPreparedReference(f.store,teacher,{originalname:'first.xlsx',buffer:Buffer.from('first')});
+  const second=uploadPreparedReference(f.store,teacher,{originalname:'second.pdf',buffer:Buffer.from('second')});
+  const references=[first,second].map(asset=>({assetId:asset.id,name:asset.name,sizeBytes:asset.size}));
+  f.set.tasks[0].referenceSolutions=references;
+  f.raw.tasks[0].referenceSolutions=structuredClone(references);
+  f.store.save();f.store.save(f.raw);
+  const replacement=uploadPreparedReference(f.store,teacher,{originalname:'new.xlsx',buffer:Buffer.from('new file')});
+  const offer=await preparedReferenceReplacementView(f.store,teacher,f.raw.id,f.card.id);
+  assert.equal(offer.files.length,0);
+  await replacePreparedReference(f.store,teacher,f.raw.id,f.card.id,{...offer,referenceId:first.id,referenceAssetId:replacement.id});
+  const published=f.set.tasks[0].referenceSolutions;
+  assert.equal(published.length,2);assert.deepEqual(published[1],references[1]);
+  assert.notEqual(published[0].assetId,replacement.id,'published files use a separate immutable asset');
+  assert.equal(f.view().referencePromotion,null,'replacement must not open an automatic promotion prompt');
+  assert.deepEqual(f.view(pupil).referenceSolution,{available:false,files:[]});
+  assert.equal(fs.readFileSync(f.store.assetFile(f.store.data.assets[published[0].assetId]),'utf8'),'new file');
 });

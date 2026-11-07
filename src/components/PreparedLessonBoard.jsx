@@ -26,6 +26,7 @@ import {preparedAnswerGroups,splitPreparedGamePaste} from '../utils/preparedAnsw
 import './PreparedGameAnswers.css';
 import PreparedCardMaterials from './PreparedCardMaterials.jsx';
 import PreparedReferencePromotion from './PreparedReferencePromotion.jsx';
+import PreparedReferenceReplacement from './PreparedReferenceReplacement.jsx';
 
 export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showReferenceAnswers,worldAnchor,trialPresentation}){
   const element=useRef(null);
@@ -167,6 +168,7 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
     {run&&run.cards.map(card=>{const stored=items.current.find(item=>item.id===card.anchorId);if(!stored)return null;const anchor=preview(stored),sx=zoom*anchor.width/card.width,Component=card.kind==='theory'?PreparedTheoryCard:PreparedTaskCard;return <Component key={card.id} card={card} run={run} context={context} auth={{id:userId,role}} readOnly={readOnly||!ready||run.readOnly} showReferenceAnswers={!trialPresentation&&showReferenceAnswers} trialPresentation={trialPresentation} present={present} dark={dark} onNavigate={navigateResult} worldAnchor={anchor} onMeasure={measured} style={{left:(anchor.x-offset.x)*zoom,top:(anchor.y-offset.y)*zoom,width:card.width,transform:`scale(${sx})`}}/>;})}
     {upcoming&&<PreparedTheoryGhost key={upcoming.fromCardId} upcoming={upcoming} items={items.current} revision={revision} zoom={zoom} offset={offset} surface={surface}/>}
     {run&&<PreparedReferencePromotion run={run} refresh={context.refresh} disabled={readOnly||studyPreview||trialPresentation} dark={dark}/>}
+    {run&&<PreparedReferenceReplacement run={run} refresh={context.refresh} disabled={readOnly||studyPreview||trialPresentation} dark={dark}/>}
     <div className={`prepared-board-feedback${dark?' prepared-dark':''}`}>
       {pending&&<div className="prepared-placement" onPointerDown={place}><span>{busy?'Сохраняем место…':`Выберите место для «${pending.set.name}», затем нажмите «Начать». Esc — отмена.`}</span></div>}
       {notice&&<div className="prepared-board-notice" role="status">{notice}<button type="button" onClick={()=>setNotice('')}>Понятно</button></div>}
