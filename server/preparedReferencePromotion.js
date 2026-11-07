@@ -50,7 +50,8 @@ export function effectivePreparedReferences(store,task,run){
   // Prefer the published copy during recovery if a crash interrupted updating
   // the lesson snapshots after the library was saved.
   if(source.task&&sameTask(task,source.task)
-    &&source.task.referenceSolutions?.some(ref=>store.data.assets[ref.assetId]?.generatedReference===true)){
+    &&Array.isArray(source.task.referenceSolutions)
+    &&(!source.task.referenceSolutions.length||source.task.referenceSolutions.some(ref=>store.data.assets[ref.assetId]?.generatedReference===true))){
     return source.task.referenceSolutions;
   }
   return task.referenceSolutions||[];
@@ -112,6 +113,16 @@ export async function replacePreparedReference(store,auth,runId,cardId,input={})
     fail(409,'Разбор или набор уже изменён. Проверьте обновлённые файлы и повторите замену.');
   }
   if(!references.some(ref=>ref.assetId===input.referenceId))fail(409,'Выбранный разбор уже изменён');
+  if(input.action==='remove'){
+    const next=references.filter(ref=>ref.assetId!==input.referenceId);
+    if(!next.length){
+      store.data.referencePromotionDismissals||={};
+      store.data.referencePromotionDismissals[dismissalKey(run,task)]=new Date(store.now()).toISOString();
+    }
+    await publishReferenceFiles(store,run,source,next,true);
+    return {removed:true};
+  }
+  if(input.action&&input.action!=='replace')fail(400,'Выберите замену или удаление разбора');
   let file;
   if(input.referenceAssetId){
     file=store.data.assets[input.referenceAssetId];

@@ -55,4 +55,9 @@ test('HTTP: a pupil saves through the helper, solves, and only the teacher can p
   assert.equal(updated.status,200);assert.equal(await updated.text(),'new reference bytes');
   assert.equal((await fetch(f.base+ref.url,{headers:{Authorization:'Bearer '+pupil}})).status,404);
   assert.equal('referenceReplacementAvailable' in run.cards[0],false);
+  const removal=await f.request(replacement,teacher);
+  assert.equal((await f.request(replacement,teacher,{...removal,referenceId:newRef.id,action:'remove'})).removed,true);
+  ({run}=await f.request('/api/lesson-task-run?room='+encodeURIComponent(run.room),pupil));
+  assert.equal(run.cards[0].referenceSolution,null);
+  assert.equal((await fetch(f.base+newRef.url,{headers:{Authorization:'Bearer '+pupil}})).status,404);
 });

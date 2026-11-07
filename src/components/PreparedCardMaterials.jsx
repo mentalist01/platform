@@ -11,7 +11,9 @@ import {PREPARED_REFERENCE_REPLACEMENT} from './PreparedReferenceReplacement.jsx
 export default function PreparedCardMaterials({card,run,readOnly,busy,canEditFiles,refresh,onOpen,onExtra}){
   const replaceReference=card.referenceReplacementAvailable&&run.canManage&&!readOnly
     ?()=>window.dispatchEvent(new CustomEvent(PREPARED_REFERENCE_REPLACEMENT,{detail:{runId:run.id,cardId:card.id}})):undefined;
-  const reference=<PreparedReferenceSolutions compact reference={card.referenceSolution} canManage={run.canManage} solved={card.status==='solved'} onReplace={replaceReference} disabled={busy||readOnly}/>;
+  const removeReference=replaceReference
+    ?()=>window.dispatchEvent(new CustomEvent(PREPARED_REFERENCE_REPLACEMENT,{detail:{runId:run.id,cardId:card.id,action:'remove'}})):undefined;
+  const reference=<PreparedReferenceSolutions compact reference={card.referenceSolution} canManage={run.canManage} solved={card.status==='solved'} onReplace={replaceReference} onRemove={removeReference} disabled={busy||readOnly}/>;
   return <div className="prepared-card-materials">
     {card.attachments.map((asset,index)=>{
       const download=<FileDownloadLink href={asset.url} download={asset.name}><Download size={14}/>Скачать исходный файл</FileDownloadLink>;

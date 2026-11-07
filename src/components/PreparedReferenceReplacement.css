@@ -19,3 +19,4 @@
 .prepared-replacement-file small { display: block; margin-top: 3px; font-size: 11px; color: var(--pt-muted); }
 .prepared-replacement-file a { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--pt-accent); }
 .prepared-reference-replacement .prepared-replacement-note { font-size: 12px; }
+.prepared-reference-replacement .prepared-reference-remove { color: #b42344; background: #fff1f4; border-color: #e6b6c2; }

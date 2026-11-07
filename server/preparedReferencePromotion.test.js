@@ -196,3 +196,25 @@ test('an uploaded replacement can change one of several reference files before s
   assert.deepEqual(f.view(pupil).referenceSolution,{available:false,files:[]});
   assert.equal(fs.readFileSync(f.store.assetFile(f.store.data.assets[published[0].assetId]),'utf8'),'new file');
 });
+
+test('removing the last reference clears existing boards and survives stale snapshots without asking to add it again',async t=>{
+  const f=await fixture(t);await f.save();await f.solve();await f.attach();
+  const old=structuredClone(f.set.tasks[0].referenceSolutions);
+  const peer=await f.store.start(teacher,{room:'board-remove-peer',setId:f.set.id,x:30,y:30});
+  const offer=await preparedReferenceReplacementView(f.store,teacher,f.raw.id,f.card.id);
+  const input={...offer,referenceId:old[0].assetId,action:'remove'};
+  for(const actor of [pupil,other])await assert.rejects(replacePreparedReference(f.store,actor,f.raw.id,f.card.id,input),{status:403});
+  assert.equal((await replacePreparedReference(f.store,teacher,f.raw.id,f.card.id,input)).removed,true);
+  assert.deepEqual(f.set.tasks[0].referenceSolutions,[]);
+  assert.equal(f.view().referenceSolution,null);
+  assert.equal(f.view().referencePromotion,null);
+  assert.ok(f.view().referencePromotionAvailable,'only the explicit add action remains available');
+  assert.equal(f.store.publicRun(f.store.data.runs[peer.id],{auth:pupil}).cards[0].referenceSolution,null);
+  await assert.rejects(preparedReferenceAsset(f.store,pupil,f.raw.id,f.card.id,old[0].assetId),{status:404});
+  f.raw.tasks[0].referenceSolutions=old;f.store.save(f.raw);
+  const restarted=new PreparedLessonTasks(f.deps);
+  const card=restarted.publicRun(restarted.data.runs[f.raw.id],{auth:teacher}).cards[0];
+  assert.equal(card.referenceSolution,null);assert.equal(card.referencePromotion,null);
+  assert.equal(fs.readFileSync(f.store.assetFile(f.card.solutions[f.input.id]),'utf8'),'saved-v1');
+  assert.equal(fs.readFileSync(f.store.assetFile(f.store.data.assets[old[0].assetId]),'utf8'),'saved-v1');
+});

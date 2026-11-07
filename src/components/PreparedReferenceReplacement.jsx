@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-import {ArrowRight,Download,FileCheck,FileSpreadsheet,RefreshCw,Upload,X} from 'lucide-react';
+import {ArrowRight,Download,FileCheck,FileSpreadsheet,RefreshCw,Trash2,Upload,X} from 'lucide-react';
 import {preparedRequest} from '../services/preparedLessonTasks.js';
 import {useFullscreenPortalTarget} from '../hooks/useFullscreenPortalTarget.js';
 import FileDownloadLink from './FileDownloadLink.jsx';
@@ -22,6 +22,7 @@ export default function PreparedReferenceReplacement({run,refresh,disabled,dark}
   const dialog=useRef(null),fileInput=useRef(null),controller=useRef(null);
   const endpoint=request?`/api/lesson-task-runs/${request.runId}/cards/${request.cardId}/reference-replacement`:'';
   const file=options?.files.find(row=>row.assetId===assetId);
+  const removing=request?.action==='remove';
 
   const load=useCallback(async()=>{
     if(!endpoint)return;
@@ -49,7 +50,7 @@ export default function PreparedReferenceReplacement({run,refresh,disabled,dark}
       const card=run.cards.find(row=>row.id===event.detail.cardId);
       if(!card?.referenceReplacementAvailable)return;
       setOptions(null);setUpload(null);setSource('saved');setError('');
-      setRequest({runId:run.id,cardId:card.id});
+      setRequest({runId:run.id,cardId:card.id,action:event.detail.action==='remove'?'remove':'replace'});
     };
     window.addEventListener(PREPARED_REFERENCE_REPLACEMENT,open);
     return()=>window.removeEventListener(PREPARED_REFERENCE_REPLACEMENT,open);
@@ -70,18 +71,19 @@ export default function PreparedReferenceReplacement({run,refresh,disabled,dark}
 
   const close=()=>{if(!busy)setRequest(null);};
   const replace=async()=>{
-    if(busy||loading||!options||!referenceId||!(source==='saved'?file:upload))return;
+    if(busy||loading||!options||!referenceId||!removing&&!(source==='saved'?file:upload))return;
     setBusy(true);setError('');
     try{
-      let chosen;
-      if(source==='upload'){
+      let chosen={};
+      if(!removing&&source==='upload'){
         const form=new FormData();form.append('file',upload);
         const asset=await preparedRequest('/api/lesson-task-reference-files',form);
         chosen={referenceAssetId:asset.id};
-      }else{
+      }else if(!removing){
         chosen={assetId:file.assetId,solutionId:file.id,revision:file.revision};
       }
       await preparedRequest(endpoint,{
+        action:removing?'remove':'replace',
         expectedSetVersion:options.expectedSetVersion,
         expectedReferenceIds:options.expectedReferenceIds,
         referenceId,
@@ -108,16 +110,17 @@ export default function PreparedReferenceReplacement({run,refresh,disabled,dark}
       }}>
       <section ref={dialog} className="prepared-dialog prepared-reference-replacement" role="dialog" aria-modal="true" aria-labelledby="prepared-replacement-heading">
         <header>
-          <div><small>Готовое решение · {options?.setName||'Загружаем набор'}</small><h2 id="prepared-replacement-heading">Заменить файл разбора</h2></div>
+          <div><small>Готовое решение · {options?.setName||'Загружаем набор'}</small><h2 id="prepared-replacement-heading">{removing?'Убрать разбор из задачи':'Заменить файл разбора'}</h2></div>
           <button type="button" aria-label="Закрыть замену разбора" disabled={busy} onClick={close}><X size={19}/></button>
         </header>
         {loading&&<p role="status">Загружаем последние сохранения…</p>}
         {options&&<>
-          <label className="prepared-replacement-label">Какой разбор заменить
+          <label className="prepared-replacement-label">{removing?'Какой разбор убрать':'Какой разбор заменить'}
             {options.references.length>1?<select value={referenceId} disabled={busy||loading} onChange={event=>setReferenceId(event.target.value)}>
               {options.references.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}
             </select>:<span className="prepared-replacement-current"><FileCheck size={18}/>{options.references[0]?.name}</span>}
           </label>
+          {removing?<p className="prepared-replacement-note">Этот разбор будет убран из набора и карточек этой задачи у учеников.</p>:<>
           <div className="prepared-replacement-divider"><ArrowRight size={17}/><span>Выберите новый файл</span></div>
           <div className="prepared-replacement-sources" aria-label="Источник нового разбора">
             <button type="button" aria-pressed={source==='saved'} disabled={busy||loading} onClick={()=>setSource('saved')}><FileSpreadsheet size={15}/>Сохранение на доске</button>
@@ -137,11 +140,12 @@ export default function PreparedReferenceReplacement({run,refresh,disabled,dark}
             {source==='saved'&&<FileDownloadLink href={file.url} download={file.name}><Download size={15}/>Проверить</FileDownloadLink>}
           </div>}
           <p className="prepared-replacement-note">Новый разбор сохранится в наборе и обновится на досках с этой задачей. Ученики смогут открыть его после верного ответа.</p>
+          </>}
         </>}
         <input ref={fileInput} type="file" accept=".xlsx,.xls,.xlsm,.ods,.fods,.csv,.tsv,.txt,.pdf,.py,.zip" hidden onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file){setUpload(file);setSource('upload');}}}/>
         {error&&<p className="prepared-error" role="alert">{error}{!options&&<button type="button" disabled={busy||loading} onClick={()=>void load()}>Повторить</button>}</p>}
         <footer><button type="button" disabled={busy} onClick={close}>Отмена</button>
-          <button type="button" className="prepared-primary" disabled={busy||loading||!options||!selected} onClick={()=>void replace()}><FileCheck size={15}/>{busy?'Заменяем…':'Заменить разбор'}</button>
+          <button type="button" className={removing?'prepared-reference-remove':'prepared-primary'} disabled={busy||loading||!options||!removing&&!selected} onClick={()=>void replace()}>{removing?<Trash2 size={15}/>:<FileCheck size={15}/>} {busy?'Сохраняем…':removing?'Убрать разбор':'Заменить разбор'}</button>
         </footer>
       </section>
     </div>,target);
