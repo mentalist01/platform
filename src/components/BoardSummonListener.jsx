@@ -6,12 +6,13 @@ import { boardPageBookRoom, boardPagesList, boardPageSummonTarget } from '../uti
 import { groupNotebookBoard } from '../utils/groupNotebook.js';
 import { requestLessonPages } from '../services/lessonPages.js';
 import { observeLiveBoardCommand } from '../utils/boardCommandClock.js';
+import { rememberSummonedCode } from '../utils/lessonSummonCode.js';
 
 // Keep the teacher's navigation channel alive while the pupil is in code, chat
 // or another section. The canvas itself mounts only when its section opens.
-export default function BoardSummonListener({ teacherId, userId, groupId = '', boardVisible, onOpenBoard }) {
-  const current = useRef({ boardVisible, onOpenBoard });
-  useLayoutEffect(() => { current.current = { boardVisible, onOpenBoard }; }, [boardVisible, onOpenBoard]);
+export default function BoardSummonListener({ teacherId, userId, groupId = '', view, onOpenWorkspace }) {
+  const current = useRef({ view, onOpenWorkspace });
+  useLayoutEffect(() => { current.current = { view, onOpenWorkspace }; }, [view, onOpenWorkspace]);
   const base = groupId ? groupNotebookBoard(groupId) : teacherId && userId ? `board-${teacherId}-${userId}` : '';
   const book = boardPageBookRoom(base);
   useEffect(() => {
@@ -29,7 +30,9 @@ export default function BoardSummonListener({ teacherId, userId, groupId = '', b
         const target = boardPageSummonTarget(control.get('summon'), userId, boardPagesList(pages));
         if (!target || target.id === handled) return;
         handled = target.id;
-        if (!current.current.boardVisible) current.current.onOpenBoard?.();
+        rememberSummonedCode(target,book,userId);
+        const nextView=target.view==='collab'?'collab':'board';
+        if (current.current.view!==nextView) current.current.onOpenWorkspace?.(nextView);
       };
       const liveUpdate = () => { if (provider.synced) observeLiveBoardCommand(control.get('summon')); update(); };
       pages.observe(update); control.observe(liveUpdate); provider.on('sync', update);

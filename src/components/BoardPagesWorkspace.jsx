@@ -15,6 +15,7 @@ import {useCollapsedLessonPages} from '../hooks/useCollapsedLessonPages.js';
 import {lessonPageTree,lessonPageParentChoices} from '../utils/lessonPageTree.js';
 import {requestLessonPages} from '../services/lessonPages.js';
 import {boardCommandNow,observeLiveBoardCommand} from '../utils/boardCommandClock.js';
+import {readTeacherSummonCode} from '../utils/lessonSummonCode.js';
 
 const id = () => crypto.randomUUID();
 export default function BoardPagesWorkspace(props) {
@@ -134,8 +135,10 @@ function PagedBoardWorkspace(props) {
   };
   const summon=useCallback(viewport=>{if(!teacher || readOnly)return;
     const targetIds=group?(boardStudentId?[boardStudentId]:(canvasProps.participantIds || [])):[activeStudentId];
-    summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,...viewport},targetIds);
-  },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId]);
+    const code=readTeacherSummonCode({bookRoom,pageId,studentId:boardStudentId,role,userId,current:canvasProps.summonCodeSelection});
+    summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,...viewport,
+      ...(code?{code}:{}),...(canvasProps.summonView==='collab'?{view:'collab'}:{})},targetIds);
+  },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId,bookRoom,role,userId,canvasProps.summonCodeSelection,canvasProps.summonView]);
   const acknowledgeNavigation=useCallback(command=>{
     if(teacher || !command?.id || command.id!==lastCommand.current
       || command.pageId!==pageId || command.studentId!==boardStudentId)return false;

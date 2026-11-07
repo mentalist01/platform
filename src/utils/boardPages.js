@@ -1,4 +1,5 @@
 import { boardCommandNow, isFreshBoardCommand } from './boardCommandClock.js';
+import { normalizeSummonCode } from './lessonSummonCode.js';
 export const FIRST_BOARD_PAGE_ID = 'main';
 export const MAX_BOARD_PAGES = 300;
 const PAGE_ID = /^[a-zA-Z0-9_-]{8,80}$/;
@@ -52,5 +53,7 @@ export function boardPageSummonTarget(command,userId,pages,now=boardCommandNow()
   if (studentId && studentId!==userId) return null;
   const zoom=Number(command.zoom),x=Number(command.offset?.x),y=Number(command.offset?.y);
   if (![zoom,x,y].every(Number.isFinite) || zoom<=0 || Math.abs(x)>1000000 || Math.abs(y)>1000000) return null;
-  return {id:command.id,pageId:command.pageId,studentId,zoom,offset:{x,y}};
+  const code=normalizeSummonCode(command.code);
+  return {id:command.id,pageId:command.pageId,studentId,zoom,offset:{x,y},
+    ...(code?{code}:{}),...(command.view==='collab'?{view:'collab'}:{})};
 }

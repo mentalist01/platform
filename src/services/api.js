@@ -2386,6 +2386,12 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  getStudentLessonRecordings: async (studentId, options = {}) => {
+    const params=new URLSearchParams({studentId:String(studentId),offset:String(options.offset||0),limit:String(options.limit||12),query:String(options.query||'')});
+    const res=await apiFetch(`/api/lesson-recordings?${params}`);
+    if(!res.ok)throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   getLessonHistory: async (studentId, options = {}) => {
     const params = new URLSearchParams();
     if (studentId) params.append('studentId', String(studentId));

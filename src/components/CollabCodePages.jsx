@@ -15,13 +15,20 @@ const suggestedName = pages => {
 };
 
 export default function CollabCodePages({ pages:codePages, activeId, onSelect, roomId,role,userId,
-  disabled = false, readOnly = false, dark = false, peers = [], lockedPageId = null, protectedPageId = null }) {
+  onSummonCode, disabled = false, readOnly = false, dark = false, peers = [], lockedPageId = null, protectedPageId = null }) {
   const common=useLessonPages(roomId,role,userId);
   const sharedSelected=common.selected,selectShared=common.select;
   const pages=lessonPageTree(common.pages.map(page=>({id:lessonCodePageId(page.id),name:page.title,...(page.parentId?{parentId:lessonCodePageId(page.parentId)}:{}),count:codePages.find(p=>p.id===lessonCodePageId(page.id))?.count||1})));
   const {visiblePages,toggleParent}=useCollapsedLessonPages(pages,lessonCodePageId(sharedSelected),common.bookRoom);
   const previousActive=useRef(null),requested=useRef(null);
   const [deletedPage,setDeletedPage]=useState(null);
+  const appliedSummon=useRef('');
+  useEffect(()=>{
+    const command=common.navigation;
+    if(disabled||role!=='student'||!command?.code||appliedSummon.current===command.id)return;
+    // Retry after room/catalog synchronization or a running program finishes.
+    if(onSummonCode?.(command))appliedSummon.current=command.id;
+  },[common.navigation,disabled,role,onSummonCode]);
   useEffect(()=>{
     if(disabled||lockedPageId!==null||!pages.length){previousActive.current=null;return;}
     const selected=lessonCodePageId(sharedSelected);

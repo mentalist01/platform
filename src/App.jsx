@@ -26,6 +26,7 @@ import {PYODIDE_INDEX_URL,PYODIDE_FALLBACK_URL} from './python/pyodideRuntime.js
 import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
 import {lessonBookForCodeRoom,lessonCodePageId,lessonBoardPageId} from './utils/lessonPageSelection.js';
+import {summonedCodeSelection} from './utils/lessonSummonCode.js';
 import { normalizeBoardFileFields, drawBoardFileCard } from './utils/boardFile.js';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
@@ -237,6 +238,7 @@ import useLessonReplayRecorder from './hooks/useLessonReplayRecorder';
 import useRecorderShare from './hooks/useRecorderShare';
 import useDesktopRecording from './hooks/useDesktopRecording';
 const LessonRecordingSection = React.lazy(() => import('./components/LessonRecordingSection'));
+const StudentLessonRecordings = React.lazy(() => import('./components/StudentLessonRecordings.jsx'));
 import useWorkbookAutoSync from './hooks/useWorkbookAutoSync';
 import useWorkbookHelper from './hooks/useWorkbookHelper';
 import { getLevelFromXp, getLevelProgressFromXp } from './utils/leveling';
@@ -9294,6 +9296,22 @@ export const CollabSection = ({
     if (!selectSolutionRef.current?.(id)) setSolutionError('Не удалось открыть вариант. Дождитесь подключения и повторите.');
     else if (canFollowPreparedCode) {const linked=preparedContext.run?.cards.find(card=>card.codeId===id);if(linked)preparedContext.select(linked.id);}
   };
+  const followSummonedCode = command => {
+    if (role !== 'student' || isSandbox) return false;
+    const selected=summonedCodeSelection(command,preparedBook,userId);
+    if (!selected) return false;
+    // A summon never bypasses the teacher's existing restriction on code tabs.
+    if (studentCodeFocus && (studentCodeFocus.room!==selected.room||studentCodeFocus.solutionId!==selected.solutionId)) return true;
+    if (isGroupLesson && selected.room!==roomId) {
+      setActiveGroupParticipantId(command.studentId || GROUP_SHARED_CODE_ID);
+      return false;
+    }
+    if (selected.room!==roomId || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current
+      || !codeSolutions.some(solution=>solution.id===selected.solutionId&&solution.pageId===selected.pageId)) return false;
+    presentation.leave(false);
+    setCompareSolutionId(null);
+    return Boolean(selectSolutionRef.current?.(selected.solutionId));
+  };
   const createCodeSection = (name) => {
     if (collabReadOnly || !collabDocumentReady || solutionActionsBusy || localRunBusyRef.current) {
       throw new Error('Дождитесь завершения текущей операции.');
@@ -10300,6 +10318,8 @@ export const CollabSection = ({
                   {collabBoardFullscreenButton}
                   <BoardSection
                     workspaceRoomId={pythonExplanation ? (learningGroupId ? pythonGroupBoardRoom(learningGroupId) : pythonExplanationBoardRoom(teacherId,effectiveStudentId)) : undefined}
+                    summonView="collab"
+                    summonCodeSelection={{room:roomId,pageId:activeCodePageId,solutionId:activeSolutionId}}
                     embedded
                     hideStudentPicker
                     showEmbeddedSummonButton={isTeacher}
@@ -11158,6 +11178,7 @@ export const CollabSection = ({
           <React.Suspense fallback={<div role="status" className="collab-solutions__notice">Загружаем страницы кода…</div>}>
           <CollabCodePages key={`pages:${roomId}`} pages={codePages} activeId={activeCodePageId}
             onSelect={selectCodePage} roomId={roomId} role={role} userId={userId}
+            onSummonCode={followSummonedCode}
             lockedPageId={studentCodeFocus ? pinnedCode?.pageId || '' : null}
             protectedPageId={isTeacher && codeFocus.focus?.room === roomId ? codeFocus.focus?.pageId : null}
             disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted} readOnly={collabReadOnly} dark={isCollabDarkUi}
@@ -18637,6 +18658,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         'schedule',
+        'student-recordings',
         'groups',
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
@@ -20113,7 +20135,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Домашка', icon: Calendar },
-        ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups || studentHasLibraryAccess ? 'Группы и записи' : 'Подбор группы', icon: Users }] : []),
+        ...(!studentHasGroups ? [{id:'student-recordings',label:'Записи',icon:Video}] : []),
+        ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : studentHasLibraryAccess ? 'Групповые занятия' : 'Подбор группы', icon: Users }] : []),
         { id: 'progress', label: 'Все задания', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -20132,6 +20155,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
+        ...(!studentHasGroups ? ['student-recordings'] : []),
         ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? ['groups'] : []),
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
@@ -20155,7 +20179,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }));
   const studentDesktopMainNav = user.role === 'student'
     ? [
-      ...['review', 'schedule', 'groups', 'progress']
+      ...['review', 'schedule', 'student-recordings', 'groups', 'progress']
         .map((id) => visibleNav.find((item) => item.id === id))
         .filter(Boolean),
       studentLessonNavItem,
@@ -20194,6 +20218,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ]
     : [];
   const studentMobileMorePreferredIds = [
+    'student-recordings',
     'groups',
     ...(studentCanSeeReview ? ['review'] : []),
     'python',
@@ -20229,7 +20254,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const desktopFabNav = user.role === 'student'
     ? [...studentDesktopMainNav, ...studentDesktopToolNav]
     : desktopPrimaryNav;
-  const desktopTabSection = ({schedule:'Расписание',groups:'Группы',progress:'Задания',notes:'Конспекты',board:'Доска',collab:'Код',call:'Звонок',python:'Python',finance:'Финансы','teacher-calendar':'Календарь','teacher-students':'Ученики','teacher-settings':'Настройки','study-plan':'План подготовки',recording:'Запись уроков'})[view] || 'Кабинет';
+  const desktopTabSection = ({schedule:'Расписание',groups:'Группы',progress:'Задания',notes:'Конспекты',board:'Доска',collab:'Код',call:'Звонок',python:'Python',finance:'Финансы','teacher-calendar':'Календарь','teacher-students':'Ученики','teacher-settings':'Настройки','study-plan':'План подготовки',recording:'Запись уроков','student-recordings':'Записи'})[view] || 'Кабинет';
   const desktopTabStudent = ['progress','notes','board','collab','call'].includes(view)
     ? String(activeHomeworkLessonBasketStudent?.nickname || activeHomeworkLessonBasketStudent?.name || '') : '';
   const desktopTabTitle = desktopTabStudent ? `${desktopTabSection} · ${desktopTabStudent}` : desktopTabSection;
@@ -26396,6 +26421,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {view === 'recording' && user.role === 'teacher' && <LessonRecordingSection recorder={desktopRecorder} />}
+          {view === 'student-recordings' && user.role === 'student' && <React.Suspense fallback={<div role="status">Открываем записи занятий…</div>}><StudentLessonRecordings key={user.id} userId={user.id}/></React.Suspense>}
           {view === 'meetings' && user.role === 'teacher' && <GuestMeetingsSection user={user} theme={theme} />}
           {view === 'groups' && ['teacher', 'student'].includes(user.role) && (
             <StudentGroupLibrary user={user} theme={theme} startWithRecordings={!studentHasGroups && studentHasLibraryAccess} openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
@@ -26907,8 +26933,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <React.Suspense fallback={null}>
               <BoardSummonListener teacherId={user.teacherId} userId={user.id}
                 groupId={activeLearningLesson?.groupId || ''}
-                boardVisible={view === 'board'}
-                onOpenBoard={() => navigateToView('board')} />
+                view={view}
+                onOpenWorkspace={navigateToView} />
             </React.Suspense>
           )}
           {view === 'board' && !studentLessonWorkspaceBlocked && (

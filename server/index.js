@@ -82,6 +82,7 @@ import { isGroupLessonAssigned, isGroupLessonAbsenceWaived, participationOccurre
 import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
+import {matchLessonRecording} from '../src/utils/studentLessonRecordings.js';
 import { refreshedRecordingOccurrence } from './recordingSchedule.js';
 import { currentScheduledSuccessor, isAdjacentRecordingSuccessor } from './recordingRollover.js';
 import { addRecorderMaterial, recordingLibrary, addLessonRecordingMaterial } from './recorderMaterials.js';
@@ -38322,6 +38323,26 @@ app.get('/api/parent/lessons', async (req, res) => {
     console.error('[parent] failed to build lesson history:', error);
     return res.status(500).json({ error: 'Не удалось загрузить историю занятий' });
   }
+});
+
+app.get('/api/lesson-recordings', async (req,res)=>{
+  const student=ensureStudentAccess(req,res,req.query?.studentId,{strictStudentId:true});
+  if(!student)return;
+  try{
+    const history=(await buildResolvedStudentLessonHistory(student,req.auth,{persist:false}))
+      .filter(entry=>!entry.groupId&&matchLessonRecording(entry,String(req.query?.query||'').slice(0,200)));
+    const page=paginateStudentLessonHistory(history,req.query);
+    res.setHeader('Cache-Control','no-store');
+    res.json({...page,items:page.items.map(entry=>{
+      const key=getLessonHistoryReplayKey(entry);
+      // Listing tiles must not decompress old replay files. Load their contents
+      // through the existing authorized detail route only after a pupil clicks.
+      const summary=desktopRecordings.replay(key)||(lessonReplayCacheByOccurrenceKey.has(key)?getLessonReplaySummary(key):{
+        status:fs.existsSync(getLessonReplayFilePath(key))||fs.existsSync(getLessonReplayBackupFilePath(key))?'archive':'unavailable'});
+      return {...serializeStudentLessonHistoryEntry(entry,null,student),recording:{available:Boolean(summary?.available),
+        status:summary?.status||(summary?.available?'ready':'unavailable'),durationMs:Math.max(0,Number(summary?.durationMs)||0)}};
+    })});
+  }catch(error){console.error('[lesson-recordings] failed to load library:',error);res.status(500).json({error:'Не удалось загрузить записи занятий'});}
 });
 
 app.get('/api/lesson-history/detail', async (req, res) => {
