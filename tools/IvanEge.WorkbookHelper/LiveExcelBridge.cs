@@ -17,6 +17,7 @@ internal sealed class LiveExcelBridge : IDisposable
     private JsonObject? _defaultFormat;
     private readonly Dictionary<string,string> _formatStyles=[];
     private readonly LiveExcelChanges _changes = null!;
+    private bool _fixtureFailSnapshot;
     private static void Release(object? value) { if (value is not null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value); }
 
     public LiveExcelBridge(string source, string localPath, bool hidden, bool borders = false, bool formatting = false,bool columns=false)
@@ -178,7 +179,7 @@ internal sealed class LiveExcelBridge : IDisposable
         // SaveCopyAs cancels Excel's native copy buffer, including Paste
         // Special. Remote writes do too. Read/publish committed cells while
         // copying, and leave exports/incoming writes queued until it ends.
-        if (preserve && Convert.ToInt32(_app.CutCopyMode) != 0)
+        if ((preserve || command["type"]!.GetValue<string>() is "export-file" or "save-file") && Convert.ToInt32(_app.CutCopyMode) != 0)
             throw new COMException("Excel принимает операцию копирования или вставки", unchecked((int)0x800AC472));
         var view = preserve ? CaptureView() : null;
         try { return ExecuteCore(command); }
@@ -333,13 +334,19 @@ internal sealed class LiveExcelBridge : IDisposable
                 }
                 finally { Release(selectedSheet); }
             case "snapshot":
+                if (_fixtureFailSnapshot) { _fixtureFailSnapshot = false; throw new COMException("Injected startup snapshot failure", unchecked((int)0x800A03EC)); }
                 string destination = command["path"]!.GetValue<string>(); _book.SaveCopyAs(destination); return new { path = destination, localPath = (string)_book.FullName,columns=_columns?LiveWorkbookColumns.ReadExcel(_book,destination):null };
+            case "fixture-fail-snapshot": _fixtureFailSnapshot = true; return new { ready = true };
+            case "export-file":
+                string copy = command["path"]!.GetValue<string>(); _book.SaveCopyAs(copy); return new { path = copy, localPath = (string)_book.FullName };
+            case "file-status": return new { closed = IsClosed() };
             case "fixture-columns":
                 dynamic widthSheet=Sheet(command["sheetName"]!.GetValue<string>()),widthRange=widthSheet.Range[command["range"]!.GetValue<string>()];
                 try{if(command["auto"]?.GetValue<bool>()==true)widthRange.EntireColumn.AutoFit();else widthRange.EntireColumn.ColumnWidth=command["width"]!.GetValue<double>();return new{resized=true};}
                 finally{Release(widthRange);Release(widthSheet);}
             case "format-defaults": _defaultFormat=command["value"]?.DeepClone().AsObject();return new{updated=true};
-            case "save": _book.Save(); return new { saved = true };
+            case "save":
+            case "save-file": _book.Save(); return new { saved = true };
             case "fixture-user-close": _book.Save();_book.Close(false);return new{closed=true};
             case "fixture-busy": throw new COMException("Excel is temporarily busy", unchecked((int)0x800AC472));
             case "apply": return ApplyChanges(command["changes"]!.AsArray(), true);
@@ -754,7 +761,7 @@ internal sealed class LiveExcelBridge : IDisposable
                 line = inputLine.GetAwaiter().GetResult(); if (line is null) break;
                 var input = JsonNode.Parse(line)!.AsObject(); if (input["type"]!.GetValue<string>() == "close") break;
                 try { Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), result = bridge.Execute(input) })); }
-                catch (Exception error) { bool busy = OfficeBusyErrors.IsTemporary(error); if(!busy)AppLog.Error("Native Excel command failed: "+input["type"]?.GetValue<string>(),error); Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), error = error.Message, closed = !busy && bridge.IsClosed(), busy })); }
+                catch (Exception error) { bool busy = OfficeBusyErrors.IsTemporary(error); if(!busy)AppLog.Error("Native Excel command failed: "+input["type"]?.GetValue<string>(),error); Console.WriteLine(JsonSerializer.Serialize(new { id = input["id"]!.GetValue<int>(), error = error.Message, code = "0x" + unchecked((uint)error.HResult).ToString("X8"), closed = !busy && bridge.IsClosed(), busy })); }
             }
             return 0;
         }

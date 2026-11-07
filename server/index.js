@@ -30819,6 +30819,7 @@ app.get('/api/students', async (req, res) => {
     return {
       ...rest,
       grade,
+      lessonVenue: rest.lessonVenue === 'telemost' ? 'telemost' : 'platform',
       studyStatus: normalizeStudentStudyStatus(rest.studyStatus, grade),
       informaticsEgeScore: grade === STUDENT_GRADE_GRADUATE
         ? normalizeStudentInformaticsEgeScore(rest.informaticsEgeScore)
@@ -32265,8 +32266,12 @@ app.patch('/api/students/:id', (req, res) => {
   const hasCoinsGrant = Object.prototype.hasOwnProperty.call(req.body || {}, 'coinsGrant');
   const hasStudyStatus = Object.prototype.hasOwnProperty.call(req.body || {}, 'studyStatus');
   const hasTelemostUrl = Object.prototype.hasOwnProperty.call(req.body || {}, 'telemostUrl');
+  const hasLessonVenue = Object.prototype.hasOwnProperty.call(req.body || {}, 'lessonVenue');
+  if (hasLessonVenue && !['platform', 'telemost'].includes(req.body.lessonVenue)) {
+    return res.status(400).json({ error: 'Выберите платформу или Телемост' });
+  }
 
-  if (!hasName && !hasNickname && !hasGrade && !hasInformaticsEgeScore && !hasLeaderboardAlias && !hasCoinsGrant && !hasStudyStatus && !hasTelemostUrl) {
+  if (!hasName && !hasNickname && !hasGrade && !hasInformaticsEgeScore && !hasLeaderboardAlias && !hasCoinsGrant && !hasStudyStatus && !hasTelemostUrl && !hasLessonVenue) {
     return res.status(400).json({ error: 'Некорректные параметры' });
   }
 
@@ -32359,6 +32364,10 @@ app.patch('/api/students/:id', (req, res) => {
     catch (error) { return res.status(error.status).json({ error: error.message, code: error.code }); }
   }
   if (hasGrade) updated.grade = studentGrade;
+  if (hasLessonVenue) {
+    updated.lessonVenue = req.body.lessonVenue;
+    updated.lessonVenueUpdatedAt = new Date().toISOString();
+  }
   if (hasTelemostUrl) {
     updated.telemostUrl = studentTelemostUrl;
     updated.telemostUrlUpdatedAt = new Date().toISOString();
@@ -32409,6 +32418,8 @@ app.patch('/api/students/:id', (req, res) => {
     codeHint: updated.codeHint,
     teacherId: updated.teacherId,
     telemostUrl: normalizeTelemostUrl(updated.telemostUrl),
+    lessonVenue: updated.lessonVenue === 'telemost' ? 'telemost' : 'platform',
+    lessonVenueUpdatedAt: updated.lessonVenueUpdatedAt || '',
     telemostUrlUpdatedAt: String(updated.telemostUrlUpdatedAt || '').trim(),
     createdAt: updated.createdAt
   });

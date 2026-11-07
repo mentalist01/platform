@@ -13,6 +13,7 @@ import {
 
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { normalizeTelemostUrl } from '../utils/telemost';
+import { studentLessonVenue } from '../utils/studentLessonVenue';
 import TeacherLessonStartPromptCard from './TeacherLessonStartPromptCard';
 
 const LESSON_PROMPT_LEAD_MS = 60 * 1000;
@@ -483,6 +484,7 @@ const TeacherLessonStartPrompt = ({
   onOpenStudentWorkspace = null,
   onOpenLearningGroupLesson = null,
   onOpenLearningGroupTelemost = null,
+  onOpenIndividualTelemost = null,
 }) => {
   const [scheduleEntries, setScheduleEntries] = useState([]);
   const [scheduleReady, setScheduleReady] = useState(false);
@@ -622,6 +624,8 @@ const TeacherLessonStartPrompt = ({
   }, [dismissedKeys, now, scheduleEntries, scheduleReady, studentsById]);
 
   const activePrompt = duePrompt;
+  const promptStudent = students.find(student => student.id === activePrompt?.studentId);
+  const preferredVenue = studentLessonVenue(promptStudent);
 
   useEffect(() => {
     const studentId = String(activePrompt?.studentId || '').trim();
@@ -674,11 +678,16 @@ const TeacherLessonStartPrompt = ({
 
   const joinCall = useCallback(() => {
     if (activePrompt?.isLearningGroupEvent || !activePrompt?.studentId) return;
+    if (preferredVenue.telemost && preferredVenue.url && typeof onOpenIndividualTelemost === 'function') {
+      const accepted = onOpenIndividualTelemost({ studentId: activePrompt.studentId, telemostUrl: preferredVenue.url });
+      if (accepted !== false && activePrompt.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
+      return;
+    }
     if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
     if (typeof onOpenStudentWorkspace === 'function') {
-      onOpenStudentWorkspace('call-connect', activePrompt.studentId);
+      onOpenStudentWorkspace(preferredVenue.telemost ? 'call' : 'call-connect', activePrompt.studentId);
     }
-  }, [activePrompt, onOpenStudentWorkspace, rememberDismissedPrompt]);
+  }, [activePrompt, onOpenStudentWorkspace, onOpenIndividualTelemost, preferredVenue.telemost, preferredVenue.url, rememberDismissedPrompt]);
 
   const openLearningGroupLesson = useCallback(() => {
     if (!activePrompt?.isLearningGroupEvent) return;
@@ -740,6 +749,8 @@ const TeacherLessonStartPrompt = ({
       subtitle={subtitle}
       leadLabel={leadLabel}
       isGroup={isLearningGroupEvent}
+      venueLabel={!isLearningGroupEvent ? preferredVenue.label : ''}
+      joinLabel={!isLearningGroupEvent ? preferredVenue.joinLabel : ''}
       onClose={closePrompt}
       onJoin={isLearningGroupEvent ? openLearningGroupLesson : joinCall}
       joinDisabled={isLearningGroupEvent
@@ -762,6 +773,8 @@ const TeacherLessonStartPrompt = ({
                   : 'Группа ещё не запущена. Для старта нужен хотя бы один ученик и статус «Занимается».'}
           </div>
         )
+      ) : preferredVenue.telemost && !preferredVenue.url ? (
+        <div className="lesson-start-prompt__warning">Ссылка ещё не сохранена. Добавьте её в карточке ученика или в настройках Телемоста перед звонком.</div>
       ) : null}
     >
       {isLearningGroupEvent ? (

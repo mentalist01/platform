@@ -1,0 +1,9 @@
+.student-lesson-venue {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0;color:rgb(var(--ink));font-size:13px}
+.student-lesson-venue__choice {display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-weight:600}
+.student-lesson-venue select,.student-lesson-venue input,.student-lesson-venue button {border:1px solid rgb(var(--brand-600)/.2);background:rgb(var(--surface));color:inherit;border-radius:10px;padding:8px 10px;min-height:36px}
+.student-lesson-venue__link {flex:1;max-width:360px;min-width:180px}
+.student-lesson-venue input {width:100%}
+.student-lesson-venue button {color:rgb(var(--brand-600));font-weight:600}
+.student-lesson-venue__saved {display:flex;align-items:center;gap:4px;color:#059669}
+.student-lesson-venue small {flex-basis:100%;color:rgb(var(--ink-soft))}
+.student-lesson-venue .student-lesson-venue__error {color:#e11d48}

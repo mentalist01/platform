@@ -20,6 +20,8 @@
   color: rgb(var(--ink));
 }
 
+.lesson-start-prompt__venue {display:flex;align-items:center;gap:7px;margin:8px 0;color:var(--prompt-accent);font-weight:700;font-size:14px}
+
 html[data-theme='dark'] .lesson-start-prompt {
   --prompt-border: #3d3657;
   --prompt-accent: #c4b5fd;

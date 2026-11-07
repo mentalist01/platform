@@ -124,7 +124,9 @@ internal sealed class LiveOfficeProcess : IDisposable
                 throw new LiveOfficeDisconnectedException();
             }
             if (response["closed"]?.GetValue<bool>() == true) { Closed = true; throw new LiveOfficeClosedException(); }
-            if (response["error"] is not null) throw new InvalidOperationException(response["error"]!.GetValue<string>());
+            if (response["error"] is not null) throw new InvalidOperationException(
+                (_engine == "excel" ? "Excel" : "LibreOffice") + ": операция «" + command["type"]!.GetValue<string>() + "».\n" + response["error"]!.GetValue<string>()
+                + (response["code"] is JsonValue code ? "\nКод ошибки: " + code.GetValue<string>() : ""));
             if (response["id"]?.GetValue<int>() != _sequence) throw new InvalidOperationException("Мост таблицы вернул неверный номер команды");
             var result = response["result"]!.AsObject();
             if (command["type"]?.GetValue<string>() == "pulse")
@@ -144,7 +146,7 @@ internal sealed class LiveOfficeProcess : IDisposable
     }
     // Whole-file saving must remain available even when the cell model cannot
     // represent this workbook. Export does not parse or truncate its contents.
-    public async Task<string> ExportFileAsync(CancellationToken token)
+    public async Task<string> ExportFileAsync(CancellationToken token, bool includeMetadata = true)
     {
         SnapshotCount++;
         _exportedColumns=null;
@@ -155,7 +157,7 @@ internal sealed class LiveOfficeProcess : IDisposable
             // Never publish an older local file as if it were a fresh snapshot.
             if (_disconnected) throw new LiveOfficeDisconnectedException();
             JsonObject result;
-            try { result = Closed ? throw new LiveOfficeClosedException() : await CommandAsync(new() { ["type"] = "snapshot", ["path"] = file }, token); }
+            try { result = Closed ? throw new LiveOfficeClosedException() : await CommandAsync(new() { ["type"] = includeMetadata ? "snapshot" : "export-file", ["path"] = file }, token); }
             catch (LiveOfficeClosedException) when (File.Exists(LocalPath))
             { File.Copy(LocalPath, file); return file; }
             if (result["localPath"]?.GetValue<string>() is string local && Path.IsPathFullyQualified(local)) LocalPath = local;

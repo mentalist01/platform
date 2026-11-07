@@ -35,6 +35,7 @@ import StudentContactLinks from './StudentContactLinks';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import StudentGroupAccess from './StudentGroupAccess.jsx';
 import StudentGroupPreparation from './StudentGroupPreparation.jsx';
+import StudentLessonVenue from './StudentLessonVenue.jsx';
 import {OpenStudentSessionButton} from './StudentViewSession.jsx';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import {
@@ -3489,6 +3490,7 @@ const TeacherPanel = ({
                           </span>
                         </p>
                         <div className="mt-2"><StudentContactLinks studentId={student.id} studentName={student.name} compact /></div>
+                        {role === 'teacher' && <StudentLessonVenue key={student.id} student={student} onUpdated={onStudentUpdated} />}
                         {role === 'teacher' && <MessageTemplatesButton students={visibleStudentsList} initialStudentId={student.id} initialCategory="trial"
                           initialGroupId={groupPreparations?.groups.some(group => group.id === groupPreparations.plans[student.id]?.groupId)
                             ? groupPreparations.plans[student.id].groupId : ''} />}

@@ -16,6 +16,7 @@ import { useCallMediaDevices } from '../hooks/useCallMediaDevices.js';
 import { withFloatingCameraStreams, visibleFloatingParticipants } from '../utils/callCameraPreviews.js';
 import { shouldSaveLessonReplayScreenFrame } from '../utils/lessonReplayScreenCapture';
 import { normalizeTelemostUrl, parseTelemostUrl } from '../utils/telemost';
+import { studentLessonVenue } from '../utils/studentLessonVenue';
 import { probeWebSocket, retireWebSocket, subscribeNetworkRecovery } from '../utils/socketRecovery.js';
 import { clearCallResume, saveCallResume } from '../utils/callResume.js';
 import { shouldEndRecordingOnCallExit } from '../utils/callExitIntent.js';
@@ -6047,9 +6048,13 @@ const CallSection = ({
           />
         </div>
       )}
+      {isTeacher && effectiveStudentId && !isGroupLesson && <p className="flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-semibold text-purple-700" role="note">
+        {selectedStudent?.lessonVenue === 'telemost' ? <Video size={16} /> : <Phone size={16} />}
+        {studentLessonVenue(selectedStudent).label}
+      </p>}
       {effectiveStudentId && (
         <details className="call-telemost-editor call-workspace-disclosure">
-          <summary><Video size={16} /> Резервный Телемост <span>{telemostUrl ? 'Настроен' : 'Настроить'}</span></summary>
+          <summary><Video size={16} /> {isTeacher && selectedStudent?.lessonVenue === 'telemost' ? 'Звонок в Телемосте' : 'Резервный Телемост'} <span>{telemostUrl ? 'Настроен' : 'Настроить'}</span></summary>
           <div className="call-telemost-editor__head">
             <span className="call-telemost-editor__icon" aria-hidden="true">
               <Video size={16} />

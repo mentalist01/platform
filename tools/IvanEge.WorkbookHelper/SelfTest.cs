@@ -136,6 +136,8 @@ internal static class SelfTest
         var message = WorkbookOpenFailure.AtStage("Excel", "запуск приложения", error);
         Assert(message.Contains("запуск приложения") && message.Contains("Class not registered") && message.Contains("0x80040154"), "A startup failure must preserve the stage, native reason and HRESULT");
         Assert(WorkbookOpenFailure.Details(message).Contains(HelperUpdater.CurrentVersion.ToString(3)), "Copied launch diagnostics must identify the running helper version");
+        var native = WorkbookOpenFailure.Diagnostic(new InvalidOperationException("Excel: операция «snapshot».\n0x800A03EC"), "excel");
+        Assert(native["stage"]!.GetValue<string>().Contains("snapshot") && native["code"]!.GetValue<string>() == "0x800A03EC", "Post-open native diagnostics must identify the failing operation and code");
     }
     private static void TestWorkbookFallback(string directory)
     {

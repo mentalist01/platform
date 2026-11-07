@@ -4,7 +4,7 @@ import './TeacherLessonStartPrompt.css';
 
 export default function TeacherLessonStartPromptCard({
   title, subject, subtitle, leadLabel, isGroup, onClose, onJoin, joinDisabled,
-  secondaryAction, children,
+  secondaryAction, children, venueLabel, joinLabel,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const titleId = useId();
@@ -43,6 +43,7 @@ export default function TeacherLessonStartPromptCard({
             <span className="lesson-start-prompt__eyebrow">Перед уроком</span>
             <h2 id={titleId} title={title}>{title}</h2>
             {!collapsed && subject && subject !== title && <p className="lesson-start-prompt__muted">{subject}</p>}
+            {venueLabel && <p className="lesson-start-prompt__venue"><PhoneCall size={14} />{venueLabel}</p>}
             <div className="lesson-start-prompt__meta">
               <span className="lesson-start-prompt__countdown">{leadLabel}</span>
               {subtitle && <span className="lesson-start-prompt__muted"><Clock3 size={13} />{subtitle}</span>}
@@ -57,7 +58,7 @@ export default function TeacherLessonStartPromptCard({
         </header>
         <div className="lesson-start-prompt__actions">
           <button type="button" className="lesson-start-prompt__primary" onClick={onJoin} disabled={joinDisabled}>
-            <JoinIcon size={20} />{isGroup ? 'Открыть занятие группы' : (collapsed ? 'Войти в звонок' : 'Присоединиться к созвону')}
+            <JoinIcon size={20} />{joinLabel || (isGroup ? 'Открыть занятие группы' : (collapsed ? 'Войти в звонок' : 'Присоединиться к созвону'))}
           </button>
           {!collapsed && secondaryAction}
         </div>

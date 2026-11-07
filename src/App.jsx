@@ -26892,6 +26892,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onOpenStudentWorkspace={handleOpenTeacherLessonWorkspace}
               onOpenLearningGroupLesson={handleOpenLearningGroupLesson}
               onOpenLearningGroupTelemost={handleOpenLearningGroupTelemost}
+              onOpenIndividualTelemost={handleOpenIndividualTelemost}
             />
           )}
           {user.role === 'student' && (

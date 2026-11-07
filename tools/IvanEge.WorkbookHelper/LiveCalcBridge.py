@@ -639,17 +639,21 @@ class Calc:
             self.doc.getCurrentController().getActiveSheet().getDrawPage().add(shape)
             self.doc.getCurrentController().select(shape)
             return {'created': True}
-        if kind == 'snapshot':
-            view = self.capture_view()
+        if kind in ('snapshot', 'export-file'):
+            if kind == 'snapshot' and getattr(self, '_fixture_fail_snapshot', False):
+                self._fixture_fail_snapshot = False
+                raise RuntimeError('Injected startup snapshot failure')
+            view = self.capture_view() if kind == 'snapshot' else None
             self.changes.ignored += 1
             try:
                 self.doc.storeToURL(Path(command['path']).resolve().as_uri(),
                     (prop('FilterName', 'Calc MS Excel 2007 XML'), prop('Overwrite', True)))
             finally:
-                self.restore_view(view)
+                if view is not None:
+                    self.restore_view(view)
                 self.changes.ignored -= 1
             return {'path': command['path'], 'localPath': uno.fileUrlToSystemPath(self.doc.getURL()),
-                    'columns': self.read_columns(command['path']) if self.args.columns else None}
+                    'columns': self.read_columns(command['path']) if kind == 'snapshot' and self.args.columns else None}
         if kind == 'fixture-columns':
             sheet = self.doc.Sheets.getByName(command['sheetName'])
             columns = sheet.getCellRangeByName(command['range']).Columns
@@ -658,16 +662,23 @@ class Calc:
             else:
                 columns.Width = round(command['width'] * 7 * 2540 / 96)
             return {'resized': True}
+        if kind == 'fixture-fail-snapshot':
+            self._fixture_fail_snapshot = True
+            return {'ready': True}
         if kind == 'format-defaults':
             self._default_format = command.get('value')
             return {'updated': True}
-        if kind == 'save':
-            view = self.capture_view()
+        if kind == 'file-status':
+            self.doc.getURL()  # Raises if the native document was disposed.
+            return {'closed': False}
+        if kind in ('save', 'save-file'):
+            view = self.capture_view() if kind == 'save' else None
             self.changes.ignored += 1
             try:
                 self.doc.store()
             finally:
-                self.restore_view(view)
+                if view is not None:
+                    self.restore_view(view)
                 self.changes.ignored -= 1
             return {'saved': True}
         if kind == 'fixture-user-close':

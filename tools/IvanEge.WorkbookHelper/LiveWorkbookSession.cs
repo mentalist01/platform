@@ -19,7 +19,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     public bool HasSeparateFallback => _fallbackPath is not null;
     public bool HasConflict => _client.Conflicted;
     public bool IsPaused => _ordinary?.IsPaused ?? _client.Paused;
-    public bool IsClosed => _failed || _disposed || _client.Office?.Closed == true;
+    public bool IsClosed => _failed || _disposed || _ordinary is null && _client.Office?.Closed == true;
     public bool ReadyForHelperUpdate => !_disposed && _ordinary is null && (_failed && _worker.IsCompleted && _client.Office is null || !_failed && _client.ReadyForHelperUpdate);
     public string Engine { get; private set; } = "auto";
     public System.Text.Json.Nodes.JsonArray Participants { get; private set; } = [];
@@ -91,15 +91,15 @@ internal sealed class LiveWorkbookSession : IDisposable
             {
                 AppLog.Error("Shared workbook initialization failed: " + error);
                 _failed = true;
-                if (_client.Office is not null && WorkbookFallback.IsCapacityFailure(error))
+                if (_client.Office is { Closed: false })
                 {
-                    await RunAttachedFileFallbackAsync(api, grant, error);
+                    await RunAttachedFileFallbackAsync(api, grant, error, startupFailure: !WorkbookFallback.IsCapacityFailure(error));
                     return;
                 }
                 // No native book was attached, so there are no local or remote
                 // cell edits to merge. Open a distinct copy of the downloaded
                 // checkpoint; never reuse the shared grant for whole-file PUTs.
-                if (_client.Office is null)
+                if (_client.Office is null || _client.Office.Closed)
                 {
                     try
                     {
@@ -116,12 +116,14 @@ internal sealed class LiveWorkbookSession : IDisposable
                             catch (Exception openingError) { opened.TrySetException(openingError); }
                         }, null);
                         await opened.Task.WaitAsync(_lifetime.Token);
+                        _failed = false;
                         Update(new(WorkbookStatusKind.Warning, WorkbookFallback.Explanation + "\n\nНе удалось подключить совместный режим:\n" + error.Message, true));
                         return;
                     }
                     catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
                     catch (Exception fallbackError)
                     {
+                        _ordinary?.Dispose(); _ordinary = null;
                         AppLog.Error("Ordinary workbook fallback failed", fallbackError);
                         Update(new(WorkbookStatusKind.Error, error.Message + "\n\nОбычная копия также не открылась: " + fallbackError.Message + "\nИсходный файл остался на компьютере.", true));
                         return;
@@ -134,7 +136,7 @@ internal sealed class LiveWorkbookSession : IDisposable
             finally { _client.Dispose(); _ui.Post(_ => { if (!_disposed) _presence.Hide(); }, null); }
         });
     }
-    private async Task RunAttachedFileFallbackAsync(HelperApiClient api, WorkbookGrant grant, Exception cause)
+    private async Task RunAttachedFileFallbackAsync(HelperApiClient api, WorkbookGrant grant, Exception cause, bool startupFailure = false)
     {
         int failures = 0;
         try
@@ -144,14 +146,14 @@ internal sealed class LiveWorkbookSession : IDisposable
                 _lifetime.Token.ThrowIfCancellationRequested();
                 try
                 {
-                    var fallback = await WorkbookFallback.WatchAttachedAsync(api, grant, _client.Office, cause, _lifetime.Token);
+                    var fallback = await WorkbookFallback.WatchAttachedAsync(api, grant, _client.Office, cause, _lifetime.Token, startupFailure: startupFailure);
                     _ordinary = fallback.Session;
                     _ordinary.StatusChanged += (_, status) => Update(status);
                     _fallbackPath = _client.Office.LocalPath;
                     _failed = false;
                     _client.StopLiveSynchronization();
                     _ui.Post(_ => { if (!_disposed) { _presence.Hide(); Participants = []; } }, null);
-                    Update(new(WorkbookStatusKind.Warning, "Большая таблица: включено сохранение файла целиком. Ctrl+S сохраняет на доску и в конспекты; на доске остаётся последнее сохранение участников. Изменения ячеек между окнами не передаются. Резервная копия: " + fallback.Backup, true));
+                    Update(new(WorkbookStatusKind.Warning, (startupFailure ? "Совместный режим не подключился: включён резервный режим. " : "Большая таблица: включено сохранение файла целиком. ") + "Ctrl+S сохраняет на доску и в конспекты; на доске остаётся последнее сохранение участников. Изменения ячеек между окнами не передаются. Резервная копия: " + fallback.Backup, true));
                     _ordinary.RetryNow();
                 }
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
@@ -168,7 +170,7 @@ internal sealed class LiveWorkbookSession : IDisposable
             while (!_lifetime.IsCancellationRequested)
             {
                 await Task.Delay(1000, _lifetime.Token);
-                try { await _client.Office.CommandAsync(new() { ["type"] = "pulse" }, _lifetime.Token); }
+                try { if ((await _client.Office.CommandAsync(new() { ["type"] = "file-status" }, _lifetime.Token))["closed"]?.GetValue<bool>() == true) return; }
                 catch (LiveOfficeBusyException) { }
                 catch (LiveOfficeClosedException) { return; }
                 catch (LiveOfficeDisconnectedException) { return; }
@@ -185,7 +187,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     {
         try
         {
-            if (!_client.Office.Closed) await _client.Office.CommandAsync(new() { ["type"] = "save" }, _lifetime.Token);
+            if (_client.Office is { Closed: false }) await _client.Office.CommandAsync(new() { ["type"] = "save-file" }, _lifetime.Token);
             _ordinary?.RetryNow();
         }
         catch (Exception error) { Update(new(WorkbookStatusKind.Warning, error.Message, true)); }
@@ -213,7 +215,7 @@ internal sealed class LiveWorkbookSession : IDisposable
     public async Task ActivateOfficeAsync()
     {
         if (_client.Conflicted) { ShowControls(); return; }
-        if (_client.Office is not null) await _client.Office.CommandAsync(new() { ["type"] = "activate" }, _lifetime.Token);
+        if (_client.Office is { Closed: false }) await _client.Office.CommandAsync(new() { ["type"] = "activate" }, _lifetime.Token);
         else if (_fallbackPath is not null) WorkbookFallback.Open(_fallbackPath);
     }
     public void Dispose()

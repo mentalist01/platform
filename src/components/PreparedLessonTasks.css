@@ -205,6 +205,8 @@
 .prepared-card--theory.has-legacy-offset.is-step{padding-top:52px}
 /* Keep image insets as invisible spacing so existing ink still aligns with the slide. */
 .prepared-card--theory>.prepared-card-body>img{background:transparent}
+/* Paint the edge without adding layout space: existing ink stays aligned. */
+.prepared-board-layer .prepared-card--theory:not(.prepared-theory-ghost)>.prepared-card-body>img{border-radius:8px;box-shadow:0 0 0 1px rgba(142,113,190,.28),0 5px 18px rgba(41,28,64,.07)}
 
 .prepared-set-builder-backdrop{z-index:1250}
 .prepared-set-builder{box-sizing:border-box;display:flex;flex-direction:column;width:min(1200px,100%);height:min(780px,92dvh);max-width:none;overflow:hidden;gap:12px}

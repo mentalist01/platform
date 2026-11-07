@@ -9,6 +9,7 @@ internal static class WorkbookOpenFailure
         string message = error.Message;
         var code = System.Text.RegularExpressions.Regex.Match(message, @"0x[\da-fA-F]{8}").Value;
         string stage = message.StartsWith("Не удалось открыть общую таблицу в ", StringComparison.Ordinal)
+            || message.StartsWith("Excel: операция «", StringComparison.Ordinal) || message.StartsWith("LibreOffice: операция «", StringComparison.Ordinal)
             ? message.Split('\n')[0] : error.GetType().Name;
         // Send startup metadata only. Raw native messages and local paths stay local.
         stage = System.Text.RegularExpressions.Regex.Replace(stage, @"(?:[A-Za-z]:\\|https?://|ticket=|token=).*", "[redacted]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
