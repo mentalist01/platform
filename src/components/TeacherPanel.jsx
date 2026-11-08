@@ -2532,6 +2532,7 @@ const TeacherPanel = ({
       if (rawCoinsGrant) payload.coinsGrant = Number(rawCoinsGrant);
       const res = await api.updateStudent(student.id, payload);
       onStudentUpdated?.({ ...student, ...res });
+      await loadPaymentSenderLinks();
       setStudentStudyFilter(
         isCurrentStudent({ ...student, ...res })
           ? STUDENT_STUDY_STATUS_ACTIVE

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Plus, ShieldCheck, X } from 'lucide-react';
 import { findPaymentSenderConflict } from '../utils/paymentSenderLinks.js';
+import { isCurrentStudent } from '../utils/studentStudyStatus.js';
 import './StudentPaymentSenderEditor.css';
 
 export default function StudentPaymentSenderEditor({
@@ -8,6 +9,7 @@ export default function StudentPaymentSenderEditor({
   onAdd, onRemove, onReviewMode,
 }) {
   const [confirmAutoKey, setConfirmAutoKey] = useState('');
+  if (!isCurrentStudent(student)) return null;
   const studentLinks = links.filter(link => String(link.studentId) === String(student.id));
   const conflict = findPaymentSenderConflict(links, draft, student.id);
   const busy = Boolean(busyKey);

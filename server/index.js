@@ -3737,6 +3737,26 @@ const writePaymentSenderLinksDb = (data) => {
   writeJsonFileAtomic(paymentSenderLinksFile, normalizePaymentSenderLinksDb(data));
 };
 
+const getCurrentPaymentSenderLinksForTeacher = (teacherId, value) => {
+  const studentIds = new Set(readStudentsDb()
+    .filter(student => normalizeTeacherId(student.teacherId) === normalizeTeacherId(teacherId) && isCurrentStudent(student))
+    .map(student => student.id));
+  const current = normalizePaymentSenderLinksForTeacher(value);
+  return { links: Object.fromEntries(Object.entries(current.links)
+    .filter(([, link]) => studentIds.has(link.studentId))) };
+};
+
+const releaseStudentPaymentSenderLinks = (student) => {
+  const teacherId = normalizeTeacherId(student.teacherId);
+  const db = readPaymentSenderLinksDb();
+  const current = db[teacherId];
+  if (!current) return;
+  const keys = Object.keys(current.links).filter(key => current.links[key].studentId === student.id);
+  if (!keys.length) return;
+  keys.forEach(key => { delete current.links[key]; });
+  writePaymentSenderLinksDb(db);
+};
+
 const TEACHER_FINANCE_PRICING_MODES = new Set(['perLesson', 'perHour', 'per90Minutes', 'monthly']);
 const TEACHER_FINANCE_HISTORY_LIMIT = 12;
 const TEACHER_FINANCE_PROFILE_NOTE_MAX_LENGTH = 400;
@@ -16639,7 +16659,7 @@ const findPaymentNotificationSenderLinkMatch = (teacher, parsed) => {
   const senderKey = normalizePaymentNameKey(parsed?.senderKey || parsed?.senderName || '');
   if (!teacherId || !senderKey) return null;
   const db = readPaymentSenderLinksDb();
-  const link = db[teacherId]?.links?.[senderKey] || null;
+  const link = getCurrentPaymentSenderLinksForTeacher(teacherId, db[teacherId]).links[senderKey] || null;
   if (!link) return null;
   // An explicitly ambiguous bank name must not fall back to a nickname/code
   // or automatically mark lessons for the old linked student.
@@ -16666,7 +16686,7 @@ const findPaymentNotificationStudentMatch = (teacher, parsed) => {
   if (!teacherId || !textToken) return { error: 'В уведомлении нет текста для поиска кода ученика.' };
   const teacherNameTokens = getPaymentTeacherNameTokens(teacher);
   const students = readStudentsDb().filter((student) => (
-    normalizeTeacherId(student?.teacherId) === teacherId && !student?.deletedAt
+    normalizeTeacherId(student?.teacherId) === teacherId && isCurrentStudent(student)
   ));
   const aliasMatches = [];
   students.forEach((student) => {
@@ -23902,7 +23922,7 @@ app.get('/api/payment-sender-links', (req, res) => {
   const teacher = ensureTeacherAccess(req, res, resolvedTeacherId, { missingError: 'teacherId required' });
   if (!teacher) return;
   const db = readPaymentSenderLinksDb();
-  const links = Object.values(db[teacher.id]?.links || {})
+  const links = Object.values(getCurrentPaymentSenderLinksForTeacher(teacher.id, db[teacher.id]).links)
     .map((link) => serializePaymentSenderLink(teacher.id, link))
     .sort((left, right) => String(left.senderName || '').localeCompare(String(right.senderName || ''), 'ru'));
   return res.json({ links });
@@ -23922,7 +23942,7 @@ app.patch('/api/payment-sender-links', (req, res) => {
   }
 
   const db = readPaymentSenderLinksDb();
-  const current = normalizePaymentSenderLinksForTeacher(db[teacher.id]);
+  const current = getCurrentPaymentSenderLinksForTeacher(teacher.id, db[teacher.id]);
   const changesReviewMode = Object.hasOwn(req.body || {}, 'manualReview');
   if (changesReviewMode && (typeof manualReview !== 'boolean' || unset === true)) {
     return res.status(400).json({ error: 'Укажите режим ручной проверки отдельно от удаления привязки.' });
@@ -23947,7 +23967,7 @@ app.patch('/api/payment-sender-links', (req, res) => {
         return res.status(400).json({ error: 'Укажите studentId или studentName.' });
       }
       const teacherStudents = readStudentsDb().filter((entry) => (
-        normalizeTeacherId(entry?.teacherId) === teacher.id && !entry?.deletedAt
+        normalizeTeacherId(entry?.teacherId) === teacher.id && isCurrentStudent(entry)
       ));
       const primaryNameMatches = teacherStudents.filter((entry) => (
         normalizePaymentNameKey(entry?.name) === studentNameKey
@@ -23967,6 +23987,12 @@ app.patch('/api/payment-sender-links', (req, res) => {
     }
     if (normalizeTeacherId(student.teacherId) !== teacher.id) {
       return res.status(403).json({ error: 'Ученик закреплён за другим преподавателем' });
+    }
+    if (!isCurrentStudent(student)) {
+      return res.status(400).json({
+        code: 'PAYMENT_SENDER_INACTIVE_STUDENT',
+        error: 'Плательщика можно привязать только к ученику, который сейчас учится. Сначала верните ученика в список занимающихся.',
+      });
     }
     const previous = current.links[senderKey] || {};
     if (previous.studentId && previous.studentId !== student.id) {
@@ -32386,6 +32412,10 @@ app.patch('/api/students/:id', (req, res) => {
     updated.informaticsEgeScore = normalizeStudentInformaticsEgeScore(updated.informaticsEgeScore);
   }
 
+  // Re-enrolling a former student must not restore a released payer name.
+  if (!isCurrentStudent(students[idx]) || !isCurrentStudent(updated)) {
+    releaseStudentPaymentSenderLinks(students[idx]);
+  }
   students[idx] = updated;
   writeStudentsDb(students);
   if (hasCoinsGrant && studentCoinsGrant > 0) {
@@ -40272,7 +40302,9 @@ const readSmsReviewContext = (teacher, notificationId) => {
     || notification.currency !== 'RUB' || balanceCents(notification.amount) <= 0) {
     throw balanceError('Для этого уведомления учёт по SMS недоступен.', 'sms_review_invalid', 400);
   }
-  const studentId = notification.studentId || readPaymentSenderLinksDb()[teacher.id]?.links?.[notification.senderKey]?.studentId;
+  const studentId = notification.studentId || getCurrentPaymentSenderLinksForTeacher(
+    teacher.id, readPaymentSenderLinksDb()[teacher.id]
+  ).links[notification.senderKey]?.studentId;
   const student = studentId && findStudentById(studentId, { allowDeleted: true });
   if (!student || student.teacherId !== teacher.id) {
     throw balanceError('Сначала привяжите плательщика к ученику в разделе «Ученики».', 'sms_review_student_missing');

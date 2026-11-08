@@ -19,8 +19,14 @@ test('payer collisions cannot replace another student and explicit manual review
     { id: 'first', teacherId: 'owner', name: 'Миша', nickname: 'МишаКод', code: '191913' },
     { id: 'second', teacherId: 'owner', name: 'Саша', nickname: 'СашаКод', code: '191914' },
     { id: 'foreign', teacherId: 'other', name: 'Чужой', code: '191915' },
+    { id: 'inactive', teacherId: 'owner', name: 'Бывший', nickname: 'БывшийКод', studyStatus: 'inactive' },
+    { id: 'graduate', teacherId: 'owner', name: 'Выпускник', nickname: 'ВыпускникКод', grade: 'graduate', studyStatus: 'active' },
   ]);
-  write('payment-sender-links', { owner: { links: { ольгак: { senderName: 'Ольга К', senderKey: 'ольгак', studentId: 'first', createdAt, updatedAt: createdAt } } } });
+  write('payment-sender-links', { owner: { links: {
+    ольгак: { senderName: 'Ольга К', senderKey: 'ольгак', studentId: 'first', createdAt, updatedAt: createdAt },
+    иринаб: { senderName: 'Ирина Б', senderKey: 'иринаб', studentId: 'inactive', manualReview: true, createdAt, updatedAt: createdAt },
+    юлияп: { senderName: 'Юлия П', senderKey: 'юлияп', studentId: 'graduate', createdAt, updatedAt: createdAt },
+  } } });
   write('teacher-finances', { owner: { studentProfiles: { first: { lessonPrice: 2000 }, second: { lessonPrice: 2000 } } } });
   write('teacher-calendar-marks', {});
   write('teacher-subscriptions', {});
@@ -51,6 +57,37 @@ test('payer collisions cannot replace another student and explicit manual review
     const other = (await request('/api/login', '', { code: '191912' }, 'POST')).body.token;
     const pupil = (await request('/api/login', '', { code: '191913' }, 'POST')).body.token;
     const change = (body, token = owner) => request('/api/payment-sender-links', token, body);
+    const hook = body => request('/api/payment-notifications/tbank', '', { secret: 'fixture-payer-secret', title: 'Т-Банк', receivedAt: `${day}T07:01:00Z`, ...body }, 'POST');
+    await t.test('legacy inactive and graduate payers are free immediately; reads preserve history and do not migrate data', async () => {
+      const before = JSON.stringify(read('payment-sender-links')), money = protectedSnapshot();
+      const links = (await request('/api/payment-sender-links', owner)).body.links;
+      assert.deepEqual(links.map(link => link.senderKey), ['ольгак']);
+      assert.equal(JSON.stringify(read('payment-sender-links')), before);
+      assert.equal(protectedSnapshot(), money);
+      for (const [senderName, alias, studentId] of [['Ирина Б', 'БывшийКод', 'inactive'], ['Юлия П', 'ВыпускникКод', 'graduate']]) {
+        const financialBefore = JSON.stringify(['teacher-finances', 'teacher-calendar-marks', 'teacher-subscriptions', 'progress'].map(read));
+        const result = await hook({ notificationId: `inactive-${studentId}`, text: `Пополнение +2 000 ₽ от ${senderName}. ${alias}` });
+        assert.equal(result.body.notification.status, 'pending');
+        assert.equal(result.body.notification.studentId, '');
+        assert.deepEqual(result.body.notification.markKeys, []);
+        assert.equal(JSON.stringify(['teacher-finances', 'teacher-calendar-marks', 'teacher-subscriptions', 'progress'].map(read)), financialBefore);
+      }
+      const history = protectedSnapshot();
+      for (const senderName of ['Ирина Б', 'Юлия П']) {
+        const result = await change({ senderName, studentId: 'second' });
+        assert.equal(result.status, 200);
+        const link = result.body.links.find(link => link.senderName === senderName);
+        assert.equal(link.studentId, 'second');
+        assert.equal(link.manualReview, false);
+      }
+      assert.equal(protectedSnapshot(), history);
+      for (const studentId of ['inactive', 'graduate']) {
+        const result = await change({ senderName: 'Новый П', studentId });
+        assert.equal(result.status, 400);
+        assert.equal(result.body.code, 'PAYMENT_SENDER_INACTIVE_STUDENT');
+      }
+      assert.equal((await change({ senderName: 'Новый П', studentName: 'Бывший' })).status, 404);
+    });
     await t.test('collisions and the student-name shortcut return 409 and leave all stored data untouched', async () => {
       const before = JSON.stringify(read('payment-sender-links')), money = protectedSnapshot();
       for (const senderName of ['Ольга К', '  ОЛЬГА  К. ', 'Ольга\u00a0К']) {
@@ -90,7 +127,6 @@ test('payer collisions cannot replace another student and explicit manual review
       assert.equal(read('payment-sender-links').owner.links.ольгак.studentId, 'first');
       assert.equal((await change({ senderName: 'Ольга К', studentId: 'second' })).status, 409);
     });
-    const hook = body => request('/api/payment-notifications/tbank', '', { secret: 'fixture-payer-secret', title: 'Т-Банк', receivedAt: `${day}T07:01:00Z`, ...body }, 'POST');
     await t.test('future payments wait for manual review even when a nickname is in the notification; no financial marks change', async () => {
       const money = JSON.stringify(['teacher-finances', 'teacher-calendar-marks', 'teacher-subscriptions', 'progress'].map(read));
       const result = await hook({ notificationId: 'manual-1', text: 'Пополнение +2 000 ₽ от Ольга К. МишаКод' });
@@ -113,6 +149,25 @@ test('payer collisions cannot replace another student and explicit manual review
       assert.equal(applied.body.notification.status, 'applied', applied.body.notification.reason); assert.equal(applied.body.notification.studentId, 'first');
       assert.equal(applied.body.notification.markKeys.length, 1);
       assert.equal(read('payment-notifications').items.find(row => row.id === 'old-receipt').status, 'applied');
+    });
+    await t.test('archiving releases every payer only for this student, keeps old payments, and does not restore links on return', async () => {
+      assert.equal((await change({ senderName: 'Отец М', studentId: 'first' })).status, 200);
+      const history = JSON.stringify(['teacher-finances', 'teacher-calendar-marks', 'teacher-subscriptions', 'payment-notifications'].map(read));
+      const foreign = JSON.stringify(read('payment-sender-links').other);
+      const secondLinks = Object.values(read('payment-sender-links').owner.links).filter(link => link.studentId === 'second');
+      assert.equal((await request('/api/students/first', owner, { studyStatus: 'inactive' })).status, 200);
+      assert.equal(Object.values(read('payment-sender-links').owner.links).some(link => link.studentId === 'first'), false);
+      assert.deepEqual(Object.values(read('payment-sender-links').owner.links), secondLinks);
+      assert.equal(JSON.stringify(read('payment-sender-links').other), foreign);
+      assert.equal(JSON.stringify(['teacher-finances', 'teacher-calendar-marks', 'teacher-subscriptions', 'payment-notifications'].map(read)), history);
+      assert.equal((await change({ senderName: 'Ольга К', studentId: 'second' })).status, 200);
+      assert.equal((await request('/api/students/first', owner, { studyStatus: 'active' })).status, 200);
+      assert.equal((await change({ senderName: 'Ольга К', studentId: 'first' })).status, 409);
+      assert.equal(Object.values(read('payment-sender-links').owner.links).some(link => link.studentId === 'first'), false);
+      assert.equal((await change({ senderName: 'Отец М', studentId: 'first' })).status, 200);
+      assert.equal((await request('/api/students/first', owner, { grade: 'graduate' })).status, 200);
+      assert.equal(Object.values(read('payment-sender-links').owner.links).some(link => link.studentId === 'first'), false);
+      assert.equal(JSON.stringify(['teacher-finances', 'teacher-calendar-marks', 'teacher-subscriptions', 'payment-notifications'].map(read)), history);
     });
   } finally {
     await stop();
