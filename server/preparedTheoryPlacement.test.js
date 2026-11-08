@@ -238,3 +238,27 @@ test('size changes affect new sheets; live update, restart and private copy pres
   assert.equal(copy.theoryDisplay[copy.theoryImages[1]].scalePercent,50);
   assert.equal(copy.theoryDisplay[copy.theoryImages[1]].relativeTo===images[0],false);
 });
+
+test('manual camera is per card, persisted and delivered identically to teacher and pupil',async t=>{
+  const {store,auth,pupil,doc,images,make}=fixture(t);
+  const camera={x:-.15,y:-.2,width:2.2,height:1.3};
+  const set=await make({boardLayout:{['theory:'+images[0]]:{camera},['task:'+A]:{camera:{...camera,x:-.3}}}});
+  let view=await store.start(auth,{room:'board-manual-camera',setId:set.id,x:1200,y:2200});
+  assert.deepEqual(view.cards[0].camera,camera);
+  const pupilView=store.publicRun(store.data.runs[view.id],{auth:pupil});
+  assert.deepEqual(pupilView.cards[0].camera,camera);
+  assert.equal(view.cards[0].theoryCameraFrame,undefined);
+  view=await store.action(auth,view.id,{action:'choose',taskId:A});
+  assert.equal(view.cards.at(-1).camera.x,-.3);
+  const reloaded=new PreparedLessonTasks({directory:store.directory,board:doc,code:doc,sourceFiles:async()=>[],authorize:async who=>({allowed:true,auth:who,studentId:pupil.id,participantIds:[]})});
+  assert.deepEqual(reloaded.data.sets[set.id].boardLayout['theory:'+images[0]].camera,camera);
+  const copyOwner={id:'camera-copy',role:'teacher'},exchange=new PreparedSetExchange(store,()=>[auth,copyOwner]);
+  exchange.publish(auth,set.id,{version:0,recipientIds:[copyOwner.id]});
+  const {set:copy}=exchange.copy(copyOwner,set.id,{version:1});
+  assert.deepEqual(copy.boardLayout['theory:'+copy.theoryImages[0]].camera,camera);
+  const cleared=await store.saveSet(auth,{...set,boardLayout:{}},set.id);
+  const synced=await store.action(auth,view.id,{action:'sync-set',setId:set.id,setVersion:cleared.version});
+  assert.equal(synced.cards[0].camera,undefined);
+  assert.equal(synced.cards[0].theoryCameraFrame,undefined);
+
+});

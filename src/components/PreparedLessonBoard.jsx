@@ -17,6 +17,7 @@ import PreparedTaskPicker from './PreparedTaskPicker.jsx';
 import PreparedTheoryCard from './PreparedTheoryCard.jsx';
 import PreparedTheoryGhost from './PreparedTheoryGhost.jsx';
 import PreparedBoardOptions from './PreparedBoardOptions.jsx';
+import {preparedCardCameraFrame} from '../utils/preparedCardCamera.js';
 import {preparedTheoryFrame} from '../utils/preparedTheoryDisplay.js';
 import {preparedTaskTitle} from '../utils/preparedTaskTitle.js';
 import {splitPastedAnswerValues,getPreparedAnswerPasteOrder} from '../utils/answerPaste.js';
@@ -101,6 +102,8 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   const teacher=role==='teacher'||role==='admin';const selected=run?.cards.find(c=>c.id===context.selectedId);
   const soloZoom=useRef(null);
   const focusCard=(anchor,options={},card=selected)=>{
+    const savedFrame=preparedCardCameraFrame(anchor,card?.camera);
+    if(savedFrame){soloZoom.current??=zoom;focus(savedFrame,{...options,fit:'camera'});return;}
     const legacyReference=card?.theoryDisplay?.focus==='pair'?run?.cards.find(row=>row.id===card.previousTheoryCardId)?.anchorId:null;
     const referenceId=card?.focusAnchorId===undefined?legacyReference:card.focusAnchorId;
     const reference=referenceId&&items.current.find(item=>item.id===referenceId);

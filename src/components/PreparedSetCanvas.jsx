@@ -1,12 +1,13 @@
 import {preparedTheoryItemKeys,theoryCardItemKeys,theoryCardIdentity} from '../utils/interactiveTheoryCatalog.js';
 import InteractiveTheory from './interactiveTheory/InteractiveTheory.jsx';
 import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
-import {ArrowDown,ArrowUp,ClipboardList,Focus,Hand,Maximize2,Minimize2,Minus,Plus,X} from 'lucide-react';
+import {ArrowDown,ArrowUp,Camera,Check,ClipboardList,Eye,Focus,Hand,Maximize2,Minimize2,Minus,Plus,X} from 'lucide-react';
 import {preparedAssetUrl} from '../services/preparedLessonTasks.js';
 import {preparedAnswerLayout} from '../utils/preparedAnswerTable.js';
 import {preparedAnswerGroups} from '../utils/preparedAnswerGroups.js';
 import {preparedSetSequence} from '../utils/preparedRunSources.js';
 import {preparedTaskTitle} from '../utils/preparedTaskTitle.js';
+import {capturePreparedCardCamera,preparedCardCameraFrame,preparedCardCameraView} from '../utils/preparedCardCamera.js';
 import {preparedTheoryDropSetting} from '../utils/preparedTheoryLayout.js';
 import {preparedTheoryCameraRange,preparedTheoryFrame} from '../utils/preparedTheoryDisplay.js';
 import {preparedCardGeometry,preparedFocusReference,preparedLayoutKey,preparedPlacementRecipe,placePreparedCard} from '../utils/preparedSetLayout.js';
@@ -16,6 +17,10 @@ const fit=(box,viewport,limit=.85)=>{
   if(!box)return {x:0,y:0,scale:1};
   const scale=clampZoom(Math.min((viewport.width-56)/box.width,(viewport.height-56)/box.height,limit));
   return {scale,x:(viewport.width-box.width*scale)/2-box.x*scale,y:(viewport.height-box.height*scale)/2-box.y*scale};
+};
+const savedView=(frame,viewport)=>{
+  const {zoom,offset}=preparedCardCameraView(frame,viewport);
+  return {scale:zoom,x:-offset.x*zoom,y:-offset.y*zoom};
 };
 const union=rows=>rows.reduce((frame,row)=>preparedTheoryFrame(frame,row)||row,null);
 
@@ -59,8 +64,10 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
   const reference=rows.find(row=>row.anchorId===active?.referenceId);
   const focusReference=rows.find(row=>row.anchorId===active?.focusId);
   const shot=preview&&preparedTheoryCameraRange(sequence,step);
-  const frame=preview?(shot?union(layout.rows.slice(shot.from,shot.to+1)):preparedTheoryFrame(active,focusReference)||active):union(rows);
-  const camera=view||fit(frame,viewport);
+  const savedFrame=preparedCardCameraFrame(active,active?.card.boardDisplay?.camera);
+  const frame=preview?(savedFrame||(shot?union(layout.rows.slice(shot.from,shot.to+1)):preparedTheoryFrame(active,focusReference)||active)):union(rows);
+  const automaticView=preview&&savedFrame?savedView(savedFrame,viewport):fit(frame,viewport);
+  const camera=view||automaticView;
   const label=row=>row.theory?row.card.title:preparedTaskTitle(row.card,row.card.sourceIndex??edit.tasks.findIndex(task=>task.id===row.card.id));
   const currentSetting=row=>{
     if(row.card.boardDisplay)return row.card.boardDisplay;
@@ -97,13 +104,13 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
       event.preventDefault();
       const rect=node.getBoundingClientRect(),x=event.clientX-rect.left,y=event.clientY-rect.top;
       setView(previous=>{
-        const v=previous||fit(frame,viewport),scale=clampZoom(v.scale*Math.exp(-event.deltaY*.002));
+        const v=previous||automaticView,scale=clampZoom(v.scale*Math.exp(-event.deltaY*.002));
         return {scale,x:x-(x-v.x)*scale/v.scale,y:y-(y-v.y)*scale/v.scale};
       });
     };
     node.addEventListener('wheel',wheel,{passive:false});
     return ()=>node.removeEventListener('wheel',wheel);
-  },[frame?.x,frame?.y,frame?.width,frame?.height,viewport]);
+  },[automaticView.scale,automaticView.x,automaticView.y]);
   const zoom=by=>{
     const scale=clampZoom(camera.scale*by),x=viewport.width/2,y=viewport.height/2;
     setView({scale,x:x-(x-camera.x)*scale/camera.scale,y:y-(y-camera.y)*scale/camera.scale});
@@ -144,7 +151,10 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
   };
   const selectRow=id=>{
     const row=rows.find(row=>row.id===id);
-    setSelected(id);if(row)setView(fit(row,viewport,.8));
+    setSelected(id);if(row){
+      const frame=preparedCardCameraFrame(row,row.card.boardDisplay?.camera);
+      setView(frame?savedView(frame,viewport):fit(row,viewport,.8));
+    }
   };
   const setSetting=patch=>{setView(camera);onSetting(active.id,{...setting,...patch});};
   const orderIndex=active?.theory?preparedTheoryItemKeys(edit).indexOf(theoryCardIdentity(active.card)):edit.tasks.findIndex(task=>task.id===active?.card.id);
@@ -176,20 +186,13 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
         {active&&<label>Размер <input type="range" min="25" max="200" aria-label="Размер карточки" value={setting.scalePercent||100} onChange={event=>setSetting({scalePercent:Number(event.target.value)})}/><output>{setting.scalePercent||100}%</output></label>}
         {reference&&<><label>Опора <select value={reference.id} onChange={event=>setSetting({relativeTo:event.target.value,offset:undefined})}>{rows.slice(0,active.index).map(row=><option key={row.id} value={row.id}>{label(row)}</option>)}</select></label>
           <label>Положение <select value={setting.placement||'auto'} onChange={event=>setSetting({placement:event.target.value,offset:undefined})}><option value="auto">Автоматически</option><option value="below">Снизу</option><option value="right">Справа</option></select></label></>}
-        {(active?.theory||reference)&&<label title={active.theory?'Авто сохраняет общий кадр, пока не закончится выбранный диапазон или блок. Листы открываются по очереди.':undefined}>Камера
-          <select value={setting.focus||'next'} onChange={event=>setSetting({focus:event.target.value,nextCards:event.target.value==='range'?3:undefined})}>
-            {active.theory&&<option value="next">Авто</option>}
-            <option value={active.theory?'single':'next'}>Новая карточка</option>
-            {(reference||setting.focus==='pair')&&<option value="pair">Новая и опорная</option>}
-            {active.theory&&<><option value="block">Весь блок теории</option><option value="range">Текущая и следующие</option></>}
-          </select>
-        </label>}
-        {active?.theory&&setting.focus==='range'&&<label>Следующих листов
-          <select value={setting.nextCards??3} onChange={event=>setSetting({nextCards:Number(event.target.value)})}>
-            {Array.from({length:7},(_,index)=><option key={index+1}>{index+1}</option>)}
-          </select>
-        </label>}
-        {active?.card.boardDisplay&&<button type="button" onClick={()=>onSetting(active.id,null)}>Сбросить раскладку карточки</button>}
+        {active&&<div className="prepared-set-camera-tools" aria-label="Камера выбранной карточки">
+          <button type="button" className="prepared-primary" title="Приблизьте и переместите холст, затем сохраните этот вид для выбранной карточки" onClick={()=>setSetting({camera:capturePreparedCardCamera(active,camera,viewport)})}><Camera size={15}/>Задать камеру</button>
+          <button type="button" disabled={!savedFrame} onClick={()=>setView(savedView(savedFrame,viewport))}><Eye size={15}/>Показать ракурс</button>
+          <button type="button" disabled={!savedFrame} title="Вернуть автоматическую камеру, сохранив расположение карточки" onClick={()=>setSetting({camera:undefined,focus:'next',nextCards:undefined})}>Авто</button>
+          <small className={savedFrame?'is-saved':''} aria-live="polite">{savedFrame?<><Check size={13}/>Камера задана</>:'Камера автоматически'}</small>
+        </div>}
+        {active&&<button type="button" disabled={!active.card.boardDisplay} onClick={()=>onSetting(active.id,null)}>Сбросить раскладку карточки</button>}
         {active?.theory&&edit.tasks.length>0&&<label>Показывать <select value={active.card.theoryBefore||''} onChange={event=>{
           const before=event.target.value,theoryPlacements={...edit.theoryPlacements};
           for(const image of theoryCardItemKeys(active.card))theoryPlacements[image]=before;
@@ -232,7 +235,7 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
       </div>
     </div>
     <div className="prepared-set-builder-bottom">
-      <small>{preview?'Предпросмотр виден только вам.':'Перетаскивайте карточки и меняйте их размер за угол. Начало набора задаётся на доске.'}</small>
+      <small>{preview?'Предпросмотр виден только вам.':'Переместите и приблизьте холст, затем нажмите «Задать камеру». Ракурс сохраняется для выбранной карточки.'}</small>
       <div className="prepared-set-builder-window">
         <button type="button" aria-pressed={hand} aria-label="Рука · перемещать холст" onClick={()=>setHand(!hand)}><Hand size={16}/></button>
         <button type="button" aria-label="Отдалить" onClick={()=>zoom(1/1.25)}><Minus size={16}/></button>

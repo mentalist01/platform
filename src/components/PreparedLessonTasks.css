@@ -247,3 +247,7 @@
 .prepared-theory-ghost-thumbnail img{display:block;width:100%;height:64px;object-fit:contain;margin-top:4px;opacity:.55}
 @media(prefers-reduced-motion:reduce){.prepared-theory-world.is-following{transition:none}.prepared-set-builder-surface.is-preview .prepared-set-builder-card{animation:none}}
 @media(max-width:650px){.prepared-set-builder-window>button>span{display:none}.prepared-set-builder-bottom{flex-wrap:wrap}.prepared-set-builder-tools select{max-width:120px}}
+
+.prepared-set-camera-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:5px 0}
+.prepared-set-camera-tools>small{display:flex;align-items:center;gap:4px;min-width:145px;color:var(--pt-muted);font-size:11px}
+.prepared-set-camera-tools>small.is-saved{color:#13856b}

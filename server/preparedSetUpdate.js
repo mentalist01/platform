@@ -10,6 +10,9 @@ const schemaChanged=(before,after)=>before.answers.length!==after.answers.length
   (before.answerMode||'combined')!==(after.answerMode||'combined')||preparedAnswerTableChanged(before,after)||JSON.stringify(before.answerGroups||null)!==JSON.stringify(after.answerGroups||null);
 
 function updatedCard(card,before,after){
+  if(before.boardDisplay?.camera&&!after.boardDisplay?.camera){
+    card={...card,focusAnchorId:null};delete card.theoryCamera;
+  }
   if(isPreparedTheory(before)||!preparedCheckingChanged(before,after))return card;
   const schema=schemaChanged(before,after);
   let answers=card.answers;

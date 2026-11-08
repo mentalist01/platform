@@ -1,3 +1,5 @@
+import {normalizePreparedCardCamera} from './preparedCardCamera.js';
+
 export function normalizePreparedTheoryDisplay(value){
   if(value==null)return null;
   if(typeof value!=='object'||Array.isArray(value))throw Error('Укажите настройки появления листа');
@@ -14,7 +16,8 @@ export function normalizePreparedTheoryDisplay(value){
     if(typeof value.offset!=='object'||Array.isArray(value.offset)||!Number.isFinite(gap)||gap<32||gap>4000||!Number.isFinite(align)||Math.abs(align)>4000)throw Error('Положение листа выходит за границы конструктора');
     offset={gap:Math.round(gap),align:Math.round(align)};
   }
-  return placement==='auto'&&focus==='next'&&scalePercent===100&&!relativeTo&&!offset?null:{placement,focus,...(nextCards!==null?{nextCards}:{}),...(scalePercent!==100?{scalePercent}:{}),...(relativeTo?{relativeTo}:{}),...(offset?{offset}:{})};
+  const camera=normalizePreparedCardCamera(value.camera);
+  return placement==='auto'&&focus==='next'&&scalePercent===100&&!relativeTo&&!offset&&!camera?null:{placement,focus,...(camera?{camera}:{}),...(nextCards!==null?{nextCards}:{}),...(scalePercent!==100?{scalePercent}:{}),...(relativeTo?{relativeTo}:{}),...(offset?{offset}:{})};
 }
 
 // A camera choice applies to the following automatic steps in the same theory
@@ -29,6 +32,7 @@ export function preparedTheoryCameraRange(sequence,index){
   while(inBlock(sequence[end+1]))end++;
   for(let i=index;i>=start;i--){
     const card=sequence[i],setting=card.boardDisplay||card.theoryDisplay;
+    if(setting?.camera)return null;
     switch(setting?.focus){
       case 'block':return start===end?null:{from:start,to:end};
       case 'range':{
