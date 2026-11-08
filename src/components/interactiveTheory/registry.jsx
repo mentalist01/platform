@@ -4,9 +4,12 @@ import IpSubnetSettings from './IpSubnetSettings.jsx';
 import {DECIMAL_BINARY_CARD} from '../../utils/decimalBinary.js';
 import DecimalBinaryCard from './DecimalBinaryCard.jsx';
 import './DecimalBinaryCard.css';
+import {COMBINATION_LOCK_CARD} from '../../utils/combinationLock.js';
+import CombinationLockCard,{CombinationLockSettings} from './CombinationLockCard.jsx';
 
 // New trusted React components are registered here; the library discovers them.
 export const interactiveTheoryRegistry = Object.freeze({
+  [COMBINATION_LOCK_CARD]:{...interactiveTheoryTypes[COMBINATION_LOCK_CARD],Component:CombinationLockCard,Settings:CombinationLockSettings},
   [DECIMAL_BINARY_CARD]:{...interactiveTheoryTypes[DECIMAL_BINARY_CARD],Component:DecimalBinaryCard},
   [IP_SUBNET_CARD]:{...interactiveTheoryTypes[IP_SUBNET_CARD],Component:IpSubnetCard,Settings:IpSubnetSettings},
 });

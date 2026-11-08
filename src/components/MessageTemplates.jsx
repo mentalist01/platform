@@ -8,6 +8,7 @@ import { studentContacts } from '../services/studentContacts.js';
 import { parentContacts } from '../services/studentParentContacts.js';
 import ReviewRequestStatus from './ReviewRequestStatus.jsx';
 import MessageTemplateTelegram from './MessageTemplateTelegram.jsx';
+import GroupSchedulesShare from './GroupSchedulesShare.jsx';
 import './MessageTemplates.css';
 
 const emptyTemplate = () => ({ id: crypto.randomUUID(), name: '', body: '', category: 'other', attachAvailability: false, revision: '' });
@@ -61,7 +62,6 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
     return () => { disposed = true; };
   }, [initialCategory]);
   useEffect(() => {
-    if (!needsGroups && !attachAvailability) return;
     const controller = new AbortController();
     setContextBusy(true); setContextError('');
     preparedRequest('/api/message-templates/context?weekOffset=' + weekOffset, undefined, 'GET', controller.signal)
@@ -69,7 +69,7 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
       .catch(failure => { if (!controller.signal.aborted) setContextError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setContextBusy(false); });
     return () => controller.abort();
-  }, [needsGroups, attachAvailability, weekOffset, refresh]);
+  }, [weekOffset, refresh]);
   useEffect(() => {
     if (!attachAvailability || !context || staleContext || context.calendarError) { setImage(null); return; }
     let disposed = false;
@@ -137,6 +137,8 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
     {telegramSettings && <div className="message-templates__telegram-settings"><MessageTemplateTelegram mode="settings" /></div>}
     {error && <div role="alert" className="message-templates__error">{error}<button type="button" disabled={busy} onClick={() => execute(loadTemplates)}>Обновить список шаблонов</button></div>}
     {notice && <p role="status" className="message-templates__notice"><Check size={16} />{notice}</p>}
+    <GroupSchedulesShare groups={context?.groups} loading={contextBusy || (!contextError && (!context || staleContext))}
+      error={contextError} onRefresh={() => setRefresh(value => value + 1)} />
     <div className="message-templates__workspace">
       <aside className="message-templates__library">
         <button type="button" className="message-templates__primary" disabled={busy} onClick={() => { setEditor(emptyTemplate()); setError(''); }}><Plus size={16} />Создать шаблон</button>
@@ -163,7 +165,7 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
           if (initialGroupId) setGroupId(event.target.value === initialStudentId ? initialGroupId : '');
         }}><option value="">Выберите ученика</option>{students.map(row => <option key={row.id} value={row.id}>{row.nickname || row.name}</option>)}</select></label><label>Кому<select value={recipient} onChange={event => setRecipient(event.target.value)}><option value="student">Ученику</option><option value="parent">Родителю</option></select></label></div>
         {template.category === 'review' && studentId && <><label>Месяц отчёта<input type="month" value={reviewMonth} onChange={event => { if (event.target.value) setReviewMonth(event.target.value); }} /></label><ReviewRequestStatus key={studentId + '/' + reviewMonth} studentId={studentId} month={reviewMonth} /></>}
-        {needsGroups && <section className="message-templates__groups"><h4><Users size={16} />Группы от начального уровня Python</h4><p>По самой дальней теме, в которой есть решения участников группы. Прогресс учитывает задачи, решённые хотя бы одним участником.</p>
+        {needsGroups && <section className="message-templates__groups"><h4><Users size={16} />Группы от начального уровня Python</h4><p>По самой дальней теме, в которой участники группы решили хотя бы 7 разных задач. Одна задача считается один раз, даже если её решили несколько учеников.</p>
           {contextBusy && !context && <p role="status">Проверяем прогресс групп…</p>}
           {contextError && <p role="alert" className="message-templates__warning">{contextError}<button type="button" disabled={contextBusy} onClick={() => setRefresh(value => value + 1)}>Повторить загрузку</button></p>}
           {context?.groups.map(row => <button type="button" key={row.id} aria-pressed={group?.id === row.id} className={group?.id === row.id ? 'is-selected' : ''} onClick={() => setGroupId(row.id)}><span><strong>{row.name}</strong><small>{row.topicTitle} · решено {row.coveredCount}{!row.memberCount ? ' · нет участников' : ''}</small></span><small>{row.schedule || 'Расписание ещё не задано'}</small></button>)}

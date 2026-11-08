@@ -36,6 +36,7 @@ import StudentPlacementNote from './StudentPlacementNote.jsx';
 import StudentGroupAccess from './StudentGroupAccess.jsx';
 import StudentGroupPreparation from './StudentGroupPreparation.jsx';
 import StudentLessonVenue from './StudentLessonVenue.jsx';
+import StudentAccessCode from './StudentAccessCode.jsx';
 import {OpenStudentSessionButton} from './StudentViewSession.jsx';
 import { getAnswerPasteOrder, splitPastedAnswerValues } from '../utils/answerPaste';
 import {
@@ -3484,12 +3485,7 @@ const TeacherPanel = ({
                             {student.leaderboardAlias || 'аноним'}
                           </span>
                         </p>
-                        <p className="teacher-student-card__meta text-xs text-gray-500">
-                          Код:{' '}
-                          <span className="teacher-student-card__meta-value font-mono">
-                            {student.codeHint ? `****${student.codeHint}` : 'скрыт'}
-                          </span>
-                        </p>
+                        <StudentAccessCode key={`${student.id}:${student.codeHint}`} student={student} />
                         <div className="mt-2"><StudentContactLinks studentId={student.id} studentName={student.name} compact /></div>
                         {role === 'teacher' && <StudentLessonVenue key={student.id} student={student} onUpdated={onStudentUpdated} />}
                         {role === 'teacher' && <MessageTemplatesButton students={visibleStudentsList} initialStudentId={student.id} initialCategory="trial"

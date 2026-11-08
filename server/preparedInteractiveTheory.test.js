@@ -5,10 +5,24 @@ import {PreparedLessonTasks} from './preparedLessonTasks.js';
 import {PreparedSetExchange} from './preparedSetExchange.js';
 import {IP_SUBNET_CARD,PREPARED_THEORY_MAX_ITEMS} from '../src/utils/interactiveTheoryCatalog.js';
 import {DECIMAL_BINARY_CARD} from '../src/utils/decimalBinary.js';
+import {COMBINATION_LOCK_CARD,lockExample} from '../src/utils/combinationLock.js';
 import {preparedSetSequence} from '../src/utils/preparedRunSources.js';
 import {preparedLayoutKey} from '../src/utils/preparedSetLayout.js';
 
 const interactive=(id='subnet')=>({id,kind:'interactive',typeId:IP_SUBNET_CARD,params:{ip:'192.168.1.70',prefix:26}});
+
+test('a loop-driven combination lock saves, starts as theory and survives reopening with its own code',async t=>{
+  const f=await partFixture(t),{prepared,auth}=f;
+  const lock={id:'lock',kind:'interactive',typeId:COMBINATION_LOCK_CARD,params:{code:lockExample(3)}};
+  const set=await prepared.saveSet(auth,{name:'Перебор паролей',taskNumber:8,tasks:[],theoryItems:[lock],theoryMode:'steps'});
+  let run=await prepared.start(auth,{room:'lock-board',setId:set.id,x:40,y:60,deferFirstCard:true});
+  assert.equal(run.cards.length,0);run=await prepared.action(auth,run.id,{action:'begin'});
+  assert.equal(run.cards[0].kind,'theory');assert.equal(run.cards[0].answerCount,0);
+  assert.deepEqual(run.cards[0].interactive,{typeId:COMBINATION_LOCK_CARD,params:{code:lockExample(3)}});
+  const doc=await f.document('lock-board');assert.equal(doc.getArray('items').get(0).height,870*1.3);
+  const reopened=new PreparedLessonTasks(f.deps);assert.deepEqual(reopened.setView(reopened.data.sets[set.id]).theoryItems,[lock]);
+  await assert.rejects(prepared.saveSet(auth,{...set,theoryItems:[{...lock,params:{code:'for x in open("file"):\n    pass'}}]},set.id),/строку|range/);
+});
 test('twenty image sheets persist, preview and play completely; fifty mixed sheets copy without truncation',async t=>{
   const f=await partFixture(t),{prepared,auth}=f;
   const images=Array.from({length:20},(_,i)=>prepared.putAsset(auth,Buffer.from(`theory-sheet-${i}`),`sheet-${i}.png`,'image/png',{width:600,height:180}).id);

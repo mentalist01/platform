@@ -64,6 +64,7 @@ import { HomeworkLivesStore, registerHomeworkLives, estimateHomeworkPlan, homewo
 import { homeworkLivesLessonHistory } from './homeworkLivesLessonHistory.js';
 import { registerStudentParentContacts } from './studentParentContacts.js';
 import { registerStudentContacts } from './studentContacts.js';
+import { createStudentAccessCodeStore, registerStudentAccessCodes } from './studentAccessCodes.js';
 import { getMonthlyMockCompletionDetails } from './monthlyMockResult.js';
 import {monthlyAttemptContext,monthlyQuotaError} from './monthlyMockAttemptPolicy.js';
 import {monthlyAssignedMonths,mockAttemptMonth,getMonthlyAttemptRecords,normalizeMonthlyMockSurrenders} from '../src/utils/monthlyMockAttemptPolicy.js';
@@ -1665,6 +1666,11 @@ const readJsonObjectFileStrict = (filePath) => {
 const writeJsonFileAtomic = (filePath, data, options = {}) => {
   backupJsonFileBeforeWrite(filePath);
   writeFileAtomic(filePath, stringifyJsonForStorage(data), 'utf8', options);
+};
+const studentAccessCodes = createStudentAccessCodeStore({ dataDir });
+const rememberStudentAccessCode = (student, code) => {
+  try { studentAccessCodes.remember(student, code); }
+  catch { console.warn('[student-access-codes] Could not retain a verified student credential'); }
 };
 const lessonCodeFocusFile = path.join(dataDir, 'lesson-code-focus.json');
 let lessonCodeFocusRecords;
@@ -20349,6 +20355,7 @@ const migrateStudentCodes = (students) => {
       const plain = normalizeAccessCode(student.code);
       if (plain) {
         Object.assign(student, buildAccessCodeCredentials(plain));
+        rememberStudentAccessCode(student, plain);
       }
       delete student.code;
       changed = true;
@@ -20408,6 +20415,7 @@ const ensureDefaultStudent = () => {
     };
     students.push(entry);
     writeStudentsDb(students);
+    rememberStudentAccessCode(entry, plainCode);
   }
   return students;
 };
@@ -22676,6 +22684,7 @@ app.post('/api/login', async (req, res, next) => {
     }
   }
   clearLoginFailures(clientKey);
+  rememberStudentAccessCode(student, normalizedCode);
   const session = createAuthSession({
     id: student.id,
     name: student.name,
@@ -22741,6 +22750,7 @@ app.post('/api/parent/login', async (req, res, next) => {
       }
     }
     clearLoginFailures(clientKey);
+    rememberStudentAccessCode(student, normalizedCode);
     const session = createAuthSession({
       id: `parent:${student.id}`,
       name: 'Родитель',
@@ -25984,6 +25994,10 @@ setInterval(async () => {
     }
   } finally { teacherCalendarEditsRecovering = false; }
 }, 60000).unref();
+
+registerStudentAccessCodes(app, {
+  students: readStudentsDb, store: studentAccessCodes, verify: verifyCodeAsync, normalize: normalizeAccessCode,
+});
 
 registerMessageTemplates(app, {
   dataDir, groups: readLearningGroupsDb, students: readStudentsDb, progress: readProgressDb,
@@ -31576,6 +31590,7 @@ app.post('/api/students', (req, res) => {
   };
   students.unshift(entry);
   writeStudentsDb(students);
+  rememberStudentAccessCode(entry, plainCode);
   const createdStudentData = getStudentData(entry.id);
   const createdXpTotal = normalizeXpTotal(createdStudentData?.xpTotal);
   const createdCoinsTotal = normalizeCoinsTotal(createdStudentData?.coinsTotal);
@@ -32480,6 +32495,7 @@ app.post('/api/students/:id/reset-code', (req, res) => {
   };
   students[idx] = updated;
   writeStudentsDb(students);
+  rememberStudentAccessCode(updated, plainCode);
   revokeWorkbookHelperSessionsForStudents([updated.id]);
   res.json({ id: updated.id, code: plainCode, codeHint: updated.codeHint });
 });

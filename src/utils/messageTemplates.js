@@ -1,6 +1,15 @@
 export const MESSAGE_TEMPLATE_CATEGORIES = { trial: 'После пробного', review: 'Просьба об отзыве', other: 'Другое' };
 export const MESSAGE_TEMPLATE_VARIABLES = ['имя', 'группа', 'расписание', 'дни группы', 'занятия'];
+export const MESSAGE_GROUP_TOPIC_MIN_SOLVES = 7;
 export const currentReviewMonth = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit' }).format(new Date());
+
+// This is the student-facing payload. Teacher-only names and progress must never
+// be assembled from the row's rendered text (including during manual copying).
+export function buildGroupSchedulesText(groups = [], selectedIds = []) {
+  const selected = new Set(selectedIds);
+  return groups.filter(group => selected.has(group.id) && group.scheduleText)
+    .map(group => group.scheduleText).join('\n\n');
+}
 
 export const DEFAULT_MESSAGE_TEMPLATES = [
   { id: 'after-trial', name: 'Догнать группу после пробного', category: 'trial', attachAvailability: true,

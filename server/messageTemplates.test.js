@@ -6,7 +6,7 @@ import express from 'express';
 import test from 'node:test';
 import { registerMessageTemplates, messageAvailabilityWeek, rankMessageGroups } from './messageTemplates.js';
 import { getCalendarFreeIntervalsByDay } from '../src/utils/calendarAvailabilityShare.js';
-import { DEFAULT_MESSAGE_TEMPLATES, fillMessageTemplate, missingMessageVariables } from '../src/utils/messageTemplates.js';
+import { DEFAULT_MESSAGE_TEMPLATES, fillMessageTemplate, missingMessageVariables, buildGroupSchedulesText } from '../src/utils/messageTemplates.js';
 
 test('messages preserve punctuation and unknown placeholders; pasted numbers are never interpreted as replacement patterns', () => {
   const text = fillMessageTemplate('{{имя}}, {{группа}} — {{расписание}}. {{имя}}', { имя: '$& Иван', группа: 'Группа 3' });
@@ -30,9 +30,10 @@ test('available time excludes real recurring lessons, cancellations, date ranges
   assert.ok(events.some(event => event.dayIndex === 1 && event.startMinutes === 0 && event.endMinutes === 90));
 });
 
-test('group suggestions use current members and the furthest Python topic before total solve count', () => {
+test('group suggestions require seven distinct current questions in a topic and preserve schedule template wording', () => {
   const catalog = [{ number: 101, title: 'Ввод', displayNumber: '1' }, { number: 105, title: 'Циклы', displayNumber: '2' }];
-  const testsDb = { 101: { python: [{ id: 'one' }, { id: 'two' }] }, 105: { python: [{ id: 'loop' }] } };
+  const ids = Array.from({ length: 7 }, (_, index) => String(index));
+  const testsDb = { 101: { python: ids.map(id => ({ id })) }, 105: { python: ids.map(id => ({ id })) } };
   const students = ['early', 'later', 'former'].map(id => ({ id, teacherId: 't', name: id }));
   const solved = (number, ids) => ({ solvedByTask: { [number]: { python: { solved: ids } } } });
   const groups = [
@@ -42,7 +43,7 @@ test('group suggestions use current members and the furthest Python topic before
   ];
   const ranked = rankMessageGroups({ groups, students, testsDb, catalog,
     entries: [{ groupId: 'early', weekdayKey: 'friday', time: '17:00' }, { groupId: 'later', weekdayKey: 'wednesday', time: '18:30' }],
-    progressDb: { early: solved(101, ['one', 'two']), later: solved(105, ['loop']), former: solved(105, ['loop']) } });
+    progressDb: { early: solved(101, ids), later: solved(105, ids), former: solved(105, ids) } });
   assert.deepEqual(ranked.map(group => group.id), ['early', 'later']);
   assert.equal(ranked[0].topicTitle, 'Ввод');
   const body = DEFAULT_MESSAGE_TEMPLATES.find(template => template.id === 'after-trial').body;
@@ -52,6 +53,52 @@ test('group suggestions use current members and the furthest Python topic before
   assert.match(messages[1], /среда в 18:30/);
   assert.match(messages[1], /перейдёшь к ним на среду\./);
   assert.deepEqual(messages.map(missingMessageVariables), [[], []]);
+  assert.equal(ranked[0].scheduleText, 'Вторник 16:00 и Четверг 19:00');
+  assert.equal(ranked[1].scheduleText, 'Среда 18:30');
+});
+
+test('group level ignores incidental later solves, duplicated solves, former members, hidden topics and EGE practice', () => {
+  const ids = Array.from({ length: 12 }, (_, index) => 'q' + index);
+  const catalog = [
+    { number: 101, title: 'Ввод', displayNumber: '1' },
+    { number: 102, title: 'Строки', displayNumber: '2' },
+    { number: 103, title: 'While', displayNumber: '3' },
+    { number: 104, title: 'Скрытая', displayNumber: '4', showInPath: false },
+    { number: 105, title: 'ЕГЭ', displayNumber: '5', sectionId: 'exam-prep' },
+  ];
+  const testsDb = Object.fromEntries(catalog.map(topic => [topic.number, { python: ids.map(id => ({ id })) }]));
+  const pupils = ['a', 'b', 'former', 'advanced', 'beginner'].map(id => ({ id, teacherId: 't' }));
+  pupils.push({ id: 'foreign', teacherId: 'other' });
+  const solved = (number, values) => ({ solvedByTask: { [number]: { python: { solved: values } } } });
+  const groups = [
+    { id: 'advanced', name: 'Ушли далеко', teacherId: 't', members: [{ studentId: 'advanced', status: 'active' }] },
+    { id: 'early', name: 'Начальная', teacherId: 't', members: ['a', 'b', 'foreign'].map(studentId => ({ studentId, status: 'active' })).concat({ studentId: 'former', status: 'removed' }) },
+    { id: 'beginner', name: 'Только начали', teacherId: 't', members: [{ studentId: 'beginner', status: 'active' }] },
+  ];
+  const progressDb = {
+    a: { solvedByTask: { ...solved(101, ids.slice(0, 4)).solvedByTask, ...solved(103, ['q0']).solvedByTask, ...solved(104, ids).solvedByTask, ...solved(105, ids).solvedByTask } },
+    b: { solvedByTask: { ...solved(101, ids.slice(4, 7)).solvedByTask, ...solved(102, ['q0', 'q0', 'q1', 'q2', 'q3', 'q4', 'q5', 'removed-id']).solvedByTask } },
+    former: solved(103, ids), foreign: solved(103, ids), advanced: solved(103, ids.slice(0, 7)), beginner: solved(101, ids.slice(0, 6)),
+  };
+  const ranked = rankMessageGroups({ groups, students: pupils, progressDb, testsDb, catalog });
+  assert.deepEqual(ranked.map(group => group.id), ['beginner', 'early', 'advanced']);
+  assert.equal(ranked[0].lastTopic, -1);
+  assert.equal(ranked[1].topicTitle, 'Ввод');
+  assert.equal(ranked[1].topicCovered, 7);
+  assert.equal(ranked[1].memberCount, 2);
+  assert.equal(ranked[2].topicTitle, 'While');
+});
+
+test('copied group schedules contain only selected days and times in level order, including partial selections', () => {
+  const groups = [
+    { id: 'a', name: 'Secret group name', topicTitle: 'Secret teacher topic', scheduleText: 'Вторник 16:00 и Четверг 19:00' },
+    { id: 'b', name: 'Нет расписания', topicTitle: 'While', scheduleText: '' },
+    { id: 'c', name: 'Группа 2', topicTitle: 'Строки', scheduleText: 'Среда 18:00 и Суббота 15:00' },
+  ];
+  assert.equal(buildGroupSchedulesText(groups, ['c', 'a', 'a', 'b']), 'Вторник 16:00 и Четверг 19:00\n\nСреда 18:00 и Суббота 15:00');
+  assert.equal(buildGroupSchedulesText(groups, ['c']), 'Среда 18:00 и Суббота 15:00');
+  assert.equal(buildGroupSchedulesText(groups, []), '');
+  assert.equal(buildGroupSchedulesText(groups, ['removed']), '');
 });
 
 test('template writes persist per teacher, reject stale edits, and never expose the calendar to pupils', async t => {

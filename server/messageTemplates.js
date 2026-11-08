@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_MESSAGE_TEMPLATES, MESSAGE_TEMPLATE_CATEGORIES } from '../src/utils/messageTemplates.js';
+import { DEFAULT_MESSAGE_TEMPLATES, MESSAGE_TEMPLATE_CATEGORIES, MESSAGE_GROUP_TOPIC_MIN_SOLVES } from '../src/utils/messageTemplates.js';
 import { buildPythonGroupProgress } from '../src/utils/pythonGroupProgress.js';
 import { normalizePythonTaskCatalog } from '../src/utils/pythonTaskCatalog.js';
 import { addCalendarDays, moscowDay, weekdayIndex, AVAILABILITY_WEEKDAYS, AVAILABILITY_DAY_NAMES } from '../src/utils/groupAvailability.js';
@@ -49,10 +49,11 @@ export function rankMessageGroups({ groups, students, progressDb, testsDb, catal
     const progress = buildPythonGroupProgress({ group, students, progressDb, testsDb });
     const covered = topics.map(topic => ({ ...topic, covered: progress.topics[topic.number]?.coveredCount || 0,
       total: progress.topics[topic.number]?.totalQuestions || 0 }));
-    const lastTopic = covered.findLastIndex(topic => topic.covered > 0);
+    const lastTopic = covered.findLastIndex(topic => topic.covered >= MESSAGE_GROUP_TOPIC_MIN_SOLVES);
     const current = covered[lastTopic];
     const toSlots = schedule => schedule
-      .filter(entry => !cancelled(entry) && (!entry.date || entry.date >= moscowDay(now)))
+      .filter(entry => !cancelled(entry) && (!entry.date || entry.date >= moscowDay(now))
+        && (entry.date || !entry.repeatUntil || entry.repeatUntil >= moscowDay(now)))
       .map(entry => ({ day: entry.date ? weekdayIndex(entry.date) : AVAILABILITY_WEEKDAYS.indexOf(entry.weekdayKey), time: entry.time }))
       .filter(entry => entry.day >= 0 && entry.day <= 6 && Number.isFinite(minuteOf(entry.time)));
     const fixed = toSlots(group.schedule || []);
@@ -60,10 +61,11 @@ export function rankMessageGroups({ groups, students, progressDb, testsDb, catal
     const ordered = [...new Map(slots.map(slot => [`${slot.day}/${slot.time}`, slot])).values()]
       .sort((a, b) => a.day - b.day || minuteOf(a.time) - minuteOf(b.time));
     const schedule = groupScheduleList.format(ordered.map(slot => `${AVAILABILITY_DAY_NAMES[slot.day].toLocaleLowerCase('ru-RU')} в ${slot.time}`));
+    const scheduleText = groupScheduleList.format(ordered.map(slot => `${AVAILABILITY_DAY_NAMES[slot.day]} ${slot.time}`));
     const scheduleDays = groupScheduleList.format([...new Set(ordered.map(slot => groupDayNames[slot.day]))]);
     return { id: group.id, name: group.name, memberCount: progress.memberCount, lastTopic,
       topicTitle: current?.title || 'Начало курса', coveredCount: covered.reduce((sum, row) => sum + row.covered, 0),
-      topicCovered: current?.covered || 0, topicTotal: current?.total || 0, schedule, scheduleDays };
+      topicCovered: current?.covered || 0, topicTotal: current?.total || 0, schedule, scheduleText, scheduleDays };
   }).sort((a, b) => Number(!a.memberCount) - Number(!b.memberCount) || a.lastTopic - b.lastTopic
     || a.topicCovered - b.topicCovered || a.coveredCount - b.coveredCount || a.name.localeCompare(b.name, 'ru-RU'));
 }

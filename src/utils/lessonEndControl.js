@@ -1,4 +1,8 @@
-export const LESSON_END_QUESTION_MS=30_000;
+export const LESSON_END_QUESTION_MS=3*60_000;
+export function formatLessonEndRemaining(milliseconds){
+  const seconds=Math.max(0,Math.ceil(milliseconds/1000));
+  return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
+}
 export const LESSON_MANUAL_LEASE_MS=10*60_000;
 export const lessonControl=job=>job?.endControl?.version===1?job.endControl:null;
 export function lessonEndDeadline(job){

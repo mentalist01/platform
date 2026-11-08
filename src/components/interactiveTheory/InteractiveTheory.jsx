@@ -50,7 +50,7 @@ export default function InteractiveTheory({interactive,cardId,doc,readOnly=false
       {!preview&&<button type="button" aria-pressed={positioning} onClick={()=>setPositioning(!positioning)}><Move size={13}/>{positioning?'Включить кнопки':'Переместить'}</button>}
       <button type="button" aria-label="Открыть интерактивную карточку крупнее" onClick={event=>{returnFocus.current=event.currentTarget;setExpanded(true);}}><Maximize2 size={14}/></button>
     </div>}
-    <div ref={shell} className={`interactive-theory-shell${active?' is-interacting':''}`} style={{pointerEvents:active?'auto':'none'}} onPointerDown={stop} onPointerMove={movePointer} onPointerLeave={clearCursor} onPointerUp={stop} onDoubleClick={stop} onKeyDown={stop} onWheel={stop}>{content}</div>
+    <div ref={shell} className={`interactive-theory-shell${active?' is-interacting':''}`} style={{width:definition.width,pointerEvents:active?'auto':'none'}} onPointerDown={stop} onPointerMove={movePointer} onPointerLeave={clearCursor} onPointerUp={stop} onDoubleClick={stop} onKeyDown={stop} onWheel={stop}>{content}</div>
     {expanded&&createPortal(<div className="interactive-theory-modal" onPointerDown={event=>{stop(event);if(event.target===event.currentTarget)close();}} onKeyDown={event=>{
       stop(event);if(event.key==='Escape')close();
       if(event.key==='Tab'){const nodes=[...dialog.current.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled)')];const first=nodes[0],last=nodes.at(-1);if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog.current)){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}

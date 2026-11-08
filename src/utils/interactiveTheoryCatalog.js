@@ -1,5 +1,6 @@
 // Trusted, versioned card types only. Sets contain data, never executable code.
 import {DECIMAL_BINARY_CARD,BINARY_INPUT_LIMIT,normalizeDecimalBinaryParams} from './decimalBinary.js';
+import {COMBINATION_LOCK_CARD,normalizeLockParams,normalizeLockState} from './combinationLock.js';
 export const IP_SUBNET_CARD = 'ipv4-subnet-boundaries-v1';
 export const PREPARED_THEORY_MAX_ITEMS = 50;
 export const subnetExamples = [
@@ -29,6 +30,12 @@ export function normalizeSubnetParams(input={}) {
   return {ip:formatIPv4(parseIPv4(ip)),prefix};
 }
 export const interactiveTheoryTypes = Object.freeze({
+  [COMBINATION_LOCK_CARD]:Object.freeze({id:COMBINATION_LOCK_CARD,name:'Кодовый замок · вложенные for',
+    description:'Введите от 1 до 3 вложенных for: циклы станут колёсиками замка. Крутите буквы и смотрите, какие комбинации уже перебрали, а какие остались.',
+    category:'Python · Перебор · ЕГЭ №8',width:720,height:870,
+    defaultParams:Object.freeze(normalizeLockParams()),normalizeParams:normalizeLockParams,
+    reset:params=>normalizeLockState({},params),normalizeState:normalizeLockState,
+  }),
   [DECIMAL_BINARY_CARD]:Object.freeze({id:DECIMAL_BINARY_CARD,name:'Из десятичной в двоичную',
     description:'Введите число или IP-адрес через точки — двоичный результат появится сразу, каждый октет из восьми бит.',
     category:'Системы счисления · IP-адреса',width:640,height:260,

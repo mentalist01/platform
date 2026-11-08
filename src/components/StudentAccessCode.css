@@ -1,0 +1,14 @@
+.student-access-code{color:#7b8297;font-size:12px;max-width:520px;margin-top:3px}
+.student-access-code__row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.student-access-code__row>span{display:inline-flex;align-items:center;gap:5px}
+.student-access-code code{color:#635679;font-size:12px;font-variant-numeric:tabular-nums;letter-spacing:.05em}
+.student-access-code button{display:inline-flex;align-items:center;justify-content:center;gap:4px;border:1px solid #e5dcf8;border-radius:7px;background:transparent;color:#8752d2;padding:3px 7px;font:inherit;cursor:pointer}
+.student-access-code button:hover{background:#f5efff}.student-access-code button:disabled{opacity:.55;cursor:default}
+.student-access-code__missing{position:relative;padding:11px 30px 11px 12px;margin-top:7px;background:#faf7ff;border:1px solid #e8def9;border-radius:10px;line-height:1.5}
+.student-access-code__missing p{margin:0 0 7px}.student-access-code__missing form{display:flex;gap:6px;flex-wrap:wrap}
+.student-access-code__missing input{width:155px;border:1px solid #d9c8ef;border-radius:7px;padding:5px 7px;background:white;color:#48365e;font:inherit}
+.student-access-code__missing small{display:block;margin-top:5px}.student-access-code .student-access-code__close{position:absolute;right:5px;top:5px;border:0;padding:2px}
+.student-access-code__error{color:#b33556;margin:5px 0}
+html[data-theme='dark'] .student-access-code{color:#b6acc9}html[data-theme='dark'] .student-access-code code{color:#e1d3ff}
+html[data-theme='dark'] .student-access-code button{color:#c9a5ff;border-color:#56416e}html[data-theme='dark'] .student-access-code button:hover{background:#3d2d50}
+html[data-theme='dark'] .student-access-code__missing{background:#2c233b;border-color:#56416e}html[data-theme='dark'] .student-access-code input{background:#211a2d;color:#eee4ff;border-color:#69517e}
