@@ -106,7 +106,7 @@ export function normalizeLockState(input, params = {}) {
   catch { model = parseCombinationLock(normalizeLockParams(params).code); }
   const index = Number.isInteger(input?.index) && input.index >= 0 && input.index < model.total ? input.index : 0;
   const visited = [...new Set((Array.isArray(input?.visited) ? input.visited.slice(0, 1000) : []).filter(value => Number.isInteger(value) && value >= 0 && value < model.total).concat(index))].sort((a, b) => a - b);
-  return { code: model.code, index, visited };
+  return { code: model.code, index, visited, codeVisible: input?.codeVisible === true, direction: input?.direction === -1 ? -1 : 1 };
 }
 export function lockDigits(model, index) {
   const digits = [];
@@ -116,12 +116,12 @@ export function lockDigits(model, index) {
 export const lockWord = (model, index) => lockDigits(model, index).map((digit, i) => model.wheels[i].symbols[digit]).join('');
 export function visitLockIndex(state, index) {
   const model = parseCombinationLock(state.code);
-  return normalizeLockState({ ...state, index: Math.max(0, Math.min(model.total - 1, index)), visited: state.visited }, state);
+  return normalizeLockState({ ...state, index: Math.max(0, Math.min(model.total - 1, index)), visited: state.visited, direction: index < state.index ? -1 : 1 }, state);
 }
 export function turnLockWheel(state, wheelIndex, delta) {
   const model = parseCombinationLock(state.code), digits = lockDigits(model, state.index);
   if (!model.wheels[wheelIndex]) return state;
   const base = model.wheels[wheelIndex].symbols.length, next = (digits[wheelIndex] + delta % base + base) % base;
   const weight = model.wheels.slice(wheelIndex + 1).reduce((value, wheel) => value * wheel.symbols.length, 1);
-  return visitLockIndex(state, state.index + (next - digits[wheelIndex]) * weight);
+  return { ...visitLockIndex(state, state.index + (next - digits[wheelIndex]) * weight), direction: delta < 0 ? -1 : 1 };
 }

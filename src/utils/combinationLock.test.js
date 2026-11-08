@@ -50,7 +50,7 @@ test('incomplete, unrelated, too large and dependent Python cannot silently prod
   ];
   for(const code of invalid)assert.throws(()=>parseCombinationLock(code),undefined,code);
   const valid={code:lockExample(1),index:1,visited:[-1,0,1,1,3,'1',null]};
-  assert.deepEqual(normalizeLockState(valid),{code:valid.code,index:1,visited:[0,1]});
+  assert.deepEqual(normalizeLockState(valid),{code:valid.code,index:1,visited:[0,1],codeVisible:false,direction:1});
   assert.equal(normalizeLockState({code:'broken',index:-2,visited:['bad']}).code,lockExample());
   const item=normalizeTheoryItems([{id:'lock',kind:'interactive',typeId:COMBINATION_LOCK_CARD,params:{code:lockExample(3),script:'ignored'}}])[0];
   assert.deepEqual(item.params,{code:lockExample(3)});
@@ -63,6 +63,10 @@ test('code, wheel positions and coverage synchronize through the existing board 
   updateInteractiveTheory(teacher,card,visitLockIndex(interactiveTheoryState(teacher,card),2));
   Y.applyUpdate(pupil,Y.encodeStateAsUpdate(teacher));
   assert.deepEqual(interactiveTheoryState(pupil,card).visited,[0,2]);
+  assert.equal(interactiveTheoryState(pupil,card).codeVisible,false);
+  updateInteractiveTheory(teacher,card,{codeVisible:true});
+  Y.applyUpdate(pupil,Y.encodeStateAsUpdate(teacher));
+  assert.equal(interactiveTheoryState(pupil,card).codeVisible,true);
   updateInteractiveTheory(teacher,card,{code:lockExample(3),index:0,visited:[0]});
   Y.applyUpdate(pupil,Y.encodeStateAsUpdate(teacher));
   assert.equal(parseCombinationLock(interactiveTheoryState(pupil,card).code).wheels.length,3);
@@ -71,6 +75,15 @@ test('code, wheel positions and coverage synchronize through the existing board 
   updateInteractiveTheory(pupil,card,turnLockWheel(interactiveTheoryState(pupil,card),2,1));
   Y.applyUpdate(teacher,Y.encodeStateAsUpdate(pupil));
   assert.deepEqual(interactiveTheoryState(teacher,card),interactiveTheoryState(pupil,card));
+  assert.equal(interactiveTheoryState(teacher,card).codeVisible,true);
+  // Wrapping from the first symbol backwards still rolls down on the other screen.
+  updateInteractiveTheory(pupil,card,turnLockWheel(interactiveTheoryState(pupil,card),0,-1));
+  Y.applyUpdate(teacher,Y.encodeStateAsUpdate(pupil));
+  assert.equal(interactiveTheoryState(teacher,card).direction,-1);
+  assert.equal(interactiveTheoryState(teacher,card).codeVisible,true);
+  updateInteractiveTheory(teacher,card,{codeVisible:false});
+  Y.applyUpdate(pupil,Y.encodeStateAsUpdate(teacher));
+  assert.equal(interactiveTheoryState(pupil,card).codeVisible,false);
   updateInteractiveTheory(teacher,card,{}, {reset:true});Y.applyUpdate(pupil,Y.encodeStateAsUpdate(teacher));
   assert.deepEqual(interactiveTheoryState(pupil,card),definition.reset(card.interactive.params));
   teacher.destroy();pupil.destroy();

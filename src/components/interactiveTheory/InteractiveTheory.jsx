@@ -7,7 +7,7 @@ import {interactiveTheoryPointer} from '../../utils/interactiveTheoryPointer.js'
 import {registeredInteractiveTheory} from './registry.jsx';
 import './InteractiveTheory.css';
 
-export default function InteractiveTheory({interactive,cardId,doc,readOnly=false,preview=false,disabled=false,boardTool='select',worldAnchor,onCursor}) {
+export default function InteractiveTheory({interactive,cardId,doc,readOnly=false,preview=false,disabled=false,canManage=false,boardTool='select',worldAnchor,onCursor}) {
   const definition=registeredInteractiveTheory(interactive?.typeId),card={id:cardId,interactive};
   const [local,setLocal]=useState(()=>definition?.reset(interactive.params)),[shared,setShared]=useState(()=>interactiveTheoryState(doc,card));
   const [expanded,setExpanded]=useState(false),[positioning,setPositioning]=useState(false),dialog=useRef(null),returnFocus=useRef(null),shell=useRef(null);
@@ -35,7 +35,7 @@ export default function InteractiveTheory({interactive,cardId,doc,readOnly=false
   const reset=()=>{if(readOnly||disabled)return;if(preview||!doc)setLocal(definition.reset(interactive.params));else updateInteractiveTheory(doc,card,{}, {reset:true});};
   const Component=definition.Component;
   const active=!disabled&&!positioning&&(preview||boardTool==='select');
-  const content=<Component state={state} onChange={update} onReset={reset} disabled={readOnly||disabled} compact={!expanded}/>;
+  const content=<Component state={state} onChange={update} onReset={reset} disabled={readOnly||disabled} canManage={canManage||preview} compact={!expanded}/>;
   const stop=event=>event.stopPropagation();
   const clearCursor=()=>{if(!preview&&!disabled)onCursor?.(null);};
   const movePointer=event=>{
