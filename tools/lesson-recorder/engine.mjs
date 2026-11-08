@@ -7,6 +7,12 @@ const sourceSeconds = (job,status) => (job.pythonCaptureOffset || 0) + recording
 // A scheduled lesson has a hard local boundary, including offline transport.
 // Standalone teaching videos keep their own capture deadline.
 export function recordingDeadline(job) {
+  if(job?.endControl?.version===1){
+    if(job.endControl.mode==='manual')return job.cutoffAt;
+    // Bounded transport grace lets a last-second confirmed extension arrive.
+    const end=job.endControl.mode==='timed'?job.endControl.untilMs:job.occurrence?.endMs;
+    if(Number.isFinite(end))return Math.min(job.cutoffAt,end)+4000;
+  }
   const end = job?.occurrence?.endMs;
   return !job?.pythonTheory && !job?.mockReview && Number.isFinite(end) && end > 0
     ? Math.min(Number.isFinite(job.cutoffAt) ? job.cutoffAt : end, end) : job?.cutoffAt;
@@ -156,7 +162,7 @@ export class RecorderEngine {
     // A network error must not silently turn a bound lesson into a local-only recording.
     if (this.state.config.token) {
       for (const job of Object.values(this.state.jobs)) if (job.pendingReport && job.status !== 'recording') await this.flushReport(job);
-      const remote = await this.api('/poll', { ready: this.ready() });
+      const remote = await this.api('/poll', { ready: this.ready(),endControlVersion:1 });
       if (remote.enabled && remote.currentLesson) {
         const next = await this.api('/resume', { id: remote.currentLesson.id });
         await this.start(next);
@@ -175,6 +181,19 @@ export class RecorderEngine {
   async enforceDeadline() {
     const active = this.active();
     if (!active || this.restartJobs.has(active.id)) return;
+    // Keep the decision channel independent from slow preview/upload work.
+    // The local stop timer never waits for this request when offline.
+    if(active.endControl?.version===1&&!this.controlRefresh
+      && (active.endControl.mode==='manual'||recordingDeadline(active)-this.now()<35000)
+      && this.now()-(this.lastControlRefresh||0)>(active.endControl.mode==='manual'?2000:500)){
+      this.lastControlRefresh=this.now();
+      this.controlRefresh=this.api('/end-control',{id:active.id}).then(async({job})=>{
+        if(this.active()!==active||job?.id!==active.id||job.occurrence?.key!==active.occurrence?.key
+          || job.endControl?.version!==1||job.endControl.revision<active.endControl.revision||!Number.isFinite(job.cutoffAt))return;
+        active.endControl=job.endControl;active.cutoffAt=recordingDeadline(job);this.save();
+        if(job.desired==='stop')await this.stop(active);
+      }).catch(()=>{}).finally(()=>{this.controlRefresh=null;});
+    }
     const deadline = recordingDeadline(active);
     if (active.cutoffAt !== deadline) { active.cutoffAt = deadline; this.save(); }
     // StartRecord owns a pending start; start() checks the boundary again as
@@ -229,7 +248,12 @@ export class RecorderEngine {
     await this.reconcileActive();
     if (!this.state.config.token) return;
     for (const job of Object.values(this.state.jobs)) if (job.pendingReport && job.status !== 'recording') await this.flushReport(job);
-    const remote = await this.api('/poll', { ready: this.ready() });
+    const response = await this.api('/poll', { ready: this.ready(),endControlVersion:1 });
+    // A slow poll may predate a decision already accepted by the fast channel.
+    const remote={...response,jobs:response.jobs.filter(wanted=>{
+      const control=this.state.jobs[wanted.id]?.endControl;
+      return control?.version!==1||(wanted.endControl?.version===1&&wanted.endControl.revision>=control.revision);
+    })};
     // Only a server-confirmed update of this exact recording may move its
     // deadline. Keep the output/ID and the independent offline stop timer.
     for (const wanted of remote.jobs) {
@@ -242,8 +266,8 @@ export class RecorderEngine {
       const deadline = recordingDeadline(wanted);
       if (!Number.isFinite(deadline) || !Number.isFinite(wanted.occurrence.endMs) || deadline <= 0) continue;
       const occurrence = { ...local.occurrence, ...wanted.occurrence };
-      if (local.cutoffAt !== deadline || JSON.stringify(local.occurrence) !== JSON.stringify(occurrence)) {
-        local.occurrence = occurrence; local.cutoffAt = deadline; this.save();
+      if (local.cutoffAt !== deadline || JSON.stringify(local.endControl)!==JSON.stringify(wanted.endControl) || JSON.stringify(local.occurrence) !== JSON.stringify(occurrence)) {
+        local.occurrence = occurrence; local.endControl=wanted.endControl; local.cutoffAt = deadline; this.save();
       }
     }
     // Complete the old file before considering the next lesson, regardless of

@@ -7,6 +7,40 @@ import { RecorderEngine } from './engine.mjs';
 import { ownedRecording } from './storage.mjs';
 import { createTimeline } from './python-timeline.mjs';
 
+test('a confirmed manual extension arriving at the boundary keeps the same OBS output; lease renewal never adds grace repeatedly',async t=>{
+  const f=fixture(t),original={...f.job,occurrence:{key:'controlled',studentId:'pupil',endMs:101000},endControl:{version:1,mode:'scheduled',revision:0}};
+  await f.engine.start(original);f.advance(1001);await f.engine.enforceDeadline();
+  assert.deepEqual(f.counts(),[1,0]);
+  const continued={...original,endControl:{version:1,mode:'manual',revision:1},cutoffAt:800000};
+  f.remote({enabled:true,currentLesson:continued,jobs:[continued]});await f.engine.tick();
+  assert.equal(f.engine.active().endControl.mode,'manual');assert.equal(f.engine.active().cutoffAt,800000);
+  for(let i=0;i<5;i++)await f.engine.enforceDeadline();
+  assert.equal(f.engine.active().cutoffAt,800000);assert.deepEqual(f.counts(),[1,0]);
+  f.remote({enabled:true,jobs:[{...continued,desired:'stop'}]});await f.engine.tick();assert.deepEqual(f.counts(),[1,1]);
+});
+
+test('the fast decision channel accepts the extension even while the normal poll is blocked',async t=>{
+  const f=fixture(t),original={...f.job,occurrence:{key:'fast-control',endMs:101000},endControl:{version:1,mode:'scheduled',revision:0}};
+  await f.engine.start(original);
+  const continued={...original,cutoffAt:800000,endControl:{version:1,mode:'manual',revision:1}};
+  let release,entered;const polling=new Promise(resolve=>{entered=resolve;});
+  f.engine.api=async route=>route==='/poll'?(entered(),new Promise(resolve=>{release=resolve;})):route==='/end-control'?{job:continued}:{};
+  const ticking=f.engine.tick();await polling;f.advance(1001);
+  await f.engine.enforceDeadline();await f.engine.controlRefresh;
+  assert.equal(f.engine.active().endControl.mode,'manual');assert.equal(f.engine.active().cutoffAt,800000);assert.deepEqual(f.counts(),[1,0]);
+  release({enabled:true,jobs:[original]});await ticking;
+  assert.deepEqual(f.counts(),[1,0]);assert.equal(f.engine.active().endControl.mode,'manual');assert.equal(f.engine.active().cutoffAt,800000);
+});
+
+test('the fast decision channel ignores a different lesson and an older revision',async t=>{
+  const f=fixture(t),original={...f.job,cutoffAt:800000,occurrence:{key:'fast-control',endMs:101000},endControl:{version:1,mode:'manual',revision:2}};
+  await f.engine.start(original);
+  for(const remote of [{...original,id:'foreign',desired:'stop'},{...original,occurrence:{key:'foreign'},desired:'stop'},{...original,endControl:{version:1,mode:'manual',revision:1},desired:'stop'}]){
+    f.engine.api=async()=>({job:remote});f.advance(2500);await f.engine.enforceDeadline();await f.engine.controlRefresh;
+    assert.equal(f.engine.active().endControl.revision,2);assert.deepEqual(f.counts(),[1,0]);
+  }
+});
+
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recorder-engine-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

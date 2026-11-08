@@ -19856,7 +19856,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   ]);
 
   useEffect(() => {
-    if (!isGroupLessonReplayActive) return undefined;
+    if (!isGroupLessonReplayActive || desktopRecorder.enabled) return undefined;
     const startsAtMs = Date.parse(String(activeLearningLesson?.startsAt || '').trim());
     if (!Number.isFinite(startsAtMs)) return undefined;
     const durationMs = Math.max(15, Number(activeLearningLesson?.durationMinutes) || 60) * 60 * 1000;
@@ -19884,6 +19884,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const timerId = window.setTimeout(finishAfterGracePeriod, delayMs);
     return () => window.clearTimeout(timerId);
   }, [
+    desktopRecorder.enabled,
     activeLearningLesson?.durationMinutes,
     activeLearningLesson?.lessonId,
     activeLearningLesson?.startsAt,
@@ -25112,7 +25113,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         </div>
       )}
       {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherRescheduleInbox userId={user.id} showEmpty={isTeacherNotificationsTabOpen} /></React.Suspense>}
-      {user.role === 'teacher' && <React.Suspense fallback={null}><RecordingHealthWarning key={user.id} recorder={desktopRecorder} active={callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive} /></React.Suspense>}
+      {user.role === 'teacher' && <React.Suspense fallback={null}><RecordingHealthWarning key={user.id} recorder={desktopRecorder} learningLessonId={activeLearningLesson?.lessonId} active={callSessionStatus === 'connected' || isAnyTelemostLessonReplayActive || (activeLearningLesson?.status==='active' && (desktopRecorder.settings?.jobs||[]).some(job=>job.occurrence.lessonId===activeLearningLesson.lessonId&&job.endControl))} onEnded={job=>{if(job.occurrence.lessonId)setActiveLearningLesson(current=>current?.lessonId===job.occurrence.lessonId?{...current,status:'completed',replayActive:false,readOnly:true}:current);else setTelemostLessonReplay(current=>current?.studentId===job.occurrence.studentId?null:current);}} /></React.Suspense>}
       {user.role === 'teacher' && <React.Suspense fallback={null}><TeacherHomeworkReminders key={user.id} userId={user.id} students={studentsWithNicknames} onStudentUpdated={handleStudentUpdated} onOpen={handleHomeworkReminderOpen} noteContext={{studentId:activeStudentId,groupId:activeLearningLesson?.groupId,groups:lessonTargetGroups}} paused={['lesson', 'board', 'collab', 'call', 'recording'].includes(view) || isCallSessionActive || isAnyTelemostLessonReplayActive || (desktopRecorder.settings?.jobs || []).some(job => ['starting', 'recording', 'stopping'].includes(job.status))} /></React.Suspense>}
       {user.role === 'student' && !studentTourActive && (
         <StudentNotificationsCenter

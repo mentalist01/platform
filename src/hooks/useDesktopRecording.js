@@ -18,6 +18,7 @@ export default function useDesktopRecording({ user, active, studentId, learningL
     return () => { cancelled = true; clearInterval(timer); };
   }, [user.id, user.role]);
   const enabled = settings?.enabled === true;
+  const endPrompt=settings?.devices?.some(device=>device.online&&device.endControlVersion===1)===true;
   useEffect(() => {
     if (!enabled || user.role !== 'teacher') return undefined;
     let cancelled = false; let busy = false;
@@ -27,7 +28,7 @@ export default function useDesktopRecording({ user, active, studentId, learningL
       if (busy) return; busy = true;
       try {
         if (active && (studentId || learningLessonId)) {
-          const job = await api.desktopRecording('start', { studentId, learningLessonId, audioMode, transitionFrom: first ? transitionFrom : undefined });
+          const job = await api.desktopRecording('start', { studentId, learningLessonId, audioMode, endPrompt, transitionFrom: first ? transitionFrom : undefined });
           first = false;
           if (!cancelled) { jobRef.current = job; setJobId(job.id); }
         } else if (jobRef.current) {
@@ -41,6 +42,6 @@ export default function useDesktopRecording({ user, active, studentId, learningL
     void synchronize(); const timer = setInterval(synchronize, 4000);
     // Navigation/refresh must not end the server's lesson or the OBS recording.
     return () => { cancelled = true; clearInterval(timer); };
-  }, [active, audioMode, enabled, learningLessonId, studentId, user.role]);
+  }, [active, audioMode, enabled, endPrompt, learningLessonId, studentId, user.role]);
   return { enabled, jobId, settings, error, refresh, checkedAt };
 }

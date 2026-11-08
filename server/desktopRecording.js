@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRecordingShareRelay } from './recordingShare.js';
 import { recorderPackage } from './recorderPackage.js';
+import {lessonControl,lessonEndDeadline,changeLessonEnd,LESSON_MANUAL_LEASE_MS} from '../src/utils/lessonEndControl.js';
 
 const hash = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
@@ -10,8 +11,7 @@ const token = () => crypto.randomBytes(32).toString('base64url');
 // A lost WebSocket/browser is not the end of a lesson. Keep the local OBS
 // recording through reconnection; explicit finish/next lesson/cutoff still win.
 export const RECORDING_RECONNECT_GRACE_MS = 5 * 60_000;
-const recordingDeadline = job => Number.isFinite(job.occurrence?.endMs) && job.occurrence.endMs > 0
-  ? Math.min(job.cutoffAt, job.occurrence.endMs) : job.cutoffAt;
+const recordingDeadline = lessonEndDeadline;
 
 export function privateRutubeVideo(value) {
   let url;
@@ -45,6 +45,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     lessonName: String(lessonNameFor(job) || '').trim().slice(0, 150),
     lessonTopic: lessonTopicFor(job),
     desired: job.desired, cutoffAt: recordingDeadline(job), startedAt: job.startedAt,
+    ...(job.endControl?{endControl:job.endControl}:{}),
     stoppedAt: job.stoppedAt || '', updatedAt: job.updatedAt, video: job.video || null,
     previousJobId: job.previousJobId || '', error: job.error || '', deviceId: job.deviceId || '', audioMode: job.audioMode || '',
   });
@@ -52,7 +53,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     enabled: enabled(teacherId),
     devices: Object.values(db.devices).filter((d) => d.teacherId === teacherId).map((d) => ({
       id: d.id, name: d.name, lastSeenAt: d.lastSeenAt || 0, ready: d.ready === true,
-      online: now() - (d.lastSeenAt || 0) < 15_000,
+      online: now() - (d.lastSeenAt || 0) < 15_000, endControlVersion:d.endControlVersion||0,
     })),
     jobs: jobs(teacherId).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 12).map(publicJob),
   });
@@ -65,6 +66,25 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
   const share = createRecordingShareRelay({ now, allowed: (teacherId, id) => enabled(teacherId) && db.jobs[id]?.teacherId === teacherId && db.jobs[id]?.desired === 'record' && db.jobs[id]?.cutoffAt > now() });
   return {
     enabled, settings, stop, share,
+    supportsEndControl:teacherId=>Object.values(db.devices).some(d=>d.teacherId===teacherId&&d.endControlVersion===1&&now()-(d.lastSeenAt||0)<15000),
+    control(teacherId,id,input){
+      const job=db.jobs[id];if(!job||job.teacherId!==teacherId)fail('Запись не найдена',404);
+      job.endControl=changeLessonEnd(job,input,now());
+      job.cutoffAt=job.endControl.mode==='manual'?now()+LESSON_MANUAL_LEASE_MS:job.endControl.untilMs;
+      job.updatedAt=now();save();return publicJob(job);
+    },
+    groupEndAt(teacherId,lessonId){const job=jobs(teacherId).find(j=>j.occurrence.lessonId===lessonId&&lessonControl(j)&&j.desired==='record');return job?recordingDeadline(job):null;},
+    pendingEnds(teacherId){
+      for(const job of Object.values(db.jobs))if(job.teacherId===teacherId&&lessonControl(job)&&job.desired==='record'&&recordingDeadline(job)<=now())stop(job.occurrence.key,'end-countdown');
+      return Object.values(db.jobs).filter(job=>job.teacherId===teacherId&&lessonControl(job)&&job.desired==='stop'&&['end-countdown','end-button'].includes(job.stopReason)&&!job.endHandledAt).map(job=>({...job}));
+    },
+    finishControl(teacherId,id,revision){
+      const job=db.jobs[id];if(!job||job.teacherId!==teacherId)fail('Запись не найдена',404);
+      if(!lessonControl(job)||revision!==job.endControl.revision)fail('Режим урока изменён в другом окне',409);
+      if(job.desired==='record')stop(job.occurrence.key,'end-button');
+      return {...job};
+    },
+    endHandled(id){if(db.jobs[id]){db.jobs[id].endHandledAt=now();save();}},
     // Finance uses replay existence when deduplicating lessons, and availability
     // when reconciling recording subscriptions. Device heartbeats, duration and
     // upload progress do not change either fact. Keep latest-job replay semantics.
@@ -85,7 +105,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
         || (occurrence.studentId || '') !== (job.occurrence.studentId || '')
         || !Number.isFinite(occurrence.startMs) || !Number.isFinite(occurrence.endMs)
         || occurrence.endMs <= occurrence.startMs || occurrence.endMs - occurrence.startMs > 6 * 3600_000) return null;
-      const cutoffAt = Math.min(occurrence.endMs, job.startedAt + 5 * 3600_000);
+      const cutoffAt = lessonControl(job)&&job.endControl.mode!=='scheduled'?recordingDeadline(job):Math.min(occurrence.endMs, job.startedAt + 5 * 3600_000);
       if (job.cutoffAt !== cutoffAt || JSON.stringify(job.occurrence) !== JSON.stringify(occurrence)) {
         job.occurrence = { ...occurrence }; job.cutoffAt = cutoffAt; job.updatedAt = now(); save();
       }
@@ -157,9 +177,11 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       db.teachers[teacherId] = { enabled: false };
       jobs(teacherId).forEach((job) => stop(job.occurrence.key)); save();
     },
-    start(teacherId, occurrence, title, cutoffAt, { audioMode = '', transitionFrom = '' } = {}) {
+    start(teacherId, occurrence, title, cutoffAt, { audioMode = '', transitionFrom = '', endPrompt=false } = {}) {
       if (!enabled(teacherId)) fail('Запись на компьютере не включена', 409);
-      cutoffAt = recordingDeadline({ occurrence, cutoffAt });
+      const bound=jobs(teacherId).filter(job=>job.occurrence.key===occurrence?.key).at(-1);
+      const continued=bound?.desired==='record'&&lessonControl(bound)&&bound.endControl.mode!=='scheduled';
+      cutoffAt = continued?recordingDeadline(bound):recordingDeadline({ occurrence, cutoffAt });
       if (!occurrence?.key || !Number.isFinite(cutoffAt) || cutoffAt <= now()) fail('Занятие уже завершено', 409);
       const departing = db.jobs[transitionFrom];
       if (departing?.teacherId === teacherId && departing.occurrence.key !== occurrence.key) stop(departing.occurrence.key);
@@ -170,14 +192,15 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       if (previous && !newGroupPart) {
         if (previous.desired === 'record') {
           previous.occurrence = { ...occurrence };
-          previous.cutoffAt = Math.min(cutoffAt, previous.startedAt + 5 * 3600_000);
+          previous.cutoffAt = continued?cutoffAt:Math.min(cutoffAt, previous.startedAt + 5 * 3600_000);
+          if(endPrompt&&!previous.endControl)previous.endControl={version:1,mode:'scheduled',revision:0};
           previous.lastActiveAt = now(); previous.stopRequestedAt = 0;
           if (['platform', 'telemost'].includes(audioMode)) previous.audioMode = audioMode;
           save();
         }
         // A disconnected browser may have stopped a job before OBS ever
         // received it. The route verifies that the lesson is active again.
-        if (previous.desired === 'stop' && previous.status === 'waiting' && !previous.deviceId
+        if (previous.desired === 'stop' && !previous.endControl && previous.status === 'waiting' && !previous.deviceId
           && !jobs(teacherId).some((job) => job.id !== previous.id && job.desired === 'record' && job.cutoffAt > now())) {
           previous.desired = 'record'; previous.stoppedAt = ''; previous.stopRequestedAt = 0;
           previous.audioMode = audioMode;
@@ -189,6 +212,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       const id = crypto.randomUUID();
       db.jobs[id] = { id, teacherId, occurrence, title: String(title || 'Запись урока').slice(0, 150),
         ...(newGroupPart ? { previousJobId: previous.id } : {}),
+        ...(endPrompt?{endControl:{version:1,mode:'scheduled',revision:0}}:{}),
         status: 'waiting', desired: 'record', audioMode, cutoffAt: Math.min(cutoffAt, now() + 5 * 3600_000), startedAt: now(), lastActiveAt: now(), updatedAt: now() };
       save(); return publicJob(db.jobs[id]);
     },
@@ -237,14 +261,15 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       const nextId = crypto.randomUUID();
       db.jobs[nextId] = { id: nextId, teacherId: previous.teacherId, occurrence: previous.occurrence,
         title: previous.title, previousJobId: id, deviceId: device.id, audioMode: previous.audioMode,
-        status: 'waiting', desired: 'record', cutoffAt: previous.cutoffAt, startedAt: now(), lastActiveAt: now(), updatedAt: now() };
+        status: 'waiting', desired: 'record', ...(previous.endControl?{endControl:previous.endControl}:{}), cutoffAt: previous.cutoffAt, startedAt: now(), lastActiveAt: now(), updatedAt: now() };
       save(); return publicJob(db.jobs[nextId]);
     },
-    poll(device, ready, isEnded = () => false, isActive = null) {
-      device.lastSeenAt = now(); device.ready = ready === true;
+    poll(device, ready, isEnded = () => false, isActive = null, endControlVersion=0) {
+      device.lastSeenAt = now(); device.ready = ready === true;device.endControlVersion=endControlVersion===1?1:0;
       for (const job of jobs(device.teacherId)) {
+        if(job.desired==='record'&&lessonControl(job)?.mode==='manual'&&now()-(job.lastActiveAt||job.startedAt)<RECORDING_RECONNECT_GRACE_MS&&isActive?.(job))job.cutoffAt=now()+LESSON_MANUAL_LEASE_MS;
         job.cutoffAt = recordingDeadline(job);
-        if (job.desired === 'record' && (job.cutoffAt <= now() || isEnded(job))) stop(job.occurrence.key);
+        if (job.desired === 'record' && (job.cutoffAt <= now() || isEnded(job))) stop(job.occurrence.key,lessonControl(job)&&job.cutoffAt<=now()?'end-countdown':'lesson-ended');
         if (job.desired !== 'record') continue;
         if (isActive?.(job)) { job.lastActiveAt = now(); job.stopRequestedAt = 0; }
         else if ((job.stopRequestedAt && now() - job.stopRequestedAt >= RECORDING_RECONNECT_GRACE_MS)
@@ -297,7 +322,12 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, ref
   });
   app.post('/api/desktop-recorder/poll', handle(async (req, res) => {
     await refreshSchedule?.(req.recorderDevice.teacherId);
-    res.json(store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive));
+    res.json(store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive, req.body?.endControlVersion));
+  }));
+  app.post('/api/desktop-recorder/end-control',handle((req,res)=>{
+    const job=store.lessonJob(req.recorderDevice.teacherId,req.body?.id);
+    if(!job)return res.status(404).json({error:'Запись не найдена'});
+    res.json({job:{id:job.id,occurrence:job.occurrence,endControl:job.endControl,cutoffAt:recordingDeadline(job),desired:job.desired}});
   }));
   app.post('/api/desktop-recorder/archive/status', handle((req, res) => {
     if (!archiveStatus) return res.status(503).json({ error: 'Добавление материалов из пульта ещё не настроено' });
@@ -332,7 +362,7 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, ref
   }));
   app.post('/api/desktop-recorder/start-day', handle(async (req, res) => {
     await refreshSchedule?.(req.recorderDevice.teacherId);
-    store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive);
+    store.poll(req.recorderDevice, req.body?.ready, isEnded, isActive, req.body?.endControlVersion);
     res.json(store.configure(req.recorderDevice.teacherId, true));
   }));
   app.post('/api/desktop-recorder/share', handle((req, res) => res.json(store.share.device(req.recorderDevice.teacherId, req.body || {}))));
@@ -346,7 +376,7 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, ref
   app.use('/api/desktop-recorder', (_req, res) => res.status(404).json({ error: 'Not found' }));
 }
 
-export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolveLesson, refreshSchedule, legacyRecordingEnabled = false }) {
+export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolveLesson, refreshSchedule, finishLesson, legacyRecordingEnabled = false }) {
   const handle = (fn, teacherOnly = true) => async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (teacherOnly && req.auth?.role !== 'teacher') return res.status(403).json({ error: 'Только для учителя' });
@@ -370,7 +400,12 @@ export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolve
     const result = await resolveLesson(req, res);
     if (!result) return;
     const { occurrence, cutoffAt, audioMode } = result;
-    res.json(store.start(req.auth.id, occurrence, `Урок ${occurrence.dayKey} ${occurrence.time}`, cutoffAt, { audioMode, transitionFrom: req.body?.transitionFrom }));
+    res.json(store.start(req.auth.id, occurrence, `Урок ${occurrence.dayKey} ${occurrence.time}`, cutoffAt, { audioMode, transitionFrom: req.body?.transitionFrom, endPrompt:req.body?.endPrompt===true&&store.supportsEndControl(req.auth.id) }));
+  }));
+  app.post('/api/desktop-recording/end-control',handle((req,res)=>res.json(store.control(req.auth.id,req.body?.id,req.body||{}))));
+  app.post('/api/desktop-recording/finish-lesson',handle(async(req,res)=>{
+    const job=store.finishControl(req.auth.id,req.body?.id,req.body?.revision);
+    if(!job.endHandledAt){await finishLesson(job);store.endHandled(job.id);}res.json({ok:true});
   }));
   app.post('/api/desktop-recording/stop', handle((req, res) => {
     const job = store.settings(req.auth.id).jobs.find((item) => item.id === req.body?.id);

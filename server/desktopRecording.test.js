@@ -8,6 +8,41 @@ import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordin
 
 const video = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Secret_Key-123';
 
+test('manual continuation persists and renews for hours without changing the calendar or reviving a stopped lesson',t=>{
+  const f=fixture(t),{device}=f.connect('teacher');
+  const occurrence={key:'manual',studentId:'pupil',endMs:f.now()+40000};
+  const job=f.store.start('teacher',occurrence,'Lesson',occurrence.endMs,{endPrompt:true});
+  f.store.report(device,job.id,{status:'recording'});
+  assert.throws(()=>f.store.control('other',job.id,{mode:'manual',revision:0}),/не найдена/);
+  const continued=f.store.control('teacher',job.id,{mode:'manual',revision:0});
+  assert.equal(continued.endControl.mode,'manual');assert.deepEqual(continued.occurrence,occurrence);
+  assert.throws(()=>f.store.finishControl('teacher',job.id,0),/другом окне/);
+  const restored=createDesktopRecordingStore(f.file,{now:f.now});
+  for(let i=0;i<70;i++){f.advance(60000);restored.poll(device,true,()=>false,()=>true,1);}
+  assert.equal(restored.settings('teacher').jobs[0].desired,'record');
+  assert.deepEqual(restored.start('teacher',occurrence,'Lesson',occurrence.endMs).occurrence,occurrence);
+  assert.equal(restored.settings('teacher').jobs[0].endControl.mode,'manual');
+  restored.finishControl('teacher',job.id,1);assert.equal(restored.pendingEnds('other').length,0);
+  assert.equal(restored.pendingEnds('teacher').length,1);restored.endHandled(job.id);
+  assert.equal(restored.pendingEnds('teacher').length,0);
+  assert.throws(()=>restored.control('teacher',job.id,{mode:'manual',revision:1}),/завершено/);
+});
+
+test('timed continuation replaces the countdown deadline; no choice finishes once; an offline manual lease expires',t=>{
+  const f=fixture(t),{device}=f.connect('teacher'),occurrence={key:'timed',lessonId:'group',endMs:f.now()+40000};
+  const job=f.store.start('teacher',occurrence,'Lesson',occurrence.endMs,{endPrompt:true});
+  const continued=f.store.control('teacher',job.id,{mode:'timed',minutes:10,revision:0});
+  assert.equal(continued.cutoffAt,occurrence.endMs+600000);
+  assert.equal(f.store.updateSchedule('teacher',job.id,{...occurrence,startMs:f.now()-10000}).cutoffAt,continued.cutoffAt);
+  f.advance(640000);assert.equal(f.store.pendingEnds('teacher').length,1);
+  assert.equal(f.store.lessonJob('teacher',job.id).desired,'stop');
+  assert.throws(()=>f.store.control('teacher',job.id,{mode:'manual',revision:1}),/завершено/);
+  const second=f.store.start('teacher',{key:'manual-offline',endMs:f.now()+40000},'Next',f.now()+40000,{endPrompt:true});
+  f.store.control('teacher',second.id,{mode:'manual',revision:0});
+  f.advance(11*60000);f.store.poll(device,true,()=>false,()=>true,1);
+  assert.equal(f.store.lessonJob('teacher',second.id).desired,'stop','Returning after an expired offline lease never resurrects the old recording');
+});
+
 test('scheduled recordings stop at endMs in every transport and cannot resume after that boundary', t => {
   for (const audioMode of ['platform', 'telemost']) {
     const f = fixture(t); const { device } = f.connect('teacher');

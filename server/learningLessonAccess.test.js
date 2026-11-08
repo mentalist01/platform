@@ -25,7 +25,19 @@ import {
   parseLearningLessonRoomTarget,
   resolveLearningRealtimeRoomTarget,
   resolveLegacyLearningRoomTarget,
+  setLearningLessonDeadlineResolver, learningLessonAutoCloseMs,
 } from './learningLessonAccess.js';
+
+test('runtime continuation extends only its own lesson without modifying the saved schedule',t=>{
+  const lesson={id:'extended',startAt:'2026-11-08T10:00:00.000Z',durationMinutes:60};
+  const original=structuredClone(lesson),until=Date.parse('2026-11-08T14:00:00.000Z');
+  const scheduled=learningLessonAutoCloseMs(lesson);
+  setLearningLessonDeadlineResolver(session=>session.id==='extended'?until:null);
+  t.after(()=>setLearningLessonDeadlineResolver(()=>null));
+  assert.equal(learningLessonAutoCloseMs(lesson),until);
+  assert.equal(learningLessonAutoCloseMs({...lesson,id:'other'}),scheduled);
+  assert.deepEqual(lesson,original);
+});
 
 const session = {
   id: '8e8d75b4-a2ed-4cf0-a5bf-81a2cd74c858',

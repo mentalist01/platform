@@ -65,6 +65,12 @@ const getEarliestIsoTimestamp = (left, right) => {
   return Date.parse(rightIso) <= Date.parse(leftIso) ? rightIso : leftIso;
 };
 
+let runtimeLessonDeadline=()=>null;
+export const setLearningLessonDeadlineResolver=resolve=>{runtimeLessonDeadline=resolve;};
+export function learningLessonAutoCloseMs(session){
+  const scheduled=Date.parse(session?.startAt)+Math.max(15,Number(session?.durationMinutes)||60)*60000+LEARNING_LESSON_OVERRUN_GRACE_MS;
+  return runtimeLessonDeadline(session)??scheduled;
+}
 const getLearningLessonWindowState = (session, nowMs = Date.now()) => {
   const startMs = Date.parse(String(session?.startAt || '').trim());
   const durationMinutes = Math.max(15, Number(session?.durationMinutes) || 60);
@@ -74,9 +80,9 @@ const getLearningLessonWindowState = (session, nowMs = Date.now()) => {
   return {
     startMs,
     endMs,
-    autoCloseMs: Number.isFinite(endMs) ? endMs + LEARNING_LESSON_OVERRUN_GRACE_MS : NaN,
+    autoCloseMs: learningLessonAutoCloseMs(session),
     notStarted: Number.isFinite(startMs) && startMs > nowMs,
-    past: Number.isFinite(endMs) && endMs + LEARNING_LESSON_OVERRUN_GRACE_MS <= nowMs,
+    past: learningLessonAutoCloseMs(session)<=nowMs,
   };
 };
 

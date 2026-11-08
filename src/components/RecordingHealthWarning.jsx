@@ -1,20 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, ExternalLink } from 'lucide-react';
 import { recordingHealthWarning } from '../utils/recordingHealth';
+import LessonEndNotice from './LessonEndNotice.jsx';
+import {lessonControl,lessonEndPhase} from '../utils/lessonEndControl.js';
 
-export default function RecordingHealthWarning({ recorder, active }) {
-  return active ? <ActiveRecordingWarning recorder={recorder} /> : null;
+export default function RecordingHealthWarning({ recorder, active, onEnded,learningLessonId }) {
+  return active ? <ActiveRecordingWarning recorder={recorder} onEnded={onEnded} learningLessonId={learningLessonId}/> : null;
 }
 
-function ActiveRecordingWarning({ recorder }) {
+function ActiveRecordingWarning({ recorder,onEnded,learningLessonId }) {
   const [activeSince] = useState(Date.now);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 2500);
+    const timer = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(timer);
   }, []);
   const warning = recordingHealthWarning({ ...recorder, active: true, activeSince, now });
   const warningKey = warning ? JSON.stringify([activeSince, warning.title, warning.detail, (recorder?.settings?.jobs || []).filter(job => job.desired === 'record' && job.cutoffAt > now).map(job => job.id).sort()]) : null;
+  const job=(recorder?.settings?.jobs||[]).find(job=>job.id===recorder.jobId||(learningLessonId&&job.occurrence.lessonId===learningLessonId&&job.endControl)),phase=lessonEndPhase(job,now);
+  if(lessonControl(job)&&(phase||job.endControl.mode==='timed'))return <LessonEndNotice key={job.id} job={job} refresh={recorder.refresh} onEnded={onEnded} recordingWarning={phase==='ended'?null:warning}/>;
   return warning ? <RecordingWarningNotice key={warningKey} warning={warning} /> : null;
 }
 

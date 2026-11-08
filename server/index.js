@@ -360,6 +360,7 @@ import {
   finalizeLearningAttendanceRecord,
   LEARNING_LESSON_EARLY_JOIN_MS,
   LEARNING_LESSON_OVERRUN_GRACE_MS,
+  setLearningLessonDeadlineResolver, learningLessonAutoCloseMs,
   normalizeLearningAttendanceRecords,
   parseLearningLessonRoomTarget,
 } from './learningLessonAccess.js';
@@ -777,6 +778,7 @@ const desktopRecordings = createDesktopRecordingStore(path.join(dataDir, 'deskto
     return student?.teacherId === job.teacherId ? student.name : '';
   },
 });
+setLearningLessonDeadlineResolver(lesson=>desktopRecordings.groupEndAt(lesson?.teacherId,lesson?.id));
 const lessonReplaysDir = path.join(dataDir, 'lesson-replays');
 const lessonReplaySnapshotsDir = path.join(dataDir, 'lesson-replay-snapshots');
 const lessonReplayAudioDir = path.join(dataDir, 'lesson-replay-audio');
@@ -22988,11 +22990,42 @@ const refreshBoundDesktopRecordingSchedule = async teacherId => {
     }
   }
 };
+const controlledLessonFinishes=new Map();
+const finishControlledLesson=async job=>{
+  if(controlledLessonFinishes.has(job.id))return controlledLessonFinishes.get(job.id);
+  const task=(async()=>{
+    if(job.occurrence.lessonId){
+      const lessons=readLearningLessonSessionsDb(),lesson=lessons.find(l=>l.id===job.occurrence.lessonId&&l.teacherId===job.teacherId);
+      if(lesson&&lesson.status==='active'){
+        const updated=updateLearningLessonSession(lesson,{status:'completed'},{actorId:job.teacherId});
+        writeLearningLessonSessionsDb(replaceLearningStoreEntry(lessons,updated));
+        const finalized=createLearningAttendanceRoster(updated,readLearningAttendanceDb()).map(r=>finalizeLearningAttendanceRecord(r,updated.completedAt||updated.updatedAt)).filter(Boolean);
+        writeLearningAttendanceUpdates(finalized);
+        try{homeworkReminders.finishLesson(job.teacherId,job.occurrence);}catch(error){console.error('[lesson-end] homework reminder',error.message);}
+        closeLearningLessonCollabConnections(updated);
+      }
+    }else{
+      const newer=desktopRecordings.libraryJobs(job.teacherId).some(other=>other.id!==job.id&&other.desired==='record'&&other.occurrence.studentId===job.occurrence.studentId);
+      if(newer)return;
+      const current=activeTelemostLessonReplayByStudentId.get(job.occurrence.studentId);
+      if(!current||current.occurrence.key===job.occurrence.key)await finishTelemostLessonReplay(job.occurrence.studentId,{occurrenceKey:job.occurrence.key,nowMs:Date.now()});
+      rtcClientsBySocket.forEach(client=>{
+        const target=parseRtcRoomId(client.roomId);
+        if(target?.targetType!=='student'||target.studentId!==job.occurrence.studentId||target.teacherId!==job.teacherId||client.joinedAt>job.cutoffAt)return;
+        leaveRtcRoom(client);sendRtcPayload(client.ws,{type:'session-ended',error:'Занятие завершено'});
+      });
+    }
+  })().finally(()=>controlledLessonFinishes.delete(job.id));
+  controlledLessonFinishes.set(job.id,task);return task;
+};
 const recordingRollovers = new Map();
 const refreshDesktopRecordingSchedule = async teacherId => {
   if (recordingRollovers.has(teacherId)) return recordingRollovers.get(teacherId);
   const operation = (async () => {
     await refreshBoundDesktopRecordingSchedule(teacherId);
+    for(const job of desktopRecordings.pendingEnds(teacherId)){
+      await finishControlledLesson(job);desktopRecordings.endHandled(job.id);
+    }
     if (!desktopRecordings.enabled(teacherId)) return;
     const nowMs = Date.now();
     const all = desktopRecordings.libraryJobs(teacherId);
@@ -23001,7 +23034,7 @@ const refreshDesktopRecordingSchedule = async teacherId => {
     for (const job of all) if (!job.occurrence.lessonId) latest.set(job.occurrence.studentId, job);
     for (const brief of latest.values()) {
       const previous = desktopRecordings.lessonJob(teacherId, brief.id);
-      if (!previous || previous.quarantinedAt || previous.status === 'error'
+      if (!previous || previous.endControl || previous.quarantinedAt || previous.status === 'error'
         || previous.cutoffAt > nowMs || nowMs - previous.cutoffAt > 6 * 3600_000
         || previous.stopRequestedAt || previous.stopReason && previous.stopReason !== 'lesson-ended') continue;
       const student = findStudentById(previous.occurrence.studentId);
@@ -23333,6 +23366,7 @@ registerHomeworkLives(app, homeworkLives, {
 });
 
 registerDesktopRecordingRoutes(app, desktopRecordings, {
+  finishLesson:finishControlledLesson,
   legacyRecordingEnabled,
   refreshSchedule: refreshDesktopRecordingSchedule,
   teacherFor: (auth) => findStudentById(isParentRole(auth) ? auth.studentId : auth.id)?.teacherId,
@@ -24673,7 +24707,7 @@ const canStudentReadLearningGroupLesson = (group, studentId, lesson) => {
     // the lesson has run beyond its calendar end.
     if (lesson.status === 'active') return false;
     const lessonHasEnded = lesson.status === 'completed'
-      || (lessonEndMs + LEARNING_LESSON_OVERRUN_GRACE_MS <= Date.now());
+      || (learningLessonAutoCloseMs(lesson) <= Date.now());
     if (lessonHasEnded) {
       if (lessonStartMs > leftAtMs) return false;
       return readLearningAttendanceDb().some((record) => (
@@ -25474,7 +25508,7 @@ const closeLearningGroupStudentLessonConnections = (groupIdValue, studentIdValue
       && Number.isFinite(startMs)
       && startMs - LEARNING_LESSON_EARLY_JOIN_MS > nowMs
     ) return;
-    if (Number.isFinite(endMs) && endMs + LEARNING_LESSON_OVERRUN_GRACE_MS <= nowMs) return;
+    if (Number.isFinite(endMs) && learningLessonAutoCloseMs(lesson) <= nowMs) return;
     closed += closeLearningLessonCollabConnections(lesson);
   });
   return closed;
@@ -25515,9 +25549,7 @@ const reconcileLearningGroupLifecycle = (nowMs = Date.now(), options = {}) => {
       const groupLessonAlreadyStarted = groupCompleted
         && Number.isFinite(startMs)
         && startMs <= nowMs;
-      const autoCloseMs = Number.isFinite(endMs)
-        ? endMs + LEARNING_LESSON_OVERRUN_GRACE_MS
-        : NaN;
+      const autoCloseMs = learningLessonAutoCloseMs(lesson);
       const observed = subscriptionGroups.has(lesson.groupId) && (Object.values(homeworkReminders.data.lessons).some(entry => entry.lessonId === lesson.id && entry.teacherId === lesson.teacherId)
         || desktopRecordings.recentLessonJobs(lesson.teacherId, 0).some(job => job.occurrence?.lessonId === lesson.id && Number(job.startedAt) > 0 && !['waiting', 'error'].includes(job.status)));
       const missedSubscriptionLesson = lesson.status === 'scheduled' && subscriptionGroups.has(lesson.groupId)
@@ -27148,7 +27180,7 @@ app.put('/api/learning-groups/:groupId/lessons/:lessonId/responses/:boardItemId'
   const lessonEndMs = Number.isFinite(lessonStartMs) ? lessonStartMs + lessonDurationMs : NaN;
   const lessonClosed = ['completed', 'cancelled'].includes(String(lesson.status || '').trim())
     || (Number.isFinite(lessonEndMs)
-      && lessonEndMs + LEARNING_LESSON_OVERRUN_GRACE_MS <= Date.now());
+      && learningLessonAutoCloseMs(lesson) <= Date.now());
   const lessonNotStarted = Number.isFinite(lessonStartMs) && lessonStartMs > Date.now();
   if (lessonNotStarted) {
     failLearningRequest('До начала занятия доска доступна только для просмотра', 'lesson_not_started', 409);
@@ -27490,7 +27522,7 @@ app.post('/api/learning-groups/:groupId/lessons/:lessonId/answer-chat', handleLe
   }
   if (
     ['completed', 'cancelled'].includes(String(lesson.status || '').trim())
-    || (Number.isFinite(lessonEndMs) && lessonEndMs + LEARNING_LESSON_OVERRUN_GRACE_MS <= Date.now())
+    || (Number.isFinite(lessonEndMs) && learningLessonAutoCloseMs(lesson) <= Date.now())
   ) {
     failLearningRequest('Чат завершённого занятия доступен только для просмотра', 'lesson_read_only', 409);
   }
@@ -35776,6 +35808,7 @@ const getTelemostLessonReplayEntry = (studentId, nowMs = Date.now()) => {
   const normalizedStudentId = String(studentId || '').trim();
   if (!normalizedStudentId) return null;
   const entry = activeTelemostLessonReplayByStudentId.get(normalizedStudentId);
+  if(entry){const job=desktopRecordings.libraryJobs(entry.teacherId).find(job=>job.occurrence.key===entry.occurrence.key&&job.endControl&&job.desired==='record');if(job)entry.autoFinishAtMs=job.cutoffAt;}
   if (!entry || Number(entry.autoFinishAtMs || 0) <= Number(nowMs)) return null;
   return entry;
 };
@@ -35942,7 +35975,7 @@ const isLearningGroupReplaySessionWritable = (session, context, nowMs = Date.now
   const lessonStatus = String(context.lesson.status || '').trim();
   const started = lessonStatus === 'active' || Number(nowMs) >= startMs;
   return started
-    && Number(nowMs) <= startMs + durationMs + LEARNING_LESSON_OVERRUN_GRACE_MS;
+    && Number(nowMs) <= learningLessonAutoCloseMs(context.lesson);
 };
 
 const ensureLessonReplaySessionAccess = (req, res, session) => {
@@ -36881,6 +36914,7 @@ const finishTelemostLessonReplay = async (studentId, options = {}) => {
 const telemostLessonReplaySweepInterval = setInterval(() => {
   const nowMs = Date.now();
   activeTelemostLessonReplayByStudentId.forEach((entry, studentId) => {
+    getTelemostLessonReplayEntry(studentId,nowMs);
     if (Number(entry?.autoFinishAtMs || 0) + TELEMOST_LESSON_DRAIN_MS > nowMs) return;
     if (hasActivePlatformLessonCall({ id: studentId, teacherId: entry?.teacherId })) return;
     void finishTelemostLessonReplay(studentId, { nowMs }).catch((error) => {
