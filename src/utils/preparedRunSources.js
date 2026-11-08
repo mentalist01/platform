@@ -1,3 +1,4 @@
+import {preparedTheoryItems,preparedTheoryItemKeys,theoryCardIdentity} from './interactiveTheoryCatalog.js';
 import {preparedSetPartTasks,preparedTaskPartNumber,preparedPartTaskNumber} from './preparedSetParts.js';
 import {preparedFileSync} from './preparedFileSync.js';
 import {preparedAnswerTableChanged} from './preparedAnswerTable.js';
@@ -5,7 +6,7 @@ import {preparedTaskContentChanged} from './preparedTaskContent.js';
 import {preparedLayoutKey} from './preparedSetLayout.js';
 
 export const isPreparedTheory = task => task?.kind==='theory';
-export function preparedTheorySequence(set,mode=set.theoryMode) {
+function legacyPreparedTheorySequence(set,mode=set.theoryMode) {
   const images=set.theoryImages||[],base={kind:'theory',format:'theory',answers:[],attachments:[],sourceIndex:-1};
   if(!images.length)return [];
   const placed=Object.values(set.theoryPlacements||{}).some(Boolean),groups=new Map();
@@ -14,6 +15,34 @@ export function preparedTheorySequence(set,mode=set.theoryMode) {
     const metadata=placed?{theoryBefore:before,...(mode==='steps'?{}:{theoryIndices:rows.map(row=>row.index)})}:{};
     return mode==='steps'?rows.map(({image,index},blockIndex)=>({...base,...metadata,id:`theory-${set.id}-sheet-${image}`,title:`Теория · ${index+1}`,images:[image],...(set.theoryDisplay?.[image]?{theoryDisplay:set.theoryDisplay[image]}:{}),theoryStep:{index,count:images.length,...(placed?{blockIndex,blockCount:rows.length}:{})}})):
       [{...base,...metadata,id:`theory-${set.id}${before?`-before-${before}`:''}`,title:before?'Теория между задачами':'Теория',...(set.theoryDisplay?.[rows[0].image]?{theoryDisplay:set.theoryDisplay[rows[0].image]}:{}),images:rows.map(row=>row.image)}];
+  });
+}
+// Mixed cards use the same queue and placement keys; image-only legacy sets
+// retain their exact task IDs and grouping.
+export function preparedTheorySequence(set,mode=set.theoryMode) {
+  const items=preparedTheoryItems(set);
+  if(!items.some(item=>item.kind==='interactive'))return legacyPreparedTheorySequence({...set,theoryImages:items.map(item=>item.assetId)},mode);
+  const groups=new Map(),base={kind:'theory',format:'theory',answers:[],attachments:[],sourceIndex:-1};
+  items.forEach((item,index)=>{
+    const target=set.theoryPlacements?.[item.id]||'',before=target===set.tasks[0]?.id?'':target;
+    if(!groups.has(before))groups.set(before,[]);
+    groups.get(before).push({item,index});
+  });
+  return [...groups].flatMap(([before,rows])=>{
+    const chunks=[];
+    rows.forEach(row=>{
+      const last=chunks.at(-1);
+      if(mode!=='steps'&&row.item.kind==='image'&&last?.[0].item.kind==='image')last.push(row);
+      else chunks.push([row]);
+    });
+    return chunks.map((chunk,blockIndex)=>{
+      const {item,index}=chunk[0],interactive=item.kind==='interactive';
+      return {...base,id:`theory-${set.id}-sheet-${item.id}`,title:interactive?'Интерактивная теория':`Теория · ${index+1}`,
+        images:interactive?[]:chunk.map(row=>row.item.assetId),theoryItemId:item.id,theoryBefore:before,
+        ...(interactive?{interactive:{typeId:item.typeId,params:item.params}}:{}),
+        ...(set.theoryDisplay?.[item.id]?{theoryDisplay:set.theoryDisplay[item.id]}:{}),
+        theoryStep:{index,count:items.length,blockIndex,blockCount:chunks.length}};
+    });
   });
 }
 // Existing lesson cards retain their format and position. Only new theory is
@@ -27,26 +56,26 @@ export function preparedTheorySyncPlan(run,set) {
   const used=new Set();
   for(const row of current){
     const next=incoming.find(task=>!used.has(task.id)&&(row.theoryStep
-      ? task.images[0]===row.images[0]
+      ? theoryCardIdentity(task)===theoryCardIdentity(row)
       : preparedTaskSource(run,row).taskId===task.id));
     if(next){matches.set(row.id,next);used.add(next.id);}
   }
-  const wholeSetImages=new Set(set.theoryImages||[]);
-  const previousImages=new Set(current.flatMap(row=>row.images));
+  const wholeSetImages=new Set(preparedTheoryItemKeys(set));
+  const previousImages=new Set(current.map(theoryCardIdentity));
   for(const row of current){
-    if(matches.has(row.id)||!opened.has(row.id)||!row.theoryStep||wholeSetImages.has(row.images[0]))continue;
+    if(row.interactive||matches.has(row.id)||!opened.has(row.id)||!row.theoryStep||wholeSetImages.has(theoryCardIdentity(row)))continue;
     // In-place replacement can update the image on the same annotated card.
-    const next=incoming.find(task=>!used.has(task.id)&&!previousImages.has(task.images[0])
+    const next=incoming.find(task=>!task.interactive&&!used.has(task.id)&&!previousImages.has(theoryCardIdentity(task))
       &&task.theoryStep?.index===row.theoryStep.index&&(task.theoryBefore||'')===(row.theoryBefore||''));
     if(next){matches.set(row.id,next);used.add(next.id);}
   }
   const legacy=current.some(task=>!task.theoryStep&&!task.theoryIndices);
   return {
     matches,
-    pending:incoming.filter(task=>!legacy||used.has(task.id)).filter(task=>
+    pending:incoming.filter(task=>!legacy||task.interactive||used.has(task.id)).filter(task=>
       !current.some(row=>opened.has(row.id)&&matches.get(row.id)===task)),
     remove:new Set(current.filter(row=>!opened.has(row.id)).map(row=>row.id)),
-    added:legacy?[]:incoming.filter(task=>!used.has(task.id)),
+    added:incoming.filter(task=>(!legacy||task.interactive)&&!used.has(task.id)),
   };
 }
 export function insertPreparedTheory(run,tasks,setId,added){
@@ -62,12 +91,12 @@ export function insertPreparedTheory(run,tasks,setId,added){
 }
 export function preparedSetSequence(set,partNumber) {
   const tasks=preparedSetPartTasks(set,partNumber),split=set.tasks.some(task=>task.startsPart===true);
-  const mapped=partNumber!==undefined||split||set.theoryImages?.length?tasks.map(task=>({...task,sourceIndex:set.tasks.indexOf(task),...(split||partNumber!==undefined?{sourcePartNumber:preparedTaskPartNumber(set,set.tasks.indexOf(task)),sourceTaskNumber:preparedPartTaskNumber(set,preparedTaskPartNumber(set,set.tasks.indexOf(task)))}:{})})):tasks;
+  const mapped=partNumber!==undefined||split||preparedTheoryItems(set).length?tasks.map(task=>({...task,sourceIndex:set.tasks.indexOf(task),...(split||partNumber!==undefined?{sourcePartNumber:preparedTaskPartNumber(set,set.tasks.indexOf(task)),sourceTaskNumber:preparedPartTaskNumber(set,preparedTaskPartNumber(set,set.tasks.indexOf(task)))}:{})})):tasks;
   const withLayout=cards=>set.boardLayout?cards.map(card=>{
     const boardDisplay=set.boardLayout[preparedLayoutKey(card)];
     return boardDisplay?{...card,boardDisplay}:card;
   }):cards;
-  if(!set.theoryImages?.length)return withLayout(mapped);
+  if(!preparedTheoryItems(set).length)return withLayout(mapped);
   const theory=preparedTheorySequence(set),all=partNumber===undefined,first=Number(partNumber)===Number(set.partNumber||1),last=Number(partNumber)===preparedTaskPartNumber(set,set.tasks.length-1);
   return withLayout([...(all||first?theory.filter(row=>!row.theoryBefore):[]),...mapped.flatMap(task=>[...theory.filter(row=>row.theoryBefore===task.id).map(row=>({...row,sourcePartNumber:preparedTaskPartNumber(set,set.tasks.findIndex(value=>value.id===task.id))})),task]),...(all||last?theory.filter(row=>row.theoryBefore==='end'):[])]);
 }

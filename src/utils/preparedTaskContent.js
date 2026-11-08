@@ -5,6 +5,7 @@ export const preparedCheckingChanged=(before,after)=>
   JSON.stringify(before.answerGroups||null)!==JSON.stringify(after.answerGroups||null);
 
 export const preparedTaskContentChanged=(before,after)=>
+  JSON.stringify(before.interactive||null)!==JSON.stringify(after.interactive||null)||
   before.title!==after.title||Boolean(before.difficult)!==Boolean(after.difficult)||
   JSON.stringify(before.images)!==JSON.stringify(after.images)||
   JSON.stringify(before.theoryStep||null)!==JSON.stringify(after.theoryStep||null)||

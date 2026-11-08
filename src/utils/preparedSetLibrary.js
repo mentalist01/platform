@@ -1,3 +1,4 @@
+import {preparedTheoryItems} from './interactiveTheoryCatalog.js';
 import {preparedSetParts} from './preparedSetParts.js';
 const normalized = value => String(value ?? '').toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
@@ -39,7 +40,7 @@ export function nextPreparedTaskTitle(previous, index) {
 
 export function preparedTasksForSave(set) {
   const tasks = set.tasks;
-  if (!set.theoryImages?.length || tasks.length !== 1) return tasks;
+  if (!preparedTheoryItems(set).length || tasks.length !== 1) return tasks;
   const [task] = tasks;
   const title = String(task.title ?? '').trim();
   const hasContent = (title && title !== '1') || task.images?.length || task.attachments?.length

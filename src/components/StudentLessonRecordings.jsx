@@ -1,5 +1,5 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {Video,Play,ArrowUpRight,CalendarDays,Clock3,Search,RefreshCw,Film,BookOpen} from 'lucide-react';
+import {Video,Play,ArrowUpRight,ChevronDown,CalendarDays,Clock3,Search,RefreshCw,Film,BookOpen} from 'lucide-react';
 import {api} from '../services/api.js';
 import StudentLessonDetailModal from './StudentLessonDetailModal.jsx';
 import {lessonRecordingTopic,lessonRecordingState,recordingMonthGroups} from '../utils/studentLessonRecordings.js';
@@ -42,7 +42,7 @@ export default function StudentLessonRecordings({userId,transport=api.getStudent
         <div className="student-recordings__body"><span className="student-recordings__date"><CalendarDays size={14}/>{dateLabel(lesson.dayKey)}</span><h3>{lessonRecordingTopic(lesson)}</h3><footer><span className={`student-recordings__state is-${state.tone}`}><i/>{state.label}</span><ArrowUpRight size={19}/></footer></div>
       </button>;
     })}</div></section>)}
-    {data.hasMore&&<button className="student-recordings__more" disabled={loading} onClick={()=>void load(data.nextOffset)}>{loading?'Загружаем…':'Показать ещё занятия'}</button>}
+    {data.hasMore&&<button type="button" className="student-recordings__more" disabled={loading} aria-busy={loading} onClick={()=>void load(data.nextOffset)}>{loading?<RefreshCw size={18} className="is-spinning"/>:<ChevronDown size={18}/>}<span>{loading?'Загружаем…':'Показать ещё занятия'}</span></button>}
     {selected&&<StudentLessonDetailModal open lesson={detail?.lesson||selected} materials={detail?.materials||[]} replay={detail?.replay||null} studentId={userId} topicText={lessonRecordingTopic(detail?.lesson||selected)} loading={detailLoading} error={detailError} onClose={close} onRetry={()=>void open(selected)}/>}
   </section>;
 }

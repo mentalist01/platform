@@ -1,3 +1,5 @@
+import {preparedTheoryItemKeys,theoryCardItemKeys,theoryCardIdentity} from '../utils/interactiveTheoryCatalog.js';
+import InteractiveTheory from './interactiveTheory/InteractiveTheory.jsx';
 import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {ArrowDown,ArrowUp,ClipboardList,Focus,Hand,Maximize2,Minimize2,Minus,Plus,X} from 'lucide-react';
 import {preparedAssetUrl} from '../services/preparedLessonTasks.js';
@@ -77,7 +79,7 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
   },[]);
   useEffect(()=>{
     const escape=event=>{
-      if(event.key!=='Escape')return;
+      if(event.key!=='Escape'||event.target.closest?.('.interactive-theory-modal'))return;
       event.stopPropagation();
       if(expanded)setExpanded(false);else onClose();
     };
@@ -145,7 +147,7 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
     setSelected(id);if(row)setView(fit(row,viewport,.8));
   };
   const setSetting=patch=>{setView(camera);onSetting(active.id,{...setting,...patch});};
-  const orderIndex=active?.theory?edit.theoryImages.indexOf(active.card.images[0]):edit.tasks.findIndex(task=>task.id===active?.card.id);
+  const orderIndex=active?.theory?preparedTheoryItemKeys(edit).indexOf(theoryCardIdentity(active.card)):edit.tasks.findIndex(task=>task.id===active?.card.id);
   const taskNeighbors=active&&!active.theory?edit.tasks:[];
   const moveTask=direction=>{
     const tasks=[...edit.tasks],other=orderIndex+direction;
@@ -190,7 +192,7 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
         {active?.card.boardDisplay&&<button type="button" onClick={()=>onSetting(active.id,null)}>Сбросить раскладку карточки</button>}
         {active?.theory&&edit.tasks.length>0&&<label>Показывать <select value={active.card.theoryBefore||''} onChange={event=>{
           const before=event.target.value,theoryPlacements={...edit.theoryPlacements};
-          for(const image of active.card.images)theoryPlacements[image]=before;
+          for(const image of theoryCardItemKeys(active.card))theoryPlacements[image]=before;
           onEdit({theoryPlacements});
         }}><option value="">В начале набора</option>{edit.tasks.slice(1).map((task,index)=><option key={task.id} value={task.id}>Перед задачей «{preparedTaskTitle(task,index+1)}»</option>)}<option value="end">После задач</option></select></label>}
         {taskNeighbors.length>1&&<div className="prepared-set-builder-window" aria-label="Порядок задачи"><button type="button" aria-label="Показать задачу раньше" disabled={orderIndex<=0} onClick={()=>moveTask(-1)}><ArrowUp size={15}/></button><button type="button" aria-label="Показать задачу позже" disabled={orderIndex>=taskNeighbors.length-1} onClick={()=>moveTask(1)}><ArrowDown size={15}/></button></div>}
@@ -207,10 +209,11 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
           const scale=width/640;
           const style={left:row.x+(movement&&!movement.resize?movement.dx:0),top:row.y+(movement&&!movement.resize?movement.dy:0),width,height:row.height*width/row.width};
           return <article className={`prepared-set-builder-card${row.theory?' is-theory':''}${!preview&&row.id===active?.id?' is-selected':''}`} key={row.id} style={style}
-            onPointerDown={event=>start(event,row)}>
-            <div className="prepared-set-builder-content" style={{transform:`scale(${scale})`}}>
+            onPointerDown={event=>{if(preview&&row.card.interactive&&event.target.closest('.interactive-theory-shell'))return;start(event,row);}}>
+            <div className={`prepared-set-builder-content${preview&&row.card.interactive?' has-interactive-preview':''}`} style={{transform:`scale(${scale})`}}>
               {!row.theory&&<header><ClipboardList size={16}/>{label(row)}<small>ЕГЭ №{row.card.sourceTaskNumber||edit.taskNumber}</small></header>}
               {!row.theory&&<div className="prepared-set-builder-answer">Ответ <span>Проверить</span></div>}
+              {row.card.interactive&&<InteractiveTheory key={`${row.id}:${preview}`} interactive={row.card.interactive} cardId={row.id} preview disabled={!preview}/>}
               {row.card.images.map((id,index)=><img key={id} loading="lazy" draggable={false}
                 src={preparedAssetUrl(assets[id]?.url||`/api/lesson-task-assets/${id}`)} alt={`${label(row)}, изображение ${index+1}`}
                 style={{height:assets[id]?.width?Math.min(900,Math.max(60,600*assets[id].height/assets[id].width)):400}}
@@ -219,7 +222,7 @@ export default function PreparedSetCanvas({edit,onSetting,onEdit,onClose}) {
                   const {naturalWidth:width,naturalHeight:height}=event.currentTarget;
                   setImageSizes(previous=>({...previous,[id]:{id,width,height}}));
                 }}/>)}
-              {!row.card.images.length&&<p>Условие ещё не добавлено</p>}
+              {!row.card.images.length&&!row.card.interactive&&<p>Условие ещё не добавлено</p>}
             </div>
             {!preview&&<span className="prepared-set-builder-number">{row.index+1}</span>}
             {!preview&&row.id===active?.id&&<button type="button" className="prepared-theory-resize" tabIndex={-1} aria-label="Потяните, чтобы изменить размер карточки" onPointerDown={event=>start(event,row,true)}/>}

@@ -1,7 +1,8 @@
+import {interactiveTheoryDefinition,theoryCardIdentity} from './interactiveTheoryCatalog.js';
 import {normalizePreparedTheoryDisplay, preparedTheoryFrame} from './preparedTheoryDisplay.js';
 import {preparedNextPoint, preparedTheorySheetPoint} from './preparedTheoryLayout.js';
 
-export const preparedLayoutKey = card => card.kind === 'theory' ? `theory:${card.images[0]}` : `task:${card.id}`;
+export const preparedLayoutKey = card => card.kind === 'theory' ? `theory:${theoryCardIdentity(card)}` : `task:${card.id}`;
 
 export function normalizePreparedSetLayout(sequence, layout) {
   const earlier = new Set();
@@ -35,7 +36,8 @@ export function remapPreparedSetLayout(layout, tasks, assets) {
 
 export function preparedCardGeometry(card, assets, answerRows, existing) {
   const theory = card.kind === 'theory';
-  const height = (theory ? 16 : 124) + Math.max(0, answerRows - 1) * (card.answerGroups ? 70 : 44)
+  const interactive=card.interactive&&interactiveTheoryDefinition(card.interactive.typeId);
+  const height = interactive ? interactive.height : (theory ? 16 : 124) + Math.max(0, answerRows - 1) * (card.answerGroups ? 70 : 44)
     + card.images.reduce((sum, id) => {
       const image = assets[id];
       return sum + Math.min(900, Math.max(60, image?.width ? 600 * image.height / image.width : 400)) + 12;
@@ -54,7 +56,7 @@ export function preparedPlacementRecipe(card, priorCards, previousCard, lastCard
   const earlierSheets = card.theoryStep ? priorCards.filter(row =>
     row.card.theoryStep && (row.card.theoryBefore || '') === (card.theoryBefore || '')
     && row.card.theoryStep.index < card.theoryStep.index) : [];
-  const sheet = earlierSheets.find(row => row.card.images.includes(card.theoryDisplay?.relativeTo)) || earlierSheets.at(-1);
+  const sheet = earlierSheets.find(row => (theoryCardIdentity(row.card)===card.theoryDisplay?.relativeTo||row.card.images.includes(card.theoryDisplay?.relativeTo))) || earlierSheets.at(-1);
   const previousBlock = card.kind !== 'theory' && !previousTask && previousCard?.theoryStep ? priorCards.filter(row =>
     row.card.theoryStep && (row.card.theoryBefore || '') === (previousCard.theoryBefore || '')) : [];
   return {start, lastId: preceding?.anchorId || lastCard?.anchorId, referenceId: reference?.anchorId, sheetId: sheet?.anchorId,

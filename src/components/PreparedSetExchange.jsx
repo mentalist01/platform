@@ -1,3 +1,5 @@
+import {preparedTheoryItems} from '../utils/interactiveTheoryCatalog.js';
+import InteractiveTheory from './interactiveTheory/InteractiveTheory.jsx';
 import {useEffect,useState} from 'react';
 import {ArrowLeft,Search,Share2,Copy,Check} from 'lucide-react';
 import {preparedAssetUrl,preparedRequest} from '../services/preparedLessonTasks.js';
@@ -21,7 +23,7 @@ export default function PreparedSetExchange({ownSet,onBack,onCopied,onShared}){
   };
   const openPreview=async id=>{
     if(busy||opening)return;setOpening(id);setError('');
-    try{setPreview(await preparedRequest(`/api/lesson-task-exchange/${id}`));setTaskIndex(0);}catch(e){setError(e.message);}
+    try{const result=await preparedRequest(`/api/lesson-task-exchange/${id}`);setPreview(result);setTaskIndex(result.set.tasks.length?0:-1);}catch(e){setError(e.message);}
     finally{setOpening('');}
   };
   const copy=async()=>{
@@ -51,7 +53,7 @@ export default function PreparedSetExchange({ownSet,onBack,onCopied,onShared}){
     </>}
     {preview&&<>
       <p className="prepared-muted">Автор: {preview.authorName}. Копия будет в «Моих наборах»; её можно менять независимо от оригинала.</p>
-      <div className="prepared-exchange-preview"><nav aria-label="Задачи общего набора">{preview.set.theoryImageFiles?.length>0&&<button type="button" aria-pressed={taskIndex===-1} onClick={()=>setTaskIndex(-1)}>Теория</button>}{preview.set.tasks.map((item,index)=><button type="button" key={item.id} aria-pressed={taskIndex===index} onClick={()=>setTaskIndex(index)}>{item.title||`Задача ${index+1}`}</button>)}</nav><div className="prepared-exchange-condition"><div className="prepared-exchange-reference"><strong>{task.kind==='theory'?'Теория перед задачами':'Правильные ответы'}</strong><span>{task.kind==='theory'?'Вступление к набору · без проверки':task.answers.join(' · ')||'Проверка преподавателем'}</span>{task.difficult&&<small>Сложная задача</small>}{task.answerMode==='independent'&&<small>Вопросы проверяются отдельно</small>}</div>{task.imageFiles.map(file=><img key={file.id} src={preparedAssetUrl(file.url)} alt={`Условие ${task.title||taskIndex+1}`}/>)}{task.attachments.map(file=><a key={file.id} href={preparedAssetUrl(file.url)} download={file.name}>{file.name}{file.runtime!==false?` · Python: ${file.runtimeName||file.name}`:''}</a>)}<PreparedReferenceSolutions reference={task.referenceSolutions?.length?{available:true,files:task.referenceSolutions}:null} canManage/></div></div>
+      <div className="prepared-exchange-preview"><nav aria-label="Задачи общего набора">{preparedTheoryItems(preview.set).length>0&&<button type="button" aria-pressed={taskIndex===-1} onClick={()=>setTaskIndex(-1)}>Теория</button>}{preview.set.tasks.map((item,index)=><button type="button" key={item.id} aria-pressed={taskIndex===index} onClick={()=>setTaskIndex(index)}>{item.title||`Задача ${index+1}`}</button>)}</nav><div className="prepared-exchange-condition"><div className="prepared-exchange-reference"><strong>{task.kind==='theory'?'Теория перед задачами':'Правильные ответы'}</strong><span>{task.kind==='theory'?'Вступление к набору · без проверки':task.answers.join(' · ')||'Проверка преподавателем'}</span>{task.difficult&&<small>Сложная задача</small>}{task.answerMode==='independent'&&<small>Вопросы проверяются отдельно</small>}</div>{task.kind==='theory'&&preparedTheoryItems(preview.set).filter(item=>item.kind==='interactive').map(item=><InteractiveTheory key={item.id} interactive={item} cardId={item.id} preview/>)}{task.imageFiles.map(file=><img key={file.id} src={preparedAssetUrl(file.url)} alt={`Условие ${task.title||taskIndex+1}`}/>)}{task.attachments.map(file=><a key={file.id} href={preparedAssetUrl(file.url)} download={file.name}>{file.name}{file.runtime!==false?` · Python: ${file.runtimeName||file.name}`:''}</a>)}<PreparedReferenceSolutions reference={task.referenceSolutions?.length?{available:true,files:task.referenceSolutions}:null} canManage/></div></div>
       <div className="prepared-exchange-footer"><button type="button" className="prepared-primary" disabled={busy} onClick={()=>void copy()}><Copy size={16}/>{busy?'Копируем…':'Добавить себе копию'}</button></div>
     </>}
   </div>;

@@ -57,6 +57,8 @@ export function updatePreparedSet(store,run,set){
     const next={...task,...metadata,title:incoming.title,difficult:incoming.difficult===true,
       format:incoming.format,answerMode:incoming.answerMode||'combined',answers:[...incoming.answers],images:[...incoming.images],
       attachments:preparedFileSync([task],[incoming]).tasks[0].attachments};
+    delete next.interactive;if(incoming.interactive)next.interactive=structuredClone(incoming.interactive);
+    if(incoming.theoryItemId)next.theoryItemId=incoming.theoryItemId;
     if(incoming.theoryStep)next.theoryStep={...incoming.theoryStep};
     if(incoming.theoryIndices)next.theoryIndices=[...incoming.theoryIndices];
     delete next.theoryDisplay;if(incoming.theoryDisplay)next.theoryDisplay={...incoming.theoryDisplay};

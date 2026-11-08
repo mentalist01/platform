@@ -17671,7 +17671,7 @@ export const BoardCanvasSection = ({
         />
         <canvas ref={preparedInkRef} className="prepared-ink-layer absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>
         <BoardFileDownloads items={boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
-        {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onVisualChange={handlePreparedBoardVisualChange} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
+        {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard interactiveDoc={docRef.current} boardTool={tool} onVisualChange={handlePreparedBoardVisualChange} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
           focus={focusPreparedCard} trialPresentation={trialPresentation}/>}
