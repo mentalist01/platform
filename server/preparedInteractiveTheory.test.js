@@ -3,12 +3,33 @@ import assert from 'node:assert/strict';
 import {partFixture} from './preparedSetParts.fixture.js';
 import {PreparedLessonTasks} from './preparedLessonTasks.js';
 import {PreparedSetExchange} from './preparedSetExchange.js';
-import {IP_SUBNET_CARD} from '../src/utils/interactiveTheoryCatalog.js';
+import {IP_SUBNET_CARD,PREPARED_THEORY_MAX_ITEMS} from '../src/utils/interactiveTheoryCatalog.js';
 import {DECIMAL_BINARY_CARD} from '../src/utils/decimalBinary.js';
 import {preparedSetSequence} from '../src/utils/preparedRunSources.js';
 import {preparedLayoutKey} from '../src/utils/preparedSetLayout.js';
 
 const interactive=(id='subnet')=>({id,kind:'interactive',typeId:IP_SUBNET_CARD,params:{ip:'192.168.1.70',prefix:26}});
+test('twenty image sheets persist, preview and play completely; fifty mixed sheets copy without truncation',async t=>{
+  const f=await partFixture(t),{prepared,auth}=f;
+  const images=Array.from({length:20},(_,i)=>prepared.putAsset(auth,Buffer.from(`theory-sheet-${i}`),`sheet-${i}.png`,'image/png',{width:600,height:180}).id);
+  const set=await prepared.saveSet(auth,{name:'20 листов',taskNumber:10,tasks:[],theoryImages:images,theoryMode:'steps'});
+  assert.deepEqual(preparedSetSequence(set).map(card=>card.images[0]),images);
+  let run=await prepared.start(auth,{room:'twenty-sheets',setId:set.id,x:40,y:60});
+  for(let i=1;i<images.length;i++)run=await prepared.action(auth,run.id,{action:'next',expectedCount:i,fromCardId:run.cards.at(-1).id});
+  assert.equal(run.cards.length,20);assert.equal(run.total,20);
+  assert.deepEqual(run.cards.map(card=>card.images[0].id),images);
+  const reopened=new PreparedLessonTasks(f.deps);assert.deepEqual(reopened.setView(reopened.data.sets[set.id]).theoryImages,images);
+  assert.equal(reopened.data.runs[run.id].cards.length,20);
+  const items=[...images.map(id=>({id,kind:'image',assetId:id})),...Array.from({length:PREPARED_THEORY_MAX_ITEMS-images.length},(_,i)=>interactive(`interactive-${i}`))];
+  const mixed=await prepared.saveSet(auth,{name:'50 листов',taskNumber:10,tasks:[],theoryItems:items,theoryMode:'steps'});
+  assert.equal(preparedSetSequence(mixed).length,50);
+  const exchange=new PreparedSetExchange(prepared,()=>[{id:auth.id},{id:'other'}]);exchange.publish(auth,mixed.id,{version:0,recipientIds:['other']});
+  const {set:copy}=exchange.copy({id:'other',role:'teacher'},mixed.id,{version:1});
+  assert.equal(copy.theoryItems.length,50);assert.equal(copy.theoryImages.length,20);assert.equal(preparedSetSequence(copy).length,50);
+  await assert.rejects(prepared.saveSet(auth,{...mixed,theoryItems:[...items,interactive('too-many')]},mixed.id),/до 50/);
+  assert.equal(prepared.data.sets[mixed.id].theoryItems.length,50);
+});
+
 test('mixed image/interactive theory persists, plays in order, uses existing placement/camera, and never becomes an exercise',async t=>{
   const f=await partFixture(t),{prepared,auth,image,set:original}=f;
   const image2=prepared.putAsset(auth,Buffer.from('another-image'),'second.png','image/png',{width:600,height:300});

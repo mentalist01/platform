@@ -1,6 +1,7 @@
 // Trusted, versioned card types only. Sets contain data, never executable code.
 import {DECIMAL_BINARY_CARD,BINARY_INPUT_LIMIT,normalizeDecimalBinaryParams} from './decimalBinary.js';
 export const IP_SUBNET_CARD = 'ipv4-subnet-boundaries-v1';
+export const PREPARED_THEORY_MAX_ITEMS = 50;
 export const subnetExamples = [
   {id:'home',label:'Небольшая подсеть',ip:'192.168.1.70',prefix:26},
   {id:'school',label:'Школьная сеть',ip:'192.168.10.130',prefix:27},
@@ -55,7 +56,7 @@ export const preparedTheoryItemKeys = set => preparedTheoryItems(set).map(item=>
 export const theoryCardItemKeys = card => card.theoryItemId?[card.theoryItemId]:(card.images||[]).map(image=>typeof image==='string'?image:image.id);
 export const theoryCardIdentity = card => card.theoryItemId||card.images?.[0];
 export function normalizeTheoryItems(input) {
-  if(!Array.isArray(input)||input.length>8)throw Error('Добавьте до 8 листов теории');
+  if(!Array.isArray(input)||input.length>PREPARED_THEORY_MAX_ITEMS)throw Error(`Добавьте до ${PREPARED_THEORY_MAX_ITEMS} листов теории`);
   const seen=new Set();
   return input.map(raw=>{
     if(!raw||typeof raw.id!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(raw.id)||seen.has(raw.id))throw Error('У листов теории должны быть разные идентификаторы');
