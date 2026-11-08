@@ -7,6 +7,7 @@ const { spawn } = require('node:child_process');
 const policy = require('./policy.cjs');
 const { PlatformTabs } = require('./platform-tabs.cjs');
 const { DetachedTab } = require('./detached-tab.cjs');
+const { TeacherTheoryWindows } = require('./teacher-theory-window.cjs');
 const { openStudentWindow } = require('./student-window.cjs');
 const { Downloads, NativeDownloadRequests } = require('./downloads.cjs');
 const { TeacherCredentials } = require('./credentials.cjs');
@@ -44,6 +45,11 @@ const ownedWebContents = new Set();
 let workDisplay;
 let htmlFullscreenView;
 const nativeDownloads = new NativeDownloadRequests(ownedPlatform);
+const teacherTheoryWindows=new TeacherTheoryWindows({BrowserWindow,session:()=>platformSession,preload:path.join(__dirname,'platform-preload.cjs'),icon,guard:guardWebContents,placement:()=>{
+  const displays=screen.getAllDisplays(),current=screen.getDisplayMatching(mainWindow.getBounds()),other=displays.find(display=>display.id!==current.id);
+  if(!other)return windowPlacement(900,850);
+  const area=other.workArea;return {x:area.x+24,y:area.y+24,width:Math.min(900,area.width-48),height:Math.min(850,area.height-48)};
+}});
 function windowPlacement(width, height) {
   if (!workDisplay) return { width, height };
   const area = workDisplay.workArea;
@@ -363,7 +369,11 @@ ipcMain.handle('shell:action', async (event, action, value) => {
   if (action === 'apply-update') return updates?.apply();
 });
 ipcMain.on('teacher:app-info', event => {
-  event.returnValue = validPlatformEvent(event) ? { version: app.getVersion(), autoUpdates: true, platformTabs: true, studentBrowserWindow: true } : {};
+  event.returnValue = validPlatformEvent(event) ? { version: app.getVersion(), autoUpdates: true, platformTabs: true, studentBrowserWindow: true, teacherTheoryWindow:true, teacherTheoryProtected:teacherTheoryWindows.protectedContents(event.sender) } : {};
+});
+ipcMain.handle('teacher:theory-window',async(event,url)=>{
+  if(!validPlatformEvent(event))throw new Error('Недоступно');
+  return teacherTheoryWindows.open(url);
 });
 ipcMain.handle('teacher:student-window', async (event, url) => {
   if (!validPlatformEvent(event)) throw new Error('Недоступно');

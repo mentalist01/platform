@@ -1,6 +1,7 @@
 import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+const PreparedTeacherTheoryPage = lazy(() => import('./components/PreparedTeacherTheoryPage.jsx'))
 const App = lazy(() => import('./App.jsx'))
 const PythonGiftCoursePage = lazy(() => import('./components/PythonGiftCoursePage.jsx'))
 const BoardTabletPage = lazy(() => import('./components/BoardTabletPage.jsx'))
@@ -14,7 +15,9 @@ import {
 const renderApp = () => {
   createRoot(document.getElementById('root')).render(
     <StrictMode>
-      {/^\/python-gift\//.test(window.location.pathname)
+      {window.location.pathname === '/teacher-theory'
+        ? <Suspense fallback={<div role="status">Открываем текст учителя…</div>}><PreparedTeacherTheoryPage /></Suspense>
+        : /^\/python-gift\//.test(window.location.pathname)
         ? <Suspense fallback={<div role="status">Python...</div>}><PythonGiftCoursePage /></Suspense>
         : new URLSearchParams(window.location.search).has('meeting')
         ? <Suspense fallback={<div role="status">Открываем встречу…</div>}><GuestMeetingPage /></Suspense>

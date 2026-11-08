@@ -1,3 +1,4 @@
+import {registerPreparedTeacherTheory} from './preparedTeacherTheory.js';
 import {normalizeTheoryItems,preparedTheoryItems,preparedTheoryItemKeys} from '../src/utils/interactiveTheoryCatalog.js';
 import {preparedTasksForSave} from '../src/utils/preparedSetLibrary.js';
 import fs from 'node:fs';
@@ -606,6 +607,7 @@ export function registerPreparedHelperRoutes(app,store,{allowExchange=()=>true,a
   app.put('/workbook-helper/v1/content',intercept,(req,res,next)=>req.preparedHelper?workbookUpload.single('file')(req,res,next):next(),handler(async(req,res,next)=>{if(!req.preparedHelper)return next();if(!req.file)fail(400,'Файл не найден');const {session,run,card}=req.preparedHelper;const solution=await store.lock(()=>store.saveSolution({auth:session.auth,run,card,assetId:session.assetId,generation:session.generation,viaHelper:true,buffer:req.file.buffer,name:req.body.solutionName||req.file.originalname,revision:req.body.revision??req.headers['x-workbook-revision'],hash:req.body.contentHash||req.headers['x-workbook-content-hash']}));res.json({ok:true,revision:solution.revision,contentHash:solution.hash,fileName:solution.name,solutionName:solution.name,workbookKey:card.bindings[session.assetId].id,requiresName:false,nameRequired:false});}));
 }
 export function registerPreparedTaskRoutes(app,store){
+  registerPreparedTeacherTheory(app,store,handler);
   registerPreparedWorkbookHistory(app,store);
   store.registerLiveBoardRoutes?.();
   registerPreparedImageStripRoutes(app,store);

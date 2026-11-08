@@ -251,3 +251,5 @@
 .prepared-set-camera-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:5px 0}
 .prepared-set-camera-tools>small{display:flex;align-items:center;gap:4px;min-width:145px;color:var(--pt-muted);font-size:11px}
 .prepared-set-camera-tools>small.is-saved{color:#13856b}
+
+.prepared-teacher-theory-trigger{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px}.prepared-teacher-theory-trigger>small{font-size:11px;max-width:300px;color:#a83b57}

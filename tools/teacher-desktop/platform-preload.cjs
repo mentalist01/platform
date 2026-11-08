@@ -13,6 +13,8 @@ if (process.isMainFrame && location.origin === 'https://ivan100.ru') {
     isDesktop: true,
     version: appInfo.version || '',
     autoUpdates: appInfo.autoUpdates === true,
+    teacherTheoryProtected:appInfo.teacherTheoryProtected===true,
+    ...(appInfo.teacherTheoryWindow?{openTeacherTheory:url=>ipcRenderer.invoke('teacher:theory-window',url)}:{}),
     openStudentWindow: url => ipcRenderer.invoke('teacher:student-window', url),
     setTabTitle: title => ipcRenderer.invoke('teacher:tab-title', title),
     setRecordingPrivacy: (reason, hidden) => ipcRenderer.invoke('teacher:recording-privacy', reason, hidden),
