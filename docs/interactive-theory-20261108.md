@@ -18,6 +18,8 @@ Pointer movement over live controls separately uses the board's existing awarene
 
 `ipv4-subnet-boundaries-v1`: IP input, /0–/32 slider, four examples, dotted mask, aligned IP AND mask = network binary rows, per-bit explanations, subnet interval, network/broadcast and first/last host, counts, show answer, explain, reset. Standard /31 point-to-point and /32 host-route cases are explicitly labeled, not treated as ordinary LAN broadcast subnets. Arithmetic uses exact safe integer values up to 2^32 rather than signed JS bitwise operations. Reference semantics: https://docs.python.org/3/library/ipaddress.html#ipaddress.IPv4Network.hosts .
 
+`decimal-to-binary-v1`: compact 640×260 card containing only an input, arrow and live binary result. A standalone nonnegative decimal integer is converted with BigInt (minimum eight bits); a complete IPv4 address is converted to four eight-bit groups with dots retained. Empty/incomplete/invalid input displays a quiet dash instead of a stale result; on blur an invalid input receives a subtle outline. Raw drafts share the same per-instance Yjs field, so partial typing, complete addresses and reset are synchronized too. The input is limited to 80 characters and long integer results can scroll without changing board geometry. Visual labels are omitted; accessible input/output names remain.
+
 To extend: define data validation/defaults/reset in `src/utils/interactiveTheoryCatalog.js`, create a trusted React component in `src/components/interactiveTheory`, register it in `registry.jsx`; optional Settings edits only initial parameters. Preserve published IDs and add a new versioned ID for incompatible semantics.
 
 ## Verification

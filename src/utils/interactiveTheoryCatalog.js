@@ -1,4 +1,5 @@
 // Trusted, versioned card types only. Sets contain data, never executable code.
+import {DECIMAL_BINARY_CARD,BINARY_INPUT_LIMIT,normalizeDecimalBinaryParams} from './decimalBinary.js';
 export const IP_SUBNET_CARD = 'ipv4-subnet-boundaries-v1';
 export const subnetExamples = [
   {id:'home',label:'Небольшая подсеть',ip:'192.168.1.70',prefix:26},
@@ -27,6 +28,13 @@ export function normalizeSubnetParams(input={}) {
   return {ip:formatIPv4(parseIPv4(ip)),prefix};
 }
 export const interactiveTheoryTypes = Object.freeze({
+  [DECIMAL_BINARY_CARD]:Object.freeze({id:DECIMAL_BINARY_CARD,name:'Из десятичной в двоичную',
+    description:'Введите число или IP-адрес через точки — двоичный результат появится сразу, каждый октет из восьми бит.',
+    category:'Системы счисления · IP-адреса',width:640,height:260,
+    defaultParams:Object.freeze({value:'252'}),normalizeParams:normalizeDecimalBinaryParams,
+    reset:params=>normalizeDecimalBinaryParams(params),
+    normalizeState:(input,params)=>({value:typeof input?.value==='string'&&input.value.length<=BINARY_INPUT_LIMIT?input.value:normalizeDecimalBinaryParams(params).value}),
+  }),
   [IP_SUBNET_CARD]:Object.freeze({id:IP_SUBNET_CARD,name:'Маска подсети и границы IP-адресов',
     description:'Меняйте маску и наблюдайте, как меняются адрес сети, broadcast и диапазон компьютеров.',
     category:'IP-адреса · ЕГЭ №10 (2027)',width:640,height:760,

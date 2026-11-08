@@ -4,6 +4,7 @@ import {partFixture} from './preparedSetParts.fixture.js';
 import {PreparedLessonTasks} from './preparedLessonTasks.js';
 import {PreparedSetExchange} from './preparedSetExchange.js';
 import {IP_SUBNET_CARD} from '../src/utils/interactiveTheoryCatalog.js';
+import {DECIMAL_BINARY_CARD} from '../src/utils/decimalBinary.js';
 import {preparedSetSequence} from '../src/utils/preparedRunSources.js';
 import {preparedLayoutKey} from '../src/utils/preparedSetLayout.js';
 
@@ -59,4 +60,17 @@ test('unknown code types, arbitrary parameters and other owners image assets can
   await assert.rejects(prepared.saveSet(auth,{name:'Bad',taskNumber:10,tasks:[],theoryItems:[{...interactive(),typeId:'https://evil/code.js'}]}),/Неизвестный/);
   await assert.rejects(prepared.saveSet(auth,{name:'Bad',taskNumber:10,tasks:[],theoryItems:[{...interactive(),params:{ip:'256.1.1.1',prefix:26}}]}),/IPv4/);
   await assert.rejects(prepared.saveSet({id:'other',role:'teacher'},{name:'Bad',taskNumber:10,tasks:[],theoryItems:[{id:image.id,kind:'image',assetId:image.id}]}),/Нет доступа/);
+});
+
+test('decimal converter is a separate saved theory type, uses its compact geometry and reopens with its input',async t=>{
+  const f=await partFixture(t),{prepared,auth}=f;
+  const converter={id:'binary',kind:'interactive',typeId:DECIMAL_BINARY_CARD,params:{value:'192.168.1.70'}};
+  const set=await prepared.saveSet(auth,{name:'Перевод октетов',taskNumber:10,tasks:[],theoryItems:[converter],theoryMode:'steps'});
+  const run=await prepared.start(auth,{room:'binary-board',setId:set.id,x:40,y:60});
+  assert.equal(run.cards[0].kind,'theory');assert.equal(run.cards[0].interactive.typeId,DECIMAL_BINARY_CARD);
+  assert.equal(run.cards[0].answerCount,0);
+  const doc=await f.document('binary-board'),anchor=doc.getArray('items').get(0);
+  assert.equal(anchor.height,260*1.3);
+  const reopened=new PreparedLessonTasks(f.deps);
+  assert.deepEqual(reopened.setView(reopened.data.sets[set.id]).theoryItems,[converter]);
 });
