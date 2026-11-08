@@ -84,6 +84,10 @@ export const parseJsonResponse = async (res) => {
 };
 
 let unauthorizedHandler = null;
+let subscriptionRequiredHandler = null;
+export const setSubscriptionRequiredHandler = handler => {
+  subscriptionRequiredHandler = typeof handler === 'function' ? handler : null;
+};
 
 export const setUnauthorizedHandler = (handler) => {
   unauthorizedHandler = typeof handler === 'function' ? handler : null;
@@ -198,6 +202,14 @@ export const apiFetch = async (input, init = {}) => {
       unauthorizedHandler?.();
     } catch {
       // Ignore errors inside the user-provided unauthorized handler.
+    }
+  }
+  if (res.status === 402 && getStoredAuthToken() === authTokenAtRequest) {
+    const payload = await res.clone().json().catch(() => null);
+    if (payload?.code === 'TEACHER_SUBSCRIPTION_REQUIRED' && payload.subscription) {
+      invalidateAuthSensitiveCaches();
+      clearStoredSession();
+      subscriptionRequiredHandler?.(payload.subscription);
     }
   }
   if (res.ok && method !== 'GET' && getStoredAuthToken() === authTokenAtRequest

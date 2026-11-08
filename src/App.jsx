@@ -249,7 +249,7 @@ import {
   getStoredAuthToken,
   HOMEWORK_CHEST_GRANTED_EVENT,
   resolveAuthenticatedUploadsUrl,
-  setUnauthorizedHandler,
+  setUnauthorizedHandler, setSubscriptionRequiredHandler,
   uploadFileMemorySnapshot,
   withStoredAuthToken,
 } from './services/api';
@@ -3168,6 +3168,13 @@ const sanitizeAuthUserPayload = (value) => {
     if (rawSubscription && typeof rawSubscription === 'object' && !Array.isArray(rawSubscription)) {
       safe.subscription = {
         monthlyFee: Math.max(0, Number(rawSubscription.monthlyFee) || 0),
+        periodFee: Math.max(0, Number(rawSubscription.periodFee ?? rawSubscription.monthlyFee) || 0),
+        today: String(rawSubscription.today || ''),
+        graceUntil: String(rawSubscription.graceUntil || ''),
+        blockDate: String(rawSubscription.blockDate || ''),
+        autoPaymentEnabled: rawSubscription.autoPaymentEnabled === true,
+        totalRemaining: Math.max(0, Number(rawSubscription.totalRemaining) || 0),
+        outstanding: Array.isArray(rawSubscription.outstanding) ? rawSubscription.outstanding.map(p => ({ month: String(p.month || ''), remaining: Math.max(0, Number(p.remaining) || 0) })) : [],
         dueDay: Math.max(1, Math.min(31, Math.round(Number(rawSubscription.dueDay) || 10))),
         effectiveDueDay: Math.max(1, Math.min(31, Math.round(Number(rawSubscription.effectiveDueDay || rawSubscription.dueDay) || 10))),
         month: typeof rawSubscription.month === 'string' ? rawSubscription.month : '',
@@ -27721,6 +27728,7 @@ const MainApp = () => {
     }
   });
   const [progress, setProgress] = useState({});
+  const [subscriptionRequired, setSubscriptionRequired] = useState(null);
 
   const persistNormalizedUser = useCallback((value) => {
     const normalized = sanitizeAuthUserPayload(value);
@@ -27806,7 +27814,12 @@ const MainApp = () => {
       setUser((current) => (current ? null : current));
       setProgress({});
     });
-    return () => setUnauthorizedHandler(null);
+    setSubscriptionRequiredHandler(subscription => {
+      setSubscriptionRequired(subscription);
+      setUser(null);
+      setProgress({});
+    });
+    return () => { setUnauthorizedHandler(null); setSubscriptionRequiredHandler(null); };
   }, []);
 
   useEffect(() => {
@@ -28000,6 +28013,9 @@ const MainApp = () => {
     setTheme((currentTheme) => (currentTheme === THEME_DARK ? THEME_LIGHT : THEME_DARK));
   };
 
+  if (subscriptionRequired) {
+    return <TeacherSubscriptionGate subscription={subscriptionRequired} onLogout={() => setSubscriptionRequired(null)}/>;
+  }
   if (!user) {
     if (isStudentViewTab()) return <StudentViewClosed/>;
     return (
@@ -28053,6 +28069,7 @@ const MainApp = () => {
 
   const dashboard = (
     <>
+      {user.role === 'teacher' && <TeacherSubscriptionReminder key={user.id} subscription={user.subscription} teacherId={user.id} dailyOnly/>}
       <DashboardLayout
         user={user}
         onLogout={handleLogout}

@@ -187,7 +187,7 @@ const AdminPanel = ({
   const handleSaveSubscription = async (teacher) => {
     const draft = subscriptionDrafts[teacher.id] || {};
     const monthlyFee = Math.max(0, Number(String(draft.monthlyFee || '').replace(',', '.')) || 0);
-    const dueDay = Math.max(1, Math.min(31, Math.round(Number(draft.dueDay) || 10)));
+    const dueDay = 1;
     setSubscriptionSavingId(teacher.id);
     try {
       await saveTeacherPlatformPayment(teacher.id, monthlyFee, dueDay, draft.payerName || '');
@@ -204,7 +204,7 @@ const AdminPanel = ({
     if (!teacher?.id || !(Number(teacher.subscription?.monthlyFee) > 0)) return;
     setSubscriptionPayingId(teacher.id);
     try {
-      await api.markTeacherSubscriptionPaid(teacher.id, teacher.subscription?.month, teacher.subscription.monthlyFee);
+      await api.markTeacherSubscriptionPaid(teacher.id, teacher.subscription?.month, teacher.subscription.periodFee ?? teacher.subscription.monthlyFee);
       onTeachersChanged?.();
     } catch (err) {
       alert(err?.message || err);
@@ -359,20 +359,7 @@ const AdminPanel = ({
                               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">₽</span>
                             </div>
                           </label>
-                          <label className="w-24">
-                            <span className="mb-1 block text-[11px] font-semibold text-slate-500">Срок, день</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="31"
-                              value={subscriptionDrafts[teacher.id]?.dueDay || '10'}
-                              onChange={(event) => setSubscriptionDrafts((current) => ({
-                                ...current,
-                                [teacher.id]: { ...(current[teacher.id] || {}), dirty: true, dueDay: event.target.value },
-                              }))}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-purple-500"
-                            />
-                          </label>
+                          <p className="max-w-52 text-[11px] leading-relaxed text-slate-500">Оплата с 1-го числа. До 15-го включительно — время на оплату, с 16-го доступ приостановлен.</p>
                           <button
                             type="button"
                             onClick={() => handleSaveSubscription(teacher)}
@@ -419,7 +406,7 @@ const AdminPanel = ({
                             placeholder="Например, Александр П."
                             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-purple-500" />
                         </label>
-                        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">Укажите имя точно как в банковском уведомлении и нажмите «Сохранить». Перевод на месячную сумму отмечается за месяц его поступления. Пустое имя отключает автоотметку.</p>
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">Укажите имя точно как в банковском уведомлении и нажмите «Сохранить». Перевод на месячную сумму сначала погашает самый ранний неоплаченный месяц. Пустое имя отключает автоотметку.</p>
                         {teacher.subscription?.payerName && <p className={`mt-2 text-xs font-semibold ${teacher.subscription.autoPaymentEnabled ? 'text-emerald-700' : 'text-amber-700'}`}>
                           {teacher.subscription.autoPaymentEnabled ? '✓ Автоотметка Т-банка подключена' : 'Для автоотметки нужно подключить поток уведомлений Т-банка к счёту владельца платформы'}
                           {teacher.subscription.paymentSource === 'tbank' && ' · Этот месяц оплачен автоматически'}

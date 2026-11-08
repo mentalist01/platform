@@ -32,6 +32,7 @@ import { createRescheduleStore, registerLessonReschedules, overlayReschedules, m
 import { registerTeacherCalendarEdits, projectCalendarEditEntry, overlayCalendarEdits } from './teacherCalendarEdits.js';
 import { createTeacherCalendarEditApplier } from './teacherCalendarEditApply.js';
 import { matchTeacherPlatformPayment } from './teacherPlatformPayments.js';
+import { teacherSubscriptionPolicy, subscriptionPriceChange } from './teacherSubscriptionPolicy.js';
 import { TeacherPaymentConnections } from './teacherPaymentConnections.js';
 import { normalizePaymentSenderKey as normalizePaymentNameKey } from '../src/utils/paymentSenderLinks.js';
 import { groupLibraryEntitlement, groupLibraryCatalog, listenerSignalAllowed } from './groupLibrary.js';
@@ -3918,15 +3919,6 @@ const getCurrentTeacherFinanceMonthKey = () => {
     || new Date().toISOString().slice(0, 7);
 };
 
-const TEACHER_SUBSCRIPTION_PAYMENTS_LIMIT = 36;
-const TEACHER_SUBSCRIPTION_DEFAULT_DUE_DAY = 10;
-
-const normalizeTeacherSubscriptionDueDay = (value, fallback = TEACHER_SUBSCRIPTION_DEFAULT_DUE_DAY) => {
-  const numeric = Math.round(Number(value));
-  if (Number.isFinite(numeric) && numeric >= 1 && numeric <= 31) return numeric;
-  return Math.max(1, Math.min(31, Math.round(Number(fallback) || TEACHER_SUBSCRIPTION_DEFAULT_DUE_DAY)));
-};
-
 const normalizeTeacherSubscriptionPayment = (value) => {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const amount = roundTeacherFinanceNumber(source.amount);
@@ -3951,7 +3943,6 @@ const normalizeTeacherSubscriptionEntry = (value) => {
   const payments = {};
   Object.entries(paymentsSource)
     .sort(([left], [right]) => String(left).localeCompare(String(right)))
-    .slice(-TEACHER_SUBSCRIPTION_PAYMENTS_LIMIT)
     .forEach(([month, rawPayment]) => {
       const normalizedMonth = normalizeTeacherFinanceMonthKey(month);
       const payment = normalizeTeacherSubscriptionPayment(rawPayment);
@@ -3959,7 +3950,9 @@ const normalizeTeacherSubscriptionEntry = (value) => {
     });
   return {
     monthlyFee: roundTeacherFinanceNumber(source.monthlyFee),
-    dueDay: normalizeTeacherSubscriptionDueDay(source.dueDay),
+    dueDay: 1,
+    billingStartMonth: normalizeTeacherFinanceMonthKey(source.billingStartMonth),
+    monthlyFees: Object.fromEntries(Object.entries(source.monthlyFees || {}).filter(([month]) => normalizeTeacherFinanceMonthKey(month)).map(([month, fee]) => [month, roundTeacherFinanceNumber(fee)])),
     payerName: normalizeTeacherFinanceText(source.payerName, 120),
     autoReceipts: source.autoReceipts && typeof source.autoReceipts === 'object' && !Array.isArray(source.autoReceipts) ? source.autoReceipts : {},
     payments,
@@ -3995,34 +3988,12 @@ const writeTeacherSubscriptionsDb = (data) => {
   teacherSubscriptionsDbCache = normalized;
 };
 
-const getTeacherSubscriptionStatus = (teacherId, monthKey = getCurrentTeacherFinanceMonthKey(), now = new Date()) => {
-  const id = String(teacherId || '').trim();
-  const month = normalizeTeacherFinanceMonthKey(monthKey) || getCurrentTeacherFinanceMonthKey();
-  const entry = normalizeTeacherSubscriptionEntry(readTeacherSubscriptionsDb()[id]);
-  const monthlyFee = roundTeacherFinanceNumber(entry.monthlyFee);
-  const payment = entry.payments[month] || null;
-  const paidAmount = roundTeacherFinanceNumber(payment?.amount);
-  const remaining = roundTeacherFinanceNumber(Math.max(0, monthlyFee - paidAmount));
-  const dateParts = getDatePartsInCalendarTimeZone(now) || {};
-  const currentDay = Math.max(1, Math.min(31, Number(String(dateParts.dayKey || '').slice(-2)) || 1));
-  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
-  const effectiveDueDay = Math.min(entry.dueDay, daysInMonth);
-  const status = monthlyFee <= 0
-    ? 'disabled'
-    : (remaining <= 0 ? 'paid' : (currentDay > effectiveDueDay ? 'overdue' : 'unpaid'));
+const getTeacherSubscriptionStatus = (teacherId, monthKey = '', now = new Date()) => {
+  const entry = normalizeTeacherSubscriptionEntry(readTeacherSubscriptionsDb()[String(teacherId || '').trim()]);
   return {
-    monthlyFee,
-    dueDay: entry.dueDay,
-    effectiveDueDay,
-    month,
-    paidAmount,
-    remaining,
-    status,
-    accessAllowed: status !== 'overdue',
-    paidAt: payment?.paidAt || '',
+    ...teacherSubscriptionPolicy(entry, now, monthKey),
     payerName: entry.payerName,
     autoPaymentEnabled: Boolean(entry.payerName && PAYMENT_NOTIFICATION_SECRET && getPlatformPaymentReceiverId()),
-    paymentSource: payment?.source || '',
   };
 };
 
@@ -8136,6 +8107,11 @@ if (typeof authSessionSweepTimer.unref === 'function') {
 
 const authConnectionSweepTimer = setInterval(() => {
   for (const token of authConnections.keys()) {
+    const user = authSessions.get(token)?.user;
+    if (isTeacherRole(user) && !isTeacherSubscriptionAccessAllowed(user)) {
+      closeAuthConnections(token, { forgetBrowser: false });
+      continue;
+    }
     if (isAuthSessionExpired(authSessions.get(token)) || (isStudentViewToken(token) && !getAuthSession(token))) {
       try { deleteAuthSession(token, { forgetBrowser: false }); }
       catch { closeAuthConnections(token, { forgetBrowser: false }); console.error('[auth] failed to persist expired session removal'); }
@@ -22623,6 +22599,7 @@ app.post('/api/login', async (req, res, next) => {
       return res.status(402).json({
         error: 'Доступ приостановлен: оплатите подписку и попросите администратора подтвердить платёж.',
         subscription,
+        code: 'TEACHER_SUBSCRIPTION_REQUIRED',
       });
     }
     if (String(teacher.codeLookupHash || '').trim() !== codeLookupHash) {
@@ -23206,14 +23183,14 @@ app.use('/api', (req, res, next) => {
     && req.path !== '/session' && req.path !== '/logout' && !req.path.startsWith('/auth/security')) {
     return res.status(403).json({ error: 'Привяжите почту, чтобы не потерять доступ к аккаунту.', code: 'EMAIL_ENROLLMENT_REQUIRED' });
   }
-  const subscriptionExempt = req.path === '/session'
-    || req.path === '/teacher-subscription'
-    || req.path === '/logout'
-    || req.path.startsWith('/auth/sessions') || req.path.startsWith('/auth/security');
-  if (isTeacherRole(req.auth) && !subscriptionExempt && !isTeacherSubscriptionAccessAllowed(req.auth)) {
+  if (isTeacherRole(req.auth) && req.path !== '/logout' && !isTeacherSubscriptionAccessAllowed(req.auth)) {
+    const subscription = getTeacherSubscriptionStatus(req.auth.id);
+    deleteAuthSession(session.token, { forgetBrowser: false });
+    clearAuthSessionCookie(res);
     return res.status(402).json({
-      error: 'Доступ приостановлен: оплатите подписку и попросите администратора подтвердить платёж.',
-      subscription: getTeacherSubscriptionStatus(req.auth.id),
+      error: 'Доступ приостановлен: требуется оплата платформы.',
+      code: 'TEACHER_SUBSCRIPTION_REQUIRED',
+      subscription,
     });
   }
   if (isLeadRole(req.auth) && !isLeadAllowedApiRequest(req)) {
@@ -31979,7 +31956,6 @@ app.patch('/api/teacher-subscription', (req, res) => {
   if (!teacherId) return res.status(400).json({ error: 'teacherId required' });
   if (!findTeacherById(teacherId)) return res.status(404).json({ error: 'Учитель не найден' });
   const monthlyFee = roundTeacherFinanceNumber(req.body?.monthlyFee);
-  const dueDay = normalizeTeacherSubscriptionDueDay(req.body?.dueDay);
   const db = readTeacherSubscriptionsDb();
   const current = normalizeTeacherSubscriptionEntry(db[teacherId]);
   const payerName = Object.hasOwn(req.body || {}, 'payerName') ? normalizeTeacherFinanceText(req.body.payerName, 120) : current.payerName;
@@ -31989,8 +31965,7 @@ app.patch('/api/teacher-subscription', (req, res) => {
   }
   db[teacherId] = {
     ...current,
-    monthlyFee,
-    dueDay,
+    ...subscriptionPriceChange(current, monthlyFee),
     payerName,
     updatedAt: new Date().toISOString(),
   };
