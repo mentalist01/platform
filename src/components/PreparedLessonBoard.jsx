@@ -88,7 +88,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   </article>;
 }
 
-export default function PreparedLessonBoard({room,role,userId,dark,readOnly,items,revision,preview,studyPreview=false,zoom,offset,surface,focus,selectPage,onVisualChange,interactiveDoc,boardTool,trialPresentation=false}){
+export default function PreparedLessonBoard({room,role,userId,dark,readOnly,items,revision,preview,studyPreview=false,zoom,offset,surface,focus,selectPage,onVisualChange,interactiveDoc,boardTool,onCursor,trialPresentation=false}){
   const live=usePreparedLesson(room);
   const [localSelection,setLocalSelection]=useState(null);
   const selectLocal=useCallback(id=>{setLocalSelection({room,id});return true;},[room]);
@@ -165,7 +165,7 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   </div>;
   return <div className="prepared-board-layer prepared-board-layer--canvas">
     {headerSlot?createPortal(controls,headerSlot):<div className="prepared-toolbar-fallback">{controls}</div>}
-    {run&&run.cards.map(card=>{const stored=items.current.find(item=>item.id===card.anchorId);if(!stored)return null;const anchor=preview(stored),sx=zoom*anchor.width/card.width,Component=card.kind==='theory'?PreparedTheoryCard:PreparedTaskCard;return <Component key={card.id} interactiveDoc={interactiveDoc} boardTool={boardTool} card={card} run={run} context={context} auth={{id:userId,role}} readOnly={readOnly||!ready||run.readOnly} showReferenceAnswers={!trialPresentation&&showReferenceAnswers} trialPresentation={trialPresentation} present={present} dark={dark} onNavigate={navigateResult} worldAnchor={anchor} onMeasure={measured} style={{left:(anchor.x-offset.x)*zoom,top:(anchor.y-offset.y)*zoom,width:card.width,transform:`scale(${sx})`}}/>;})}
+    {run&&run.cards.map(card=>{const stored=items.current.find(item=>item.id===card.anchorId);if(!stored)return null;const anchor=preview(stored),sx=zoom*anchor.width/card.width,Component=card.kind==='theory'?PreparedTheoryCard:PreparedTaskCard;return <Component key={card.id} interactiveDoc={interactiveDoc} boardTool={boardTool} onCursor={onCursor} card={card} run={run} context={context} auth={{id:userId,role}} readOnly={readOnly||!ready||run.readOnly} showReferenceAnswers={!trialPresentation&&showReferenceAnswers} trialPresentation={trialPresentation} present={present} dark={dark} onNavigate={navigateResult} worldAnchor={anchor} onMeasure={measured} style={{left:(anchor.x-offset.x)*zoom,top:(anchor.y-offset.y)*zoom,width:card.width,transform:`scale(${sx})`}}/>;})}
     {upcoming&&<PreparedTheoryGhost key={upcoming.fromCardId} upcoming={upcoming} items={items.current} revision={revision} zoom={zoom} offset={offset} surface={surface}/>}
     {run&&<PreparedReferencePromotion run={run} refresh={context.refresh} disabled={readOnly||studyPreview||trialPresentation} dark={dark}/>}
     {run&&<PreparedReferenceReplacement run={run} refresh={context.refresh} disabled={readOnly||studyPreview||trialPresentation} dark={dark}/>}
