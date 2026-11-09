@@ -108,3 +108,13 @@ test('malformed intervals cannot corrupt another weekday', () => {
   assert.deepEqual(getCalendarFreeIntervalsByDay(invalid), getCalendarFreeIntervalsByDay());
   assert.deepEqual(getCalendarFreeIntervalsByDay(null), getCalendarFreeIntervalsByDay());
 });
+test('free-time exports omit short gaps and retain exact minimum boundaries',()=>{
+  const events=[{dayIndex:1,startMinutes:480,endMinutes:1020},
+    {dayIndex:1,startMinutes:1030,endMinutes:1110},
+    {dayIndex:1,startMinutes:1140,endMinutes:1170},
+    {dayIndex:1,startMinutes:1229,endMinutes:1260},
+    {dayIndex:1,startMinutes:1320,endMinutes:1440}];
+  assert.deepEqual(getCalendarFreeIntervalsByDay(events)[1],[{startMinutes:1260,endMinutes:1320}]);
+  assert.deepEqual(getCalendarFreeIntervalsByDay(events,30)[1],[{startMinutes:1110,endMinutes:1140},{startMinutes:1170,endMinutes:1229},{startMinutes:1260,endMinutes:1320}]);
+  assert.deepEqual(getCalendarFreeIntervalsByDay(events,10),getCalendarFreeIntervalsByDay(events,60));
+});

@@ -9,6 +9,7 @@ import { parentContacts } from '../services/studentParentContacts.js';
 import ReviewRequestStatus from './ReviewRequestStatus.jsx';
 import MessageTemplateTelegram from './MessageTemplateTelegram.jsx';
 import GroupSchedulesShare from './GroupSchedulesShare.jsx';
+import AvailabilityMinimumControl from './AvailabilityMinimumControl.jsx';
 import './MessageTemplates.css';
 
 const emptyTemplate = () => ({ id: crypto.randomUUID(), name: '', body: '', category: 'other', attachAvailability: false, revision: '' });
@@ -26,6 +27,7 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
   const [weekOffset, setWeekOffset] = useState(0), [context, setContext] = useState(null), [refresh, setRefresh] = useState(0);
   const [contextBusy, setContextBusy] = useState(false), [image, setImage] = useState(null), [imageError, setImageError] = useState('');
   const [contextError, setContextError] = useState('');
+  const [availabilityMinimumMinutes,setAvailabilityMinimumMinutes]=useState(60);
   const [contact, setContact] = useState(null);
   const [telegramSettings, setTelegramSettings] = useState(false);
   const [telegramRevision, setTelegramRevision] = useState(0);
@@ -74,14 +76,14 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
     if (!attachAvailability || !context || staleContext || context.calendarError) { setImage(null); return; }
     let disposed = false;
     setImage(null); setImageError('');
-    renderCalendarAvailabilityPng({ weekStartDate: new Date(context.weekStart + 'T12:00:00'), events: context.events, timezoneLabel: 'Москва · UTC+3' })
+    renderCalendarAvailabilityPng({ weekStartDate: new Date(context.weekStart + 'T12:00:00'), events: context.events, timezoneLabel: 'Москва · UTC+3',minimumMinutes:availabilityMinimumMinutes })
       .then(next => {
         if (disposed) { releaseImage(next); return; }
         releaseImage(imageRef.current); imageRef.current = next; setImage(next);
         if (!next) setImageError('Не удалось подготовить картинку свободного времени.');
       }).catch(failure => { if (!disposed) setImageError(failure.message); });
     return () => { disposed = true; };
-  }, [attachAvailability, context, staleContext]);
+  }, [attachAvailability, context, staleContext,availabilityMinimumMinutes]);
   useEffect(() => () => releaseImage(imageRef.current), []);
   useEffect(() => {
     const service = recipient === 'parent' ? parentContacts : studentContacts;
@@ -178,6 +180,7 @@ export default function MessageTemplates({ students = [], initialStudentId = '',
         {missing.length > 0 && <p className="message-templates__warning">Дополните сообщение перед копированием — {missing.join(', ')}.</p>}
         <section className="message-templates__attachment"><label className="message-templates__check"><input type="checkbox" checked={attachAvailability} onChange={event => setAttachmentOverride(event.target.checked)} /><CalendarDays size={17} />Прикрепить свободное время</label>
           {attachAvailability && <><div className="message-templates__fields"><label>Неделя<select value={weekOffset} onChange={event => setWeekOffset(Number(event.target.value))}>{[0, 1, 2, 3, 4].map(offset => <option key={offset} value={offset}>{offset === 0 ? 'Текущая' : offset === 1 ? 'Следующая' : 'Через ' + offset + ' недели'}</option>)}</select></label><button type="button" disabled={contextBusy} onClick={() => setRefresh(value => value + 1)}><RefreshCcw size={15} />Обновить занятость</button></div>
+            <AvailabilityMinimumControl value={availabilityMinimumMinutes} onChange={minutes=>{setImage(null);setAvailabilityMinimumMinutes(minutes);}}/>
             {contextBusy ? <p role="status">Проверяем календарь…</p> : (contextError || context?.calendarError || imageError) ? <p role="alert" className="message-templates__warning">{contextError || context?.calendarError || imageError}</p> : validImage ? <><small>С {weekLabel(context.weekStart)} · Москва · подготовлено {new Date(context.generatedAt).toLocaleTimeString('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' })}</small><img src={image.url} alt="Свободное время для дополнительных занятий" /></> : <p role="status">Готовим картинку…</p>}</>}
         </section>
         {template.telegramVideoId && recipient === 'student' && !telegramSettings && <MessageTemplateTelegram

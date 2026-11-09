@@ -357,6 +357,38 @@ export async function ensureGoogleCalendarTrialBooking({accessToken,calendarId,b
   return {eventId:id,calendarId,iCalUID:event.iCalUID || '',cancelled};
 }
 
+export async function ensureGoogleCalendarPreparationLesson({ accessToken, calendarId, plan, lesson, fetchImpl = fetch, retry = 0 }) {
+  const id = crypto.createHash('sha256').update(`ivan100-preparation:${plan.teacherId}:${lesson.id}`).digest('hex');
+  const base = `/calendars/${encodeURIComponent(calendarId)}/events`;
+  const request = options => googleCalendarApiRequest({ accessToken, fetchImpl, ...options });
+  let event;
+  try { event = await request({ path: `${base}/${id}` }); }
+  catch (error) { if (![404, 410].includes(error.status)) throw error; }
+  if (event && (event.extendedProperties?.private?.ivan100PreparationTeacher !== plan.teacherId
+    || event.extendedProperties?.private?.ivan100PreparationLesson !== lesson.id)) {
+    throw Object.assign(Error('Событие Google не принадлежит этому занятию предподготовки.'), { status: 409 });
+  }
+  if (lesson.cancelled) {
+    if (event && event.status !== 'cancelled') await request({ path: `${base}/${id}?sendUpdates=none`, method: 'PATCH',
+      headers: event.etag ? { 'If-Match': event.etag } : {}, body: { status: 'cancelled' } });
+  } else if (!event) {
+    const start = Date.parse(`${lesson.date}T${lesson.time}:00+03:00`);
+    try {
+      event = await request({ path: `${base}?sendUpdates=none`, method: 'POST', body: { id,
+        summary: `${plan.studentName} (предподготовка)`, transparency: 'opaque', reminders: { useDefault: true },
+        start: { dateTime: new Date(start).toISOString(), timeZone: 'Europe/Moscow' },
+        end: { dateTime: new Date(start + lesson.durationMinutes * 60000).toISOString(), timeZone: 'Europe/Moscow' },
+        extendedProperties: { private: { ivan100PreparationTeacher: plan.teacherId, ivan100PreparationLesson: lesson.id } },
+      } });
+    } catch (error) {
+      if (error.status !== 409 || retry >= 2) throw error;
+      return ensureGoogleCalendarPreparationLesson({ accessToken, calendarId, plan, lesson, fetchImpl, retry: retry + 1 });
+    }
+  }
+  if (!lesson.cancelled && event?.status === 'cancelled') throw Error('Это занятие удалено в Google Calendar. Проверьте расписание.');
+  return { eventId: id, calendarId, iCalUID: event?.iCalUID || '', cancelled: Boolean(lesson.cancelled) };
+}
+
 export async function ensureGoogleCalendarGroupLesson({ accessToken, calendarId, teacherId, group, lesson, cancelled = false, fetchImpl = fetch }) {
   if (!calendarId || !teacherId || group?.teacherId !== teacherId || lesson?.teacherId !== teacherId || lesson.groupId !== group.id) throw Error('Некорректное занятие группы');
   const id = crypto.createHash('sha256').update(`ivan100-group:${teacherId}:${lesson.id}`).digest('hex');

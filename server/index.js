@@ -48,6 +48,8 @@ import { registerGroupPlacement } from './groupPlacement.js';
 import { withTeacherCalendarLock } from './calendarMutations.js';
 import { createTrialSlotStore, registerTrialSlots, trialBookingEntry } from './trialSlots.js';
 import { ensureGoogleCalendarTrialBooking } from './googleCalendarWriteback.js';
+import { ensureGoogleCalendarPreparationLesson } from './googleCalendarWriteback.js';
+import { createPreparationLessons, preparationLessonEntry } from './preparationLessons.js';
 import { availabilitySlots } from '../src/utils/groupAvailability.js';
 import { registerLearningGroupMemberTransfer } from './groupMemberTransfer.js';
 import { commitGroupTransferTransaction, recoverGroupTransferTransaction } from './groupTransferTransaction.js';
@@ -11212,7 +11214,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
 };
 
 const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
-  const entries = overlayCalendarEdits((await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options)).filter(entry=>!trialSlots.managesGoogle(teacherId,entry)), teacherId, teacherCalendarEditsStore);
+  const entries = overlayCalendarEdits((await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options)).filter(entry=>!trialSlots.managesGoogle(teacherId,entry) && !preparationLessons.managesGoogle(teacherId,entry)), teacherId, teacherCalendarEditsStore);
   const students = readStudentsDb().filter(student => student.teacherId === teacherId);
   return overlayReschedules(enrichGoogleCalendarEntriesFromRoster(entries, teacherId, students), teacherId, lessonRescheduleStore);
 };
@@ -25771,7 +25773,7 @@ const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '', 
       const students = readStudentsDb().filter(s=>s.teacherId===teacherId && isCurrentStudent(s));
       const groups = readLearningGroupsDb().filter(g=>g.teacherId===teacherId);
       const live = events.flatMap(e=>{
-        if(trialSlots.managesGoogle(teacherId,e)) return [];
+        if(trialSlots.managesGoogle(teacherId,e) || preparationLessons.managesGoogle(teacherId,e)) return [];
         if(e.status==='cancelled' || e.transparency==='transparent' || String(e.summary||'').toLocaleUpperCase('ru-RU').endsWith('(ОТМЕНЕНО)'))return [];
         if(e.start?.date && e.end?.date) {
           const days=[];
@@ -26043,6 +26045,39 @@ registerStudentAccessCodes(app, {
   students: readStudentsDb, store: studentAccessCodes, verify: verifyCodeAsync, normalize: normalizeAccessCode,
 });
 
+const preparationLessons = createPreparationLessons({
+  store: createRescheduleStore(path.join(dataDir, 'preparation-lessons.json')), getStudent: findStudentById,
+  getEntries: async (teacherId, fromDay, throughDay) => [...await getFreshLessonCalendarEntries(teacherId, true, throughDay, { fromDay }),
+    ...readLearningGroupsDb().filter(group => group.teacherId === teacherId && !group.deletedAt && !['completed', 'archived'].includes(group.status))
+      .flatMap(group => (group.schedule || []).map(entry => ({ ...entry, groupId: group.id, subject: group.name })))],
+  applyLocal: row => {
+    const student = findStudentById(row.id);
+    if (!student || student.teacherId !== row.teacherId) return;
+    const data = getStudentData(row.id), previous = data.schedule || [], ids = new Set(row.lessons.map(lesson => lesson.id));
+    const schedule = [...previous.filter(entry => !ids.has(entry.id)), ...row.lessons.filter(lesson => !lesson.cancelled)
+      .map(lesson => previous.find(entry => entry.id === lesson.id) || preparationLessonEntry(row, lesson))];
+    setStudentScheduleWithHomeworkSync(row.id, data, schedule);
+  },
+  syncGoogle: async (row, lesson) => {
+    const connection = getTeacherCalendarGoogleConnection(row.teacherId);
+    if (!connection.calendarId || !connection.encryptedTokens) throw Error('Занятия сохранены на платформе. В общем календаре разрешите изменения Google Calendar.');
+    return ensureGoogleCalendarPreparationLesson({ accessToken: await getTeacherGoogleCalendarAccessToken(row.teacherId),
+      calendarId: lesson.google?.calendarId || connection.calendarId, plan: row, lesson });
+  },
+  notify: teacherId => {
+    teacherCalendarSyncCache.delete(teacherId); teacherCalendarRefreshResultCache.delete(teacherId);
+    notifyScheduleSyncUpdate({ scope: 'teacher-schedule', action: 'preparation-updated', teacherId });
+  },
+});
+let preparationLessonsRecovering = false;
+setInterval(async () => {
+  if (preparationLessonsRecovering) return;
+  preparationLessonsRecovering = true;
+  try { await preparationLessons.retryPending(); }
+  catch (error) { console.warn('[preparation] Google sync retry failed:', error.message); }
+  finally { preparationLessonsRecovering = false; }
+}, 60000).unref();
+
 registerMessageTemplates(app, {
   dataDir, groups: readLearningGroupsDb, students: readStudentsDb, progress: readProgressDb,
   telegram: messageTemplateTelegram,
@@ -26257,6 +26292,7 @@ app.post('/api/learning-groups/:groupId/members', handleLearningRoute(async (req
     synchronizeLearningGroupAssignmentRecipients(updated, { addedStudentId: student.id });
     syncLearningGroupUpcomingLessonParticipants(updated);
     notifyLearningGroupScheduleAccess(updated);
+    await preparationLessons.cancelFuture(student);
     return res.json({ group: serializeLearningGroupForAuth(updated, req.auth) });
   });
 }));
@@ -26272,6 +26308,7 @@ const readGroupPreparation = student => {
 };
 const publicGroupPreparation = plan => ({
   groupId: plan.groupId, note: plan.note, revision: plan.revision, joining: Boolean(plan.joining),
+  lessonPlan: preparationLessons.view({ id: plan.id, teacherId: plan.teacherId }),
 });
 const preparationRoute = handler => handleLearningRoute((req, res) => {
   res.setHeader('Cache-Control', 'private, no-store');
@@ -26311,7 +26348,7 @@ app.get('/api/student-group-preparations', preparationRoute((req, res) => {
 }));
 
 app.patch('/api/students/:id/group-preparation', studentPreparationRoute((req, res, student) =>
-  withTeacherCalendarLock(student.teacherId, () => {
+  withTeacherCalendarLock(student.teacherId, async () => {
     const { groupId, note, revision } = req.body || {};
     if (typeof groupId !== 'string' || typeof note !== 'string' || note.length > 1000) {
       failLearningRequest('Выберите группу и введите заметку до 1000 символов.', 'invalid_preparation');
@@ -26325,9 +26362,13 @@ app.patch('/api/students/:id/group-preparation', studentPreparationRoute((req, r
       requirePreparationGroup(student, groupId);
       assertStudentAvailableForLearningGroup(student.id, student.teacherId);
     }
+    const built = groupId && req.body.lessonSchedule ? await preparationLessons.validate(student, req.body.lessonSchedule) : null;
+    if (findStudentById(student.id)?.teacherId !== student.teacherId) failLearningRequest('Преподаватель ученика изменился.', 'preparation_changed', 409);
     const plan = groupPreparationStore.put({
       id: student.id, teacherId: student.teacherId, groupId, note: groupId ? note.trim() : '', revision: crypto.randomUUID(),
     });
+    if (built) await preparationLessons.create(student, built);
+    if (!groupId) await preparationLessons.cancelFuture(student);
     return res.json({ plan: publicGroupPreparation(plan) });
   })
 ));
@@ -26340,7 +26381,7 @@ app.get('/api/students/:id/group-preparation/preview', studentPreparationRoute(a
   const day = getDatePartsInCalendarTimeZone(now).dayKey;
   const individualLessons = expandLessonScheduleOccurrences({
     studentId: student.id,
-    schedule: schedule.filter(entry => !entry.groupId && !entry.isLearningGroupEvent),
+    schedule: schedule.filter(entry => !entry.groupId && !entry.isLearningGroupEvent && !entry.preparationPlanId),
     fromDayKey: day,
     toDayKey: shiftLessonReplayDayKey(day, 30),
     timeZone: GOOGLE_CALENDAR_SYNC_TIME_ZONE,
@@ -26356,11 +26397,12 @@ app.get('/api/students/:id/group-preparation/preview', studentPreparationRoute(a
     nextLesson: nextLesson ? { startAt: nextLesson.startAt, endAt: nextLesson.endAt } : null,
     selectedAssignmentIds: plan.joining?.assignmentIds || [],
     joining: Boolean(plan.joining),
+    preparationLessonsToCancel: preparationLessons.future(student),
   });
 }));
 
 app.post('/api/students/:id/group-preparation/join', studentPreparationRoute((req, res, student) =>
-  withTeacherCalendarLock(student.teacherId, () => {
+  withTeacherCalendarLock(student.teacherId, async () => {
     let plan = readGroupPreparation(student);
     assertPreparationRevision(plan, req.body?.revision);
     if (plan.completedGroupId) {
@@ -26368,6 +26410,7 @@ app.post('/api/students/:id/group-preparation/join', studentPreparationRoute((re
       if (!isLearningGroupMember(group, student.id, { activeOnly: true })) {
         failLearningRequest('Ученик больше не состоит в этой группе.', 'member_not_found', 409);
       }
+      await preparationLessons.cancelFuture(student);
       return res.json({ group: preparationGroupSummary(group), plan: publicGroupPreparation(plan) });
     }
     const group = requirePreparationGroup(student, plan.groupId);
@@ -26400,6 +26443,7 @@ app.post('/api/students/:id/group-preparation/join', studentPreparationRoute((re
     }
     syncLearningGroupUpcomingLessonParticipants(updated);
     notifyLearningGroupScheduleAccess(updated);
+    await preparationLessons.cancelFuture(student);
     const completed = groupPreparationStore.put({
       id: student.id, teacherId: student.teacherId, groupId: '', note: '', revision: plan.revision, completedGroupId: group.id,
     });

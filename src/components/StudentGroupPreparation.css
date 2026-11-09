@@ -33,3 +33,12 @@
 .group-preparation-dialog label + label { margin-top: 8px; }
 .group-preparation-dialog ul { list-style: disc; padding-inline-start: 20px; margin-block: 4px; font-size: 13px; }
 .group-preparation-dialog footer { justify-content: flex-end; }
+.group-preparation__schedule { margin: 4px 0; padding: 14px; border: 1px solid #ded4ff; border-radius: 14px; display: grid; gap: 12px; }
+.group-preparation__schedule legend { padding: 0 6px; font-weight: 650; }
+.group-preparation__schedule-settings { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.group-preparation__schedule-slot { display: grid; grid-template-columns: minmax(0,1fr) 120px auto; gap: 8px; align-items: center; }
+.group-preparation__lesson-list { padding: 12px; border-radius: 12px; background: var(--surface-muted,#f8f5ff); }
+.group-preparation__lesson-list ul { margin: 12px 0 0; padding-left: 22px; max-height: 240px; overflow-y: auto; }
+.group-preparation__lesson-list li { margin-bottom: 10px; }
+.group-preparation__lesson-list small { display: block; opacity: .75; }
+@media(max-width:600px) { .group-preparation__schedule-settings { grid-template-columns:1fr; } .group-preparation__schedule-slot { grid-template-columns:minmax(0,1fr) 100px; } }

@@ -2,6 +2,8 @@ import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRight, ChevronDown, Users, X } from 'lucide-react';
 import { api } from '../services/api';
+import PreparationScheduleFields from './PreparationScheduleFields';
+import { addCalendarDays, moscowDay, weekdayIndex } from '../utils/groupAvailability';
 import './MessageTemplates.css';
 import './StudentGroupPreparation.css';
 
@@ -34,11 +36,16 @@ function JoinGroupDialog({ preview, student, busy, error, onClose, onConfirm }) 
       </header>
       <div className="message-templates__composer">
         <section>
+          <h4>Оставшиеся занятия предподготовки</h4>
+          <p>{preview.preparationLessonsToCancel?.length ? `${preview.preparationLessonsToCancel.length} будущих занятий отменятся на платформе и в Google Calendar.` : 'Будущих занятий этого плана нет.'}</p>
+          <small>Прошедшие занятия останутся в истории.</small>
+        </section>
+        <section>
           <h4>Ближайшее групповое занятие</h4>
           <p>{preview.nextLesson ? `${formatDate(preview.nextLesson.startAt)} МСК` : 'Занятие пока не запланировано.'}</p>
         </section>
         <section>
-          <h4>Индивидуальные занятия на ближайшие 30 дней</h4>
+          <h4>Другие индивидуальные занятия на ближайшие 30 дней</h4>
           {preview.individualLessons.length > 0
             ? <ul>{preview.individualLessons.map(lesson => <li key={lesson.key}>{formatDate(lesson.startAt)} МСК</li>)}</ul>
             : <p>В расписании нет ближайших индивидуальных занятий.</p>}
@@ -78,7 +85,8 @@ export default function StudentGroupPreparation({ student, groups, plan = emptyP
   const [notice, setNotice] = useState('');
   const group = groups.find(row => row.id === plan.groupId);
   if (membership && !plan.joining) {
-    return notice ? <p className="group-preparation__status" role="status">{notice}</p> : null;
+    const pending = plan.lessonPlan?.lessons.some(lesson => lesson.syncStatus !== 'synced');
+    return notice || pending ? <p className="group-preparation__status" role="status">{notice}{pending && ' Отмена оставшихся занятий ожидает Google Calendar — повторим автоматически.'}</p> : null;
   }
 
   const run = async action => {
@@ -89,11 +97,11 @@ export default function StudentGroupPreparation({ student, groups, plan = emptyP
     catch (failure) { setError(failure.message || 'Не удалось выполнить действие.'); }
     finally { setBusy(false); }
   };
-  const save = (groupId, note) => run(async () => {
-    const result = await api.saveStudentGroupPreparation(student.id, { groupId, note, revision: plan.revision });
+  const save = (groupId, note, lessonSchedule) => run(async () => {
+    const result = await api.saveStudentGroupPreparation(student.id, { groupId, note, revision: plan.revision, ...(lessonSchedule ? { lessonSchedule } : {}) });
     onUpdate(result);
     setDraft(null);
-    setNotice(groupId ? 'План сохранён.' : 'План снят.');
+    setNotice(groupId ? 'План сохранён.' : 'План снят. Будущие занятия предподготовки отменены.');
   });
   const openPreview = () => run(async () => setPreview(await api.getStudentGroupPreparationPreview(student.id)));
   const confirm = assignmentIds => run(async () => {
@@ -107,7 +115,11 @@ export default function StudentGroupPreparation({ student, groups, plan = emptyP
     <div className="group-preparation__bar">
       <button type="button" className="group-preparation__toggle" aria-expanded={Boolean(draft)} disabled={busy || Boolean(plan.joining && group)} onClick={() => {
         setError('');
-        setDraft(draft ? null : { groupId: plan.groupId, note: plan.note });
+        const startDate = addCalendarDays(moscowDay(), 1);
+        const hasFuture = plan.lessonPlan?.lessons.some(lesson => !lesson.cancelled && Date.parse(`${lesson.date}T${lesson.time}:00+03:00`) > Date.now());
+        setDraft(draft ? null : { groupId: plan.groupId, note: plan.note, lessonSchedule: hasFuture ? null : {
+          count: 4, startDate, durationMinutes: 60, slots: [{ day: weekdayIndex(startDate), time: '16:00' }],
+        } });
       }}>
         <Users size={16} aria-hidden="true" />
         <span><strong>Подготовка к группе</strong>{plan.groupId && <small>{group
@@ -119,7 +131,7 @@ export default function StudentGroupPreparation({ student, groups, plan = emptyP
         {plan.joining ? 'Завершить переход' : `Перевести в «${group.name}»`} <ArrowRight size={14} />
       </button>}
     </div>
-    {draft && <form className="group-preparation__fields" onSubmit={event => { event.preventDefault(); save(draft.groupId, draft.note); }}>
+    {draft && <form className="group-preparation__fields" onSubmit={event => { event.preventDefault(); save(draft.groupId, draft.note, draft.lessonSchedule); }}>
       <label>Будущая группа<select required value={draft.groupId} onChange={event => setDraft({ ...draft, groupId: event.target.value })}>
         <option value="">Выберите группу</option>
         {group == null && plan.groupId && <option disabled value={plan.groupId}>Группа недоступна</option>}
@@ -127,11 +139,20 @@ export default function StudentGroupPreparation({ student, groups, plan = emptyP
       </select></label>
       <label>Что пройти индивидуально<textarea rows={2} maxLength={1000} value={draft.note}
         onChange={event => setDraft({ ...draft, note: event.target.value })} placeholder="Заметка для себя" /></label>
+      {draft.lessonSchedule ? <PreparationScheduleFields value={draft.lessonSchedule} disabled={busy}
+        onChange={lessonSchedule => setDraft({ ...draft, lessonSchedule })} />
+        : <p>Занятия уже запланированы. Можно менять заметку; чтобы составить новый план, сначала снимите текущий.</p>}
       <div className="group-preparation__actions">
         <button type="submit" className="message-templates__primary" disabled={busy || !groups.some(row => row.id === draft.groupId)}>Сохранить план</button>
         {plan.groupId && <button type="button" disabled={busy} onClick={() => save('', '')}>Снять план</button>}
       </div>
     </form>}
+    {plan.lessonPlan && <details className="group-preparation__lesson-list"><summary>Занятия предподготовки · максимум {plan.lessonPlan.config.count}</summary>
+      <ul>{plan.lessonPlan.lessons.map(lesson => <li key={lesson.id}>
+        {formatDate(`${lesson.date}T${lesson.time}:00+03:00`)} · {lesson.cancelled ? 'Отменено' : `${lesson.durationMinutes} мин`}
+        <small>{lesson.syncStatus === 'synced' ? (lesson.cancelled ? 'Удалено из Google Calendar' : 'Есть в Google Calendar') : (lesson.syncError || 'Ожидает синхронизации с Google Calendar')}{lesson.syncStatus !== 'synced' && ' · повторим автоматически'}</small>
+      </li>)}</ul>
+    </details>}
     {!preview && error && <p className="group-preparation__status message-templates__warning" role="alert">{error}</p>}
     {notice && <p className="group-preparation__status" role="status">{notice}</p>}
     {preview && <JoinGroupDialog preview={preview} student={student} busy={busy} error={error} onConfirm={confirm}

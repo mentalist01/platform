@@ -9,6 +9,7 @@ import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
 import CalendarEventEditor from './CalendarEventEditor.jsx';
 import { TrialSlotDialogs, TrialSlotDay } from './TrialCalendarSlots.jsx';
+import AvailabilityMinimumControl from './AvailabilityMinimumControl.jsx';
 import { snapCalendarDragStart, retainCalendarDragSource, createCalendarDragWeekPager } from '../utils/calendarDrag.js';
 import { applySavedCalendarEdit, createCalendarSnapshotGuard } from '../utils/calendarSnapshot.js';
 import { useLessonPaymentSenders } from '../hooks/useLessonPaymentSenders.js';
@@ -951,6 +952,7 @@ const TeacherCalendarSection = ({
   const [availabilityShareMode, setAvailabilityShareMode] = useState(false);
   const [availabilityShareOffsetWeeks, setAvailabilityShareOffsetWeeks] = useState(4);
   const [availabilityShareContentMode, setAvailabilityShareContentMode] = useState('free');
+  const [availabilityMinimumMinutes,setAvailabilityMinimumMinutes]=useState(60);
   const [availabilityShareImage, setAvailabilityShareImage] = useState(null);
   const [availabilityShareBusy, setAvailabilityShareBusy] = useState(false);
   const [availabilityShareError, setAvailabilityShareError] = useState('');
@@ -1810,6 +1812,7 @@ const TeacherCalendarSection = ({
         events: availabilityShareEventsFlat,
         timezoneLabel,
         mode: availabilityShareContentMode,
+        minimumMinutes:availabilityMinimumMinutes,
       });
       if (requestId !== availabilityShareRequestRef.current) {
         if (rendered?.url) URL.revokeObjectURL(rendered.url);
@@ -1834,6 +1837,7 @@ const TeacherCalendarSection = ({
   }, [
     availabilityShareEventsFlat,
     availabilityShareContentMode,
+    availabilityMinimumMinutes,
     availabilityShareMode,
     timezoneLabel,
     weekStartDate,
@@ -4602,6 +4606,7 @@ const TeacherCalendarSection = ({
                           </button>
                         ))}
                       </div>
+                      {availabilityShareContentMode==='free'&&<AvailabilityMinimumControl value={availabilityMinimumMinutes} onChange={minutes=>{availabilityShareRequestRef.current+=1;setAvailabilityMinimumMinutes(minutes);setAvailabilityShareImage(null);setAvailabilityShareSuccess('');}}/>}
                       {[4, 5].map((offsetWeeks) => (
                         <button
                           key={`availability-offset-${offsetWeeks}`}

@@ -66,7 +66,8 @@ const drawRoundedRect = (context, x, y, width, height, radius) => {
 
 // Complement of the union of lessons: duplicates and overlapping lessons must
 // never turn an occupied minute into an available interval.
-export const getCalendarFreeIntervalsByDay = (events = []) => {
+export const getCalendarFreeIntervalsByDay = (events = [], minimumMinutes = 60) => {
+  const minimum=Number(minimumMinutes)===30?30:60;
   const start = CALENDAR_AVAILABILITY_EXPORT_START_HOUR * 60;
   const end = CALENDAR_AVAILABILITY_EXPORT_END_HOUR * 60;
   const busyDays = Array.from({ length: 7 }, () => []);
@@ -88,7 +89,7 @@ export const getCalendarFreeIntervalsByDay = (events = []) => {
       cursor = Math.max(cursor, interval.endMinutes);
     }
     if (cursor < end) free.push({ startMinutes: cursor, endMinutes: end });
-    return free;
+    return free.filter(interval=>interval.endMinutes-interval.startMinutes>=minimum);
   });
 };
 
@@ -102,8 +103,8 @@ const calendarCanvasToPng = (canvas) => new Promise((resolve) => {
   }, 'image/png');
 });
 
-const renderFreeAvailabilityPng = ({ start, events, timezoneLabel, title, dayLabels, width }) => {
-  const days = getCalendarFreeIntervalsByDay(events);
+const renderFreeAvailabilityPng = ({ start, events, timezoneLabel, title, dayLabels, width, minimumMinutes }) => {
+  const days = getCalendarFreeIntervalsByDay(events,minimumMinutes);
   const margin = 32;
   const gap = 12;
   const dayWidth = (width - margin * 2 - gap * 6) / 7;
@@ -141,8 +142,8 @@ const renderFreeAvailabilityPng = ({ start, events, timezoneLabel, title, dayLab
     if (!intervals.length) {
       context.fillStyle = '#64748b';
       context.font = '500 18px system-ui, -apple-system, Segoe UI, sans-serif';
-      context.fillText('Нет свободного', x + dayWidth / 2, gridTop + headingHeight + 29);
-      context.fillText('времени', x + dayWidth / 2, gridTop + headingHeight + 54);
+      context.fillText('Нет промежутков', x + dayWidth / 2, gridTop + headingHeight + 29);
+      context.fillText(`от ${minimumMinutes} минут`, x + dayWidth / 2, gridTop + headingHeight + 54);
     }
     intervals.forEach((interval, row) => {
       const y = gridTop + headingHeight + row * (rowHeight + gap);
@@ -157,7 +158,7 @@ const renderFreeAvailabilityPng = ({ start, events, timezoneLabel, title, dayLab
   context.textAlign = 'left';
   context.fillStyle = '#64748b';
   context.font = '500 18px system-ui, -apple-system, Segoe UI, sans-serif';
-  context.fillText(`Свободные промежутки с ${formatClock(CALENDAR_AVAILABILITY_EXPORT_START_HOUR * 60)} до ${formatClock(CALENDAR_AVAILABILITY_EXPORT_END_HOUR * 60)}. Занятое время пропущено.`, margin, canvas.height - 27);
+  context.fillText(`Промежутки от ${minimumMinutes} минут · с ${formatClock(CALENDAR_AVAILABILITY_EXPORT_START_HOUR * 60)} до ${formatClock(CALENDAR_AVAILABILITY_EXPORT_END_HOUR * 60)}. Занятое время пропущено.`, margin, canvas.height - 27);
   return calendarCanvasToPng(canvas);
 };
 
@@ -174,13 +175,14 @@ export const renderCalendarAvailabilityPng = async ({
   dayLabels = CALENDAR_AVAILABILITY_DAY_LABELS,
   width = 1800,
   mode = 'free',
+  minimumMinutes = 60,
 } = {}) => {
   if (typeof document === 'undefined') return null;
   const start = cloneDateOnly(weekStartDate);
   if (!start) return null;
 
   const safeWidth = Math.max(1200, Math.round(Number(width) || 1800));
-  if (mode === 'free') return renderFreeAvailabilityPng({ start, events, timezoneLabel, title, dayLabels, width: safeWidth });
+  if (mode === 'free') return renderFreeAvailabilityPng({ start, events, timezoneLabel, title, dayLabels, width: safeWidth, minimumMinutes:Number(minimumMinutes)===30?30:60 });
   const timeColumnWidth = 132;
   const dayWidth = (safeWidth - timeColumnWidth) / 7;
   const headerHeight = 148;
