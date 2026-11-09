@@ -336,6 +336,27 @@ export async function moveGoogleCalendarLesson({ accessToken, calendarId, reques
 
 // One deterministic event per approved group occurrence. A timed-out POST is
 // recovered by ID; an acknowledged or manually moved event is never recreated.
+export async function ensureGoogleCalendarTrialBooking({accessToken,calendarId,booking,fetchImpl=fetch,retry=0}) {
+  const id=crypto.createHash('sha256').update(`ivan100-trial:${booking.teacherId}:${booking.id}`).digest('hex');
+  const base=`/calendars/${encodeURIComponent(calendarId)}/events`;
+  const request=options=>googleCalendarApiRequest({accessToken,fetchImpl,...options});
+  let event;
+  try { event=await request({path:`${base}/${id}`}); }
+  catch(error){if(![404,410].includes(error.status))throw error;}
+  if(event && (event.extendedProperties?.private?.ivan100TrialTeacher!==booking.teacherId || event.extendedProperties?.private?.ivan100TrialBooking!==booking.id))
+    throw Object.assign(Error('Событие Google не принадлежит этому пробному.'),{status:409});
+  const cancelled=!booking.studentIds.length;
+  if(cancelled && !event) return {eventId:id,calendarId,iCalUID:'',cancelled:true};
+  const start=Date.parse(`${booking.date}T${booking.time}:00+03:00`);
+  const body=cancelled?{status:'cancelled'}:{status:'confirmed',summary:`Пробное · ${booking.studentNames.join(', ')}`,
+    start:{dateTime:new Date(start).toISOString(),timeZone:'Europe/Moscow'},end:{dateTime:new Date(start+booking.durationMinutes*60000).toISOString(),timeZone:'Europe/Moscow'},
+    transparency:'opaque',reminders:{useDefault:true},extendedProperties:{private:{ivan100TrialTeacher:booking.teacherId,ivan100TrialBooking:booking.id}}};
+  if(event) event=await request({path:`${base}/${id}?sendUpdates=none`,method:'PATCH',headers:event.etag?{'If-Match':event.etag}:{},body});
+  else try {event=await request({path:`${base}?sendUpdates=none`,method:'POST',body:{id,...body}});}
+  catch(error){if(error.status!==409 || retry>=2)throw error;return ensureGoogleCalendarTrialBooking({accessToken,calendarId,booking,fetchImpl,retry:retry+1});}
+  return {eventId:id,calendarId,iCalUID:event.iCalUID || '',cancelled};
+}
+
 export async function ensureGoogleCalendarGroupLesson({ accessToken, calendarId, teacherId, group, lesson, cancelled = false, fetchImpl = fetch }) {
   if (!calendarId || !teacherId || group?.teacherId !== teacherId || lesson?.teacherId !== teacherId || lesson.groupId !== group.id) throw Error('Некорректное занятие группы');
   const id = crypto.createHash('sha256').update(`ivan100-group:${teacherId}:${lesson.id}`).digest('hex');

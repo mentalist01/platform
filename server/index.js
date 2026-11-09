@@ -46,6 +46,8 @@ import {registerGroupAvailabilityShare} from './groupAvailabilityShare.js';
 import { createStudentAvailabilityStore } from './studentAvailability.js';
 import { registerGroupPlacement } from './groupPlacement.js';
 import { withTeacherCalendarLock } from './calendarMutations.js';
+import { createTrialSlotStore, registerTrialSlots, trialBookingEntry } from './trialSlots.js';
+import { ensureGoogleCalendarTrialBooking } from './googleCalendarWriteback.js';
 import { availabilitySlots } from '../src/utils/groupAvailability.js';
 import { registerLearningGroupMemberTransfer } from './groupMemberTransfer.js';
 import { commitGroupTransferTransaction, recoverGroupTransferTransaction } from './groupTransferTransaction.js';
@@ -1668,6 +1670,11 @@ const writeJsonFileAtomic = (filePath, data, options = {}) => {
   writeFileAtomic(filePath, stringifyJsonForStorage(data), 'utf8', options);
 };
 const studentAccessCodes = createStudentAccessCodeStore({ dataDir });
+const trialSlots = createTrialSlotStore(path.join(dataDir, 'trial-slots.json'));
+const rejectTrialSlotConflict = (res,teacherId,entry) => {
+  try{trialSlots.assertFree(teacherId,entry);return false;}
+  catch(error){res.status(error.status || 409).json({error:error.message});return true;}
+};
 const rememberStudentAccessCode = (student, code) => {
   try { studentAccessCodes.remember(student, code); }
   catch { console.warn('[student-access-codes] Could not retain a verified student credential'); }
@@ -11205,7 +11212,7 @@ const fetchTeacherGoogleCalendarEntriesRaw = async (teacherId, options = {}) => 
 };
 
 const fetchTeacherGoogleCalendarEntries = async (teacherId, options = {}) => {
-  const entries = overlayCalendarEdits(await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options), teacherId, teacherCalendarEditsStore);
+  const entries = overlayCalendarEdits((await fetchTeacherGoogleCalendarEntriesRaw(teacherId, options)).filter(entry=>!trialSlots.managesGoogle(teacherId,entry)), teacherId, teacherCalendarEditsStore);
   const students = readStudentsDb().filter(student => student.teacherId === teacherId);
   return overlayReschedules(enrichGoogleCalendarEntriesFromRoster(entries, teacherId, students), teacherId, lessonRescheduleStore);
 };
@@ -11315,6 +11322,7 @@ const getTeacherScheduleEntries = (teacherId, options = {}) => {
     const schedule = Array.isArray(studentData?.schedule) ? studentData.schedule : [];
     schedule.forEach((entry) => {
       if (!entry || typeof entry !== 'object') return;
+      if (entry.trialBookingId) return;
       if (isGoogleStudentScheduleEntry(entry)) return;
       const rawDate = typeof entry?.date === 'string' ? entry.date.trim() : '';
       if (rawDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return;
@@ -11340,6 +11348,7 @@ const getTeacherScheduleEntries = (teacherId, options = {}) => {
     });
   });
   entries.push(...getTeacherOwnedScheduleEntries(normalizedTeacherId));
+  entries.push(...trialSlots.entries(normalizedTeacherId));
 
   entries.sort((left, right) => {
     const leftOrder = Number(left?.weekdayOrder) || 99;
@@ -25762,6 +25771,7 @@ const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '', 
       const students = readStudentsDb().filter(s=>s.teacherId===teacherId && isCurrentStudent(s));
       const groups = readLearningGroupsDb().filter(g=>g.teacherId===teacherId);
       const live = events.flatMap(e=>{
+        if(trialSlots.managesGoogle(teacherId,e)) return [];
         if(e.status==='cancelled' || e.transparency==='transparent' || String(e.summary||'').toLocaleUpperCase('ru-RU').endsWith('(ОТМЕНЕНО)'))return [];
         if(e.start?.date && e.end?.date) {
           const days=[];
@@ -25777,7 +25787,7 @@ const getFreshLessonCalendarEntries = async (teacherId, force, throughDay = '', 
       google = [...google.filter(e=>!uids.has(e.externalEventId)),...live];
     }
     const marks = Object.freeze(normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]));
-    return [...getTeacherScheduleEntries(teacherId), ...google, ...availabilityCalendarEntries(teacherId), ...weeklyReservations(weeklyScheduleStore, teacherId),
+    return [...getTeacherScheduleEntries(teacherId), ...google, ...availabilityCalendarEntries(teacherId), ...weeklyReservations(weeklyScheduleStore, teacherId), ...trialSlots.reservations(teacherId),
       ...lessonRescheduleStore.all().filter(r => r.teacherId === teacherId && r.status === 'applying').map(r => ({ ...r.target, rescheduleRequestId: r.id }))]
       .map(e => annotateTeacherCalendarCancellation(teacherId, e, marks));
 };
@@ -25953,6 +25963,10 @@ const applyTeacherCalendarEdit = createTeacherCalendarEditApplier({
 
 const teacherCalendarEditRunner = registerTeacherCalendarEdits(app, {
   store: teacherCalendarEditsStore, getTeacher: findTeacherById, getStudent: findStudentById, getGroup: getLearningGroupById,
+  assertTargetAvailable: (teacherId,target,source) => {
+    if(source?.trialBookingId) throw Object.assign(Error('Участников пробного меняйте в закреплённом слоте календаря.'),{status:409});
+    trialSlots.assertFree(teacherId,{...target,...(target.repeatMode==='weekly'?{date:null,weekdayKey:getScheduleWeekdayMetaFromDate(target.date)?.key}:{})});
+  },
   getEntries: getFreshLessonCalendarEntries,
   prepareSource: source => {
     if (!source.groupId) return source;
@@ -25994,6 +26008,36 @@ setInterval(async () => {
     }
   } finally { teacherCalendarEditsRecovering = false; }
 }, 60000).unref();
+
+const trialSlotRunner = registerTrialSlots(app, {
+  store:trialSlots,getTeacher:findTeacherById,getStudent:findStudentById,
+  getEntries:async(...args)=>[...await getFreshLessonCalendarEntries(...args),...readLearningGroupsDb().filter(group=>group.teacherId===args[0]&&!group.deletedAt&&!['completed','archived'].includes(group.status)).flatMap(group=>(group.schedule || []).map(entry=>({...entry,groupId:group.id,subject:group.name})))],
+  applyStudents: row => {
+    const entry=trialBookingEntry(row);
+    for(const id of new Set([...row.studentIds,...(row.previousStudentIds || [])])){
+      const pupil=findStudentById(id);if(!pupil || pupil.teacherId!==row.teacherId)continue;
+      const data=getStudentData(id),schedule=(data.schedule || []).filter(value=>value.trialBookingId!==row.id);
+      if(row.studentIds.includes(id))schedule.push({...entry,studentId:id,studentName:pupil.name});
+      // A trial is not a new regular lesson and must not move homework deadlines.
+      setStudentData(id,{...data,schedule});
+    }
+  },
+  syncGoogle:async row=>{
+    const connection=getTeacherCalendarGoogleConnection(row.teacherId);
+    if(!connection.calendarId || !connection.encryptedTokens)throw Error('Запись сохранена на платформе. Подключите Google Calendar, чтобы получить напоминание в Google.');
+    return ensureGoogleCalendarTrialBooking({accessToken:await getTeacherGoogleCalendarAccessToken(row.teacherId),calendarId:row.google?.calendarId || connection.calendarId,booking:row});
+  },
+  notify:teacherId=>{
+    teacherCalendarSyncCache.delete(teacherId);teacherCalendarRefreshResultCache.delete(teacherId);
+    notifyScheduleSyncUpdate({scope:'teacher-schedule',action:'trial-slot-updated',teacherId});
+  },
+});
+let trialSlotsRecovering=false;
+setInterval(async()=>{
+  if(trialSlotsRecovering)return;trialSlotsRecovering=true;
+  try{await trialSlotRunner.retryPending();}catch(error){console.warn('[trial-slots] sync retry failed:',error.message);}
+  finally{trialSlotsRecovering=false;}
+},60000).unref();
 
 registerStudentAccessCodes(app, {
   students: readStudentsDb, store: studentAccessCodes, verify: verifyCodeAsync, normalize: normalizeAccessCode,
@@ -26073,7 +26117,7 @@ registerGroupAvailability(app, {
     const google = await fetchTeacherGoogleCalendarEntries(group.teacherId, { throughMonth: endMonth, throwOnError: true, force });
     const marks = Object.freeze(normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[group.teacherId]));
     const reserving = lessonRescheduleStore.all().filter(r => r.teacherId === group.teacherId && r.status === 'applying').map(r => ({...r.target}));
-    return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId), ...reserving, ...weeklyReservations(weeklyScheduleStore, group.teacherId)]
+    return [...getTeacherScheduleEntries(group.teacherId), ...google, ...availabilityCalendarEntries(group.teacherId), ...reserving, ...weeklyReservations(weeklyScheduleStore, group.teacherId), ...trialSlots.reservations(group.teacherId)]
       .map(entry => annotateTeacherCalendarCancellation(group.teacherId, entry, marks));
   },
 });
@@ -26461,6 +26505,7 @@ app.put('/api/learning-groups/:groupId/schedule', handleLearningRoute((req, res)
     actorId: req.auth.id,
     idFactory: () => crypto.randomUUID(),
   });
+  for(const entry of updated.schedule) if(rejectTrialSlotConflict(res,group.teacherId,entry))return;
   writeLearningGroupsDb(replaceLearningStoreEntry(readLearningGroupsDb(), updated));
   return res.json({ group: serializeLearningGroupForAuth(updated, req.auth), schedule: updated.schedule });
 }));
@@ -26513,6 +26558,10 @@ app.post('/api/learning-groups/:groupId/lessons', handleLearningRoute((req, res)
     id: crypto.randomUUID(),
     actorId: req.auth.id,
   });
+  if(Date.parse(lesson.startAt)>=Date.now()){
+    const parts=getDatePartsInCalendarTimeZone(new Date(lesson.startAt));
+    if(rejectTrialSlotConflict(res,group.teacherId,{date:parts.dayKey,time:parts.time,durationMinutes:lesson.durationMinutes}))return;
+  }
   writeLearningLessonSessionsDb([lesson, ...readLearningLessonSessionsDb()]);
   const roster = createLearningAttendanceRoster(lesson, readLearningAttendanceDb());
   writeLearningAttendanceUpdates(roster);
@@ -26547,6 +26596,10 @@ app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute
     enforceStartTime: true,
     earlyStartMs: LEARNING_LESSON_EARLY_JOIN_MS,
   });
+  if((updated.startAt!==lesson.startAt || updated.durationMinutes!==lesson.durationMinutes) && Date.parse(updated.startAt)>=Date.now()){
+    const parts=getDatePartsInCalendarTimeZone(new Date(updated.startAt));
+    if(rejectTrialSlotConflict(res,group.teacherId,{date:parts.dayKey,time:parts.time,durationMinutes:updated.durationMinutes}))return;
+  }
   writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(), updated));
   if (updated.status !== lesson.status) {
     const occurrence = buildLearningGroupReplayOccurrence({ group, lesson: updated });
@@ -40850,6 +40903,7 @@ app.post('/api/teacher-schedule', async (req, res) => {
   if (!entry) {
     return res.status(400).json({ error: error || 'Не удалось сохранить занятие' });
   }
+  if(rejectTrialSlotConflict(res,teacher.id,entry))return;
   const teachers = readTeachersDb();
   const index = teachers.findIndex((item) => String(item?.id || '').trim() === teacher.id);
   if (index < 0) {
@@ -40905,6 +40959,7 @@ app.put('/api/teacher-schedule/:id', async (req, res) => {
   if (!entry) {
     return res.status(400).json({ error: error || 'Не удалось обновить занятие' });
   }
+  if(rejectTrialSlotConflict(res,teacher.id,entry))return;
   currentSchedule[entryIndex] = entry;
   teachers[index] = {
     ...currentTeacher,
@@ -41241,6 +41296,7 @@ app.patch('/api/student-schedule-requests/:id', async (req, res) => {
   }
 
   if (nextStatus === 'approved') {
+    if(current.type!=='delete' && current.proposedEntry && rejectTrialSlotConflict(res,student.teacherId,current.proposedEntry))return;
     const data = getStudentData(student.id);
     const schedule = Array.isArray(data.schedule) ? [...data.schedule] : [];
     const type = normalizeScheduleChangeRequestType(current.type);
@@ -41361,6 +41417,7 @@ app.post('/api/student-schedule', async (req, res) => {
   if (!entry) {
     return res.status(400).json({ error: error || 'Не удалось сохранить занятие' });
   }
+  if(rejectTrialSlotConflict(res,student.teacherId,entry))return;
   const data = getStudentData(student.id);
   const schedule = [entry, ...(data.schedule || [])];
   setStudentScheduleWithHomeworkSync(student.id, data, schedule);
@@ -41408,6 +41465,7 @@ app.put('/api/student-schedule/:id', async (req, res) => {
   if (!entry) {
     return res.status(400).json({ error: error || 'Не удалось обновить занятие' });
   }
+  if(rejectTrialSlotConflict(res,student.teacherId,entry))return;
   schedule[index] = entry;
   setStudentScheduleWithHomeworkSync(student.id, data, schedule);
   try {

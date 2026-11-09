@@ -8,6 +8,7 @@ import { getLearningGroupCalendarParticipants } from '../utils/groupCalendarPart
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
 import CalendarEventEditor from './CalendarEventEditor.jsx';
+import { TrialSlotDialogs, TrialSlotDay } from './TrialCalendarSlots.jsx';
 import { snapCalendarDragStart, retainCalendarDragSource, createCalendarDragWeekPager } from '../utils/calendarDrag.js';
 import { applySavedCalendarEdit, createCalendarSnapshotGuard } from '../utils/calendarSnapshot.js';
 import { useLessonPaymentSenders } from '../hooks/useLessonPaymentSenders.js';
@@ -895,6 +896,10 @@ const TeacherCalendarSection = ({
 }) => {
   const useNativeAndroidPush = isNativeAndroidPushEnvironment();
   const [entries, setEntries] = useState([]);
+  const [trialPlan,setTrialPlan]=useState(null);
+  const [trialSelection,setTrialSelection]=useState(null);
+  const [trialConfigure,setTrialConfigure]=useState(false);
+  const [trialError,setTrialError]=useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -1211,8 +1216,9 @@ const TeacherCalendarSection = ({
     else setLoading(true);
 
     try {
-      const data = await api.getTeacherSchedule(teacherId);
+      const [data,trialResult] = await Promise.all([api.getTeacherSchedule(teacherId),api.getTrialSlots(teacherId).catch(failure=>({error:failure.message}))]);
       if (!guard.isCurrent(token)) return;
+      if(trialResult.error)setTrialError(trialResult.error);else{setTrialPlan(trialResult);setTrialError('');}
       setEntries(sortScheduleEntries(Array.isArray(data) ? data : []));
       setError('');
     } catch (err) {
@@ -1771,12 +1777,12 @@ const TeacherCalendarSection = ({
 
   const availabilityShareEventsByDayIndex = useMemo(
     () => buildCalendarWeekEventsByDayIndex({
-      entries,
+      entries:[...entries,...(trialPlan?.slots || []).map(slot=>({id:`trial-reserve-${slot.id}`,weekdayOrder:slot.day+1,time:slot.time,durationMinutes:slot.durationMinutes,repeatFrom:slot.repeatFrom}))],
       weekDays,
       dayStartMinutes,
       dayEndMinutes,
     }),
-    [dayEndMinutes, dayStartMinutes, entries, weekDays]
+    [dayEndMinutes, dayStartMinutes, entries, weekDays, trialPlan]
   );
 
   const availabilityShareEventsFlat = useMemo(
@@ -4043,6 +4049,7 @@ const TeacherCalendarSection = ({
             </button>
             {!availabilityShareMode && (
               <>
+                <button type="button" onClick={()=>setTrialConfigure(true)} disabled={!trialPlan} title={trialError || 'Постоянное время для пробных занятий'} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-50"><Clock3 size={14}/>Пробные слоты{trialPlan?` · ${trialPlan.slots.length}/4`:''}</button>
                 <button
                   type="button"
                   onClick={openQuickCreateForFocusDate}
@@ -4851,7 +4858,8 @@ const TeacherCalendarSection = ({
                                   <div className="mt-1 text-[10px] font-semibold">{quickCreateDraft.time} · {quickCreateDraft.durationMinutes} мин · черновик</div>
                                 </div>
                               )}
-                              {events.map((event, index) => {
+                              {!availabilityShareMode&&<TrialSlotDay plan={trialPlan} date={dayKey} dayStartMinutes={dayStartMinutes} hourHeight={hourHeight} onOpen={setTrialSelection}/>}
+                              {events.filter(event=>availabilityShareMode || !event.trialBookingId).map((event, index) => {
                                 const top = ((event.startMinutes - dayStartMinutes) / 60) * hourHeight + 1;
                                 const height = Math.max(
                                   26,
@@ -5162,6 +5170,8 @@ const TeacherCalendarSection = ({
           </div>
         </div>
       )}
+      <TrialSlotDialogs teacherId={teacherId} plan={trialPlan} selection={trialSelection} configure={trialConfigure} students={students || []}
+        onSaved={value=>{setTrialPlan(value);void loadTeacherCalendar({silent:true});}} onClose={()=>{setTrialSelection(null);setTrialConfigure(false);}}/>
       {quickCreateDraft && <CalendarEventEditor draft={quickCreateDraft} onChange={setQuickCreateDraft}
         anchor={quickCreateDraft.anchor} onClose={closeQuickCreate} onSubmit={handleQuickCreateSave}
         busy={quickCreateSaving || quickCreateFindingSlot} error={quickCreateError} ownerError={calendarCreateGroupsError}

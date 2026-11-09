@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
+import {addCalendarDays,moscowDay,weekdayIndex,AVAILABILITY_WEEKDAYS} from '../src/utils/groupAvailability.js';
+
+test('real calendar protects trial reserves across creation, drag, group scheduling and student schedules; booked lessons reach pupils only', {timeout:60000},async()=>{
+  const f=await createGroupHomeworkFixture();
+  try{
+    const teacher=f.tokens['teacher-a'];
+    let date=addCalendarDays(moscowDay(),1);while(weekdayIndex(date)!==1)date=addCalendarDays(date,1);
+    const base='/api/trial-slots';
+    let plan=await f.request(base,teacher,{revision:0,slots:[{day:1,time:'14:00',durationMinutes:60}]},'PUT');
+    const slot=plan.slots[0];
+    await f.request(base,f.tokens['student-a'],undefined,'GET',403);
+    assert.equal((await f.request('/api/teacher-schedule?purpose=lesson',teacher)).filter(e=>e.trialReservation||e.trialBookingId).length,0);
+    const target={date,time:'14:30',durationMinutes:30,subject:'Не пробное'};
+    await f.request('/api/teacher-schedule',teacher,target,'POST',409);
+    await f.request('/api/student-schedule',teacher,{...target,studentId:'student-a'},'POST',409);
+    const original=await f.request('/api/teacher-schedule',teacher,{date,time:'12:00',durationMinutes:60,subject:'Другое событие'});
+    await f.request('/api/teacher-schedule/'+original.id,teacher,target,'PUT',409);
+    await f.request('/api/teacher-calendar/edits',teacher,{id:'trial-drag-0000000001',operation:'move',source:{id:original.id,date,time:'12:00',durationMinutes:60},target:{date,time:'14:00',durationMinutes:60}},'POST',409);
+    assert.deepEqual((await f.request('/api/teacher-calendar/edits',teacher)).edits,[]);
+    await f.request(`/api/learning-groups/${f.groupId}/schedule`,teacher,{schedule:[{weekdayKey:AVAILABILITY_WEEKDAYS[1],time:'14:00',durationMinutes:60}]},'PUT',409);
+    await f.request(`/api/learning-groups/${f.groupId}/lessons`,teacher,{startAt:`${date}T14:00:00+03:00`,durationMinutes:60},'POST',409);
+    const pupil=await f.request('/api/students',teacher,{name:'Новый пробный',nickname:''});
+    await f.request(`/api/students/${pupil.id}/parent-contact`,teacher,{name:'Родитель',url:'@trialparent'},'PATCH');
+    await f.request(base+`/${slot.id}/${date}/participants`,f.tokens['teacher-b'],{studentId:pupil.id,revision:0},'POST',404);
+    plan=await f.request(base+`/${slot.id}/${date}/participants`,teacher,{studentId:pupil.id,revision:0});
+    assert.equal(plan.bookings[0].syncStatus,'pending');assert.match(plan.bookings[0].syncError,/Подключите Google/);
+    const pupilSchedule=await f.request(`/api/student-schedule?studentId=${pupil.id}`,teacher);
+    assert.equal(pupilSchedule.filter(e=>e.trialBookingId).length,1);assert.equal(pupilSchedule.find(e=>e.trialBookingId).isTrial,true);
+    const actual=await f.request('/api/teacher-schedule?purpose=lesson',teacher);
+    assert.equal(actual.filter(e=>e.trialBookingId).length,1);assert.equal(actual.find(e=>e.trialBookingId).date,date);
+    assert.equal(actual.filter(e=>e.trialReservation).length,0);
+    await f.request(base+`/${slot.id}/${date}/participants`,teacher,{studentId:'student-a',revision:1});
+    assert.equal((await f.request('/api/teacher-schedule?purpose=lesson',teacher)).filter(e=>e.trialBookingId).length,1);
+    await f.request(base+`/${slot.id}/${date}/participants/${pupil.id}`,teacher,{revision:2},'DELETE');
+    assert.equal((await f.request(`/api/student-schedule?studentId=${pupil.id}`,teacher)).filter(e=>e.trialBookingId).length,0);
+    await f.request(base+`/${slot.id}/${date}/participants/student-a`,teacher,{revision:3},'DELETE');
+    assert.equal((await f.request('/api/teacher-schedule?purpose=lesson',teacher)).filter(e=>e.trialBookingId).length,0);
+    await f.request('/api/teacher-schedule',teacher,target,'POST',409);
+  }finally{await f.stop();}
+});

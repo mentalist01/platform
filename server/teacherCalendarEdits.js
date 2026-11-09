@@ -98,7 +98,7 @@ export function overlayCalendarEdits(entries, teacherId, store) {
   });
 }
 
-export function registerTeacherCalendarEdits(app, { store, getTeacher, getStudent, getGroup, getEntries, prepareSource = value => value, googleChange, applyLocal, notify = () => {} }) {
+export function registerTeacherCalendarEdits(app, { store, getTeacher, getStudent, getGroup, getEntries, prepareSource = value => value, googleChange, applyLocal, notify = () => {}, assertTargetAvailable = () => {} }) {
   const teacherAccess = (auth, requested) => {
     if (!['teacher', 'admin'].includes(auth?.role)) fail('Нет доступа', 403);
     const id = auth.role === 'teacher' ? auth.id : String(requested || '').trim();
@@ -122,6 +122,7 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
     if (row.status === 'done') return row;
     if (row.status === 'cancelled') fail('Это изменение отменено. Создайте новое.', 409);
     checkOwners(row);
+    if (!row.googleResult) assertTargetAvailable(row.teacherId, row.target, row.source);
     if (row.status === 'applying' && !row.googleResult) {
       const result = await googleChange(row, { recoverOnly: true });
       checkOwners(row);
@@ -225,6 +226,7 @@ export function registerTeacherCalendarEdits(app, { store, getTeacher, getStuden
       }
       const row = { id: body.id, teacherId, operation: body.operation, source, target, signature, status: 'pending', createdAt: Date.now() };
       checkOwners(row);
+      assertTargetAvailable(teacherId,target,source);
       // Ownership is checked again after the asynchronous calendar read and before every write.
       teacherAccess(req.auth, teacherId);
       return serialize(await apply(store.put(row), { fresh: true }));
