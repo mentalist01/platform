@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeStudentParentContact, normalizeStudentContact, copyParentMessage } from './studentParentContact.js';
+import { normalizeStudentParentContact, normalizeStudentContact, studentContactDraft, studentContactLinks, copyParentMessage } from './studentParentContact.js';
 
 test('pupil contacts accept the same safe messenger formats with their own validation labels', () => {
   assert.equal(normalizeStudentContact({url:'@example_pupil'}).url,'https://t.me/example_pupil');
@@ -53,4 +53,18 @@ test('copying a parent report preserves the reviewed text and never marks or sen
   let copied;
   await copyParentMessage(text, { clipboard: { writeText: async value => { copied = value; } } }, { createElement: () => { throw Error('fallback not needed'); } });
   assert.equal(copied, text);
+});
+
+test('multiple named contact channels preserve display values, notes and a compatible primary URL',()=>{
+  const contact=normalizeStudentParentContact({name:' Мама ',contacts:[{label:'Телефон',value:'8 (999) 000-00-00'},{label:'VK',value:'vk.com/example_parent'},{label:'',value:''}],notes:' После 18:00\nЛучше написать. '});
+  assert.equal(contact.url,'https://t.me/+79990000000');
+  assert.equal(contact.contacts.length,2);assert.equal(contact.contacts[1].url,'https://vk.com/example_parent');
+  assert.equal(contact.notes,'После 18:00\nЛучше написать.');
+  assert.deepEqual(normalizeStudentParentContact(studentContactDraft(contact)),contact);
+  assert.equal(studentContactLinks(contact)[0].value,'8 (999) 000-00-00');
+  assert.equal(studentContactLinks({name:'Мама',url:'https://t.me/parent'})[0].url,'https://t.me/parent');
+  assert.deepEqual(normalizeStudentContact({name:'',contacts:[],notes:'Предпочитает Telegram'}),{name:'',url:'',contacts:[],notes:'Предпочитает Telegram'});
+  for(const contacts of [[{value:'@example_pupil'},{value:'javascript:alert(1)'}],[{label:'Телефон',value:''}],Array(11).fill({value:'@example_pupil'}),'wrong'])
+    assert.throws(()=>normalizeStudentContact({contacts}));
+  assert.throws(()=>normalizeStudentContact({contacts:[],notes:'a'.repeat(2001)}));
 });

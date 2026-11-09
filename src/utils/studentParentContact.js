@@ -10,7 +10,7 @@ function telegramPhoneUrl(phone) {
   return `https://t.me/+${digits}`;
 }
 
-function normalizeContact(value = {}, person = 'родителя') {
+function normalizeContactLink(value = {}, person = 'родителя') {
   const name = String(value?.name || '').trim();
   let url = String(value?.url || '').trim();
   if (name.length > 80) throw new Error(`Подпись контакта ${person} должна быть не длиннее 80 символов.`);
@@ -31,6 +31,32 @@ function normalizeContact(value = {}, person = 'родителя') {
     throw new Error(`Используйте ссылку http:// или https:// на контакт ${person}.`);
   }
   return { name, url: parsed.href };
+}
+
+export const MAX_STUDENT_CONTACTS = 10;
+export function studentContactDraft(value = {}) {
+  return {name:value?.name || '',contacts:Array.isArray(value?.contacts)
+    ?value.contacts.map(contact=>({label:contact.label || '',value:contact.value || contact.url || ''}))
+    :[{label:'',value:value?.url || ''}],notes:value?.notes || ''};
+}
+export function studentContactLinks(value = {}) {
+  return Array.isArray(value?.contacts)?value.contacts:value?.url?[{label:'',value:value.url,url:value.url}]:[];
+}
+function normalizeContact(value = {}, person = 'родителя') {
+  if (!Object.hasOwn(value || {},'contacts')) return normalizeContactLink(value,person);
+  if (!Array.isArray(value.contacts) || value.contacts.length>MAX_STUDENT_CONTACTS) throw new Error(`Можно сохранить до ${MAX_STUDENT_CONTACTS} контактов ${person}.`);
+  const name=String(value.name || '').trim(),notes=String(value.notes || '').trim();
+  if(name.length>80)throw new Error(`Имя или подпись ${person} должна быть не длиннее 80 символов.`);
+  if(notes.length>2000)throw new Error('Заметка должна быть не длиннее 2000 символов.');
+  const contacts=value.contacts.flatMap(contact=>{
+    if(!contact || typeof contact!=='object' || Array.isArray(contact))throw new Error('Проверьте контакт.');
+    const label=String(contact.label || '').trim(),raw=String(contact.value ?? contact.url ?? '').trim();
+    if(label.length>60)throw new Error('Название контакта должно быть не длиннее 60 символов.');
+    if(!raw){if(label)throw new Error(`Укажите телефон или ссылку для «${label}».`);return [];}
+    const {url}=normalizeContactLink({url:raw},person);
+    return [{label,value:raw,url}];
+  });
+  return {name,url:contacts[0]?.url || '',contacts,notes};
 }
 
 export const normalizeStudentParentContact = value => normalizeContact(value, 'родителя');

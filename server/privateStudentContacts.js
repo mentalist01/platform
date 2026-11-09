@@ -32,21 +32,30 @@ export function registerPrivateStudentContacts(app, { dataDir, staff, student, s
       const pupil = accessible.get(value?.studentId);
       return pupil && pupil.teacherId === value.teacherId;
     })
-      .map(value => [value.studentId, { name: value.name, url: value.url, ...(value.providedByStudent ? { providedByStudent: true } : {}) }]));
+      .map(value => [value.studentId, { name: value.name, url: value.url,
+        ...(Array.isArray(value.contacts)?{contacts:value.contacts,notes:value.notes || ''}:{}),
+        ...(value.providedByStudent ? { providedByStudent: true } : {}) }]));
     return res.json({ contacts });
   }));
   app.patch(itemRoute, wrap((req, res) => {
     const pupil = student(req, res, req.params.id);
     if (!pupil) return;
     if (!pupil.teacherId || pupil.deletedAt) return res.status(409).json({ error: 'Ученик не закреплён за преподавателем.' });
-    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || !Object.hasOwn(req.body, 'url')) {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || (!Object.hasOwn(req.body, 'url')&&!Object.hasOwn(req.body,'contacts'))) {
       return res.status(400).json({ error: `Укажите ссылку на контакт ${person}.` });
     }
+    const current=read(),previous=current.find(value=>value.studentId===pupil.id&&value.teacherId===pupil.teacherId);
     let contact;
-    try { contact = normalize(req.body); }
+    try {
+      // A still-open older client may edit the primary link. Keep additional
+      // channels and notes unless it explicitly removes the entire contact.
+      const input=!Object.hasOwn(req.body,'contacts')&&req.body.url&&Array.isArray(previous?.contacts)
+        ?{...req.body,contacts:[{label:previous.contacts[0]?.label || '',value:req.body.url},...previous.contacts.slice(1)],notes:previous.notes || ''}:req.body;
+      contact = normalize(input);
+    }
     catch (error) { return res.status(400).json({ error: error.message }); }
-    const records = read().filter(value => !(value.studentId === pupil.id && value.teacherId === pupil.teacherId));
-    if (contact.url) records.push({ teacherId: pupil.teacherId, studentId: pupil.id, ...contact, updatedAt: new Date().toISOString() });
+    const records = current.filter(value => !(value.studentId === pupil.id && value.teacherId === pupil.teacherId));
+    if (contact.url || contact.notes || (Array.isArray(contact.contacts)&&contact.name)) records.push({ teacherId: pupil.teacherId, studentId: pupil.id, ...contact, updatedAt: new Date().toISOString() });
     write(records);
     return res.json({ studentId: pupil.id, contact });
   }));

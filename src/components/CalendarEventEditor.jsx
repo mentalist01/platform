@@ -9,7 +9,7 @@ const clock = value => Number.isFinite(value) && value >= 0 && value <= 1440
 
 export default function CalendarEventEditor({ mode = 'create', draft, onChange, onClose, onSubmit, busy, error,
   ownerOptions = [], ownerError = '', ownerLabel = '', anchor = null, onFindSlot }) {
-  const editing = mode === 'update', titleId = useId(), form = useRef(null);
+  const editing = mode === 'update', trialReserve=draft.creationKind==='trial-reserve', titleId = useId(), form = useRef(null);
   const [position, setPosition] = useState(null);
   useLayoutEffect(() => {
     const place = () => {
@@ -45,14 +45,16 @@ export default function CalendarEventEditor({ mode = 'create', draft, onChange, 
       style={position || {visibility:'hidden'}} onKeyDown={keyDown} onClick={event => event.stopPropagation()}
       onSubmit={event => { event.preventDefault(); onSubmit(event); }}>
       <header><span className="calendar-event-editor__icon">{editing ? <Pencil size={20} /> : <Plus size={22} />}</span>
-        <div><h2 id={titleId}>{editing ? 'Изменить событие' : 'Новое событие'}</h2><p>{editing ? ownerLabel || 'Google Calendar' : 'В выбранном времени календаря'}</p></div>
+        <div><h2 id={titleId}>{editing ? 'Изменить событие' : trialReserve?'Пробный резерв':'Новое событие'}</h2><p>{editing ? ownerLabel || 'Google Calendar' : 'В выбранном времени календаря'}</p></div>
         <button type="button" aria-label="Закрыть редактор события" disabled={busy} onClick={onClose}><X size={19} /></button>
       </header>
       <div className="calendar-event-editor__body">
         <fieldset disabled={busy}>
-          <label>Название<input type="text" value={draft.title} maxLength={500} required={editing}
+          {!editing&&<label>Что создаём<select value={draft.creationKind || 'event'} onChange={event=>change({creationKind:event.target.value})}><option value="event">Занятие или встреча</option><option value="trial-reserve">Постоянный пробный слот</option></select></label>}
+          {!trialReserve&&<label>Название<input type="text" value={draft.title} maxLength={500} required={editing}
             placeholder="Название занятия или встречи" onChange={event => change({title:event.target.value})} /></label>
-          {!editing && <div className="calendar-event-editor__row">
+          }
+          {!editing&&!trialReserve && <div className="calendar-event-editor__row">
             <label>Для кого<select value={draft.studentId} onChange={event => change({studentId:event.target.value})}>
               {ownerOptions.map(group => <optgroup key={group.label} label={group.label}>{group.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>)}
             </select></label>
@@ -68,13 +70,14 @@ export default function CalendarEventEditor({ mode = 'create', draft, onChange, 
             }} /></label>
           </div>
           <p className="calendar-event-editor__hint">По Москве · {Number(draft.durationMinutes) > 0 ? `${draft.durationMinutes} мин` : 'Окончание должно быть позже начала'}{editing ? ' · меняется только это занятие' : ''}</p>
-          <label>Описание<textarea rows={3} maxLength={6000} value={draft.note || ''} placeholder="Например, что планируем разобрать"
+          {trialReserve?<p className="calendar-event-editor__hint">Этот день недели и время закрепятся под пробные. Пустой резерв защищён от других занятий и не создаёт урок или напоминание. Участников можно добавить после сохранения.</p>:<label>Описание<textarea rows={3} maxLength={6000} value={draft.note || ''} placeholder="Например, что планируем разобрать"
             onChange={event => change({note:event.target.value})} /></label>
+          }
           {!editing && onFindSlot && <button type="button" className="calendar-event-editor__find" onClick={onFindSlot}>Найти ближайшее свободное время</button>}
         </fieldset>
         {error && <p role="alert" className="calendar-event-editor__error">{error}</p>}
       </div>
-      <footer><p><Check size={14} />{busy ? 'Сохраняем в Google Calendar…' : 'Сохраним в платформе и Google Calendar'}</p>
+      <footer><p><Check size={14} />{trialReserve?'Постоянный резерв · каждую неделю':busy ? 'Сохраняем в Google Calendar…' : 'Сохраним в платформе и Google Calendar'}</p>
         <div><button type="button" disabled={busy} onClick={onClose}>Отмена</button><button type="submit" disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить'}</button></div>
       </footer>
     </form>

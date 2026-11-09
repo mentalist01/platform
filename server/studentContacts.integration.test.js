@@ -29,6 +29,14 @@ test('pupil contacts stay separate from parent contacts and are private to the o
     assert.equal(stored.contacts[0].teacherId,'teacher-a');
     assert.equal(JSON.stringify(await request('/api/students',a)).includes('79990000000'),false);
     for(const token of [child,parent])await request('/api/students',token,null,'GET',403);
+    const multiple=await request(route,a,{name:'Личные контакты',contacts:[{label:'Телефон',value:'+7 9990000000'},{label:'VK',value:'vk.com/example_pupil'}],notes:'Писать вечером'},'PATCH');
+    assert.equal(multiple.contact.contacts.length,2);
+    assert.deepEqual((await request('/api/student-contacts',a)).contacts['student-a'],multiple.contact);
+    assert.equal(JSON.stringify(await request('/api/students',a)).includes('example_pupil'),false);
+    const legacy=await request(route,a,{name:'Основной Telegram',url:'@example_pupil'},'PATCH');
+    assert.equal(legacy.contact.contacts[1].url,'https://vk.com/example_pupil');assert.equal(legacy.contact.notes,'Писать вечером');
+    await request(route,a,{contacts:[{value:'@example_pupil'},{value:'javascript:alert(1)'}]},'PATCH',400);
+    assert.deepEqual((await request('/api/student-contacts',a)).contacts['student-a'],legacy.contact);
     await request('/api/students/student-b/contact',a,{url:'@second_pupil'},'PATCH');
     await request(route,a,{name:'',url:''},'PATCH');
     const current=(await request('/api/student-contacts',a)).contacts;

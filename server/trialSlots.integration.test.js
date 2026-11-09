@@ -34,10 +34,18 @@ test('real calendar protects trial reserves across creation, drag, group schedul
     assert.equal(actual.filter(e=>e.trialReservation).length,0);
     await f.request(base+`/${slot.id}/${date}/participants`,teacher,{studentId:'student-a',revision:1});
     assert.equal((await f.request('/api/teacher-schedule?purpose=lesson',teacher)).filter(e=>e.trialBookingId).length,1);
-    await f.request(base+`/${slot.id}/${date}/participants/${pupil.id}`,teacher,{revision:2},'DELETE');
+    const movedDate=addCalendarDays(date,1),bookingId=plan.bookings[0].id;
+    await f.request(base+`/${slot.id}/move`,f.tokens['teacher-b'],{day:2,time:'14:00',durationMinutes:40,revision:1},'POST',404);
+    const moved=await f.request(base+`/${slot.id}/move`,teacher,{day:2,time:'14:00',durationMinutes:40,revision:1});
+    assert.equal(moved.bookings.find(row=>row.id===bookingId).date,movedDate);
+    assert.deepEqual(moved.bookings.find(row=>row.id===bookingId).studentIds,[pupil.id,'student-a']);
+    assert.equal((await f.request(`/api/student-schedule?studentId=${pupil.id}`,teacher)).find(e=>e.trialBookingId).date,movedDate);
+    await f.request(base+`/${slot.id}/move`,teacher,{day:3,time:'14:00',durationMinutes:40,revision:1},'POST',409);
+    await f.request('/api/teacher-schedule',teacher,{date:movedDate,time:'14:10',durationMinutes:30,subject:'Занято резервом'},'POST',409);
+    await f.request(base+`/${slot.id}/${movedDate}/participants/${pupil.id}`,teacher,{revision:3},'DELETE');
     assert.equal((await f.request(`/api/student-schedule?studentId=${pupil.id}`,teacher)).filter(e=>e.trialBookingId).length,0);
-    await f.request(base+`/${slot.id}/${date}/participants/student-a`,teacher,{revision:3},'DELETE');
+    await f.request(base+`/${slot.id}/${movedDate}/participants/student-a`,teacher,{revision:4},'DELETE');
     assert.equal((await f.request('/api/teacher-schedule?purpose=lesson',teacher)).filter(e=>e.trialBookingId).length,0);
-    await f.request('/api/teacher-schedule',teacher,target,'POST',409);
+    await f.request('/api/teacher-schedule',teacher,{...target,date:movedDate},'POST',409);
   }finally{await f.stop();}
 });

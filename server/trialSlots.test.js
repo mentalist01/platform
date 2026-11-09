@@ -19,6 +19,18 @@ test('weekly reserves persist, exclude empty lessons and reject partial overlaps
   assert.throws(()=>store.setSlots('t',[{day:0,time:'12:00',durationMinutes:30},{day:0,time:'14:00',durationMinutes:40}],1),/разные дни/);
   assert.throws(()=>store.setSlots('t',Array.from({length:5},(_,day)=>({day,time:'12:00',durationMinutes:60})),1),/четырёх/);
 });
+test('moving a reserve keeps past lessons and shifts all future bookings atomically with stable Google identities',t=>{
+  const store=storeFor(t),slot=store.setSlots('t',[{day:1,time:'14:00',durationMinutes:60}],0).slots[0];
+  const row={teacherId:'t',slotId:slot.id,id:'booked',date,time:'14:00',durationMinutes:60,studentIds:['a'],studentNames:['Аня'],revision:1,google:{eventId:'stable'},syncStatus:'synced'};
+  store.putBooking(row);store.putBooking({...row,id:'past',date:'2026-11-03'});
+  assert.throws(()=>store.setSlots('t',[{...slot,day:0,time:'08:00'}],1,{moveBookings:true}),/прошло/);
+  assert.equal(store.configuration('t').revision,1);assert.equal(store.getBooking('t',slot.id,date).date,date);
+  store.setSlots('t',[{...slot,day:2,time:'15:00',durationMinutes:40}],1,{moveBookings:true});
+  assert.equal(store.getBooking('t',slot.id,date),null);
+  const moved=store.getBooking('t',slot.id,'2026-11-11');
+  assert.equal(moved.id,'booked');assert.equal(moved.revision,2);assert.equal(moved.time,'15:00');assert.equal(moved.durationMinutes,40);assert.equal(moved.syncStatus,'pending');
+  assert.equal(moved.google.eventId,'stable');assert.equal(store.getBooking('t',slot.id,'2026-11-03').date,'2026-11-03');
+});
 test('participants belong to one dated occurrence; multiple pupils, cancellation and unavailable Google recover durably',async t=>{
   const store=storeFor(t),slot=store.setSlots('t',[{day:1,time:'14:00',durationMinutes:60}],0).slots[0];
   const pupils={a:{id:'a',teacherId:'t',name:'Аня'},b:{id:'b',teacherId:'t',name:'Борис'},foreign:{id:'foreign',teacherId:'other',name:'Чужой'}};

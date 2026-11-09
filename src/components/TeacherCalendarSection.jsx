@@ -899,6 +899,7 @@ const TeacherCalendarSection = ({
   const [trialPlan,setTrialPlan]=useState(null);
   const [trialSelection,setTrialSelection]=useState(null);
   const [trialConfigure,setTrialConfigure]=useState(false);
+  const [trialMove,setTrialMove]=useState(null);
   const [trialError,setTrialError]=useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -3471,6 +3472,10 @@ const TeacherCalendarSection = ({
       return;
     }
     const draggedEntry = draggingEvent.entry;
+    if(draggedEntry?.trialSlotId){
+      setTrialSelection(null);setTrialMove({slotId:draggedEntry.trialSlotId,day:dayIndex,time:formatMinutesAsTime(targetStartMinutes),durationMinutes:draggingEvent.durationMinutes});
+      setDraggingEvent(null);setDragPreview(null);quickCreateClickSuppressedUntilRef.current=Date.now()+180;return;
+    }
     const targetWeekdayKey = SCHEDULE_WEEKDAYS[dayIndex]?.key || '';
     const hasExplicitDate = Boolean(String(draggedEntry?.date || '').trim());
     const targetTime = formatMinutesAsTime(targetStartMinutes);
@@ -3635,8 +3640,9 @@ const TeacherCalendarSection = ({
     }
     const durationRaw = Number(quickCreateDraft.durationMinutes);
     const durationMinutes = Number.isFinite(durationRaw) ? Math.round(durationRaw) : NaN;
-    if (!Number.isFinite(durationMinutes) || durationMinutes < 15 || durationMinutes > 360) {
-      setQuickCreateError('Укажите длительность от 15 до 360 минут.');
+    const maxDuration=quickCreateDraft.creationKind==='trial-reserve'?180:360;
+    if (!Number.isFinite(durationMinutes) || durationMinutes < 15 || durationMinutes > maxDuration) {
+      setQuickCreateError(`Укажите длительность от 15 до ${maxDuration} минут.`);
       return;
     }
 
@@ -3644,6 +3650,12 @@ const TeacherCalendarSection = ({
     setQuickCreateSaving(true);
     setQuickCreateError('');
     try {
+      if(quickCreateDraft.creationKind==='trial-reserve'){
+        if(!trialPlan)throw Error('Обновите календарь и повторите создание слота.');
+        const value=await api.saveTrialSlots(teacherId,{revision:trialPlan.revision,slots:[...trialPlan.slots,{day:weekdayMeta.order-1,time,durationMinutes}]});
+        setTrialPlan(value);setQuickCreateDraft(null);setCalendarEditNotice('Постоянный пробный слот добавлен. Нажмите на него, чтобы записать участников.');
+        void loadTeacherCalendar({silent:true});return;
+      }
       const selectedName = studentNameById[studentId]
         || calendarCreateGroups.find(group => group.id === groupId)?.name || '';
       const title = String(quickCreateDraft.title || '').trim() || selectedName
@@ -3660,7 +3672,7 @@ const TeacherCalendarSection = ({
     } finally {
       setQuickCreateSaving(false); setCalendarEditRevision(value => value + 1);
     }
-  }, [calendarCreateGroups, showSavedCalendarEdit, quickCreateDraft, quickCreateSaving, studentNameById, teacherId]);
+  }, [calendarCreateGroups, showSavedCalendarEdit, quickCreateDraft, quickCreateSaving, studentNameById, teacherId,trialPlan,loadTeacherCalendar]);
 
   const openEventDetailsModal = useCallback((event, dayKey) => {
     const hasStudent = Boolean(String(event?.studentId || '').trim());
@@ -4858,8 +4870,8 @@ const TeacherCalendarSection = ({
                                   <div className="mt-1 text-[10px] font-semibold">{quickCreateDraft.time} · {quickCreateDraft.durationMinutes} мин · черновик</div>
                                 </div>
                               )}
-                              {!availabilityShareMode&&<TrialSlotDay plan={trialPlan} date={dayKey} dayStartMinutes={dayStartMinutes} hourHeight={hourHeight} onOpen={setTrialSelection}/>}
-                              {events.filter(event=>availabilityShareMode || !event.trialBookingId).map((event, index) => {
+                              {!availabilityShareMode&&<TrialSlotDay plan={trialPlan} date={dayKey} dayStartMinutes={dayStartMinutes} hourHeight={hourHeight} onOpen={selection=>{if(Date.now()>=quickCreateClickSuppressedUntilRef.current)setTrialSelection(selection);}} dragging={!!draggingEvent} onDragStart={(event,entry)=>handleEventDragStart(event,entry,dayIndex,dayKey)} onDragEnd={handleEventDragEnd}/>}
+                              {events.filter(event=>availabilityShareMode || (!event.trialBookingId&&!event.trialSlotId)).map((event, index) => {
                                 const top = ((event.startMinutes - dayStartMinutes) / 60) * hourHeight + 1;
                                 const height = Math.max(
                                   26,
@@ -5170,8 +5182,8 @@ const TeacherCalendarSection = ({
           </div>
         </div>
       )}
-      <TrialSlotDialogs teacherId={teacherId} plan={trialPlan} selection={trialSelection} configure={trialConfigure} students={students || []}
-        onSaved={value=>{setTrialPlan(value);void loadTeacherCalendar({silent:true});}} onClose={()=>{setTrialSelection(null);setTrialConfigure(false);}}/>
+      <TrialSlotDialogs teacherId={teacherId} plan={trialPlan} selection={trialSelection} configure={trialConfigure} move={trialMove} onMove={value=>{setTrialSelection(null);setTrialMove(value);}} students={students || []}
+        onSaved={value=>{setTrialPlan(value);void loadTeacherCalendar({silent:true});}} onClose={()=>{setTrialSelection(null);setTrialConfigure(false);setTrialMove(null);}}/>
       {quickCreateDraft && <CalendarEventEditor draft={quickCreateDraft} onChange={setQuickCreateDraft}
         anchor={quickCreateDraft.anchor} onClose={closeQuickCreate} onSubmit={handleQuickCreateSave}
         busy={quickCreateSaving || quickCreateFindingSlot} error={quickCreateError} ownerError={calendarCreateGroupsError}

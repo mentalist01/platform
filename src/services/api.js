@@ -529,6 +529,7 @@ export const api = {
   getTeacherCalendarEdits: teacherId => requestLearningGroupJson(`/api/teacher-calendar/edits?teacherId=${encodeURIComponent(teacherId || '')}`),
   getTrialSlots: teacherId => requestLearningGroupJson(`/api/trial-slots?teacherId=${encodeURIComponent(teacherId || '')}`),
   saveTrialSlots: (teacherId,body) => requestLearningGroupJson('/api/trial-slots',{method:'PUT',body:{...body,teacherId}}),
+  moveTrialSlot: (teacherId,slotId,body) => requestLearningGroupJson(`/api/trial-slots/${encodeURIComponent(slotId)}/move`,{method:'POST',body:{...body,teacherId}}),
   addTrialParticipant: (teacherId,slotId,date,body) => requestLearningGroupJson(`/api/trial-slots/${encodeURIComponent(slotId)}/${date}/participants`,{method:'POST',body:{...body,teacherId}}),
   removeTrialParticipant: (teacherId,slotId,date,studentId,revision) => requestLearningGroupJson(`/api/trial-slots/${encodeURIComponent(slotId)}/${date}/participants/${encodeURIComponent(studentId)}`,{method:'DELETE',body:{teacherId,revision}}),
   syncTrialBooking: (teacherId,slotId,date) => requestLearningGroupJson(`/api/trial-slots/${encodeURIComponent(slotId)}/${date}/sync`,{method:'POST',body:{teacherId}}),

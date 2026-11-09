@@ -29,7 +29,7 @@ export function createTrialSlotStore(file, now = Date.now) {
     allBookings:()=>structuredClone(Object.values(db.bookings)),
     getBooking:(teacherId,slotId,date)=>structuredClone(db.bookings[`${teacherId}:${bookingKey(slotId,date)}`] || null),
     putBooking(row){save({...db,bookings:{...db.bookings,[`${row.teacherId}:${bookingKey(row.slotId,row.date)}`]:row}});return structuredClone(row);},
-    setSlots(teacherId,slots,revision){
+    setSlots(teacherId,slots,revision,{moveBookings=false}={}){
       const previous=configuration(teacherId);
       if (previous.revision!==revision) fail('Слоты изменились в другом окне. Обновите календарь.',409);
       if (!Array.isArray(slots) || slots.length>4) fail('Можно закрепить до четырёх пробных слотов.');
@@ -41,13 +41,25 @@ export function createTrialSlotStore(file, now = Date.now) {
         return {id:old?.id || crypto.randomUUID(),day,time:slot.time,durationMinutes,repeatFrom:old?.repeatFrom || moscowDay(now())};
       });
       if (new Set(normalized.map(slot=>slot.day)).size!==normalized.length) fail('Выберите разные дни недели для пробных слотов.');
+      const nextBookings={...db.bookings};
       for (const old of previous.slots) {
         const changed=!normalized.some(slot=>JSON.stringify(slot)===JSON.stringify(old));
-        if(changed && bookings(teacherId).some(row=>row.slotId===old.id && row.studentIds.length
-          && Date.parse(`${row.date}T${row.time}:00+03:00`)+row.durationMinutes*60000>now()))
-          fail('В этом слоте уже записаны ученики. Сначала снимите будущие записи, затем измените резерв.',409);
+        const upcoming=changed?bookings(teacherId).filter(row=>row.slotId===old.id && row.studentIds.length
+          && Date.parse(`${row.date}T${row.time}:00+03:00`)+row.durationMinutes*60000>now()):[];
+        const target=normalized.find(slot=>slot.id===old.id);
+        if(upcoming.length && (!moveBookings || !target))fail(target
+          ?'В этом слоте уже записаны ученики. Откройте его в календаре и нажмите «Изменить слот», чтобы перенести резерв вместе с будущими записями.'
+          :'В этом слоте уже записаны ученики. Сначала снимите будущие записи, затем удалите резерв.',409);
+        for(const row of upcoming){
+          if(Date.parse(`${row.date}T${row.time}:00+03:00`)<=now())fail('Пробное уже началось. Перенесите резерв после окончания занятия.',409);
+          const date=addCalendarDays(row.date,target.day-old.day);
+          if(Date.parse(`${date}T${target.time}:00+03:00`)<=now())fail('Новое время ближайшей записи уже прошло. Выберите будущий день и время.',409);
+          delete nextBookings[`${teacherId}:${bookingKey(old.id,row.date)}`];
+          nextBookings[`${teacherId}:${bookingKey(old.id,date)}`]={...row,date,time:target.time,durationMinutes:target.durationMinutes,
+            revision:row.revision+1,syncStatus:'pending',updatedAt:new Date(now()).toISOString()};
+        }
       }
-      const value={revision:previous.revision+1,slots:normalized};save({...db,teachers:{...db.teachers,[teacherId]:value}});return value;
+      const value={revision:previous.revision+1,slots:normalized};save({...db,teachers:{...db.teachers,[teacherId]:value},bookings:nextBookings});return value;
     },
     reservations(teacherId){return configuration(teacherId).slots.map(slot=>({id:`trial-reserve-${slot.id}`,trialReservation:true,
       weekdayKey:AVAILABILITY_WEEKDAYS[slot.day],weekdayOrder:slot.day+1,time:slot.time,durationMinutes:slot.durationMinutes,repeatFrom:slot.repeatFrom,subject:'Резерв для пробного'}));},
@@ -87,12 +99,10 @@ export function registerTrialSlots(app,{store,getTeacher,getStudent,getEntries,a
   const route=action=>async(req,res)=>{res.setHeader('Cache-Control','private, no-store');try{res.json(await action(req));}
     catch(error){res.status(error.status||503).json({error:error.status?error.message:'Не удалось сохранить пробные слоты. Повторите попытку.'});}};
   app.get('/api/trial-slots',route(req=>view(access(req))));
-  app.put('/api/trial-slots',route(req=>{
-    const teacherId=access(req);
-    return withTeacherCalendarLock(teacherId,async()=>{
-      if(!Array.isArray(req.body?.slots) || req.body.slots.length>4)fail('Можно закрепить до четырёх пробных слотов.');
+  const assertSlotsAvailable=async(teacherId,slots)=>{
+      if(!Array.isArray(slots) || slots.length>4)fail('Можно закрепить до четырёх пробных слотов.');
       // Check the complete upcoming year plus weekly rules before reserving time.
-      const entries=await getEntries(teacherId,true,addCalendarDays(moscowDay(now()),366));access(req);
+      const entries=await getEntries(teacherId,true,addCalendarDays(moscowDay(now()),366));
       const today=moscowDay(now());
       // Expand only weekly rules. Large Google feeds already contain dated
       // occurrences and do not need a full-year scan once per occurrence.
@@ -100,11 +110,29 @@ export function registerTrialSlots(app,{store,getTeacher,getStudent,getEntries,a
       const upcoming=[...candidates.filter(entry=>entry.date>=today && active(entry)
         && !entry.excludedDates?.includes(entry.date) && !entry.cancelledDates?.includes(entry.date)),
       ...expandRescheduleOccurrences(candidates.filter(entry=>!entry.date),today,367).filter(entry=>entry.date>=today)];
-      for(const slot of req.body?.slots || []){
+      for(const slot of slots){
         const conflict=upcoming.find(entry=>active(entry) && weekdayIndex(entry.date)===Number(slot.day) && overlaps(entry,slot));
         if(conflict) fail(`В это время уже есть занятие: ${conflict.subject || conflict.studentName || 'событие'}, ${conflict.date} в ${conflict.time}. Сначала перенесите его.`,409);
       }
+  };
+  app.put('/api/trial-slots',route(req=>{
+    const teacherId=access(req);
+    return withTeacherCalendarLock(teacherId,async()=>{
+      await assertSlotsAvailable(teacherId,req.body?.slots);access(req);
       store.setSlots(teacherId,req.body?.slots,req.body?.revision);notify(teacherId);return view(teacherId);
+    });
+  }));
+  app.post('/api/trial-slots/:slotId/move',route(req=>{
+    const teacherId=access(req);
+    return withTeacherCalendarLock(teacherId,async()=>{
+      const plan=store.configuration(teacherId),old=plan.slots.find(slot=>slot.id===req.params.slotId);
+      if(!old)fail('Пробный слот не найден',404);
+      const slots=plan.slots.map(slot=>slot.id===old.id?{...slot,day:req.body?.day,time:req.body?.time,durationMinutes:req.body?.durationMinutes}:slot);
+      await assertSlotsAvailable(teacherId,slots);access(req);
+      const before=new Map(store.bookings(teacherId).map(row=>[row.id,row]));
+      store.setSlots(teacherId,slots,req.body?.revision,{moveBookings:true});
+      for(const row of store.bookings(teacherId))if(row.revision!==before.get(row.id)?.revision)await sync(row);
+      notify(teacherId);return view(teacherId);
     });
   }));
   app.post('/api/trial-slots/:slotId/:date/participants',route(req=>{
