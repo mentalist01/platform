@@ -5,11 +5,19 @@ import {PreparedLessonTasks} from './preparedLessonTasks.js';
 import {PreparedSetExchange} from './preparedSetExchange.js';
 import {IP_SUBNET_CARD,PREPARED_THEORY_MAX_ITEMS} from '../src/utils/interactiveTheoryCatalog.js';
 import {DECIMAL_BINARY_CARD} from '../src/utils/decimalBinary.js';
-import {COMBINATION_LOCK_CARD,lockExample} from '../src/utils/combinationLock.js';
+import {COMBINATION_LOCK_CARD,lockExample,normalizeLockParams} from '../src/utils/combinationLock.js';
 import {preparedSetSequence} from '../src/utils/preparedRunSources.js';
 import {preparedLayoutKey} from '../src/utils/preparedSetLayout.js';
 
 const interactive=(id='subnet')=>({id,kind:'interactive',typeId:IP_SUBNET_CARD,params:{ip:'192.168.1.70',prefix:26}});
+
+test('a lock with no prepared Python saves and reopens with its manual starting position',async t=>{
+  const f=await partFixture(t),lock={id:'blank',kind:'interactive',typeId:COMBINATION_LOCK_CARD,params:normalizeLockParams()};
+  const set=await f.prepared.saveSet(f.auth,{name:'Начать с одной буквы',taskNumber:8,tasks:[],theoryItems:[lock]});
+  const run=await f.prepared.start(f.auth,{room:'blank-lock-board',setId:set.id,x:0,y:0});
+  assert.deepEqual(run.cards[0].interactive.params,{code:'',wheelCount:1});
+  const reopened=new PreparedLessonTasks(f.deps);assert.deepEqual(reopened.setView(reopened.data.sets[set.id]).theoryItems,[lock]);
+});
 
 test('a loop-driven combination lock saves, starts as theory and survives reopening with its own code',async t=>{
   const f=await partFixture(t),{prepared,auth}=f;

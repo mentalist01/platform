@@ -78,7 +78,7 @@ export function lockExample(count = 2) {
 export function parseCombinationLock(code) {
   if (typeof code !== 'string' || !code.trim() || code.length > LOCK_CODE_LIMIT) fail('Введите цепочку из 1–3 вложенных циклов for.');
   const variables = new Map(), wheels = [];
-  let previousIndent = -1, body = false;
+  let previousIndent = -1, body = false, filter = null, filterIndent = -1;
   for (const raw of code.replace(/\r\n?/g, '\n').split('\n')) {
     const line = withoutComment(raw.replace(/\t/g, '    ')).trimEnd();
     if (!line.trim()) continue;
@@ -87,26 +87,53 @@ export function parseCombinationLock(code) {
     if (!wheels.length && !indent && assignment) { variables.set(assignment[1], sequence(assignment[2], variables)); continue; }
     const loop = /^for\s+([\p{L}_][\p{L}\p{N}_]*)\s+in\s+(.+):$/u.exec(text);
     if (loop) {
-      if (body || (wheels.length ? indent <= previousIndent : indent !== 0)) fail('Каждый следующий for должен находиться внутри предыдущего: добавьте отступ.');
+      if (body || filter || (wheels.length ? indent <= previousIndent : indent !== 0)) fail('Каждый следующий for должен находиться внутри предыдущего: добавьте отступ.');
       if (wheels.length >= 3) fail('В этой модели можно показать до 3 вложенных циклов.');
       if (wheels.some(wheel => wheel.name === loop[1])) fail('Назовите переменные циклов по-разному: например, x1, x2, x3.');
       wheels.push({ name: loop[1], symbols: sequence(loop[2], variables) }); variables.delete(loop[1]); previousIndent = indent;
-    } else if (wheels.length && indent > previousIndent && (text === 'pass' || /^print\s*\(.*\)$/.test(text))) body = true;
-    else fail('Для замка нужна одна цепочка вложенных for; в конце можно написать print(...) или pass.');
+    } else if (wheels.length && !body && !filter && /^if\s/.test(text)) {
+      const condition = /^if\s+\(([^)]+)\)\.count\(("[^"\n]"|'[^'\n]')\)\s*==\s*([0-3]):$/u.exec(text);
+      if (!condition || indent <= previousIndent || condition[1].split('+').map(value => value.trim()).join('+') !== wheels.map(wheel => wheel.name).join('+')) fail('Для условия используйте, например: if (x1 + x2).count("А") == 1:');
+      filter = { symbol: stringLiteral(condition[2]), count: Number(condition[3]) }; filterIndent = indent;
+    } else if (wheels.length && indent > Math.max(previousIndent, filterIndent) && (text === 'pass' || /^print\s*\(.*\)$/.test(text))) body = true;
+    else fail('Нужна цепочка вложенных for, затем print(...) или условие count(...) == число и print(...).');
   }
   if (!wheels.length || !body) fail('Завершите циклы: внутри последнего напишите print(...) или pass.');
-  return { code: code.trimEnd(), wheels, total: wheels.reduce((total, wheel) => total * wheel.symbols.length, 1) };
+  return { code: code.trimEnd(), wheels, total: wheels.reduce((total, wheel) => total * wheel.symbols.length, 1), ...(filter ? { filter } : {}) };
 }
 export function normalizeLockParams(input = {}) {
-  return { code: parseCombinationLock(input.code ?? lockExample()).code };
+  if (input.code === undefined || input.code === '') return { code: '', wheelCount: [1, 2, 3].includes(input.wheelCount) ? input.wheelCount : 1 };
+  return { code: parseCombinationLock(input.code).code };
+}
+export function combinationLockModel(state) {
+  return parseCombinationLock(state.code || lockExample([1, 2, 3].includes(state.wheelCount) ? state.wheelCount : 1));
+}
+export function lockCommands(wheelCount, mission = 'enumerate') {
+  return [...Array.from({ length: wheelCount }, (_, index) => `for:${index}`), ...(mission === 'single-a' ? ['if'] : []), 'print'];
+}
+export function lockProgram(state) {
+  const model = combinationLockModel(state), expressions = model.wheels.map(wheel => wheel.name).join(' + ');
+  let code = model.wheels.map((wheel, index) => `${'    '.repeat(index)}for ${wheel.name} in "${wheel.symbols.join('')}":`).join('\n');
+  const condition = model.filter || (state.mission === 'single-a' ? { symbol: model.wheels.some(wheel => wheel.symbols.includes('А')) ? 'А' : 'A', count: 1 } : null);
+  if (condition) code += `\n${'    '.repeat(model.wheels.length)}if (${expressions}).count("${condition.symbol}") == ${condition.count}:`;
+  return code + `\n${'    '.repeat(model.wheels.length + (condition ? 1 : 0))}print(${expressions})`;
+}
+export function lockMatches(model, index, mission = 'enumerate') {
+  const filter = model.filter || (mission === 'single-a' ? { symbol: model.wheels.some(wheel => wheel.symbols.includes('А')) ? 'А' : 'A', count: 1 } : null);
+  return !filter || [...lockWord(model, index)].filter(symbol => symbol === filter.symbol).length === filter.count;
 }
 export function normalizeLockState(input, params = {}) {
-  let model;
-  try { model = parseCombinationLock(input?.code); }
-  catch { model = parseCombinationLock(normalizeLockParams(params).code); }
+  let base;
+  try { base = normalizeLockParams(typeof input?.code === 'string' ? input : params); }
+  catch { base = normalizeLockParams(params); }
+  const model = combinationLockModel(base), mission = model.filter || input?.mission === 'single-a' ? 'single-a' : 'enumerate';
   const index = Number.isInteger(input?.index) && input.index >= 0 && input.index < model.total ? input.index : 0;
-  const visited = [...new Set((Array.isArray(input?.visited) ? input.visited.slice(0, 1000) : []).filter(value => Number.isInteger(value) && value >= 0 && value < model.total).concat(index))].sort((a, b) => a - b);
-  return { code: model.code, index, visited, codeVisible: input?.codeVisible === true, direction: input?.direction === -1 ? -1 : 1 };
+  const visited = [...new Set((Array.isArray(input?.visited) ? input.visited.slice(0, 1000) : []).filter(value => Number.isInteger(value) && value >= 0 && value < model.total))].sort((a, b) => a - b);
+  const commands = lockCommands(model.wheels.length, mission), order = input?.commandOrder;
+  return { code: base.code, wheelCount: model.wheels.length, index, visited, codeVisible: input?.codeVisible === true, direction: input?.direction === -1 ? -1 : 1,
+    previousIndex: Number.isInteger(input?.previousIndex) && input.previousIndex >= 0 && input.previousIndex < model.total ? input.previousIndex : index,
+    codeMode: input?.codeMode === 'python' ? 'python' : 'commands', formulaVisible: input?.formulaVisible === true, mission,
+    commandOrder: Array.isArray(order) && order.length === commands.length && new Set(order).size === commands.length && commands.every(id => order.includes(id)) ? order : commands };
 }
 export function lockDigits(model, index) {
   const digits = [];
@@ -115,11 +142,11 @@ export function lockDigits(model, index) {
 }
 export const lockWord = (model, index) => lockDigits(model, index).map((digit, i) => model.wheels[i].symbols[digit]).join('');
 export function visitLockIndex(state, index) {
-  const model = parseCombinationLock(state.code);
-  return normalizeLockState({ ...state, index: Math.max(0, Math.min(model.total - 1, index)), visited: state.visited, direction: index < state.index ? -1 : 1 }, state);
+  const model = combinationLockModel(state), target = Math.max(0, Math.min(model.total - 1, index));
+  return normalizeLockState({ ...state, index: target, visited: [...state.visited, target], previousIndex: state.index, direction: index < state.index ? -1 : 1 }, state);
 }
 export function turnLockWheel(state, wheelIndex, delta) {
-  const model = parseCombinationLock(state.code), digits = lockDigits(model, state.index);
+  const model = combinationLockModel(state), digits = lockDigits(model, state.index);
   if (!model.wheels[wheelIndex]) return state;
   const base = model.wheels[wheelIndex].symbols.length, next = (digits[wheelIndex] + delta % base + base) % base;
   const weight = model.wheels.slice(wheelIndex + 1).reduce((value, wheel) => value * wheel.symbols.length, 1);
