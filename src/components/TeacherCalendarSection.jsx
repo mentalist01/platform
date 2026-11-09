@@ -75,7 +75,8 @@ const MINI_MONTH_WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб
 const HOLIDAY_DEFINITIONS = [
   { month: 3, day: 8, title: 'Международный женский день' },
 ];
-const EVENT_COLORS = ['#0ea5e9', '#14b8a6', '#6366f1', '#f59e0b', '#ec4899', '#22c55e', '#8b5cf6', '#f97316'];
+// Payment colours are reserved for payment state, never pupil identity.
+const EVENT_COLORS = ['#0ea5e9', '#4f46e5', '#6366f1', '#a855f7', '#ec4899', '#7c3aed', '#8b5cf6', '#c026d3'];
 const CALENDAR_PAID_EVENT_COLOR = '#10b981';
 const CALENDAR_UNPAID_PAST_EVENT_COLOR = '#f43f5e';
 const CALENDAR_PARTIAL_PAYMENT_EVENT_COLOR = '#f59e0b';
@@ -5002,7 +5003,12 @@ const TeacherCalendarSection = ({
                                       openEventDetailsModal(event, dayKey);
                                     }}
                                   >
-                                    <div className={`truncate text-[11px] font-bold leading-tight ${cancelled ? 'line-through' : ''}`}>{cardPrimaryLabel}</div>
+                                    <div className="teacher-calendar-shell__event-heading">
+                                      <div className={`min-w-0 flex-1 truncate text-[11px] font-bold leading-tight ${cancelled ? 'line-through' : ''}`}>{cardPrimaryLabel}</div>
+                                      {!availabilityShareMode && !cancelled && !isGroupEvent && !trialMarked && paidMarked && (
+                                        <span className="teacher-calendar-shell__paid-badge"><CheckCircle size={10} aria-hidden="true" />Оплачено</span>
+                                      )}
+                                    </div>
                                     {cancelled && !availabilityShareMode && (
                                       <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-white/20 px-1 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
                                         <Ban size={9} /> Отменено

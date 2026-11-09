@@ -782,3 +782,5 @@ html[data-theme='dark'] .teacher-calendar-shell__payment-reminder {
 .teacher-calendar-drag-edge span{writing-mode:vertical-rl;font-size:10px;font-weight:700;letter-spacing:.3px}.teacher-calendar-drag-edge.is-active{background:#bae6fdbb;color:#075985}
 :is(.dark,[data-theme=dark]) .teacher-calendar-drag-hint{background:#102f46;border-color:#155e75;color:#a5e3ff}
 :is(.dark,[data-theme=dark]) .teacher-calendar-drag-edge{background:#164e6355;color:#7dd3fc}:is(.dark,[data-theme=dark]) .teacher-calendar-drag-edge.is-active{background:#155e75cc;color:#e0f2fe}
+.teacher-calendar-shell__event-heading { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.teacher-calendar-shell__paid-badge { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; padding: 1px 4px; border-radius: 4px; background: rgba(255,255,255,.22); color: #fff; font-size: 9px; font-weight: 750; line-height: 12px; white-space: nowrap; }
