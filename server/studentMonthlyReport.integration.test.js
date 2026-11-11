@@ -154,6 +154,37 @@ test('teacher can generate a monthly report only for an accessible student', { t
     const studentsResponse = await request('/api/students', teacherOneToken);
     assert.ok(studentsResponse[0].monthlyReportSentMonths[month]);
 
+    const defer = (token, studentId, deferred, expected = 200) => request('/api/student-month-report/status', token, expected, {
+      method: 'PATCH', body: JSON.stringify({ studentId, month, deferred }),
+    });
+    const deferred = await defer(teacherOneToken, 'student-renumbered', true);
+    assert.equal(deferred.deferred, true);
+    assert.equal(deferred.sent, false);
+    assert.ok(deferred.monthlyReportDeferredMonths[month]);
+    assert.deepEqual(deferred.monthlyReportSentMonths, {});
+    const persisted = await request('/api/students', teacherOneToken);
+    assert.ok(persisted.find(student => student.id === 'student-renumbered').monthlyReportDeferredMonths[month]);
+    assert.ok(persisted.find(student => student.id === 'student-one').monthlyReportSentMonths[month]);
+    assert.deepEqual(persisted.find(student => student.id === 'student-one').monthlyReportDeferredMonths, {});
+    const restored = await defer(teacherOneToken, 'student-renumbered', false);
+    assert.equal(restored.deferred, false);
+    assert.equal(restored.sent, false);
+    await defer(teacherOneToken, 'student-renumbered', true);
+    const sentAfterDefer = await request('/api/student-month-report/status', teacherOneToken, 200, {
+      method: 'PATCH', body: JSON.stringify({ studentId: 'student-renumbered', month, sent: true }),
+    });
+    assert.equal(sentAfterDefer.sent, true);
+    assert.equal(sentAfterDefer.deferred, false);
+    assert.deepEqual(sentAfterDefer.monthlyReportDeferredMonths, {});
+    assert.equal((await defer(teacherOneToken, 'student-one', true)).sent, true, 'deferral must not unset an already sent report');
+    await defer(teacherTwoToken, 'student-one', true, 403);
+    const studentToken = await login('student-one-code');
+    await defer(studentToken, 'student-one', true, 403);
+    await request('/api/student-month-report/status', teacherOneToken, 400, {
+      method: 'PATCH', body: JSON.stringify({ studentId: 'student-one', month, deferred: 'true' }),
+    });
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json'), 'utf8'))['student-renumbered'], savedHistory);
+
     await request(
       '/api/student-month-report/status',
       teacherTwoToken,

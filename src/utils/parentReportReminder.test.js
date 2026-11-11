@@ -54,3 +54,16 @@ test('skipping October preserves that dismissal on reopen and lets the November 
   assert.equal(next.due, true);
   assert.equal(readParentReportSnooze('teacher-a', next.month, storage), '');
 });
+
+test('individual deferral only affects the selected pupil/month and is not a sent report', () => {
+  const students = [
+    { id: 'a', name: 'Анна', monthlyReportDeferredMonths: { '2026-10': 'deferred-at' } },
+    { id: 'b', name: 'Борис' },
+    { id: 'c', name: 'Вера', monthlyReportSentMonths: { '2026-10': 'sent-at' }, monthlyReportDeferredMonths: { '2026-10': 'old-defer' } },
+  ];
+  const contacts = Object.fromEntries(students.map(student => [student.id, { url: '@parent_test' }]));
+  const october = parentReportRecipients(students, contacts, '2026-10');
+  assert.deepEqual(october.map(row => [row.student.id, row.sent, row.deferred]), [['b', false, false], ['a', false, true], ['c', true, false]]);
+  assert.equal(october.filter(row => !row.sent && !row.deferred).length, 1);
+  assert.equal(parentReportRecipients(students, contacts, '2026-11').filter(row => !row.sent && !row.deferred).length, 3);
+});

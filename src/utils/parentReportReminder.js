@@ -16,8 +16,10 @@ export function parentReportRecipients(students = [], contacts = {}, month) {
     let contact;
     try { contact = normalizeStudentParentContact(contacts[student.id] || {}); } catch { return []; }
     if (!contact.url) return [];
-    return [{ student, contact, sent: Boolean(student.monthlyReportSentMonths?.[month]) }];
-  }).sort((a, b) => Number(a.sent) - Number(b.sent) || String(a.student.name || '').localeCompare(String(b.student.name || ''), 'ru'));
+    const sent = Boolean(student.monthlyReportSentMonths?.[month]);
+    return [{ student, contact, sent, deferred: !sent && Boolean(student.monthlyReportDeferredMonths?.[month]) }];
+  }).sort((a, b) => (a.sent ? 2 : a.deferred ? 1 : 0) - (b.sent ? 2 : b.deferred ? 1 : 0)
+    || String(a.student.name || '').localeCompare(String(b.student.name || ''), 'ru'));
 }
 
 export const parentReportSnoozeKey = (userId, month) => `ivan100:parent-report-reminder:${userId}:${month}`;

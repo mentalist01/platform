@@ -2302,6 +2302,7 @@ const TeacherPanel = ({
       onStudentUpdated?.({
         ...student,
         monthlyReportSentMonths: result?.monthlyReportSentMonths || {},
+        monthlyReportDeferredMonths: result?.monthlyReportDeferredMonths || {},
       });
     } catch (err) {
       setStudentActionError(err?.message || String(err));

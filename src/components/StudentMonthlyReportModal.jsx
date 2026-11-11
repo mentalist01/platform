@@ -400,7 +400,7 @@ const StudentMonthlyReportModal = ({ student, onClose, initialMonth, onStudentUp
     try {
       const result = await api.updateStudentMonthlyReportStatus(student.id, month, sent);
       setSentMonths(result.monthlyReportSentMonths || {});
-      onStudentUpdated?.({ id: student.id, monthlyReportSentMonths: result.monthlyReportSentMonths || {} });
+      onStudentUpdated?.({ id: student.id, monthlyReportSentMonths: result.monthlyReportSentMonths || {}, monthlyReportDeferredMonths: result.monthlyReportDeferredMonths || {} });
     } catch (failure) { setStatusError(failure.message || 'Не удалось сохранить отметку.'); }
     finally { setStatusSaving(false); }
   };

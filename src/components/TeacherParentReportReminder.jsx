@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, Check, FileText, X } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, FileText, Undo2, X } from 'lucide-react';
 import { api } from '../services/api';
 import useStudentParentContacts from '../hooks/useStudentParentContacts';
 import { isCurrentStudent } from '../utils/studentStudyStatus';
@@ -10,9 +10,10 @@ import './TeacherParentReportReminder.css';
 
 const deviceStorage = () => { try { return window.localStorage; } catch { return undefined; } };
 
-function ReportRecipientsDialog({ rows, month, busy, error, skipped, onOpen, onSent, onClose, onSkip }) {
+function ReportRecipientsDialog({ rows, month, busy, error, skipped, onOpen, onSent, onDefer, onClose, onSkip }) {
   const dialog = useRef(null);
-  const pending = rows.filter(row => !row.sent).length;
+  const pending = rows.filter(row => !row.sent && !row.deferred).length;
+  const deferredCount = rows.filter(row => row.deferred).length;
   const monthLabel = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' }).format(new Date(`${month}-15T12:00:00Z`));
   useEffect(() => {
     const previous = document.activeElement, element = dialog.current;
@@ -23,14 +24,20 @@ function ReportRecipientsDialog({ rows, month, busy, error, skipped, onOpen, onS
     onCancel={event => { event.preventDefault(); onClose(); }}>
     <header><span className="parent-report-reminder__icon"><FileText size={24} /></span><div><small>ИТОГИ МЕСЯЦА · {monthLabel}</small><h2 id="parent-report-reminder-title">Отчёты родителям</h2></div>
       <button type="button" className="parent-report-reminder__close" onClick={onClose} aria-label="Закрыть напоминание"><X size={20} /></button></header>
-    <p className="parent-report-reminder__intro">{pending ? `Осталось отправить: ${pending} из ${rows.length}.` : 'Все отчёты отмечены как отправленные.'} Здесь ученики с сохранённым контактом родителя.</p>
+    <p className="parent-report-reminder__intro">{pending ? `Осталось отправить: ${pending} из ${rows.length}.` : deferredCount ? 'На этот месяц напоминаний больше нет.' : 'Все отчёты отмечены как отправленные.'}{deferredCount > 0 && ` Отложено до следующего месяца: ${deferredCount}.`} Здесь ученики с сохранённым контактом родителя.</p>
     <p className="parent-report-reminder__hint">Откройте отчёт, проверьте текст и нажмите «Отправить». После отправки сообщения поставьте отметку.</p>
     {error && <p role="alert" className="parent-report-reminder__error">{error}</p>}
-    <div className="parent-report-reminder__list">{rows.map(({ student, contact, sent }) => <article key={student.id} data-sent={sent}>
+    <div className="parent-report-reminder__list">{rows.map(({ student, contact, sent, deferred }) => <article key={student.id} data-sent={sent} data-deferred={deferred}>
       <span className="parent-report-reminder__avatar">{sent ? <Check size={20} /> : String(student.name || '?').slice(0, 1)}</span>
       <div className="parent-report-reminder__person"><strong>{student.name || 'Ученик'}</strong><span>{contact.name || 'Имя родителя не указано'}{!isCurrentStudent(student) ? ' · сейчас не учится' : ''}</span>
-        <label><input type="checkbox" checked={sent} disabled={Boolean(busy)} onChange={event => onSent(student, event.target.checked)} aria-label={`Отчёт отправлен · ${student.name}`} />{sent ? 'Отправлен' : 'Отчёт ещё не отправлен'}</label></div>
-      <button type="button" onClick={() => onOpen(student)} aria-label={`Открыть отчёт · ${student.name}`}>Открыть отчёт <ArrowRight size={15} /></button>
+        <label><input type="checkbox" checked={sent} disabled={Boolean(busy)} onChange={event => onSent(student, event.target.checked)} aria-label={`Отчёт отправлен · ${student.name}`} />{sent ? 'Отправлен' : 'Отчёт ещё не отправлен'}</label>
+        {deferred && <span className="parent-report-reminder__deferred" role="status"><CalendarClock size={13} />Напомнить за следующий месяц</span>}</div>
+      <div className="parent-report-reminder__row-actions">
+        <button type="button" onClick={() => onOpen(student)} aria-label={`Открыть отчёт · ${student.name}`}>Открыть отчёт <ArrowRight size={15} /></button>
+        {!sent && <button type="button" className="parent-report-reminder__defer" disabled={Boolean(busy)} onClick={() => onDefer(student, !deferred)} aria-label={`${deferred ? 'Вернуть напоминание' : 'Отправлю в следующем месяце'} · ${student.name}`}>
+          {deferred ? <Undo2 size={14} /> : <CalendarClock size={14} />}{deferred ? 'Вернуть напоминание' : 'Отправлю в следующем месяце'}
+        </button>}
+      </div>
     </article>)}</div>
     <footer>
       <span>{skipped ? 'Следующее напоминание будет за новый отчётный месяц.' : 'Отправка остаётся под вашим контролем.'}</span>
@@ -51,7 +58,7 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
   const period = parentReportPeriod(now);
   const reportMonth = typeof open === 'string' && open ? open : period.month;
   const rows = useMemo(() => parentReportRecipients(students, contacts, reportMonth), [students, contacts, reportMonth]);
-  const pending = rows.filter(row => !row.sent).length;
+  const pending = rows.filter(row => !row.sent && !row.deferred).length;
   const reportDismissal = month => dismissed?.userId === userId && dismissed.month === month
     ? dismissed.until : readParentReportSnooze(userId, month, deviceStorage());
   const until = reportDismissal(period.month);
@@ -81,8 +88,17 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
     setBusy(student.id); setError('');
     try {
       const result = await api.updateStudentMonthlyReportStatus(student.id, reportMonth, sent);
-      onStudentUpdated?.({ id: student.id, monthlyReportSentMonths: result.monthlyReportSentMonths });
+      onStudentUpdated?.({ id: student.id, monthlyReportSentMonths: result.monthlyReportSentMonths, monthlyReportDeferredMonths: result.monthlyReportDeferredMonths });
     } catch (failure) { setError(failure.message || 'Не удалось сохранить отметку.'); }
+    finally { setBusy(''); }
+  };
+  const deferReport = async (student, deferred) => {
+    if (busy) return;
+    setBusy(student.id); setError('');
+    try {
+      const result = await api.deferStudentMonthlyReport(student.id, reportMonth, deferred);
+      onStudentUpdated?.({ id: student.id, monthlyReportSentMonths: result.monthlyReportSentMonths, monthlyReportDeferredMonths: result.monthlyReportDeferredMonths });
+    } catch (failure) { setError(failure.message || 'Не удалось сохранить перенос напоминания.'); }
     finally { setBusy(''); }
   };
   if (paused || (!rows.length && !contactError)) return null;
@@ -90,7 +106,7 @@ export default function TeacherParentReportReminder({ userId, students = [], onS
   return <>
     {showEntry && <button type="button" className="parent-report-reminder__entry" onClick={() => { setOpen(period.month); setError(''); }}><FileText size={17} />Отчёты родителям{pending > 0 && until !== PARENT_REPORT_NEXT_CYCLE && <b>{pending}</b>}</button>}
     {open && !selected && <ReportRecipientsDialog rows={rows} month={reportMonth} busy={busy} error={error || contactError} skipped={skipped}
-      onOpen={student => setSelected({ id: student.id, month: reportMonth })} onSent={markSent} onClose={() => dismiss()} onSkip={() => dismiss(true)} />}
+      onOpen={student => setSelected({ id: student.id, month: reportMonth })} onSent={markSent} onDefer={deferReport} onClose={() => dismiss()} onSkip={() => dismiss(true)} />}
     {selectedStudent && <StudentMonthlyReportModal key={selectedStudent.id} student={selectedStudent} initialMonth={selected.month} onStudentUpdated={onStudentUpdated} onClose={() => setSelected(null)} />}
   </>;
 }

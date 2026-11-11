@@ -38441,22 +38441,29 @@ app.patch('/api/student-month-report/status', (req, res) => {
   if (month > currentMonth) {
     return res.status(400).json({ error: 'Нельзя отметить отчёт за будущий месяц' });
   }
+  if (typeof req.body?.sent !== 'boolean' && typeof req.body?.deferred !== 'boolean') {
+    return res.status(400).json({ error: 'Укажите отметку отправки или перенос напоминания' });
+  }
 
   const students = readStudentsDb();
   const index = students.findIndex((entry) => entry?.id === student.id);
   if (index < 0) return res.status(404).json({ error: 'Ученик не найден' });
-  const existing = students[index]?.monthlyReportSentMonths;
-  const monthlyReportSentMonths = existing && typeof existing === 'object' && !Array.isArray(existing)
+  const normalizeMonths = existing => existing && typeof existing === 'object' && !Array.isArray(existing)
     ? Object.fromEntries(Object.entries(existing).filter(([key, value]) => (
       Boolean(normalizeStudentReportMonth(key)) && typeof value === 'string' && Boolean(value.trim())
     )))
     : {};
+  const monthlyReportSentMonths = normalizeMonths(students[index].monthlyReportSentMonths);
+  const monthlyReportDeferredMonths = normalizeMonths(students[index].monthlyReportDeferredMonths);
   if (req.body?.sent === true) monthlyReportSentMonths[month] = new Date().toISOString();
-  else delete monthlyReportSentMonths[month];
+  else if (req.body?.sent === false) delete monthlyReportSentMonths[month];
+  if (req.body?.deferred === true && !monthlyReportSentMonths[month]) monthlyReportDeferredMonths[month] = new Date().toISOString();
+  else if (req.body?.deferred === false || req.body?.sent === true) delete monthlyReportDeferredMonths[month];
 
   students[index] = {
     ...students[index],
     monthlyReportSentMonths,
+    monthlyReportDeferredMonths,
   };
   writeStudentsDb(students);
   res.setHeader('Cache-Control', 'no-store');
@@ -38467,6 +38474,8 @@ app.patch('/api/student-month-report/status', (req, res) => {
     sent: Boolean(monthlyReportSentMonths[month]),
     sentAt: monthlyReportSentMonths[month] || null,
     monthlyReportSentMonths,
+    deferred: Boolean(monthlyReportDeferredMonths[month]),
+    monthlyReportDeferredMonths,
   });
 });
 
