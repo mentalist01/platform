@@ -307,6 +307,7 @@ import {
 import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
 import {registerMockExamBoardTasks} from './mockExamBoardTasks.js';
+import {buildMockTaskBankSnapshot, resolveMockTaskBankNumber, withMockTaskBankSnapshot} from './mockExamTaskRouting.js';
 import {monthlyMockReviewAttempt} from '../src/utils/monthlyMockReviewAttempt.js';
 import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
 import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
@@ -24304,7 +24305,10 @@ registerMockExamBoardTasks(app,preparedLessonTasks,{
     let selected;
     try{({selected}=monthlyMockReviewAttempt([exam],current,source));}catch(error){throw Object.assign(error,{status:409});}
     if(!selected.attempt.finishedAt&&!selected.attempt.timerFinishedAt&&selected.attempt.status!=='finished')throw Object.assign(Error('Сначала завершите пробник'),{status:409});
-    const taskKey=String(source.taskKey||'');return {exam:selected.exam,question:selected.exam.tasks?.[taskKey],taskKey};
+    const taskKey=String(source.taskKey||''),question=selected.exam.tasks?.[taskKey];
+    const bank=resolveMockTaskBankNumber({slotNumber:taskKey,question,exam:selected.exam,taskCatalog:readClassicTaskCatalogForTeacher(student.teacherId).activeTasks});
+    if(!question||!bank)throw Object.assign(Error('Раздел задания больше не доступен. Проверьте нумерацию пробника.'),{status:409});
+    return {exam:selected.exam,question:{...question,sourceTaskNumber:bank},taskKey};
   },
   attachmentPath:asset=>{
     let name=asset.storageName;
@@ -32915,6 +32919,7 @@ app.post('/api/mock-exams', (req, res) => {
     updatedAt: new Date().toISOString(),
     tasks: {},
     taskTitleSnapshot: getMockTaskTitleSnapshot(getTaskContentTeacherIdForAuth(req.auth)),
+    taskBankSnapshot: buildMockTaskBankSnapshot(readClassicTaskCatalogForTeacher(getTaskContentTeacherIdForAuth(req.auth)).activeTasks),
     badges: [],
     access: { all: false, students: [], mode: MOCK_ATTEMPT_MODE_TIMER },
   };
@@ -33615,7 +33620,8 @@ app.put('/api/mock-exams/attempt', (req, res) => {
   const startsNewAttemptVersion = Boolean(
     startsNewHomeworkAttempt || canRestartTimerAttempt || !previousAttemptId
   );
-  const attemptExam = startsNewAttemptVersion ? exam : previousAttemptExam;
+  const attemptExam = withMockTaskBankSnapshot(startsNewAttemptVersion ? exam : previousAttemptExam,
+    readClassicTaskCatalogForTeacher(student.teacherId).activeTasks);
   const attemptExamSnapshot = createMockExamSnapshot(attemptExam);
   const timerRewardsRestoredAt = normalizeMockTimerTimestamp(previousAttempt?.timerRewardsRestoredAt);
   const canRestartWithRestoredTimerRewards = Boolean(canRestartTimerAttempt && timerRewardsRestoredAt);
@@ -33816,6 +33822,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       testsDb: readTestsDbForStudent(student),
       solvedByTask: data.solvedByTask,
       enqueueReview: attemptNumber === 1,
+      taskCatalog: readClassicTaskCatalogForTeacher(student.teacherId).activeTasks,
     });
     const primaryScore = getMockPrimaryScoreFromSolved(normalizedAttempt.solved);
     mockAttemptResults = followup.history.map((entry) => (
@@ -34109,6 +34116,7 @@ app.patch('/api/mock-exams/:id', (req, res) => {
     ...current,
     title: trimmed || current.title,
     tasks: nextTasks,
+    taskBankSnapshot: withMockTaskBankSnapshot(current, readClassicTaskCatalogForTeacher(getTaskContentTeacherIdForAuth(req.auth)).activeTasks).taskBankSnapshot,
     contentRevision: tasksChanged
       ? getMockExamContentRevision(current) + 1
       : getMockExamContentRevision(current),

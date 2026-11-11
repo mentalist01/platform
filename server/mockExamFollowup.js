@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { resolveMockTaskBankNumber } from './mockExamTaskRouting.js';
 
 export const MOCK_EXAM_FOLLOWUP_DEFAULT_LEVEL_ID = 'basic';
 export const MOCK_EXAM_FOLLOWUP_LEVEL_IDS = Object.freeze(['basic', 'advanced', 'expert']);
@@ -34,9 +35,10 @@ const normalizeTaskNumber = (value) => {
   return number;
 };
 
-const getDestinationTaskNumber = (sourceTaskNumber) => (
-  sourceTaskNumber === 20 || sourceTaskNumber === 21 ? 19 : sourceTaskNumber
-);
+const normalizeBankNumber = value => {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 1 && number <= 99 ? number : null;
+};
 
 const normalizeLevelId = (value) => {
   const levelId = normalizeText(value).toLowerCase();
@@ -113,7 +115,7 @@ export const normalizeMockExamFollowupQueue = (value) => {
     if (!isRecord(entry) || !isRecord(entry.question)) return;
     const sourceKey = normalizeText(entry.sourceKey);
     const sourceMockTaskNumber = normalizeTaskNumber(entry.sourceMockTaskNumber);
-    const destinationTaskNumber = normalizeTaskNumber(entry.destinationTaskNumber);
+    const destinationTaskNumber = normalizeBankNumber(entry.destinationTaskNumber);
     if (
       !sourceKey
       || seenSourceKeys.has(sourceKey)
@@ -331,6 +333,7 @@ export const finalizeMockExamFollowup = ({
   testsDb,
   solvedByTask,
   enqueueReview = true,
+  taskCatalog,
 } = {}) => {
   if (!isRecord(exam) || !isRecord(exam.tasks)) {
     throw new TypeError('exam with tasks is required');
@@ -389,7 +392,10 @@ export const finalizeMockExamFollowup = ({
     });
     if (!sourceKey || knownSourceKeys.has(sourceKey)) return;
 
-    const destinationTaskNumber = getDestinationTaskNumber(sourceMockTaskNumber);
+    const destinationTaskNumber = resolveMockTaskBankNumber({
+      slotNumber: sourceMockTaskNumber, question: sourceQuestion, exam, taskCatalog,
+    });
+    if (destinationTaskNumber === null) return;
     const levelId = normalizeLevelId(sourceQuestion.sourceLevelId);
     const currentPersonalTestsDb = mergeMockExamFollowupQueueIntoTestsDb({
       testsDb,
@@ -409,11 +415,13 @@ export const finalizeMockExamFollowup = ({
       taskNumber: sourceMockTaskNumber,
       label,
     };
-    const answerCountOverride = MOCK_GAME_THEORY_ANSWER_COUNTS[sourceMockTaskNumber] || null;
+    const answerCountOverride = destinationTaskNumber === 19
+      ? MOCK_GAME_THEORY_ANSWER_COUNTS[sourceMockTaskNumber] || null : null;
     const question = {
       ...cloneValue(sourceQuestion),
       id: buildMockExamFollowupQuestionId(sourceKey),
       sourceMockTaskNumber,
+      sourceTaskNumber: destinationTaskNumber,
       mockExamSource,
       ...(answerCountOverride !== null ? { answerCountOverride } : {}),
     };
