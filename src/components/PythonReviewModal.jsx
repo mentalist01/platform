@@ -6,6 +6,7 @@ import { PythonExplanationBoardButton } from './PythonExplanationBoard';
 import PythonLessonToolbar from './PythonLessonToolbar';
 import {hasPythonEditorPeer, pythonPeerTaskPosition} from '../utils/pythonLessonPresence.js';
 import {PythonPeerMarker} from './PythonLessonPresence';
+import usePythonSolvedProgress from '../hooks/usePythonSolvedProgress';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Editor from './SelfHostedMonacoEditor';
@@ -947,22 +948,17 @@ const PythonReviewModal = ({
     }
     setTestResults([]);
     setRunnerError('');
-    if (studentId) {
-      api.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
-        .then((payload) => {
-          if (Array.isArray(payload)) {
-            setSolvedIds(new Set(payload.map((id) => String(id))));
-            setSolvedCodeById({});
-          } else {
-            const ids = Array.isArray(payload?.ids) ? payload.ids : [];
-            const codeById = payload?.codeById && typeof payload.codeById === 'object' ? payload.codeById : {};
-            setSolvedIds(new Set(ids.map((id) => String(id))));
-            setSolvedCodeById(codeById);
-          }
-        })
-        .catch((err) => console.error(err));
-    }
   }, [task?.number, subsectionModel, studentId, PYTHON_LEVEL_ID, initialQuestionIndex]);
+
+  usePythonSolvedProgress({
+    studentId, taskNumber: task?.number, levelId: PYTHON_LEVEL_ID,
+    catalog: subsectionModel, resetKey: initialQuestionIndex,
+    onSnapshot: payload => {
+      const ids = Array.isArray(payload) ? payload : Array.isArray(payload?.ids) ? payload.ids : [];
+      setSolvedIds(new Set(ids.map(String)));
+      setSolvedCodeById(payload?.codeById && typeof payload.codeById === 'object' ? payload.codeById : {});
+    },
+  });
 
   useEffect(() => {
     if (!questions.length) return;

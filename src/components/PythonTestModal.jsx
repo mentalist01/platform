@@ -6,6 +6,7 @@ import { PythonExplanationBoardButton } from './PythonExplanationBoard';
 import PythonLessonToolbar from './PythonLessonToolbar';
 import {hasPythonEditorPeer, pythonPeerTaskPosition} from '../utils/pythonLessonPresence.js';
 import {PythonPeerMarker} from './PythonLessonPresence';
+import usePythonSolvedProgress from '../hooks/usePythonSolvedProgress';
 import PythonHomeworkBadge from './PythonHomeworkBadge';
 import { normalizePythonHomeworkNumbers, firstUnsolvedPythonHomeworkIndex } from '../utils/pythonHomeworkLaunch.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -1108,26 +1109,6 @@ const PythonTestModal = ({
     setTestResults([]);
     setRunnerError('');
     if (studentId) {
-      persistence.getSolvedQuestions(studentId, task.number, PYTHON_LEVEL_ID, { includeCode: true })
-        .then((payload) => {
-          if (cancelled) return;
-          const loadedIds = new Set((Array.isArray(payload) ? payload : payload?.ids || []).map(String));
-          if (homeworkStartPendingRef.current) {
-            homeworkStartPendingRef.current = false;
-            const firstPending = firstUnsolvedPythonHomeworkIndex(list, homeworkTargets, loadedIds);
-            if (firstPending >= 0) setCurrentIndex(firstPending);
-          }
-          if (Array.isArray(payload)) {
-            setSolvedIds(new Set(payload.map((id) => String(id))));
-            setSolvedCodeById({});
-          } else {
-            const ids = Array.isArray(payload?.ids) ? payload.ids : [];
-            const codeById = payload?.codeById && typeof payload.codeById === 'object' ? payload.codeById : {};
-            setSolvedIds(new Set(ids.map((id) => String(id))));
-            setSolvedCodeById(codeById);
-          }
-        })
-        .catch((err) => console.error(err));
       persistence.getAnswerHistory(studentId, task.number, PYTHON_LEVEL_ID)
         .then((payload) => {
           if (cancelled) return;
@@ -1142,6 +1123,22 @@ const PythonTestModal = ({
     }
     return () => { cancelled = true; };
   }, [task?.number, subsectionModel, studentId, persistence]);
+
+  usePythonSolvedProgress({
+    studentId, taskNumber: task?.number, levelId: PYTHON_LEVEL_ID,
+    catalog: subsectionModel, persistence, live: !guestSession,
+    onSnapshot: payload => {
+      const loadedIds = Array.isArray(payload) ? payload : Array.isArray(payload?.ids) ? payload.ids : [];
+      const ids = new Set(loadedIds.map(String));
+      if (homeworkStartPendingRef.current) {
+        homeworkStartPendingRef.current = false;
+        const firstPending = firstUnsolvedPythonHomeworkIndex(subsectionModel.questions, homeworkNumbers, ids);
+        if (firstPending >= 0) setCurrentIndex(firstPending);
+      }
+      setSolvedIds(ids);
+      setSolvedCodeById(payload?.codeById && typeof payload.codeById === 'object' ? payload.codeById : {});
+    },
+  });
 
   useEffect(() => {
     if (!questions.length) return;

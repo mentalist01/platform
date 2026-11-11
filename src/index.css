@@ -68916,6 +68916,21 @@ body:has(.python-runtime-modal-shell--solve) .theme-toggle--desktop {
   background: var(--rt-green-bright) !important;
 }
 
+.python-runtime-modal-shell--solve:not(.python-runtime-modal-shell--group-progress) .python-runtime-task-chip[data-solved='true'][data-current='true'],
+.python-runtime-modal-shell--solve:not(.python-runtime-modal-shell--group-progress) .python-runtime-task-strip[data-dense='true'] .python-runtime-task-chip[data-solved='true'][data-current='true'] {
+  border-color: var(--rt-green-bright) !important;
+  color: var(--rt-green-ink) !important;
+  background: var(--rt-green-soft) !important;
+  box-shadow: 0 0 0 1px var(--rt-green-bright), 0 4px 12px var(--rt-green-glow) !important;
+}
+
+.python-runtime-modal-shell--solve:not(.python-runtime-modal-shell--group-progress) .python-runtime-task-chip[data-solved='true'][data-current='true'] > div > div:first-child,
+.python-runtime-modal-shell--solve:not(.python-runtime-modal-shell--group-progress) .python-runtime-task-strip[data-dense='true'] .python-runtime-task-chip[data-solved='true'][data-current='true'] > div > div:first-child {
+  border-color: transparent !important;
+  color: #ffffff !important;
+  background: var(--rt-green-bright) !important;
+}
+
 .python-runtime-modal-shell--solve .python-runtime-workspace {
   margin-top: 0.15rem;
   padding: 0.2rem 0 !important;
