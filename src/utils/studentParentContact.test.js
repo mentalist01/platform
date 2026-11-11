@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeStudentParentContact, normalizeStudentContact, studentContactDraft, studentContactLinks, copyParentMessage } from './studentParentContact.js';
+import { normalizeStudentParentContact, normalizeStudentContact, studentContactChannel, studentContactDraft, studentContactLinks, copyParentMessage } from './studentParentContact.js';
+
+test('first contact opens an empty editor when the service has no saved contact', () => {
+  for (const absent of [null, undefined, {}]) {
+    assert.equal(studentContactChannel(absent), 'auto');
+    const draft = studentContactDraft(absent);
+    assert.deepEqual(draft, { name: '', contacts: [{ label: '', value: '', channel: 'auto' }], notes: '' });
+    for (const normalize of [normalizeStudentContact, normalizeStudentParentContact]) {
+      draft.contacts[0] = { label: 'Telegram', value: '@example_pupil', channel: 'telegram' };
+      const saved = normalize(draft);
+      assert.equal(saved.url, 'https://t.me/example_pupil');
+      assert.deepEqual(normalize(studentContactDraft(saved)), saved);
+    }
+  }
+});
 
 test('pupil contacts accept the same safe messenger formats with their own validation labels', () => {
   assert.equal(normalizeStudentContact({url:'@example_pupil'}).url,'https://t.me/example_pupil');

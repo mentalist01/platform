@@ -11,7 +11,7 @@ function phoneDigits(phone) {
 }
 
 export function studentContactChannel(value = {}) {
-  const link = String(value.url || value.value || '').trim();
+  const link = String(value?.url || value?.value || '').trim();
   if (/^(?:https?:\/\/)?(?:wa\.me|(?:api\.|web\.)?whatsapp\.com)(?:\/|$)/i.test(link)) return 'whatsapp';
   if (/^(?:https?:\/\/)?(?:t\.me|telegram\.me)(?:\/|$)/i.test(link) || /^@/.test(link)) return 'telegram';
   return link && !PHONE_FORMAT.test(link) ? 'link' : 'auto';
