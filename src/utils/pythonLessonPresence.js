@@ -32,11 +32,36 @@ export function normalizePythonLocation(value, view='python') {
 }
 
 export function pythonLocationLabel(location, role='') {
-  if (!location) return 'Не в сети';
+  if (!location) return 'Местоположение пока недоступно';
   if (location.view !== 'python') return location.view === 'schedule' && role === 'student' ? 'Домашка' : VIEWS[location.view] || 'В другом разделе платформы';
   if (location.groupMode) return 'На групповом уроке Python';
   return [location.topicTitle || 'Выбирает тему', location.subsectionTitle,
     Number.isInteger(location.questionIndex) ? `№${location.questionNumber || location.questionIndex + 1} · ${location.questionTitle}` : ''].filter(Boolean).join(' → ');
+}
+
+// Older pages still join the editor, but do not publish dashboard location.
+// Another window of the same teacher must not count as a pupil connection.
+export function hasPythonEditorPeer(states, {role, clientId}) {
+  const counterpart = role === 'teacher' ? 'student' : role === 'student' ? 'teacher' : '';
+  return Boolean(counterpart) && Array.from(states).some(([id, state]) => id !== clientId && state?.user?.role === counterpart);
+}
+
+export function pythonPresenceDisplay({peer, connected, editorPeerPresent=false, teacher=false}) {
+  const refreshNeeded = !peer && editorPeerPresent;
+  return {online:Boolean(peer) || editorPeerPresent, refreshNeeded,
+    label:peer ? pythonLocationLabel(peer.location,peer.role) : refreshNeeded
+      ? teacher ? 'Попросите ученика обновить страницу' : 'Попросите учителя обновить страницу'
+      : connected ? pythonLocationLabel(null) : 'Подключаемся…'};
+}
+
+export function pythonPeerTaskPosition(peer, taskNumber, model) {
+  const location=peer?.location;
+  if (location?.view !== 'python' || location.groupMode || location.taskNumber !== taskNumber) return null;
+  const questionIndex=location.questionId
+    ? model.questions.findIndex((question,index)=>String(question.id ?? index)===location.questionId)
+    : location.questionIndex;
+  if (!Number.isInteger(questionIndex) || !model.questions[questionIndex]) return null;
+  return {questionIndex,subsectionId:model.subsections.find(section=>section.questionIndexes.includes(questionIndex))?.id};
 }
 
 export function selectPythonPeer(states, {userId, role}) {

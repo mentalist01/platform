@@ -1,8 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {pythonPresenceLocation, normalizePythonLocation, pythonLocationLabel, selectPythonPeer, pythonSummonTarget, samePythonTask, PYTHON_PRESENCE} from './pythonLessonPresence.js';
+import {pythonPresenceLocation, normalizePythonLocation, pythonLocationLabel, selectPythonPeer, pythonSummonTarget, samePythonTask, PYTHON_PRESENCE, hasPythonEditorPeer, pythonPresenceDisplay, pythonPeerTaskPosition} from './pythonLessonPresence.js';
 
 const location={view:'python',taskNumber:101,questionIndex:2,questionId:'q3',questionNumber:1,questionTitle:'Сумма',topicTitle:'Ввод и вывод',subsectionTitle:'Числа'};
+test('navigation markers follow stable question IDs and never mark another topic or a missing task',()=>{
+  const model={questions:[{id:'q3'},{id:'q1'}],subsections:[{id:'numbers',questionIndexes:[0]},{id:'exact',questionIndexes:[1]}]};
+  const peer={location};
+  assert.deepEqual(pythonPeerTaskPosition(peer,101,model),{questionIndex:0,subsectionId:'numbers'});
+  assert.equal(pythonPeerTaskPosition(peer,102,model),null);
+  assert.equal(pythonPeerTaskPosition({...peer,location:{...location,questionId:'deleted'}},101,model),null);
+  assert.equal(pythonPeerTaskPosition({...peer,location:{...location,view:'homework'}},101,model),null);
+  assert.equal(pythonPeerTaskPosition({...peer,location:{...location,groupMode:true}},101,model),null);
+  assert.equal(pythonPeerTaskPosition(null,101,model),null);
+});
+test('legacy editor presence suggests refreshing without claiming the pupil is offline',()=>{
+  const states=new Map([[1,{user:{role:'teacher'}}],[2,{user:{role:'teacher'}}]]);
+  assert.equal(hasPythonEditorPeer(states,{role:'teacher',clientId:1}),false);
+  states.set(3,{user:{role:'student'}});
+  const editorPeerPresent=hasPythonEditorPeer(states,{role:'teacher',clientId:1});
+  assert.equal(editorPeerPresent,true);
+  assert.deepEqual(pythonPresenceDisplay({connected:true,peer:null,editorPeerPresent,teacher:true}),
+    {online:true,refreshNeeded:true,label:'Попросите ученика обновить страницу'});
+  assert.equal(pythonPresenceDisplay({connected:false,peer:null,editorPeerPresent,teacher:false}).label,'Попросите учителя обновить страницу');
+  assert.deepEqual(pythonPresenceDisplay({connected:true,peer:null}),
+    {online:false,refreshNeeded:false,label:'Местоположение пока недоступно'});
+  assert.equal(pythonPresenceDisplay({connected:false,peer:null}).label,'Подключаемся…');
+  const modern=pythonPresenceDisplay({connected:true,peer:{location,role:'student'},editorPeerPresent,teacher:true});
+  assert.equal(modern.refreshNeeded,false);
+  assert.equal(modern.label,pythonLocationLabel(location));
+  states.delete(3);
+  assert.equal(hasPythonEditorPeer(states,{role:'teacher',clientId:1}),false);
+  assert.equal(hasPythonEditorPeer(new Map([[1,{user:{role:'student'}}]]),{role:'student',clientId:1}),false);
+});
 test('presence shows the topic, subsection and local task number without leaking answers or code',()=>{
   const entry={pythonSubsections:[{id:'strings',title:'Строки'},{id:'numbers',title:'Числа'}],python:[
     {id:'q1',subsectionId:'strings'},{id:'q2',subsectionId:'strings'},{id:'q3',title:'Сумма',subsectionId:'numbers',answer:'secret',starterCode:'private'}]};

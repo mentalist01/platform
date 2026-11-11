@@ -4,6 +4,8 @@ import RutubeChapterPlayer from './RutubeChapterPlayer';
 import { videoChapterMetadata } from '../utils/videoChapters';
 import { PythonExplanationBoardButton } from './PythonExplanationBoard';
 import PythonLessonToolbar from './PythonLessonToolbar';
+import {hasPythonEditorPeer, pythonPeerTaskPosition} from '../utils/pythonLessonPresence.js';
+import {PythonPeerMarker} from './PythonLessonPresence';
 import PythonHomeworkBadge from './PythonHomeworkBadge';
 import { normalizePythonHomeworkNumbers, firstUnsolvedPythonHomeworkIndex } from '../utils/pythonHomeworkLaunch.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -337,6 +339,7 @@ const PythonTestModal = ({
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const [realtimeStatus, setRealtimeStatus] = useState('disconnected');
   const [realtimePeerCount, setRealtimePeerCount] = useState(0);
+  const [editorPeerPresent, setEditorPeerPresent] = useState(false);
   const [sharedRunState, setSharedRunState] = useState({
     status: 'idle',
     author: '',
@@ -381,6 +384,8 @@ const PythonTestModal = ({
   const currentMastery = progress[task.id] || 0;
   const taskEntry = useMemo(() => getPythonTaskEntry(testDb, task?.number), [testDb, task?.number]);
   const subsectionModel = useMemo(() => buildPythonSubsectionModel(taskEntry, PYTHON_LEVEL_ID), [taskEntry, PYTHON_LEVEL_ID]);
+  const locationPeer = groupMode ? null : lessonWorkspace?.presence?.peer;
+  const peerPosition = pythonPeerTaskPosition(locationPeer, task?.number, subsectionModel);
   const theorySourceEntry = useMemo(() => guestSession && guestTheoryOverride ? { pythonTheory: guestTheoryOverride } : taskEntry, [taskEntry, guestSession, guestTheoryOverride]);
   const collabBaseRoomId = String(codeSyncRoomId || '').trim();
   const collabWsUrl = useMemo(() => getCollabWsUrl(), []);
@@ -1213,6 +1218,7 @@ const PythonTestModal = ({
     if (!collabRoomId || !editorReady || !collabWsUrl || !activeQuestionId || !activeQuestionCodeLoaded) {
       setRealtimeStatus('disconnected');
       setRealtimePeerCount(0);
+      setEditorPeerPresent(false);
       collabDocRef.current = null;
       collabProviderRef.current = null;
       collabAwarenessRef.current = null;
@@ -1312,6 +1318,7 @@ const PythonTestModal = ({
     const handleAwareness = () => {
       const states = provider.awareness.getStates();
       setRealtimePeerCount(Math.max(0, states.size - 1));
+      setEditorPeerPresent(hasPythonEditorPeer(states,{role:'student',clientId:provider.awareness.clientID}));
       trySeedDocState();
     };
     const handleCodeChange = (event) => {
@@ -1393,6 +1400,7 @@ const PythonTestModal = ({
       }
       setRealtimeStatus('disconnected');
       setRealtimePeerCount(0);
+      setEditorPeerPresent(false);
       updateSharedRunStateFromMap(null);
     };
   }, [
@@ -2173,7 +2181,8 @@ const PythonTestModal = ({
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
           {lessonWorkspace && <PythonLessonToolbar name={lessonWorkspace.name || groupName}
             connected={lessonWorkspace.connected} followingTeacher={followingTeacher} tasks={lessonTopics}
-            taskNumber={task.number} onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount} presence={lessonWorkspace.presence}/>}
+            taskNumber={task.number} onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount} presence={lessonWorkspace.presence}
+            editorPeerPresent={realtimeStatus==='connected' && editorPeerPresent}/>}
           <div className={`python-runtime-header-card rounded-[22px] border ${
             isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
           } ${elevatedCardClass}`}>
@@ -2272,6 +2281,8 @@ const PythonTestModal = ({
                       onClick={() => { homeworkStartPendingRef.current = false; handleSelectSubsection(section.id); }}
                       disabled={followingTeacher}
                       data-current={section.id === activeSubsection?.id ? 'true' : 'false'}
+                      data-peer={peerPosition?.subsectionId===section.id ? 'true' : undefined}
+                      title={peerPosition?.subsectionId===section.id ? `${section.title} · ${locationPeer.name || 'Учитель'} сейчас здесь` : section.title}
                       className={`python-runtime-chip python-runtime-subsection-chip ${subsectionChipSizeClass} shrink-0 rounded-[16px] border text-left text-[11px] font-semibold transition-all ${
                         section.id === activeSubsection?.id
                           ? (isDarkTheme
@@ -2281,6 +2292,7 @@ const PythonTestModal = ({
                       }`}
                     >
                       <span className="python-runtime-subsection-number">{String(sectionIndex + 1).padStart(2, '0')}</span>
+                      {peerPosition?.subsectionId===section.id && <PythonPeerMarker peer={locationPeer}/>}
                       <span className="python-runtime-subsection-copy">
                         <span className="python-runtime-subsection-title">{section.title}</span>
                         <span className="python-runtime-subsection-count">{`${section.count} задач`}
@@ -2315,6 +2327,7 @@ const PythonTestModal = ({
                   const qId = String(item.question?.id ?? item.questionIndex);
                   const solved = visibleSolvedIds.has(qId);
                   const isCurrent = item.questionIndex === currentIndex;
+                  const isPeerHere = peerPosition?.questionIndex === item.questionIndex;
                   const inHomework = homeworkNumberSet.has(item.questionIndex + 1);
                   const buttonClass = isCurrent
                     ? (solved
@@ -2339,15 +2352,17 @@ const PythonTestModal = ({
                       onClick={() => { homeworkStartPendingRef.current = false; setCurrentIndex(item.questionIndex); }}
                       disabled={followingTeacher}
                       data-current={isCurrent ? 'true' : 'false'}
+                      data-peer={isPeerHere ? 'true' : undefined}
                       data-solved={solved ? 'true' : 'false'}
                       data-homework={inHomework ? 'true' : 'false'}
-                      aria-label={`Задача №${item.questionIndex + 1}: ${label}${inHomework ? '. Из домашки' : ''}${solved ? '. Выполнено' : ''}`}
+                      aria-label={`Задача №${item.questionIndex + 1}: ${label}${inHomework ? '. Из домашки' : ''}${solved ? '. Выполнено' : ''}${isPeerHere?`. ${locationPeer.name || 'Учитель'} сейчас здесь`:''}`}
                       aria-current={isCurrent ? 'step' : undefined}
                       className={`python-runtime-chip python-runtime-task-chip rounded-[14px] border text-left transition-all ${
                         isDenseQuestionNav ? 'w-full min-w-0 px-1.5 py-1' : 'shrink-0 min-w-[136px] px-2 py-1.5'
                       } ${buttonClass}`}
-                      title={label}
+                      title={label+(isPeerHere?` · ${locationPeer.name || 'Учитель'} сейчас здесь`:'')}
                     >
+                      {isPeerHere && <PythonPeerMarker peer={locationPeer}/>}
                       <div className={`flex ${useDenseTaskChips ? 'items-center gap-1.5' : 'items-start gap-2'}`}>
                         <div className={`inline-flex shrink-0 items-center justify-center border font-bold ${
                           solved
