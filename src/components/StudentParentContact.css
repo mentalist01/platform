@@ -1,6 +1,7 @@
 .student-parent-contact{min-width:0;margin:12px 0;padding:12px;border:1px solid rgb(var(--ink)/.12);border-radius:14px;background:rgb(var(--surface-soft));color:rgb(var(--ink));font-size:12px}
 .student-parent-contact--compact{margin:0;padding:0;border:0;background:transparent}
 .student-parent-contact__heading{display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.contact-messenger-icon{flex-shrink:0;display:block}
 .student-parent-contact__actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .student-parent-contact a,.student-parent-contact button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;padding:6px 9px;border:1px solid rgb(var(--ink)/.14);border-radius:9px;background:rgb(var(--surface));color:rgb(var(--ink));font-size:11px;font-weight:700;text-decoration:none;cursor:pointer}
 .student-parent-contact a:hover,.student-parent-contact button:hover{border-color:#a78bfa;color:#7c3aed}

@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Check, ExternalLink, Pencil, Plus, Users, User } from 'lucide-react';
+import { Check, Pencil, Plus, Users, User } from 'lucide-react';
 import { parentContacts } from '../services/studentParentContacts';
 import { studentContacts } from '../services/studentContacts';
 import { copyParentMessage, normalizeStudentParentContact, normalizeStudentContact, studentContactDraft, studentContactLinks } from '../utils/studentParentContact';
 import StudentContactFields from './StudentContactFields';
+import ContactMessengerIcon from './ContactMessengerIcon.jsx';
+import {contactDestination} from '../utils/contactDestination.js';
 import './StudentParentContact.css';
 
 export default function StudentContact({ studentId, studentName = '', messageText = '', compact = false, kind = 'student' }) {
@@ -39,21 +41,26 @@ export default function StudentContact({ studentId, studentName = '', messageTex
   try { safeContact = normalizeValue(contact || {}); } catch { safeContact = null; }
   const links=studentContactLinks(safeContact);
   const hasMessage = Boolean(String(messageText || '').trim());
+  const destination = contactDestination(safeContact?.url);
+  const openLabel = hasMessage ? 'Скопировать отчёт и открыть контакт' : `Открыть контакт ${person}`;
   return <section className={`student-parent-contact ${compact ? 'student-parent-contact--compact' : ''} ${kind === 'student' ? 'student-parent-contact--student' : ''}`}
     aria-label={`Контакт ${person}${studentName ? ` · ${studentName}` : ''}`} onClick={event => event.stopPropagation()}>
     {!compact && <strong className="student-parent-contact__heading"><ContactIcon size={16} />Контакт {person}{contact?.name ? ` · ${contact.name}` : ''}</strong>}
     <div className="student-parent-contact__actions">
       {safeContact?.url ? <>
         <a href={safeContact.url} target="_blank" rel="noopener noreferrer" className={hasMessage ? 'student-parent-contact__primary' : ''}
+          aria-label={destination ? `${openLabel} в ${destination.name}` : openLabel}
+          title={destination ? `Откроется ${destination.name}` : 'Откроется сохранённая ссылка'}
           onClick={() => { if (hasMessage) { setCopied(false); setError(''); void copyParentMessage(messageText).then(() => setCopied(true)).catch(failure => setError(failure.message)); } }}>
-          {copied ? <Check size={14} /> : <ExternalLink size={14} />}
-          {hasMessage ? 'Скопировать отчёт и открыть контакт' : `Открыть контакт ${person}`}
+          <ContactMessengerIcon url={safeContact.url} />
+          {openLabel}
+          {copied && <Check size={14} aria-hidden="true" />}
         </a>
         <button type="button" onClick={edit} aria-label={`Изменить контакт ${person}${studentName ? ` · ${studentName}` : ''}`} title={contact?.name || `Изменить контакт ${person}`}><Pencil size={14} /><span>Изменить</span></button>
       </> : <button type="button" onClick={edit} disabled={loading}><Plus size={14} />{loading ? `Контакт ${person}…` : `Добавить контакт ${person}`}</button>}
     </div>
     {(links.length>1||safeContact?.notes)&&<details className="student-parent-contact__more"><summary>{links.length>1?`Все контакты ${person} · ${links.length}`:`Заметка ${kind==='parent'?'о родителе':'об ученике'}`}</summary>
-      <div className="student-parent-contact__channels">{links.map((link,index)=><a key={index} href={link.url} target="_blank" rel="noopener noreferrer" onClick={()=>{if(hasMessage)void copyParentMessage(messageText).then(()=>setCopied(true)).catch(failure=>setError(failure.message));}}><ExternalLink size={12}/><span>{link.label || `Контакт ${index+1}`}<small>{link.value || link.url}</small></span></a>)}</div>
+      <div className="student-parent-contact__channels">{links.map((link,index)=><a key={index} href={link.url} target="_blank" rel="noopener noreferrer" title={contactDestination(link.url) ? `Откроется ${contactDestination(link.url).name}` : 'Откроется сохранённая ссылка'} onClick={()=>{if(hasMessage)void copyParentMessage(messageText).then(()=>setCopied(true)).catch(failure=>setError(failure.message));}}><ContactMessengerIcon url={link.url} size={16}/><span>{link.label || `Контакт ${index+1}`}<small>{link.value || link.url}</small></span></a>)}</div>
       {safeContact?.notes&&<p className="student-parent-contact__notes">{safeContact.notes}</p>}
     </details>}
     {contact?.providedByStudent && <small>Контакт передал ученик.</small>}
