@@ -10,5 +10,8 @@ export function contactDestination(url) {
   if (['t.me', 'telegram.me', 'telegram.org', 'web.telegram.org'].includes(host)) {
     return {id: 'telegram', name: 'Telegram'};
   }
+  if (['max.ru', 'web.max.ru'].includes(host)) {
+    return {id: 'max', name: 'MAX'};
+  }
   return null;
 }

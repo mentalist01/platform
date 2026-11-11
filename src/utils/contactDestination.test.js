@@ -9,10 +9,13 @@ test('contact icons follow the saved messenger URL including web clients', () =>
   for (const url of ['https://t.me/+79263651787','https://telegram.me/example','https://web.telegram.org/a/#123','https://T.ME/example']) {
     assert.deepEqual(contactDestination(url),{id:'telegram',name:'Telegram'});
   }
+  for (const url of ['https://max.ru/u/123','https://web.max.ru/137096085','https://WEB.MAX.RU/85689009']) {
+    assert.deepEqual(contactDestination(url),{id:'max',name:'MAX'});
+  }
 });
 
 test('unknown or misleading links keep the generic external-link icon', () => {
-  for (const url of ['',undefined,'+7 926 365-17-87','https://vk.com/example','https://max.ru/u/123','https://wa.me.evil.example/','https://example.com/?url=https://t.me/example','javascript:https://t.me/example']) {
+  for (const url of ['',undefined,'+7 926 365-17-87','https://vk.com/example','https://max.ru.evil.example/','https://web.max.ru.evil.example/137096085','https://example.com/?url=https://web.max.ru/123','https://wa.me.evil.example/','https://example.com/?url=https://t.me/example','javascript:https://t.me/example']) {
     assert.equal(contactDestination(url),null);
   }
 });

@@ -1,9 +1,12 @@
 import {ExternalLink} from 'lucide-react';
 import {contactDestination} from '../utils/contactDestination.js';
+// Official standalone mark: https://go.max.ru/brandbook (max-colored.zip).
+import maxIcon from '../assets/max-messenger.svg';
 
 export default function ContactMessengerIcon({url, size = 16}) {
   const destination = contactDestination(url);
   if (!destination) return <ExternalLink size={size} aria-hidden="true" />;
+  if (destination.id === 'max') return <img src={maxIcon} width={size} height={size} alt="" aria-hidden="true" className="contact-messenger-icon" data-messenger="max" />;
   return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="contact-messenger-icon" data-messenger={destination.id}>
     {destination.id === 'telegram' ? <>
       <circle cx="12" cy="12" r="12" fill="#229ED9" />
