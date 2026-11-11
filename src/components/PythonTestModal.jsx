@@ -2173,7 +2173,7 @@ const PythonTestModal = ({
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
           {lessonWorkspace && <PythonLessonToolbar name={lessonWorkspace.name || groupName}
             connected={lessonWorkspace.connected} followingTeacher={followingTeacher} tasks={lessonTopics}
-            taskNumber={task.number} onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount}/>}
+            taskNumber={task.number} onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount} presence={lessonWorkspace.presence}/>}
           <div className={`python-runtime-header-card rounded-[22px] border ${
             isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
           } ${elevatedCardClass}`}>

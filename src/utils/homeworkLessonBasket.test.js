@@ -4,12 +4,28 @@ import assert from 'node:assert/strict';
 import {
   addHomeworkLessonBasketItem,
   clearHomeworkLessonBasket,
+  consumeAssignedHomeworkLessonBasket,
+  resolveHomeworkLessonBasketTargets,
   getHomeworkLessonBasketItemKey,
   getHomeworkLessonBasketItems,
   loadHomeworkLessonBaskets,
   normalizeHomeworkLessonBasketItem,
   saveHomeworkLessonBaskets,
 } from './homeworkLessonBasket.js';
+
+test('draft targets follow stable question IDs after reordering and survive until actually assigned', () => {
+  let baskets = addHomeworkLessonBasketItem(null,'student-a',{taskNumber:101,levelId:'python',questionId:'second',questionNumber:2});
+  baskets = addHomeworkLessonBasketItem(baskets,'student-a',{taskNumber:101,levelId:'python',questionId:'removed',questionNumber:3});
+  baskets = addHomeworkLessonBasketItem(baskets,'student-b',{taskNumber:101,levelId:'python',questionId:'other',questionNumber:1});
+  const items=getHomeworkLessonBasketItems(baskets,'student-a');
+  const targets=resolveHomeworkLessonBasketTargets([...items,...items],{101:{python:[{id:'second'},{id:'first'}]}});
+  assert.equal(targets.length,1,'all composer entry points can merge the same draft without duplicates');
+  assert.equal(targets[0].questionNumber,1,'latest position follows the ID, not the old number');
+  assert.equal(getHomeworkLessonBasketItems(baskets,'student-a').length,2,'opening/cancelling a composer does not consume the draft');
+  const assigned=consumeAssignedHomeworkLessonBasket(baskets,'student-a',[{type:'task',taskNumber:101,levelId:'python',targetQuestionIds:['second'],targetQuestions:[1]}]);
+  assert.deepEqual(getHomeworkLessonBasketItems(assigned,'student-a').map(item=>item.questionId),['removed']);
+  assert.equal(getHomeworkLessonBasketItems(assigned,'student-b').length,1,'another pupil is untouched');
+});
 
 test('normalizes a lesson basket item and builds a stable question key', () => {
   const item = normalizeHomeworkLessonBasketItem({

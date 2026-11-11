@@ -136,6 +136,29 @@ export const clearHomeworkLessonBasket = (value, studentId) => {
   return { ...normalized, baskets };
 };
 
+// Resolve stable IDs against the latest catalogue: teachers can reorder tasks
+// after adding them to a lesson draft. Never substitute a different question.
+export const resolveHomeworkLessonBasketTargets = (items, testsDb) => normalizeBasketItems(items).flatMap(item => {
+  const questions = testsDb?.[String(item.taskNumber)]?.[item.levelId];
+  if (!Array.isArray(questions)) return [];
+  const index = item.questionId
+    ? questions.findIndex(question => String(question?.id ?? '') === item.questionId)
+    : item.questionNumber - 1;
+  return questions[index] ? [{...item, questionNumber:index + 1, questionId:String(questions[index].id ?? '')}] : [];
+});
+
+export const consumeAssignedHomeworkLessonBasket = (value, studentId, goals) => {
+  const normalized = normalizeHomeworkLessonBaskets(value);
+  const items = getHomeworkLessonBasketItems(normalized, studentId).filter(item => !(goals || []).some(goal => {
+    if (Number(goal.taskNumber) !== item.taskNumber || goal.levelId !== item.levelId) return false;
+    if (goal.includeAll) return true;
+    return item.questionId ? (goal.targetQuestionIds || []).includes(item.questionId)
+      : (goal.targetQuestions || []).includes(item.questionNumber);
+  }));
+  if (!items.length) return clearHomeworkLessonBasket(normalized, studentId);
+  return {...normalized,baskets:{...normalized.baskets,[studentId]:{...normalized.baskets[studentId],items}}};
+};
+
 const resolveStorage = (providedStorage) => {
   if (providedStorage) return providedStorage;
   try {

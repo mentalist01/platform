@@ -41,6 +41,7 @@ import {
   resolveHomeworkTaskTargetDescriptors,
 } from '../utils/homeworkComposer';
 import { normalizeHomeworkComposerDraft } from '../utils/homeworkComposerDraft';
+import {resolveHomeworkLessonBasketTargets} from '../utils/homeworkLessonBasket.js';
 import {
   getHomeworkGoalAssignmentTier,
   isOptionalHomeworkGoal,
@@ -684,6 +685,8 @@ const ScheduleSection = ({
   onOpenLessonHandled = null,
   homeworkPrefillRequest = null,
   onHomeworkPrefillHandled = null,
+  homeworkLessonBasketItems = [],
+  onHomeworkLessonBasketAssigned = null,
   homeworkReviewRequest = null,
   onHomeworkReviewRequestHandled = null,
   progress = {},
@@ -4684,26 +4687,10 @@ const ScheduleSection = ({
           )),
         }
       : null;
-    const normalizedBasketItems = prefill && typeof prefill === 'object' && prefill.source === 'lesson-basket'
-      ? (Array.isArray(prefill.items) ? prefill.items : [])
-          .map((item) => {
-            const taskNumber = normalizeTaskNumber?.(item?.taskNumber) ?? Number(item?.taskNumber);
-            const questionNumber = Math.trunc(Number(item?.questionNumber));
-            const questionId = String(item?.questionId || '').trim();
-            if (!Number.isFinite(Number(taskNumber)) || (!Number.isFinite(questionNumber) && !questionId)) {
-              return null;
-            }
-            return {
-              taskNumber: Number(taskNumber),
-              levelId: isPythonTaskNumber?.(taskNumber)
-                ? PYTHON_LEVEL_ID
-                : (String(item?.levelId || 'basic').trim() || 'basic'),
-              questionNumber: Number.isFinite(questionNumber) && questionNumber > 0 ? questionNumber : null,
-              questionId,
-            };
-          })
-          .filter(Boolean)
-      : [];
+    // Every entry point uses the pupil's lesson draft, including reminders,
+    // recordings and the regular “Задать новую домашку” button.
+    const pendingBasketItems = [...homeworkLessonBasketItems,
+      ...(prefill?.source === 'lesson-basket' && Array.isArray(prefill.items) ? prefill.items : [])];
     const requestId = homeworkComposerRequestRef.current + 1;
     homeworkComposerRequestRef.current = requestId;
     setEditingId(null);
@@ -4745,6 +4732,7 @@ const ScheduleSection = ({
     const freshTests = testsResult.status === 'fulfilled' && testsResult.value && typeof testsResult.value === 'object'
       ? testsResult.value
       : (testsDb || {});
+    const normalizedBasketItems = resolveHomeworkLessonBasketTargets(pendingBasketItems, freshTests);
     const freshMockExams = mockExamsResult.status === 'fulfilled' && Array.isArray(mockExamsResult.value)
       ? mockExamsResult.value
       : mockExams;
@@ -5004,7 +4992,7 @@ const ScheduleSection = ({
       warnings.push('Ошибки пробника добавлены в сохранённый черновик.');
     }
     if (normalizedBasketItems.length > 0) {
-      warnings.push(`Из корзины урока добавлено заданий: ${normalizedBasketItems.length}.`);
+      warnings.push(`Из черновика урока добавлено заданий: ${normalizedBasketItems.length}.`);
     }
     setHomeworkComposerError(warnings.join(' '));
     setHomeworkComposerPreparing(false);
@@ -5243,6 +5231,7 @@ const ScheduleSection = ({
       setHomeworks(list);
       setNextLesson(safeData);
       if (!editingId) {
+        onHomeworkLessonBasketAssigned?.({studentId:effectiveStudentId,goals:goalsPayload});
         setHomeworkDraft(null);
         setHomeworkDraftError('');
         setHomeworkDraftNotice('');

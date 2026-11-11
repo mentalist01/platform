@@ -1588,6 +1588,7 @@ const PythonReviewModal = ({
   const currentQuestion = questions[currentIndex];
   const currentId = String(currentQuestion?.id ?? '').trim();
   const currentBasketItem = currentQuestion ? {
+    studentId,
     taskNumber: task?.number,
     levelId: PYTHON_LEVEL_ID,
     questionId: currentId,
@@ -1847,7 +1848,7 @@ const PythonReviewModal = ({
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
           {lessonWorkspace && <PythonLessonToolbar teacher name={lessonWorkspace.name || groupName}
             connected={lessonWorkspace.connected} tasks={lessonTopics} taskNumber={task.number}
-            onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount}/>}
+            onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount} presence={lessonWorkspace.presence} canSummon={lessonWorkspace.canSummon}/>}
           <div className={`python-runtime-header-card rounded-[22px] border ${
             isCompactRuntimeViewport ? 'px-2.5 py-1.5 md:px-3 md:py-2' : 'px-3 py-2 md:px-3.5 md:py-2.5'
           } ${elevatedCardClass}`}>
@@ -2308,7 +2309,7 @@ const PythonReviewModal = ({
                     title={currentQuestionInBasket ? 'Задача уже в черновике домашки' : 'Добавить текущую задачу в черновик домашки'}
                   >
                     {currentQuestionInBasket ? <CheckCircle2 size={13} /> : <ListPlus size={13} />}
-                    {currentQuestionInBasket ? 'В черновике ДЗ' : 'В черновик ДЗ'}
+                    {currentQuestionInBasket ? 'В черновике домашки' : 'В черновик домашки'}
                   </button>
                 )}
                 <button

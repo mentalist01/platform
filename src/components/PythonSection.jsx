@@ -38,6 +38,8 @@ import { getWeeklyTaskPracticeIndicator } from '../utils/weeklyTaskPractice';
 import PythonPracticePanel, { PythonPracticeBadge } from './PythonPracticePanel';
 import PythonExplanationBoard from './PythonExplanationBoard';
 import usePythonLessonWorkspace from '../hooks/usePythonLessonWorkspace';
+import PythonLessonPresence from './PythonLessonPresence';
+import {pythonPresenceLocation} from '../utils/pythonLessonPresence.js';
 import usePythonGroupProgress from '../hooks/usePythonGroupProgress';
 import { PythonGroupTopicProgress } from './PythonGroupProgress';
 import {pythonGroupCodeBase,pythonGroupBoardRoom} from '../utils/pythonGroupWorkspace';
@@ -382,6 +384,7 @@ const PythonSection = ({
   groups,
   initialGroupId,
   lesson,
+  lessonPresence = null,
   studentsLoading,
   openTask,
   onOpenTaskHandled,
@@ -468,6 +471,7 @@ const PythonSection = ({
   const [activeHomeworkNumbers, setActiveHomeworkNumbers] = useState([]);
   const [activeSubsectionId, setActiveSubsectionId] = useState(null);
   const [activeTheoryLaunch, setActiveTheoryLaunch] = useState(null);
+  const [presenceNavigationId, setPresenceNavigationId] = useState('');
   const [studentData, setStudentData] = useState({ progress: {} });
   const [dataError, setDataError] = useState('');
   const [testsDb, setTestsDb] = useState(null);
@@ -567,8 +571,15 @@ const PythonSection = ({
   const lessonWorkspaceName = groupMode ? groupWorkspace.group?.name : role === 'teacher'
     ? studentsList.find(student => student.id === effectiveStudentId)?.name || 'Индивидуальный урок'
     : groupWorkspace.teacherPresent ? 'Индивидуальный урок' : 'Личный Python';
-  const lessonWorkspace = role === 'student' && !groupMode && !groupWorkspace.teacherPresent
-    ? null : {name:lessonWorkspaceName, connected:groupWorkspace.connected, followingTeacher};
+  const individualPresence = !groupMode ? lessonPresence : null;
+  const currentPresenceTask = role === 'teacher' ? reviewTask : activeTask;
+  const reportPythonLocation = lessonPresence?.reportLocation;
+  useEffect(() => {
+    reportPythonLocation?.(pythonPresenceLocation({task:currentPresenceTask,questionIndex:activeQuestionIndex,testsDb,levelId:PYTHON_LEVEL_ID,groupMode}));
+  }, [reportPythonLocation,currentPresenceTask,activeQuestionIndex,testsDb,PYTHON_LEVEL_ID,groupMode]);
+  const lessonWorkspace = role === 'student' && !groupMode && !groupWorkspace.teacherPresent && !individualPresence
+    ? null : {name:lessonWorkspaceName, connected:groupWorkspace.connected, followingTeacher,
+      presence:individualPresence, canSummon:Boolean(currentPresenceTask && Number.isInteger(activeQuestionIndex))};
   const openLessonTopic = number => {
     const task = taskList.find(item => Number(item.number) === Number(number));
     if (!task || followingTeacher) return;
@@ -648,6 +659,7 @@ const PythonSection = ({
     setActiveTaskSectionId(String(target.sectionId || 'topics'));
     setActivePracticeReview(null);
     setActiveTask(target);
+    if (openTask.navigationId) setPresenceNavigationId(openTask.navigationId);
     setActiveHomeworkNumbers(normalizePythonHomeworkNumbers(openTask.targetQuestions));
     setActiveSubsectionId(String(openTask.subsectionId || '').trim() || null);
     setActiveTheoryLaunch(openTask.openTheory === true
@@ -2052,6 +2064,7 @@ const PythonSection = ({
 
   return (
     <div className={`python-learning-shell python-learning-shell--refined ${role === 'student' ? 'python-learning-shell--student' : 'python-learning-shell--teacher'} space-y-4 md:space-y-5 animate-fadeIn`}>
+      {individualPresence && <PythonLessonPresence presence={individualPresence} teacher={role === 'teacher'} name={lessonWorkspaceName}/>}
       <div className="python-learning-overview-panel python-learning-overview-panel--refined">
         <div className="python-learning-overview-panel__glow" aria-hidden="true" />
         <div className="python-learning-overview-panel__content">
@@ -3006,7 +3019,7 @@ const PythonSection = ({
 
       {role === 'student' && activeTask && (
         <PythonTestModal
-          key={`${codeSyncRoomId}:${activeTask.number}:${activePracticeReview?.cycle || ''}`}
+          key={`${codeSyncRoomId}:${activeTask.number}:${activePracticeReview?.cycle || ''}:${presenceNavigationId}`}
           theme={theme}
           task={activeTask}
           groupMode={groupMode&&!activePracticeReview}

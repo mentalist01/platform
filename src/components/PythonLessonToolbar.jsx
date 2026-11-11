@@ -1,7 +1,8 @@
 import {BookOpen, Users, Wifi, WifiOff} from 'lucide-react';
 import './PythonLessonToolbar.css';
+import PythonLessonPresence from './PythonLessonPresence';
 
-export default function PythonLessonToolbar({teacher=false, name, connected, followingTeacher=false, tasks=[], taskNumber, onSelectTask, peerCount=0}) {
+export default function PythonLessonToolbar({teacher=false, name, connected, followingTeacher=false, tasks=[], taskNumber, onSelectTask, peerCount=0, presence=null, canSummon=false}) {
   return <div className="python-lesson-toolbar" aria-label="Совместный урок Python">
     <div className="python-lesson-toolbar__identity"><Users size={17}/><strong>{name || 'Изучение Python'}</strong>
       <span>{teacher || followingTeacher ? 'Совместное решение' : 'Решение задач'}</span></div>
@@ -14,5 +15,6 @@ export default function PythonLessonToolbar({teacher=false, name, connected, fol
       <select aria-label="Сменить тему урока Python" value={String(taskNumber)} onChange={event => onSelectTask(Number(event.target.value))}>
         {tasks.map(task => <option key={task.number} value={String(task.number)}>{task.title}</option>)}
       </select></label>}
+    {presence && <PythonLessonPresence presence={presence} teacher={teacher} name={name} canSummon={canSummon}/>}
   </div>;
 }

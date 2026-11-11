@@ -144,8 +144,9 @@ import {
 } from './utils/homeworkAssignmentTier';
 import {
   addHomeworkLessonBasketItem,
-  clearHomeworkLessonBasket,
+  consumeAssignedHomeworkLessonBasket,
   getHomeworkLessonBasketItems,
+  getHomeworkLessonBasketStorageKey,
   hasHomeworkLessonBasketItem,
   loadHomeworkLessonBaskets,
   saveHomeworkLessonBaskets,
@@ -201,6 +202,7 @@ import {
 } from './utils/push';
 import { getCollabWsUrl, getNotificationsWsUrl, isNativeAppRuntime, resolveApiUrl } from './utils/runtimeUrls';
 import { LESSON_CODE_FOCUS_EVENT, useLessonCodeFocus } from './hooks/useLessonCodeFocus.js';
+import usePythonLessonPresence from './hooks/usePythonLessonPresence.js';
 import { createSegmentedAudioRecorder } from './utils/segmentedAudioRecorder';
 import { loadCollaborativeEditorRuntime, loadYjsRuntime } from './utils/collaborationRuntime';
 import {
@@ -19991,6 +19993,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, [homeworkLessonBaskets, user.id, user.role]);
 
   useEffect(() => {
+    if (user.role !== 'teacher') return undefined;
+    const refresh = event => {
+      if (event.key !== getHomeworkLessonBasketStorageKey(user.id)) return;
+      const next = loadHomeworkLessonBaskets(user.id);
+      setHomeworkLessonBaskets(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+    };
+    window.addEventListener('storage',refresh);
+    return () => window.removeEventListener('storage',refresh);
+  }, [user.id,user.role]);
+
+  useEffect(() => {
     if (!homeworkLessonBasketNotice) return undefined;
     const timeoutId = setTimeout(() => setHomeworkLessonBasketNotice(null), 2600);
     return () => clearTimeout(timeoutId);
@@ -21794,6 +21807,20 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : normalizedView;
     void prefetchViewSection(resolvedView);
   }, [studentDefaultLessonView, user.role]);
+
+  const openPythonPresenceTask = useCallback(target => {
+    setPendingOpenTask({section:'python', taskNumber:target.taskNumber, questionIndex:target.questionIndex,
+      questionId:target.questionId, questionNumber:target.questionIndex + 1,
+      ...(user.role === 'teacher' ? {lessonStudentId:activeStudentId} : {}),
+      navigationId:crypto.randomUUID()});
+    navigateToView('python');
+  }, [user.role, activeStudentId, navigateToView]);
+  const pythonLessonPresence = usePythonLessonPresence({
+    enabled:user.role === 'student' ? !studentLessonWorkspaceBlocked : user.role === 'teacher' && !activeLearningLesson?.groupId,
+    role:user.role, userId:user.id, userName:user.name,
+    teacherId:user.role === 'teacher' ? user.id : user.teacherId,
+    studentId:user.role === 'teacher' ? activeStudentId : user.id, view, onOpenTask:openPythonPresenceTask,
+  });
 
   const handleOpenLearningGroupLesson = useCallback((lesson = {}) => {
     const lessonId = String(lesson?.lessonId || '').trim();
@@ -23732,11 +23759,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const isLessonBasketRequest = request?.source === 'lesson-basket';
     const targetStudentId = normalizeTeacherStudentId(request?.studentId);
     if (isLessonBasketRequest && result?.consumed === true && targetStudentId) {
-      setHomeworkLessonBaskets((current) => clearHomeworkLessonBasket(current, targetStudentId));
       setHomeworkLessonBasketNotice({
         id: Date.now(),
         tone: 'success',
-        text: 'Задания перенесены в конструктор домашки.',
+        text: 'Задания добавлены в домашку. Черновик сохранится до назначения.',
       });
     } else if (isLessonBasketRequest && result?.consumed === false) {
       const errorText = String(result?.error?.message || result?.error || '').trim();
@@ -26531,6 +26557,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onOpenLessonHandled={() => setPendingLessonCapsuleKey('')}
               homeworkPrefillRequest={pendingHomeworkPrefill}
               onHomeworkPrefillHandled={handleHomeworkPrefillHandled}
+              homeworkLessonBasketItems={activeHomeworkLessonBasketItems}
+              onHomeworkLessonBasketAssigned={({studentId,goals}) => setHomeworkLessonBaskets(current => consumeAssignedHomeworkLessonBasket(current,studentId,goals))}
               homeworkReviewRequest={pendingHomeworkReviewRequest}
               onHomeworkReviewRequestHandled={handleHomeworkReviewRequestHandled}
               progress={progress}
@@ -26756,6 +26784,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           {view === 'python' && (
             <PythonSection
+              lessonPresence={pythonLessonPresence}
               progress={progress}
               onUpdateProgress={(...args) => {
                 onUpdateProgress(...args);

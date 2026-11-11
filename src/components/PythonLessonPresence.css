@@ -1,0 +1,18 @@
+.python-lesson-presence{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 12px;border:1px solid #e1d7fa;border-radius:14px;background:linear-gradient(110deg,#f8f5ff,#fff 70%,#f1fbfa);color:#30264c;min-width:0}
+.python-lesson-presence__pin{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;border-radius:11px;background:#eee7fc;color:#7c3aed}
+.python-lesson-presence__place{flex:1;min-width:140px;display:flex;flex-direction:column;gap:3px}
+.python-lesson-presence__place>span{display:flex;align-items:center;gap:5px;font-size:10px;color:#786b91}
+.python-lesson-presence__place i{width:6px;height:6px;border-radius:100%;background:#a6a0b5}.python-lesson-presence__place i[data-online=true]{background:#13b58b;box-shadow:0 0 0 3px #13b58b14}
+.python-lesson-presence__place strong{font-size:12px;font-weight:650;line-height:1.4;overflow-wrap:anywhere}
+.python-lesson-presence__actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.python-lesson-presence__actions button{display:inline-flex;align-items:center;gap:6px;padding:8px 10px;min-height:34px;border:1px solid #ddcef8;border-radius:10px;background:#fff;color:#7540c5;font-size:11px;font-weight:650;transition:background .18s,box-shadow .18s}
+.python-lesson-presence__actions button:not(:disabled):hover{background:#f3edff;box-shadow:0 3px 10px #7440c515}.python-lesson-presence__actions button:focus-visible{outline:3px solid #bda3f3;outline-offset:2px}
+.python-lesson-presence__actions button.python-lesson-presence__summon{background:#7c3aed;color:#fff;border-color:#7c3aed}.python-lesson-presence__actions button.python-lesson-presence__summon:not(:disabled):hover{background:#6826d6}
+.python-lesson-presence__actions button:disabled{opacity:.5;cursor:default}
+.python-lesson-presence__receipt{display:flex;align-items:center;gap:3px;width:100%;font-size:11px;color:#687184;padding-left:44px}
+.python-lesson-toolbar>.python-lesson-presence{flex:1 0 100%}
+html[data-theme=dark] .python-lesson-presence,[data-runtime-theme=dark] .python-lesson-presence{background:linear-gradient(110deg,#221d36,#192631);border-color:#4c3d68;color:#eee8ff}
+html[data-theme=dark] .python-lesson-presence__place>span,[data-runtime-theme=dark] .python-lesson-presence__place>span{color:#c0b0d8}
+html[data-theme=dark] .python-lesson-presence__actions button,[data-runtime-theme=dark] .python-lesson-presence__actions button{background:#2c2342;color:#dfccff;border-color:#574276}
+@media(max-width:599px){.python-lesson-presence{gap:8px}.python-lesson-presence__actions{width:100%;justify-content:flex-end}.python-lesson-presence__receipt{padding-left:0}.python-lesson-presence__actions button{min-height:40px}}
+@media(prefers-reduced-motion:reduce){.python-lesson-presence *{animation:none!important;transition:none!important}}
