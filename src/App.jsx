@@ -144,6 +144,7 @@ import {
 } from './utils/homeworkAssignmentTier';
 import {
   addHomeworkLessonBasketItem,
+  clearHomeworkLessonBasket,
   consumeAssignedHomeworkLessonBasket,
   getHomeworkLessonBasketItems,
   getHomeworkLessonBasketStorageKey,
@@ -20005,7 +20006,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   useEffect(() => {
     if (!homeworkLessonBasketNotice) return undefined;
-    const timeoutId = setTimeout(() => setHomeworkLessonBasketNotice(null), 2600);
+    const timeoutId = setTimeout(() => setHomeworkLessonBasketNotice(null), homeworkLessonBasketNotice.undoItems ? 12000 : 2600);
     return () => clearTimeout(timeoutId);
   }, [homeworkLessonBasketNotice]);
   const tasksWithTitles = useMemo(
@@ -23752,6 +23753,30 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setMenuOpen(false);
   }, [activeStudentId, homeworkLessonBaskets, navigateToView, user.role]);
 
+  const handleClearHomeworkLessonBasket = useCallback(() => {
+    if (user.role !== 'teacher' || pendingHomeworkPrefill?.source === 'lesson-basket') return;
+    const studentId = normalizeTeacherStudentId(activeStudentId);
+    const items = getHomeworkLessonBasketItems(homeworkLessonBaskets, studentId);
+    if (!studentId || !items.length) return;
+    setHomeworkLessonBaskets(current => clearHomeworkLessonBasket(current, studentId));
+    setHomeworkLessonBasketNotice({
+      id: Date.now(),
+      tone: 'success',
+      text: `Черновик ${activeHomeworkLessonBasketStudent ? getStudentLabel(activeHomeworkLessonBasketStudent) : 'ученика'} очищен. Выданная домашка сохранена.`,
+      studentId,
+      undoItems: items,
+    });
+  }, [activeStudentId, activeHomeworkLessonBasketStudent, homeworkLessonBaskets, pendingHomeworkPrefill, user.role]);
+
+  const handleUndoClearHomeworkLessonBasket = useCallback(() => {
+    if (user.role !== 'teacher' || !homeworkLessonBasketNotice?.undoItems) return;
+    const {studentId, undoItems} = homeworkLessonBasketNotice;
+    setHomeworkLessonBaskets(current => undoItems.reduce(
+      (baskets, item) => addHomeworkLessonBasketItem(baskets, studentId, item), current
+    ));
+    setHomeworkLessonBasketNotice({id: Date.now(), tone: 'success', text: 'Задания возвращены в черновик.'});
+  }, [homeworkLessonBasketNotice, user.role]);
+
   const handleHomeworkPrefillHandled = useCallback((result = {}) => {
     const request = result?.request && typeof result.request === 'object'
       ? result.request
@@ -25573,11 +25598,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         />
       )}
       {user.role === 'teacher' && activeStudentId && activeHomeworkLessonBasketItems.length > 0 && (
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] right-3 z-40 flex max-w-[calc(100vw-1.5rem)] items-stretch rounded-2xl border border-purple-300/80 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-[0_16px_38px_rgba(124,58,237,0.32)] md:bottom-24 md:right-6">
         <button
           type="button"
           onClick={handleOpenHomeworkLessonBasket}
           disabled={pendingHomeworkPrefill?.source === 'lesson-basket'}
-          className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] right-3 z-40 inline-flex min-h-12 max-w-[calc(100vw-1.5rem)] items-center gap-3 rounded-2xl border border-purple-300/80 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 px-3.5 py-2.5 text-left text-white shadow-[0_16px_38px_rgba(124,58,237,0.32)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_42px_rgba(124,58,237,0.38)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70 md:bottom-6 md:right-6 md:px-4"
+          className="inline-flex min-h-12 min-w-0 items-center gap-3 rounded-l-2xl px-3.5 py-2.5 text-left transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 disabled:cursor-wait disabled:opacity-70 md:px-4"
           aria-label={`Открыть черновик домашки: ${activeHomeworkLessonBasketItems.length} заданий`}
         >
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/25 bg-white/15 shadow-inner">
@@ -25595,6 +25621,18 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           </span>
           <ChevronRight size={18} className="shrink-0" aria-hidden="true" />
         </button>
+        <button
+          type="button"
+          onClick={handleClearHomeworkLessonBasket}
+          disabled={pendingHomeworkPrefill?.source === 'lesson-basket'}
+          className="flex shrink-0 items-center gap-1.5 rounded-r-2xl border-l border-white/25 px-3 text-xs font-bold transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 disabled:opacity-70"
+          aria-label="Очистить черновик домашки выбранного ученика"
+          title="Убрать отложенные задания. Выданная домашка сохранится."
+        >
+          <Trash2 size={16} aria-hidden="true" />
+          <span>Очистить</span>
+        </button>
+        </div>
       )}
       {homeworkLessonBasketNotice && (
         <div
@@ -25608,6 +25646,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           }`}
         >
           {homeworkLessonBasketNotice.text}
+          {homeworkLessonBasketNotice.undoItems && (
+            <button type="button" onClick={handleUndoClearHomeworkLessonBasket} className="ml-3 rounded-lg border border-emerald-300 px-2.5 py-1 font-bold hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500">
+              Вернуть задания
+            </button>
+          )}
         </div>
       )}
       <input
