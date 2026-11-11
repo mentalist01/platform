@@ -25,10 +25,27 @@ test('repair changes only routing, preserves files, IDs and all unrelated record
   assert.equal(repairMockExamFollowupRouting({ ...options, studentData: result.studentData }).changed, false);
 });
 
-test('repair refuses linked answers/assignments and unexpected destinations', () => {
+test('repair refuses saved answers and unsupported links or unexpected destinations', () => {
+  assert.throws(() => repairMockExamFollowupRouting({ ...options, studentData: { ...studentData, answersByTask: { 23: { basic: { 'queued-graph': ['7'] } } } } }), /linked progress or assignments/);
   assert.throws(() => repairMockExamFollowupRouting({ ...options, studentData: { ...studentData, homeworks: [{ targetQuestionIds: ['queued-graph'] }] } }), /linked progress or assignments/);
   assert.throws(() => repairMockExamFollowupRouting({ ...options, expectedTo: 29 }), /verified catalog/);
   assert.throws(() => repairMockExamFollowupRouting({ ...options, expectedFrom: 13 }), /changed since the audit/);
+});
+
+test('repair moves homework links and splits a mixed goal without changing other targets or deadlines', () => {
+  const goal = { type: 'task', assignmentTier: 'required', taskNumber: 23, levelId: 'basic', includeAll: false,
+    targetQuestions: [2, 1], targetQuestionIds: ['executor-base', 'queued-graph'] };
+  const homeworks = [{ id: 'single', dueAt: '2026-11-14', goals: [{ ...goal, targetQuestions: [1], targetQuestionIds: ['queued-graph'] }] },
+    { id: 'mixed', dueAt: '2026-11-15', goals: [goal] }];
+  const result = repairMockExamFollowupRouting({ ...options, testsDb: { ...options.testsDb, 23: { basic: [{ id: 'executor-base' }] } },
+    studentData: { ...studentData, homeworks } });
+  assert.equal(result.homeworkGoalsUpdated, 2);
+  assert.deepEqual(result.studentData.homeworks.map(h => h.dueAt), ['2026-11-14', '2026-11-15']);
+  const [single, mixed] = result.studentData.homeworks;
+  assert.deepEqual(single.goals.map(g => [g.taskNumber, g.targetQuestionIds, g.targetQuestions]), [[28, ['queued-graph'], [2]]]);
+  assert.deepEqual(mixed.goals.map(g => [g.taskNumber, g.targetQuestionIds, g.targetQuestions]), [[23, ['executor-base'], [1]], [28, ['queued-graph'], [2]]]);
+  assert.equal(mixed.goals[1].assignmentTier, 'required');
+  assert.deepEqual(homeworks[1].goals[0], goal, 'input remains unchanged');
 });
 
 test('repair CLI defaults to dry-run and backs up the exact original before an atomic update', () => {

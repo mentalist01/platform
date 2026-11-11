@@ -45,5 +45,6 @@ if (args.includes('--apply') && repair.changed) {
 }
 console.log(JSON.stringify({ applied: args.includes('--apply') && repair.changed, changed: repair.changed,
   questionId: entry.question.id, sourceSlot: entry.sourceMockTaskNumber,
+  homeworkGoalsUpdated: repair.homeworkGoalsUpdated || 0,
   fromBank: repair.from, toBank: repair.to,
   displayNumber: catalog.find(row => row.taskNumber === repair.to)?.slotNumber }));
