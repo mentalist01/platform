@@ -61,7 +61,7 @@ export default function StudentContact({ studentId, studentName = '', messageTex
     {error && <div role="alert" className="student-parent-contact__error">{error}{!editing && <button type="button" onClick={() => { setLoading(true); void service.load(true).then(() => setError('')).catch(failure => setError(failure.message)).finally(() => setLoading(false)); }}>Повторить</button>}</div>}
     {editing && contactState.studentId === studentId && contactState.kind === kind && <form onSubmit={event => { event.preventDefault(); void save(draft); }} className="student-parent-contact__editor">
       <StudentContactFields value={draft} onChange={value=>{setDraft(value);setError('');}} kind={kind} busy={busy}/>
-      <small>Номер телефона и @username откроют Telegram. Для MAX и WhatsApp вставьте ссылку на контакт.</small>
+      <small>Для номера выберите Telegram или WhatsApp. Для MAX, VK и других соцсетей вставьте ссылку.</small>
       <small>Контакт виден только преподавателю.</small>
       <div className="student-parent-contact__actions"><button type="submit" disabled={busy} className="student-parent-contact__primary">{busy ? 'Сохраняем…' : 'Сохранить контакт'}</button><button type="button" disabled={busy} onClick={() => { setEditing(false); setError(''); }}>Отмена</button>
         {(contact?.url||contact?.notes||contact?.name) && <button type="button" disabled={busy} onClick={() => { void save({ name: '', url: '' }); }}>Убрать все контакты</button>}</div>

@@ -40,6 +40,26 @@ test('normalization preserves messenger links and only strips phone formatting o
   }
 });
 
+test('explicit messenger selection routes phone numbers and survives save, reload and editing', () => {
+  for (const normalize of [normalizeStudentParentContact, normalizeStudentContact]) {
+    const contact = normalize({name:'Александр',contacts:[{label:'Папа',value:'+7 926 365-17-87',channel:'whatsapp'}]});
+    assert.equal(contact.url,'https://wa.me/79263651787');
+    assert.equal(contact.contacts[0].value,'+7 926 365-17-87');
+    assert.equal(studentContactDraft(contact).contacts[0].channel,'whatsapp');
+    assert.deepEqual(normalize(JSON.parse(JSON.stringify(contact))),contact,'canonical links retain the messenger when normalized again');
+    assert.deepEqual(normalize(studentContactDraft(contact)),contact);
+    const changed=studentContactDraft(contact);changed.contacts[0].channel='telegram';
+    assert.equal(normalize(changed).url,'https://t.me/+79263651787');
+    assert.throws(()=>normalize({contacts:[{value:'+7 926 365-17-87',channel:'auto'}]}),/выберите Telegram или WhatsApp/);
+    assert.throws(()=>normalize({contacts:[{value:'@example_parent',channel:'whatsapp'}]}),/WhatsApp/);
+    assert.throws(()=>normalize({contacts:[{value:'https://wa.me.evil.example/79263651787',channel:'whatsapp'}]}),/WhatsApp/);
+  }
+  assert.equal(normalizeStudentParentContact({url:'https://wa.me/447700900123'}).url,'https://wa.me/447700900123');
+  assert.equal(normalizeStudentParentContact({url:'https://t.me/+79263651787',channel:'whatsapp'}).url,'https://wa.me/79263651787');
+  assert.equal(normalizeStudentParentContact({url:'8 (926) 365-17-87',channel:'whatsapp'}).url,'https://wa.me/79263651787');
+  assert.equal(normalizeStudentParentContact({url:'https://wa.me/79263651787',channel:'telegram'}).url,'https://t.me/+79263651787');
+});
+
 test('stored parent links cannot execute script, expose URL credentials or silently keep malformed contacts', () => {
   for (const url of ['javascript:alert(1)', 'data:text/html,test', '//evil.example', '/parent', 'https://user:secret@example.com/', 'https://vk.com/a\nb']) {
     assert.throws(() => normalizeStudentParentContact({ url }), undefined, url);

@@ -46,3 +46,21 @@ test('parent contacts persist only in staff storage and enforce pupil/teacher is
     assert.deepEqual((await request('/api/student-parent-contacts', b)).contacts, {});
   } finally { await fixture.stop(); }
 });
+
+test('WhatsApp phone contacts persist and remain private for both pupils and parents', {timeout:60000}, async () => {
+  const fixture=await createGroupHomeworkFixture();
+  const {request,tokens}=fixture;
+  try {
+    for (const [item,list] of [['parent-contact','student-parent-contacts'],['contact','student-contacts']]) {
+      const route=`/api/students/student-a/${item}`;
+      const saved=await request(route,tokens['teacher-a'],{name:'Родитель',contacts:[{label:'WhatsApp',value:'+7 926 365-17-87',channel:'whatsapp'}]},'PATCH');
+      assert.equal(saved.contact.url,'https://wa.me/79263651787');
+      assert.deepEqual((await request(`/api/${list}`,tokens['teacher-a'])).contacts['student-a'],saved.contact);
+      const again=await request(route,tokens['teacher-a'],saved.contact,'PATCH');
+      assert.deepEqual(again.contact,saved.contact,'saving a returned record does not turn WhatsApp into Telegram');
+      await request(route,tokens['teacher-a'],{contacts:[{value:'+7 926 365-17-87',channel:'auto'}]},'PATCH',400);
+      assert.deepEqual((await request(`/api/${list}`,tokens['teacher-a'])).contacts['student-a'],saved.contact,'a missing messenger does not replace a valid contact');
+      assert.deepEqual((await request(`/api/${list}`,tokens['teacher-b'])).contacts,{});
+    }
+  } finally {await fixture.stop();}
+});
