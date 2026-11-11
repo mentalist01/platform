@@ -23758,7 +23758,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const studentId = normalizeTeacherStudentId(activeStudentId);
     const items = getHomeworkLessonBasketItems(homeworkLessonBaskets, studentId);
     if (!studentId || !items.length) return;
-    setHomeworkLessonBaskets(current => clearHomeworkLessonBasket(current, studentId));
+    const cleared = clearHomeworkLessonBasket(homeworkLessonBaskets, studentId);
+    if (!saveHomeworkLessonBaskets(user.id, cleared)) {
+      setHomeworkLessonBasketNotice({id: Date.now(), tone: 'error', text: 'Не удалось сохранить очистку черновика. Попробуйте ещё раз.'});
+      return;
+    }
+    setHomeworkLessonBaskets(cleared);
     setHomeworkLessonBasketNotice({
       id: Date.now(),
       tone: 'success',
@@ -23766,16 +23771,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       studentId,
       undoItems: items,
     });
-  }, [activeStudentId, activeHomeworkLessonBasketStudent, homeworkLessonBaskets, pendingHomeworkPrefill, user.role]);
+  }, [activeStudentId, activeHomeworkLessonBasketStudent, homeworkLessonBaskets, pendingHomeworkPrefill, user.id, user.role]);
 
   const handleUndoClearHomeworkLessonBasket = useCallback(() => {
     if (user.role !== 'teacher' || !homeworkLessonBasketNotice?.undoItems) return;
     const {studentId, undoItems} = homeworkLessonBasketNotice;
-    setHomeworkLessonBaskets(current => undoItems.reduce(
-      (baskets, item) => addHomeworkLessonBasketItem(baskets, studentId, item), current
-    ));
+    const restored = undoItems.reduce(
+      (baskets, item) => addHomeworkLessonBasketItem(baskets, studentId, item), homeworkLessonBaskets
+    );
+    if (!saveHomeworkLessonBaskets(user.id, restored)) {
+      setHomeworkLessonBasketNotice(current => ({...current, tone: 'error', text: 'Не удалось вернуть задания. Попробуйте ещё раз.'}));
+      return;
+    }
+    setHomeworkLessonBaskets(restored);
     setHomeworkLessonBasketNotice({id: Date.now(), tone: 'success', text: 'Задания возвращены в черновик.'});
-  }, [homeworkLessonBasketNotice, user.role]);
+  }, [homeworkLessonBasketNotice, homeworkLessonBaskets, user.id, user.role]);
 
   const handleHomeworkPrefillHandled = useCallback((result = {}) => {
     const request = result?.request && typeof result.request === 'object'
