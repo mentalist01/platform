@@ -16,6 +16,7 @@ export const trialBookingEntry = booking => ({id:`trial-booking-${booking.id}`, 
   durationMinutes:booking.durationMinutes, weekdayKey:AVAILABILITY_WEEKDAYS[weekdayIndex(booking.date)], weekdayOrder:weekdayIndex(booking.date)+1,
   day:AVAILABILITY_DAY_NAMES[weekdayIndex(booking.date)], studentId:'', participantIds:booking.studentIds,
   subject:`Пробное · ${booking.studentNames.join(', ')}`, studentName:booking.studentNames.join(', '), isTrial:true,
+  meetingUrl:booking.meetingUrl || '', participants:booking.studentIds.map((id,index)=>({id,name:booking.studentNames[index] || 'Ученик'})),
   isTeacherSlot:true, source:'trial-booking', excludedDates:[], startAt:new Date(`${booking.date}T${booking.time}:00+03:00`).toISOString()});
 
 export function createTrialSlotStore(file, now = Date.now) {
@@ -72,6 +73,11 @@ export function createTrialSlotStore(file, now = Date.now) {
     reservations(teacherId){return configuration(teacherId).slots.map(slot=>({id:`trial-reserve-${slot.id}`,trialReservation:true,
       weekdayKey:AVAILABILITY_WEEKDAYS[slot.day],weekdayOrder:slot.day+1,time:slot.time,durationMinutes:slot.durationMinutes,repeatFrom:slot.repeatFrom,subject:'Резерв для пробного'}));},
     entries(teacherId){return bookings(teacherId).filter(row=>row.studentIds.length).map(trialBookingEntry);},
+    studentSchedule(student,schedule){
+      const trials=bookings(student.teacherId).filter(row=>row.studentIds.includes(student.id))
+        .map(row=>({...trialBookingEntry(row),studentId:student.id,studentName:student.name}));
+      return [...(Array.isArray(schedule)?schedule:[]).filter(entry=>!entry.trialBookingId),...trials];
+    },
     managesGoogle(teacherId,event){
       if(event.extendedProperties?.private?.ivan100TrialTeacher===teacherId)return true;
       if(!googleUids){googleUids=new Set(Object.values(db.bookings).filter(row=>row.google?.iCalUID).map(row=>`${row.teacherId}:${row.google.iCalUID}`));}

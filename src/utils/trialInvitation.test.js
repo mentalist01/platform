@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_TRIAL_INVITATION,normalizeTrialMeetingUrl,normalizeTrialInvitationTemplate,trialInvitationMessage} from './trialInvitation.js';
+import {DEFAULT_TRIAL_INVITATION,normalizeTrialMeetingUrl,normalizeTrialInvitationTemplate,trialInvitationMessage,trialLessonMeetingUrl,studentAccessMessage} from './trialInvitation.js';
+
+test('dated trials use only their own safe meeting link; access messages include the platform and unchanged code',()=>{
+  const url='https://telemost.yandex.ru/j/trial';
+  assert.equal(trialLessonMeetingUrl({trialBookingId:'booked',meetingUrl:url}),url);
+  assert.equal(trialLessonMeetingUrl({meetingUrl:url}),'');
+  assert.equal(trialLessonMeetingUrl({trialBookingId:'booked',meetingUrl:'javascript:alert(1)'}),'');
+  assert.equal(trialLessonMeetingUrl({trialBookingId:'booked',telemostUrl:url}),'');
+  assert.equal(studentAccessMessage('001234'),'ivan100.ru\nКод доступа: 001234');
+});
 
 test('trial invitations preserve teacher wording and replace the selected meeting link only',()=>{
   const first='https://telemost.yandex.ru/j/123',second='https://telemost.yandex.ru/j/456';

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check, Copy, Eye, EyeOff, KeyRound, X } from 'lucide-react';
 import { preparedRequest } from '../services/preparedLessonTasks.js';
 import { copyParentMessage } from '../utils/studentParentContact.js';
+import { studentAccessMessage } from '../utils/trialInvitation.js';
 import './StudentAccessCode.css';
 
 export default function StudentAccessCode({ student }) {
@@ -16,7 +17,7 @@ export default function StudentAccessCode({ student }) {
       const result = await preparedRequest(endpoint);
       setMissing(!result.available);
       if (result.available) {
-        if (copying) { await copyParentMessage(result.code); setCopied(true); }
+        if (copying) { await copyParentMessage(studentAccessMessage(result.code)); setCopied(true); }
         else setCode(result.code);
       } else setCode('');
     } catch (failure) { setError(failure.message); }

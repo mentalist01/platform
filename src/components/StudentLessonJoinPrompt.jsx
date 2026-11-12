@@ -5,6 +5,7 @@ import { BellRing, CalendarDays, Clock3, ExternalLink, PhoneCall, Users, Video, 
 import { api } from '../services/api';
 import { normalizeHttpUrl } from '../utils/linkifyText';
 import { normalizeTelemostUrl } from '../utils/telemost';
+import { trialLessonMeetingUrl } from '../utils/trialInvitation.js';
 
 const LESSON_JOIN_PROMPT_LEAD_MS = 3 * 60 * 1000;
 const LESSON_JOIN_PROMPT_AFTER_START_MS = 12 * 60 * 1000;
@@ -243,7 +244,8 @@ const findDueLessonPrompt = ({ entries, nextLesson, telemostUrl, now, dismissedK
     const durationMinutes = getLessonDurationMinutes(entry);
     const excludedDayKeys = normalizeExcludedDayKeys(entry?.excludedDates);
     const boardUrl = normalizeHttpUrl(entry?.boardLink) || (isLearningGroupEvent ? '' : fallbackBoardUrl);
-    const entryTelemostUrl = isLearningGroupEvent
+    const trialMeetingUrl = trialLessonMeetingUrl(entry);
+    const entryTelemostUrl = entry?.trialBookingId ? trialMeetingUrl : isLearningGroupEvent
       ? normalizeTelemostUrl(entry?.telemostUrl)
       : telemostMeetingUrl;
 
@@ -264,6 +266,7 @@ const findDueLessonPrompt = ({ entries, nextLesson, telemostUrl, now, dismissedK
         ...entry,
         occurrenceKey,
         isLearningGroupEvent,
+        trialMeetingUrl,
         groupId: String(entry?.groupId || '').trim(),
         groupName: String(entry?.groupName || subject || 'Мини-группа').trim(),
         lessonId: String(entry?.lessonId || '').trim(),
@@ -428,7 +431,7 @@ const StudentLessonJoinPrompt = ({
   const openTelemostLesson = useCallback(() => {
     if (!activePrompt?.telemostUrl) return;
     markPromptOpened();
-    if (activePrompt.isLearningGroupEvent) return;
+    if (activePrompt.isLearningGroupEvent || activePrompt.trialBookingId) return;
     if (typeof onTelemostLessonStart === 'function') {
       onTelemostLessonStart({
         active: true,
@@ -503,7 +506,9 @@ const StudentLessonJoinPrompt = ({
         </div>
 
         <div className="student-lesson-join-prompt__actions">
-          <button
+          {activePrompt.trialMeetingUrl ? <a href={activePrompt.trialMeetingUrl} target="_blank" rel="noopener noreferrer" onClick={openTelemostLesson} className="student-lesson-join-prompt__primary">
+            <Video size={20}/>Войти в занятие в Телемосте<ExternalLink size={15}/>
+          </a> : <button
             type="button"
             onClick={openPlatformLesson}
             disabled={activePrompt.isLearningGroupEvent && (
@@ -515,9 +520,10 @@ const StudentLessonJoinPrompt = ({
             {activePrompt.isLearningGroupEvent
               ? (groupLessonReady ? 'Открыть занятие группы' : 'Группа ещё не запущена')
               : 'Подключиться по платформе'}
-          </button>
+          </button>}
 
           {groupLessonReady
+            && !activePrompt.trialMeetingUrl
             && activePrompt.telemostUrl
             && (!activePrompt.isLearningGroupEvent || activePrompt.msUntilStart <= 0) && (
             <a

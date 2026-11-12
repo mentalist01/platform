@@ -10,7 +10,7 @@ import { normalizeStudentParentContact, normalizeStudentContact, studentContactD
 import StudentContactFields from './StudentContactFields';
 import StudentContactLinks from './StudentContactLinks';
 import TrialInvitation, {TrialInvitationButton} from './TrialInvitation.jsx';
-import {trialInvitationMessage} from '../utils/trialInvitation.js';
+import {studentAccessMessage,trialInvitationMessage} from '../utils/trialInvitation.js';
 import { AVAILABILITY_DAY_NAMES, clockTime, weekdayIndex } from '../utils/groupAvailability';
 import './TrialCalendarSlots.css';
 
@@ -24,7 +24,7 @@ function Participant({person,busy,onRemove,invitation}){
     try{
       const result=await preparedRequest(`/api/students/${encodeURIComponent(person.id)}/access-code`);
       if(!result.available || !result.code)throw Error('Код ещё не сохранён. Он появится после следующего входа ученика; известный код можно сохранить в его карточке.');
-      await copyParentMessage(result.code);setCopied(true);
+      await copyParentMessage(studentAccessMessage(result.code));setCopied(true);
     }catch(failure){setError(failure.message);}finally{setCopying(false);}
   };
   return <div className="trial-slots__participant"><div className="trial-slots__person"><span>{person.name?.[0]}</span><strong>{person.name}</strong><button type="button" disabled={busy||copying} onClick={copy} aria-label={`${copied?'Код скопирован':'Копировать код'}: ${person.name}`}>
@@ -105,7 +105,7 @@ function Participants({teacherId,plan,selection,students,onSaved,onClose,onEdit}
       </>}
       <button className="trial-slots__primary trial-slots__submit" disabled={busy || (mode==='new'?!created&&!availability.canCreate:!studentId)}><Plus size={16}/>{busy?'Сохраняем…':created?'Записать созданного ученика':mode==='new'?'Создать и записать на пробное':'Добавить участника'}</button>
     </form>}</>}
-    {created&&<div className="trial-slots__credentials"><strong>{createdEnrolled?'Создан и записан':'Аккаунт создан'}: {created.name}</strong><span>Код входа: <b>{created.code}</b></span><button type="button" onClick={async()=>{try{await copyParentMessage(created.code);setCodeCopied(true);}catch(failure){setError(failure.message);}}}><Copy size={14}/>{codeCopied?'Скопировано':'Скопировать код'}</button></div>}
+    {created&&<div className="trial-slots__credentials"><strong>{createdEnrolled?'Создан и записан':'Аккаунт создан'}: {created.name}</strong><span>Код входа: <b>{created.code}</b></span><button type="button" onClick={async()=>{try{await copyParentMessage(studentAccessMessage(created.code));setCodeCopied(true);}catch(failure){setError(failure.message);}}}><Copy size={14}/>{codeCopied?'Скопировано':'Скопировать код'}</button></div>}
     {createdEnrolled&&<button type="button" onClick={()=>{setCreated(null);setName('');setNickname('');setParentDraft(studentContactDraft());setPupilDraft(studentContactDraft());setCodeCopied(false);setMode('new');}}><UserPlus size={15}/>Создать ещё одного ученика</button>}
     {error&&<p role="alert" className="trial-slots__error">{error}</p>}
   </div><footer><small>Участники записаны только на эту дату.</small>{slot&&<button type="button" disabled={busy} onClick={()=>onEdit({slotId:slot.id})}><Clock3 size={14}/>Изменить слот</button>}<button onClick={()=>!busy&&onClose()} disabled={busy}>Готово</button></footer></Dialog>;

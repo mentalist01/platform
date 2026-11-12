@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Check, Copy, Link2, Send} from 'lucide-react';
+import {Check, Copy, ExternalLink, Link2, Send, Video} from 'lucide-react';
 import {api} from '../services/api';
 import {studentContacts} from '../services/studentContacts';
 import {copyParentMessage, normalizeStudentContact} from '../utils/studentParentContact';
@@ -53,6 +53,7 @@ export default function TrialInvitation({teacherId,plan,selection,booking,busy,o
   return <section className="trial-invitation" aria-label="Ссылка и сообщение для пробного">
     <label><span><Link2 size={15}/>Ссылка Телемоста для этого пробного</span><input type="url" value={link} disabled={busy} aria-label="Ссылка Телемоста для пробного" placeholder="https://telemost.yandex.ru/j/…" maxLength={2048} onChange={event=>{setLink(event.target.value);setError('');setNotice('');}}/></label>
     <div className="trial-invitation__tools"><button type="button" disabled={busy || link===(booking?.meetingUrl || '')} className="trial-slots__primary" onClick={()=>void save('link')}>{saving==='link'?'Сохраняем…':'Сохранить ссылку'}</button>
+      {booking?.meetingUrl&&<a className="trial-invitation__join" href={normalizeTrialMeetingUrl(booking.meetingUrl)} target="_blank" rel="noopener noreferrer"><Video size={16}/>Войти в занятие<ExternalLink size={13}/></a>}
       <button type="button" disabled={busy} aria-expanded={editingTemplate} onClick={()=>{setEditingTemplate(value=>!value);setTemplate(savedTemplate);setError('');}}>Изменить шаблон сообщения</button>
     </div>
     {editingTemplate&&<div className="trial-invitation__template">

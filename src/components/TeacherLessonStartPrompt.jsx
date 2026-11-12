@@ -14,6 +14,7 @@ import {
 import { api, resolveAuthenticatedUploadsUrl } from '../services/api';
 import { normalizeTelemostUrl } from '../utils/telemost';
 import { studentLessonVenue } from '../utils/studentLessonVenue';
+import { trialLessonMeetingUrl } from '../utils/trialInvitation.js';
 import TeacherLessonStartPromptCard from './TeacherLessonStartPromptCard';
 
 const LESSON_PROMPT_LEAD_MS = 60 * 1000;
@@ -335,7 +336,7 @@ const getParticipantName = (participant, studentsById) => {
 };
 
 const getGroupParticipantRows = (prompt, studentsById) => {
-  if (!prompt?.isLearningGroupEvent) return [];
+  if (!prompt?.isLearningGroupEvent && !prompt?.isTrialEvent) return [];
   const participantById = new Map();
   (Array.isArray(prompt?.participants) ? prompt.participants : []).forEach((participant, index) => {
     if (!participant || typeof participant !== 'object') return;
@@ -411,9 +412,11 @@ const findDueLessonPrompt = ({ entries, now, studentsById, dismissedKeys }) => {
 
   (Array.isArray(entries) ? entries : []).forEach((entry) => {
     const isLearningGroupEvent = isLearningGroupScheduleEntry(entry);
+    const isTrialEvent = Boolean(entry?.trialBookingId);
     const studentId = String(entry?.studentId || '').trim();
     const groupId = String(entry?.groupId || '').trim();
-    if (!isLearningGroupEvent && !studentId) return;
+    if (!isLearningGroupEvent && !studentId && !isTrialEvent) return;
+    if (isTrialEvent && !entry.participantIds?.length) return;
     const startMinutes = getEntryStartMinutes(entry);
     if (!Number.isFinite(startMinutes)) return;
     const duration = Number.isFinite(Number(entry?.durationMinutes))
@@ -444,6 +447,8 @@ const findDueLessonPrompt = ({ entries, now, studentsById, dismissedKeys }) => {
         ...entry,
         occurrenceKey,
         isLearningGroupEvent,
+        isTrialEvent,
+        trialMeetingUrl: trialLessonMeetingUrl(entry),
         groupId,
         groupName: String(entry?.groupName || subject || 'Мини-группа').trim(),
         lessonId: String(entry?.lessonId || '').trim(),
@@ -629,7 +634,7 @@ const TeacherLessonStartPrompt = ({
 
   useEffect(() => {
     const studentId = String(activePrompt?.studentId || '').trim();
-    if (activePrompt?.isLearningGroupEvent || !studentId) {
+    if (activePrompt?.isLearningGroupEvent || activePrompt?.isTrialEvent || !studentId) {
       return undefined;
     }
 
@@ -670,13 +675,17 @@ const TeacherLessonStartPrompt = ({
     return () => {
       cancelled = true;
     };
-  }, [activePrompt?.isLearningGroupEvent, activePrompt?.occurrenceKey, activePrompt?.studentId]);
+  }, [activePrompt?.isLearningGroupEvent, activePrompt?.isTrialEvent, activePrompt?.occurrenceKey, activePrompt?.studentId]);
 
   const closePrompt = useCallback(() => {
     if (activePrompt?.occurrenceKey) rememberDismissedPrompt(activePrompt.occurrenceKey);
   }, [activePrompt, rememberDismissedPrompt]);
 
   const joinCall = useCallback(() => {
+    if (activePrompt?.isTrialEvent) {
+      if (activePrompt.trialMeetingUrl) rememberDismissedPrompt(activePrompt.occurrenceKey);
+      return;
+    }
     if (activePrompt?.isLearningGroupEvent || !activePrompt?.studentId) return;
     if (preferredVenue.telemost && preferredVenue.url && typeof onOpenIndividualTelemost === 'function') {
       const accepted = onOpenIndividualTelemost({ studentId: activePrompt.studentId, telemostUrl: preferredVenue.url });
@@ -723,6 +732,7 @@ const TeacherLessonStartPrompt = ({
   const subject = String(activePrompt.subject || '').trim();
   const leadLabel = getPromptLeadLabel(activePrompt);
   const isLearningGroupEvent = Boolean(activePrompt.isLearningGroupEvent);
+  const isTrialEvent = Boolean(activePrompt.isTrialEvent);
   const groupParticipantRows = getGroupParticipantRows(activePrompt, studentsById);
   const groupLessonClosed = [
     activePrompt?.status,
@@ -749,14 +759,15 @@ const TeacherLessonStartPrompt = ({
       subtitle={subtitle}
       leadLabel={leadLabel}
       isGroup={isLearningGroupEvent}
-      venueLabel={!isLearningGroupEvent ? preferredVenue.label : ''}
-      joinLabel={!isLearningGroupEvent ? preferredVenue.joinLabel : ''}
+      venueLabel={isTrialEvent ? 'Пробное в Телемосте' : !isLearningGroupEvent ? preferredVenue.label : ''}
+      joinLabel={isTrialEvent ? 'Войти в занятие в Телемосте' : !isLearningGroupEvent ? preferredVenue.joinLabel : ''}
+      joinHref={isTrialEvent ? activePrompt.trialMeetingUrl : ''}
       onClose={closePrompt}
       onJoin={isLearningGroupEvent ? openLearningGroupLesson : joinCall}
-      joinDisabled={isLearningGroupEvent
+      joinDisabled={isTrialEvent ? !activePrompt.trialMeetingUrl : isLearningGroupEvent
         ? !groupLessonWorkspaceReady || typeof onOpenLearningGroupLesson !== 'function'
         : !activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'}
-      secondaryAction={isLearningGroupEvent ? (
+      secondaryAction={isTrialEvent ? (!activePrompt.trialMeetingUrl && <div className="lesson-start-prompt__warning">Сохраните ссылку Телемоста в участниках этого пробного в календаре.</div>) : isLearningGroupEvent ? (
         groupLessonReady && activePrompt.telemostUrl ? (
           <button type="button" onClick={openLearningGroupTelemost}
             disabled={typeof onOpenLearningGroupTelemost !== 'function'} className="lesson-start-prompt__secondary">
@@ -777,10 +788,10 @@ const TeacherLessonStartPrompt = ({
         <div className="lesson-start-prompt__warning">Ссылка ещё не сохранена. Добавьте её в карточке ученика или в настройках Телемоста перед звонком.</div>
       ) : null}
     >
-      {isLearningGroupEvent ? (
+      {isLearningGroupEvent || isTrialEvent ? (
         <section className="lesson-start-prompt__section">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="lesson-start-prompt__section-title"><Users size={15} />Участники группы</div>
+            <div className="lesson-start-prompt__section-title"><Users size={15} />{isTrialEvent ? 'Участники пробного' : 'Участники группы'}</div>
             <span className="lesson-start-prompt__muted text-[11px]">
               {groupParticipantRows.length > 0 ? `${groupParticipantRows.length} уч.` : 'Список уточняется'}
             </span>
@@ -790,11 +801,11 @@ const TeacherLessonStartPrompt = ({
               {groupParticipantRows.map((row) => (
                 <div key={row.id} className="lesson-start-prompt__participant">
                   <span className="truncate text-sm font-bold">{row.name}</span>
-                  <span className="lesson-start-prompt__payment" data-status={row.paymentStatus}>
+                  {!isTrialEvent && <span className="lesson-start-prompt__payment" data-status={row.paymentStatus}>
                     {row.paymentStatus === 'paid' ? <CheckCircle size={11} /> : <Clock3 size={11} />}
                     {row.paymentStatus === 'paid' ? 'Оплачено' : row.paymentStatus === 'not-required'
                       ? 'Не участвует по расписанию' : row.paymentStatus === 'unpaid' ? 'Не оплачено' : 'Нет данных'}
-                  </span>
+                  </span>}
                 </div>
               ))}
             </div>
@@ -841,7 +852,7 @@ const TeacherLessonStartPrompt = ({
         </div>
       )}
       <footer className="lesson-start-prompt__footer">
-        {!isLearningGroupEvent && <button type="button" onClick={openNotes} disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'} className="lesson-start-prompt__secondary"><BookOpen size={15} />Конспекты</button>}
+        {!isLearningGroupEvent && !isTrialEvent && <button type="button" onClick={openNotes} disabled={!activePrompt.studentId || typeof onOpenStudentWorkspace !== 'function'} className="lesson-start-prompt__secondary"><BookOpen size={15} />Конспекты</button>}
         <button type="button" onClick={closePrompt} className="lesson-start-prompt__done">Готово</button>
       </footer>
     </TeacherLessonStartPromptCard>

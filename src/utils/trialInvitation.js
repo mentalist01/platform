@@ -1,5 +1,14 @@
 export const DEFAULT_TRIAL_INVITATION = 'Привет, начинаем через час, вот ссылка на занятие: {ссылка}';
 
+export function trialLessonMeetingUrl(entry) {
+  if (!entry?.trialBookingId) return '';
+  try { return normalizeTrialMeetingUrl(entry.meetingUrl || ''); } catch { return ''; }
+}
+
+export function studentAccessMessage(code) {
+  return `ivan100.ru\nКод доступа: ${String(code || '').trim()}`;
+}
+
 export function normalizeTrialMeetingUrl(value) {
   if (typeof value !== 'string') throw Error('Вставьте ссылку на занятие.');
   const input = value.trim();

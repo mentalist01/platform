@@ -115,6 +115,7 @@ html[data-theme='dark'] .lesson-start-prompt {
   box-shadow: 0 5px 14px rgb(124 58 237 / .18);
   cursor: pointer;
 }
+.lesson-start-prompt__primary { text-decoration: none; }
 .lesson-start-prompt__primary:hover { filter: brightness(1.07); }
 .lesson-start-prompt button:disabled { cursor: not-allowed; opacity: .55; }
 .lesson-start-prompt__secondary, .lesson-start-prompt__done {

@@ -35380,6 +35380,8 @@ app.get('/api/student-schedule', async (req, res) => {
   } catch {
     schedule = data.schedule || [];
   }
+  // Read dated trial links from their source, including links saved before this version.
+  schedule = trialSlots.studentSchedule(student, schedule);
   const responseSchedule = await buildStudentSchedulePaymentResponse(student, schedule, {includePayments:req.query.purpose!=='lesson'});
   if (req.query.includeOptions === '1') {
     res.setHeader('Cache-Control', 'no-store');

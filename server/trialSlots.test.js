@@ -9,6 +9,22 @@ import {ensureGoogleCalendarTrialBooking} from './googleCalendarWriteback.js';
 
 const now=()=>Date.parse('2026-11-09T09:00:00+03:00'),date='2026-11-10';
 function storeFor(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'ivan-trial-test-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return createTrialSlotStore(path.join(root,'slots.json'),now);}
+
+test('trial schedules read the current dated link without leaking another pupil or teacher booking',t=>{
+  const store=storeFor(t),pupil={id:'a',teacherId:'t',name:'Анна'},regular={id:'regular',time:'10:00'};
+  const row={id:'booked',teacherId:'t',slotId:'slot',date,time:'14:00',durationMinutes:60,studentIds:['a','b'],studentNames:['Анна','Борис'],revision:1,meetingUrl:'https://telemost.yandex.ru/j/first'};
+  store.putBooking(row);store.putBooking({...row,id:'foreign',teacherId:'other',slotId:'other'});
+  const old=[regular,{trialBookingId:'booked',meetingUrl:'https://telemost.yandex.ru/j/stale'}];
+  assert.equal(store.entries('t')[0].meetingUrl,row.meetingUrl);
+  assert.deepEqual(store.entries('t')[0].participants,[{id:'a',name:'Анна'},{id:'b',name:'Борис'}]);
+  assert.deepEqual(store.studentSchedule(pupil,old).map(e=>e.id),['regular','trial-booking-booked']);
+  store.putBooking({...row,meetingUrl:'https://telemost.yandex.ru/j/changed'});
+  assert.equal(store.studentSchedule(pupil,old)[1].meetingUrl,'https://telemost.yandex.ru/j/changed');
+  assert.equal(store.studentSchedule(pupil,old)[1].studentId,'a');
+  assert.deepEqual(store.studentSchedule({...pupil,id:'not-enrolled'},old),[regular]);
+  store.putBooking({...row,studentIds:[],studentNames:[]});
+  assert.deepEqual(store.entries('t'),[]);assert.deepEqual(store.studentSchedule(pupil,old),[regular]);
+});
 test('weekly reserves persist, exclude empty lessons and reject partial overlaps but allow touching boundaries',t=>{
   const store=storeFor(t),plan=store.setSlots('t',[{day:1,time:'14:00',durationMinutes:60},{day:3,time:'10:30',durationMinutes:40}],0);
   assert.equal(store.entries('t').length,0);assert.equal(store.reservations('t').length,2);

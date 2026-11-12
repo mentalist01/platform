@@ -4,7 +4,7 @@ import './TeacherLessonStartPrompt.css';
 
 export default function TeacherLessonStartPromptCard({
   title, subject, subtitle, leadLabel, isGroup, onClose, onJoin, joinDisabled,
-  secondaryAction, children, venueLabel, joinLabel,
+  secondaryAction, children, venueLabel, joinLabel, joinHref,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const titleId = useId();
@@ -57,9 +57,11 @@ export default function TeacherLessonStartPromptCard({
           </div>
         </header>
         <div className="lesson-start-prompt__actions">
-          <button type="button" className="lesson-start-prompt__primary" onClick={onJoin} disabled={joinDisabled}>
+          {joinHref ? <a href={joinHref} target="_blank" rel="noopener noreferrer" className="lesson-start-prompt__primary" onClick={onJoin}>
+            <JoinIcon size={20} />{joinLabel}
+          </a> : <button type="button" className="lesson-start-prompt__primary" onClick={onJoin} disabled={joinDisabled}>
             <JoinIcon size={20} />{joinLabel || (isGroup ? 'Открыть занятие группы' : (collapsed ? 'Войти в звонок' : 'Присоединиться к созвону'))}
-          </button>
+          </button>}
           {!collapsed && secondaryAction}
         </div>
         {!collapsed && <div className="lesson-start-prompt__body">{children}</div>}

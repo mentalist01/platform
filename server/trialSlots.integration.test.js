@@ -3,6 +3,30 @@ import assert from 'node:assert/strict';
 import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
 import {addCalendarDays,moscowDay,weekdayIndex,AVAILABILITY_WEEKDAYS} from '../src/utils/groupAvailability.js';
 
+test('saved trial links reach teacher and enrolled student schedules, update without re-enrollment and stay private', {timeout:60000},async()=>{
+  const f=await createGroupHomeworkFixture();
+  try{
+    const teacher=f.tokens['teacher-a'],base='/api/trial-slots';
+    let date=addCalendarDays(moscowDay(),1);while(weekdayIndex(date)!==1)date=addCalendarDays(date,1);
+    let plan=await f.request(base,teacher,{revision:0,slots:[{day:1,time:'14:00',durationMinutes:60}]},'PUT');
+    const slot=plan.slots[0],endpoint=`${base}/${slot.id}/${date}`;
+    plan=await f.request(endpoint+'/participants',teacher,{studentId:'student-a',revision:0});
+    const first='https://telemost.yandex.ru/j/trial-first',second='https://telemost.yandex.ru/j/trial-second';
+    plan=await f.request(endpoint+'/meeting',teacher,{meetingUrl:first,revision:plan.bookings[0].revision},'PATCH');
+    const schedule=async(id='student-a')=>f.request('/api/student-schedule?purpose=lesson',f.tokens[id]);
+    assert.equal((await schedule()).find(e=>e.trialBookingId).meetingUrl,first);
+    assert.equal((await f.request('/api/teacher-schedule?purpose=lesson',teacher)).find(e=>e.trialBookingId).meetingUrl,first);
+    assert.equal((await schedule('student-b')).filter(e=>e.trialBookingId).length,0);
+    assert.equal((await schedule('student-c')).filter(e=>e.trialBookingId).length,0);
+    plan=await f.request(endpoint+'/meeting',teacher,{meetingUrl:second,revision:plan.bookings[0].revision},'PATCH');
+    assert.equal((await schedule()).find(e=>e.trialBookingId).meetingUrl,second);
+    plan=await f.request(endpoint+'/meeting',teacher,{meetingUrl:'',revision:plan.bookings[0].revision},'PATCH');
+    assert.equal((await schedule()).find(e=>e.trialBookingId).meetingUrl,'');
+    await f.request(endpoint+'/participants/student-a',teacher,{revision:plan.bookings[0].revision},'DELETE');
+    assert.equal((await schedule()).filter(e=>e.trialBookingId).length,0);
+  }finally{await f.stop();}
+});
+
 test('real calendar protects trial reserves across creation, drag, group scheduling and student schedules; booked lessons reach pupils only', {timeout:60000},async()=>{
   const f=await createGroupHomeworkFixture();
   try{
