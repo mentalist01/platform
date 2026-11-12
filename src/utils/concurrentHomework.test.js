@@ -2,6 +2,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { weeklyHomeworkDeadline, weeklyHomeworkLessonChoices, partitionConcurrentHomeworks } from './concurrentHomework.js';
 
+test('deadline homework stays in a separate review section until Moscow midnight without becoming active again',()=>{
+  const dueAt='2026-11-12T19:00:00+03:00',entry={id:'today',source:'learning-group',dueAt,learningAssignmentStatus:'closed'};
+  const options={includeTodayReview:true};
+  for(const now of [Date.parse(dueAt),Date.parse('2026-11-12T23:59:59.999+03:00')]){
+    const result=partitionConcurrentHomeworks([entry],now,options);
+    assert.equal(result.active.length,0);assert.deepEqual(result.review,[entry]);assert.equal(result.history.length,0);
+    assert.deepEqual(partitionConcurrentHomeworks([entry],now).history,[entry],'Acceptance-oriented callers keep their deadline behavior');
+  }
+  const midnight=partitionConcurrentHomeworks([entry],Date.parse('2026-11-13T00:00:00+03:00'),options);
+  assert.equal(midnight.review.length,0);assert.deepEqual(midnight.history,[entry]);
+});
+
+test('today review never revives cancelled memberships, superseded work or individual homework',()=>{
+  const now=Date.parse('2026-11-12T18:00:00Z'),base={source:'learning-group',dueAt:'2026-11-12T16:00:00Z',learningAssignmentStatus:'closed'};
+  const entries=[{...base,id:'left',learningMembershipEndedAt:'2026-11-12'},{...base,id:'cancelled',learningHomeworkCancelledAt:'2026-11-12'},
+    {...base,id:'superseded',learningCarryoverSupersededBy:'new'},{...base,id:'individual',source:'individual'},
+    {...base,id:'review'},{...base,id:'new',learningAssignmentStatus:'assigned',dueAt:'2026-11-19T16:00:00Z'}];
+  const result=partitionConcurrentHomeworks(entries,now,{includeTodayReview:true});
+  assert.deepEqual(result.review.map(x=>x.id),['review']);assert.deepEqual(result.active.map(x=>x.id),['individual','new']);
+  assert.deepEqual(result.history.map(x=>x.id),['left','cancelled','superseded']);
+});
+
 test('both group tracks are visible before their deadlines and only the expired work moves to history', () => {
   const now = Date.parse('2026-10-09T16:59:59Z');
   const python = { id: 'python', source: 'learning-group', learningGroupId: 'g2', studyTrack: 'python', issuedAt: '2026-10-02T18:00Z', dueAt: '2026-10-09T17:00Z', learningAssignmentStatus: 'assigned' };

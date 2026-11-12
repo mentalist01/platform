@@ -2878,8 +2878,8 @@ const ScheduleSection = ({
     testsDbError,
   ]);
 
-  const { active: deadlineOrderedHomework, history: previousHomeworkEntries } = partitionConcurrentHomeworks(
-    sortedHomeworks, homeworkClock
+  const { active: deadlineOrderedHomework, history: previousHomeworkEntries, review: todayReviewHomework } = partitionConcurrentHomeworks(
+    sortedHomeworks, homeworkClock, {includeTodayReview:true}
   );
   const homeworkPriority = role === 'student' && !loading && !scheduleLoading
     ? getGroupHomeworkPriority(deadlineOrderedHomework, [...editableLessonSchedule, ...groupHomeworkSlots], homeworkClock)
@@ -3297,7 +3297,7 @@ const ScheduleSection = ({
 
   const renderHomeworkEntryCard = (entry, section = 'next', key) => {
     if (!entry) return null;
-    const isNextSection = section === 'next' || section === 'active';
+    const isNextSection = section === 'next' || section === 'active' || section === 'review';
     const isPriority = isNextSection && priorityEntries.includes(entry);
     const dateText = formatDate(entry?.issuedAt);
     const isLearningGroupHomework = String(entry?.source || '').trim() === 'learning-group'
@@ -3633,6 +3633,9 @@ const ScheduleSection = ({
       return (
         <article key={key} className={`student-today-homework-card relative overflow-hidden rounded-[26px] border border-purple-200/85 bg-white/94 p-4 shadow-[0_18px_42px_rgba(99,102,241,0.13)] md:p-5${isPriority ? ' group-homework-guide__priority-card' : ''}`}>
           <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-purple-100/70 blur-3xl" />
+          {section==='review'&&<p className="relative mb-4 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700">
+            <BookOpen size={15} className="mr-1.5 inline"/>Для разбора на сегодняшнем занятии · Видна до конца дня по Москве. Срок сдачи уже прошёл, результаты к сроку сохранены.
+          </p>}
           <header className="student-today-homework__header relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
               <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-[0_10px_22px_rgba(124,58,237,0.24)]">
@@ -6036,6 +6039,10 @@ const ScheduleSection = ({
           )
         ) : (
           <div className="space-y-4 md:space-y-6">
+            {todayReviewHomework.length>0&&<section aria-label="Домашка для разбора сегодня" className="space-y-4">
+              <h3 className="text-lg font-bold text-gray-800">К сегодняшнему занятию</h3>
+              {todayReviewHomework.map(entry=>renderHomeworkEntryCard(entry,'review',entry.id))}
+            </section>}
             <div ref={node => {
               if (nextHomeworkFlyRef) nextHomeworkFlyRef.current = node;
               priorityHomeworkRef.current = priorityEntries.length > 0 ? node : null;

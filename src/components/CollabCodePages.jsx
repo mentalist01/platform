@@ -5,6 +5,8 @@ import {lessonCodePageId,lessonBoardPageId} from '../utils/lessonPageSelection.j
 import {useLessonPages} from '../hooks/useLessonPages.js';
 import {useCollapsedLessonPages} from '../hooks/useCollapsedLessonPages.js';
 import {lessonPageTree,lessonPageParentChoices} from '../utils/lessonPageTree.js';
+import SummonAudiencePicker from './SummonAudiencePicker.jsx';
+import {summonRecipientIds} from '../utils/summonRecipients.js';
 import './CollabCodePages.css';
 
 const suggestedName = pages => {
@@ -15,8 +17,12 @@ const suggestedName = pages => {
 };
 
 export default function CollabCodePages({ pages:codePages, activeId, onSelect, roomId,role,userId,
-  onSummonCode, summonSolutionId, summonStudentId='', summonTargetIds=[], disabled = false, readOnly = false, dark = false, peers = [], lockedPageId = null, protectedPageId = null }) {
+  onSummonCode, summonSolutionId, summonStudentId='', summonTargetIds=[], summonParticipants=[], disabled = false, readOnly = false, dark = false, peers = [], lockedPageId = null, protectedPageId = null }) {
   const common=useLessonPages(roomId,role,userId);
+  const [recipientId,setRecipientId]=useState('');
+  const canChooseRecipient=!summonStudentId&&summonParticipants.length>0;
+  const selectedRecipient=canChooseRecipient?recipientId:'';
+  const recipients=summonRecipientIds(summonTargetIds,selectedRecipient);
   const sharedSelected=common.selected,selectShared=common.select;
   const pages=lessonPageTree(common.pages.map(page=>({id:lessonCodePageId(page.id),name:page.title,...(page.parentId?{parentId:lessonCodePageId(page.parentId)}:{}),count:codePages.find(p=>p.id===lessonCodePageId(page.id))?.count||1})));
   const {visiblePages,toggleParent}=useCollapsedLessonPages(pages,lessonCodePageId(sharedSelected),common.bookRoom);
@@ -81,16 +87,18 @@ export default function CollabCodePages({ pages:codePages, activeId, onSelect, r
         {lockedPageId!==null ? <Lock size={15}/> : <Layers size={16}/>}<strong>{current.name}</strong><small>{pages.findIndex(page => page.id === current.id) + 1}/{pages.length}</small><ChevronDown size={14}/>
       </button>
       <span className="collab-code-pages__count">Вкладок: {current.count || 1}</span>
-      {['teacher','admin'].includes(role)&&summonSolutionId&&<button type="button" className="collab-code-pages__summon"
-        disabled={disabled||readOnly||!common.connected||!common.canEdit}
+      {['teacher','admin'].includes(role)&&summonSolutionId&&<><button type="button" className="collab-code-pages__summon"
+        disabled={disabled||readOnly||!common.connected||!common.canEdit||!recipients?.length}
         title="Открыть у учеников эту вкладку кода, сохранив их место на доске" aria-label="Позвать в код"
-        onClick={()=>common.summonCode({solutionId:summonSolutionId,pageId:lessonBoardPageId(activeId),studentId:summonStudentId},summonTargetIds)}>
-        <Code2 size={16}/><span>Позвать в код</span></button>}
+        onClick={()=>common.summonCode({solutionId:summonSolutionId,pageId:lessonBoardPageId(activeId),studentId:summonStudentId,recipientId:selectedRecipient},summonTargetIds)}>
+        <Code2 size={16}/><span>Позвать в код</span></button>
+        {canChooseRecipient&&<SummonAudiencePicker label="Кого позвать в код" participants={summonParticipants} value={recipientId}
+          onChange={id=>{common.cancelSummon();setRecipientId(id);}} disabled={disabled||readOnly||!common.canEdit}/>}</>}
       {!readOnly && common.canEdit && <button type="button" className="collab-code-pages__create" disabled={!editable || pages.length >= MAX_BOARD_PAGES}
         onClick={() => edit('create')} aria-label="Создать страницу кода"><Plus size={16}/><span>Новая страница</span></button>}
     </div>
     {common.summonState.phase!=='idle'&&<div className="collab-code-pages__summon-status" role="status" data-summon-phase={common.summonState.phase}>
-      {{queued:'Восстанавливаем связь — позовём в код после подключения',waiting:'Зовём в код…',confirmed:'Ученики открыли ваш код',sent:'Призыв в код отправлен',expired:'Связь не восстановилась. Позовите в код ещё раз после подключения.',unconfirmed:'Ждём подтверждения от учеников. Проверьте, открылась ли у них вкладка кода.'}[common.summonState.phase]}
+      {{queued:'Восстанавливаем связь — позовём в код после подключения',waiting:'Зовём в код…',confirmed:recipients?.length===1?'Ученик открыл ваш код':'Ученики открыли ваш код',sent:'Призыв в код отправлен',expired:'Связь не восстановилась. Позовите в код ещё раз после подключения.',unconfirmed:'Нет подтверждения. Если страница ученика давно открыта, обновите её и повторите призыв.'}[common.summonState.phase]}
     </div>}
     {open && <section className="collab-code-pages__panel" aria-label="Страницы кода">
       <div className="collab-code-pages__heading"><div><strong>Страницы занятия</strong><p>Одна страница — доска и свой набор вкладок кода.</p></div>

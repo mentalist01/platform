@@ -28,6 +28,7 @@ import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
 import {lessonBookForCodeRoom,lessonCodePageId,lessonBoardPageId} from './utils/lessonPageSelection.js';
 import {summonedCodeSelection} from './utils/lessonSummonCode.js';
+import SummonAudiencePicker from './components/SummonAudiencePicker.jsx';
 import { normalizeBoardFileFields, drawBoardFileCard } from './utils/boardFile.js';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
@@ -11191,6 +11192,7 @@ export const CollabSection = ({
             summonSolutionId={isTeacher?activeSolutionId:undefined}
             summonStudentId={isGroupLesson&&effectiveGroupParticipantId!==GROUP_SHARED_CODE_ID?effectiveGroupParticipantId:''}
             summonTargetIds={isGroupLesson?(effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?learningParticipantIds:[effectiveGroupParticipantId]):[effectiveStudentId]}
+            summonParticipants={isGroupLesson?orderedGroupParticipants:[]}
             lockedPageId={studentCodeFocus ? pinnedCode?.pageId || '' : null}
             protectedPageId={isTeacher && codeFocus.focus?.room === roomId ? codeFocus.focus?.pageId : null}
             disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted} readOnly={collabReadOnly} dark={isCollabDarkUi}
@@ -18334,7 +18336,7 @@ export const BoardCanvasSection = ({
                 <Save size={19} />
               </button>
             )}
-            {showBottomSummonButton && (
+            {showBottomSummonButton && (<>
               <button
                 type="button"
                 onClick={handleSummonStudent}
@@ -18345,7 +18347,8 @@ export const BoardCanvasSection = ({
               >
                 <Users size={19} />
               </button>
-            )}
+              {pages?.summonAudience&&<SummonAudiencePicker label="Кого позвать на доску" {...pages.summonAudience}/>}
+            </>)}
             {!isSandbox && <span className="board-bottom-controls__divider" aria-hidden="true" />}
             <span className={`board-bottom-controls__session-status ${statusToneClass}`} aria-label={statusLabel}>
               <span className="board-bottom-controls__status-dot" aria-hidden="true" />

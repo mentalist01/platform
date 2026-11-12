@@ -15,6 +15,7 @@ import {useCollapsedLessonPages} from '../hooks/useCollapsedLessonPages.js';
 import {lessonPageTree,lessonPageParentChoices} from '../utils/lessonPageTree.js';
 import {requestLessonPages} from '../services/lessonPages.js';
 import {boardCommandNow,observeLiveBoardCommand} from '../utils/boardCommandClock.js';
+import {summonRecipientIds} from '../utils/summonRecipients.js';
 
 const id = () => crypto.randomUUID();
 export default function BoardPagesWorkspace(props) {
@@ -48,6 +49,9 @@ function PagedBoardWorkspace(props) {
   const [editing,setEditing]=useState(''),[title,setTitle]=useState(''),[error,setError]=useState(''),[navigation,setNavigation]=useState(null);
   const [notice,setNotice]=useState('');
   const [summonState,setSummonState]=useState({phase:'idle'});
+  const [summonRecipientId,setSummonRecipientId]=useState('');
+  const summonParticipants=(canvasProps.participantIds||[]).map(id=>({id,name:canvasProps.students?.find(student=>student.id===id)?.name||'Ученик'}));
+  const selectedSummonIds=summonRecipientIds(group?(boardStudentId?[boardStudentId]:(canvasProps.participantIds||[])):[activeStudentId],group&&!boardStudentId?summonRecipientId:'');
   const [channelReady,setChannelReady]=useState(false);
   const [deleting,setDeleting]=useState(null);
   const [pageActionBusy,setPageActionBusy]=useState(false),[deletedPage,setDeletedPage]=useState(null);
@@ -67,7 +71,7 @@ function PagedBoardWorkspace(props) {
       const doc=new Y.Doc(),provider=new WebsocketProvider(getCollabWsUrl(),bookRoom,doc,{params:{_auth:getStoredAuthToken() || ''},disableBc:true});
       const map=doc.getMap('pages'),control=doc.getMap('pageControl');
       runtime.current={doc,provider,map,control};
-      const delivery=createBoardSummonDelivery({isReady:()=>provider.wsconnected && provider.synced && provider.ws?.readyState===1,send:command=>control.set('summon',command),onState:setSummonState,now:boardCommandNow});
+      const delivery=createBoardSummonDelivery({isReady:()=>provider.wsconnected && provider.synced && provider.ws?.readyState===1,send:command=>control.set(command.recipientIds?'summonBoardRecipient':'summon',command),onState:setSummonState,now:boardCommandNow});
       summonDelivery.current=delivery;
       setChannelReady(true);
       const update=()=>{
@@ -83,8 +87,10 @@ function PagedBoardWorkspace(props) {
         controls();
       };
       const controls=()=>{
-        const command=control.get('summon');if(teacher || command?.id===lastCommand.current)return;
-        const target=boardPageSummonTarget(command,userId,boardPagesList(map));if(!target||target.scope==='code')return;
+        if(teacher)return;
+        const target=['summon','summonBoardRecipient'].map(key=>control.get(key)).filter(Boolean).sort((a,b)=>b.ts-a.ts)
+          .map(command=>boardPageSummonTarget(command,userId,boardPagesList(map))).find(Boolean);
+        if(!target||target.id===lastCommand.current||target.scope==='code')return;
         lastCommand.current=target.id;setPageId(target.pageId,{only:target.scope==='board'});setStudentId(target.studentId);setNavigation(target);
         setNotice('Учитель переместил вас на свою страницу и к своему месту');
       };
@@ -95,7 +101,7 @@ function PagedBoardWorkspace(props) {
       };
       const status=()=>setConnected(provider.wsconnected && provider.synced);
       const sync=()=>{status();update();controls();publish();delivery.flush();};
-      const liveControls=event=>{if(!event.keysChanged.has('summon'))return;if(!teacher && provider.synced)observeLiveBoardCommand(control.get('summon'));controls();};
+      const liveControls=event=>{const keys=['summon','summonBoardRecipient'].filter(key=>event.keysChanged.has(key));if(!keys.length)return;if(!teacher && provider.synced)keys.forEach(key=>observeLiveBoardCommand(control.get(key)));controls();};
       map.observe(update);control.observe(liveControls);provider.awareness.on('change',presence);
       provider.on('status',status);provider.on('sync',sync);update();publish();
       cleanup=()=>{delivery.dispose();summonDelivery.current=null;setChannelReady(false);map.unobserve(update);control.unobserve(liveControls);provider.awareness.off('change',presence);provider.off('status',status);provider.off('sync',sync);provider.destroy();doc.destroy();runtime.current=null;};
@@ -133,9 +139,11 @@ function PagedBoardWorkspace(props) {
     if(await changePage({action:'delete',id:removed.id})){summonDelivery.current?.cancel();setNavigation(null);setDeletedPage(removed);setNotice('Страница с доской и кодом убрана');setDeleting(null);}
   };
   const summon=useCallback(viewport=>{if(!teacher || readOnly)return;
-    const targetIds=group?(boardStudentId?[boardStudentId]:(canvasProps.participantIds || [])):[activeStudentId];
-    summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,scope:'board',...viewport},targetIds);
-  },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId]);
+    const recipientId=group&&!boardStudentId?summonRecipientId:'';
+    const targetIds=summonRecipientIds(group?(boardStudentId?[boardStudentId]:(canvasProps.participantIds || [])):[activeStudentId],recipientId);
+    if(!targetIds?.length)return;
+    summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,scope:'board',...(recipientId?{recipientIds:targetIds}:{}),...viewport},targetIds);
+  },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId,summonRecipientId]);
   const acknowledgeNavigation=useCallback(command=>{
     if(teacher || !command?.id || command.id!==lastCommand.current
       || command.pageId!==pageId || command.studentId!==boardStudentId)return false;
@@ -144,7 +152,8 @@ function PagedBoardWorkspace(props) {
     // Background tabs may suspend animation frames; delivery must not wait for paint.
     lastApplied.current=command.id;publish();return true;
   },[teacher,publish,pageId,boardStudentId]);
-  const summonMessage={queued:'Восстанавливаем связь — призыв отправится автоматически',waiting:group && !boardStudentId?'Призыв отправлен — ждём перемещения учеников':'Призыв отправлен — ждём перемещения ученика',sent:'Призыв отправлен',confirmed:group && !boardStudentId?'Ученики перемещены к вам':'Ученик перемещён к вам',expired:'Связь не восстановилась. Повторите призыв после подключения',unconfirmed:group && !boardStudentId?'Не удалось проверить перемещение всех учеников. Проверьте, открыты ли у них доски и есть ли связь':'Нет ответа от доски ученика. Проверьте, открыта ли она и есть ли связь'}[summonState.phase];
+  const summonEveryone=group&&!boardStudentId&&!summonRecipientId;
+  const summonMessage={queued:'Восстанавливаем связь — призыв отправится автоматически',waiting:summonEveryone?'Призыв отправлен — ждём перемещения учеников':'Призыв отправлен — ждём перемещения ученика',sent:'Призыв отправлен',confirmed:summonEveryone?'Ученики перемещены к вам':'Ученик перемещён к вам',expired:'Связь не восстановилась. Повторите призыв после подключения',unconfirmed:summonEveryone?'Не удалось проверить перемещение всех учеников. Проверьте, открыты ли у них доски и есть ли связь':'Нет ответа от доски ученика. Если страница давно открыта, обновите её и повторите призыв'}[summonState.phase];
   const displayPages=lessonPageTree(pages),page=pages.find(p=>p.id===pageId)||pages[0],index=displayPages.findIndex(p=>p.id===pageId);
   const uniquePeers=Array.from(new Map(peers.map(p=>[p.userId,p])).values());
   const label=p=>`${p.name || 'Участник'} — ${pages.find(page=>page.id===p.pageId)?.title || 'Страница'}${group ? (p.studentId?' · личная доска':' · общая доска') : ''}`;
@@ -180,5 +189,5 @@ function PagedBoardWorkspace(props) {
     <footer><button type="button" disabled={index<=0} onClick={()=>choose(displayPages[index-1].id)} aria-label="Предыдущая страница"><ChevronLeft size={18}/></button><span>{index+1} / {pages.length}</span><button type="button" disabled={index>=pages.length-1} onClick={()=>choose(displayPages[index+1].id)} aria-label="Следующая страница"><ChevronRight size={18}/></button></footer>
   </aside> : null;
   if(group&&!catalogReady)return <div className="flex min-h-60 flex-col items-center justify-center gap-3 rounded-2xl border border-violet-100 bg-white p-6 text-center" role="status"><PanelLeft size={24} className="text-violet-600"/><strong>{error?'Не удалось открыть тетрадь группы':'Открываем страницы группы…'}</strong>{error?<><p role="alert" className="text-sm text-rose-700">{error}</p><button type="button" className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white" onClick={()=>{setError('');setRetry(n=>n+1);}}>Повторить подключение</button></>:<p className="text-sm text-slate-500">Загружаем сохранённые страницы и записи на доске.</p>}</div>;
-  return <Canvas {...canvasProps} pages={{studyPreview:canvasProps.studyPreview,liveRoomId:boardPageRoom(base,pageId,boardStudentId),pageId,boardStudentId,selectPage:choose,selectWindow:next=>{summonDelivery.current?.cancel();setStudentId(next);setNavigation(null);},summon,canSummon:teacher && !readOnly && channelReady,navigation,summonNotice:!teacher && Boolean(notice),acknowledgeNavigation,header,panel,clipboard:props=><BoardSelectionClipboard {...props} key={base}/>}}/>;
+  return <Canvas {...canvasProps} pages={{studyPreview:canvasProps.studyPreview,liveRoomId:boardPageRoom(base,pageId,boardStudentId),pageId,boardStudentId,selectPage:choose,selectWindow:next=>{summonDelivery.current?.cancel();setStudentId(next);setNavigation(null);},summon,canSummon:teacher && !readOnly && channelReady && Boolean(selectedSummonIds?.length),summonAudience:group&&!boardStudentId?{disabled:readOnly||!channelReady,participants:summonParticipants,value:summonRecipientId,onChange:next=>{summonDelivery.current?.cancel();setSummonRecipientId(next);}}:null,navigation,summonNotice:!teacher && Boolean(notice),acknowledgeNavigation,header,panel,clipboard:props=><BoardSelectionClipboard {...props} key={base}/>}}/>;
 }

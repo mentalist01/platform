@@ -1,4 +1,5 @@
 import { lessonCodePageId, lessonPageSelectionKey, writeLessonPageSelection } from './lessonPageSelection.js';
+import { isSummonRecipient } from './summonRecipients.js';
 
 const solutionId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 
@@ -28,7 +29,7 @@ export function readTeacherSummonCode({ bookRoom, pageId, studentId = '', role, 
 
 export function summonedCodeSelection(command, bookRoom, userId) {
   const code = command?.scope==='board'?null:normalizeSummonCode(command?.code);
-  if (!code || (command.studentId && command.studentId !== userId)) return null;
+  if (!code || !isSummonRecipient(command,userId)) return null;
   const room = lessonSummonCodeRoom(bookRoom, command.studentId);
   return room ? { room, pageId: lessonCodePageId(command.pageId), ...code } : null;
 }

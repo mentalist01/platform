@@ -121,6 +121,10 @@ test('deadline expiry blocks every group submission path and extending it reopen
     const entry = entries.find(x => x.learningAssignmentId === a.id);
     assert.equal(entry.learningAssignmentStatus, 'closed');
     assert.ok(entry.checklistItems[0].completedAt);
+    const visible = partitionConcurrentHomeworks(entries, Date.parse(expiringSoon), {includeTodayReview:true});
+    assert.ok(visible.review.some(x => x.id === entry.id));
+    assert.ok(visible.active.some(x => x.learningAssignmentId === other.id));
+    assert.ok(!visible.history.some(x => x.id === entry.id));
     const checklist = `/api/student-next-lesson/${homework.id}/checklist`;
     assert.equal((await f.request(checklist, pupil, { itemId: homework.checklistItems[0].id, completed: false }, 'PATCH', 409)).code, 'learning_group_homework_closed');
     await f.request(`${route}/${a.id}/submission`, pupil, { content: 'После срока' }, 'PUT', 409);

@@ -1,5 +1,6 @@
 import { boardCommandNow, isFreshBoardCommand } from './boardCommandClock.js';
 import { normalizeSummonCode } from './lessonSummonCode.js';
+import { isSummonRecipient } from './summonRecipients.js';
 export const FIRST_BOARD_PAGE_ID = 'main';
 export const MAX_BOARD_PAGES = 300;
 const PAGE_ID = /^[a-zA-Z0-9_-]{8,80}$/;
@@ -50,11 +51,11 @@ export function boardPageSummonTarget(command,userId,pages,now=boardCommandNow()
   if (!command?.id || !Number.isFinite(command.ts) || !isFreshBoardCommand(command,now)
     || !pages.some(p=>p.id===command.pageId)) return null;
   const studentId=String(command.studentId || '');
-  if (studentId && studentId!==userId) return null;
+  if (!isSummonRecipient(command,userId)) return null;
   const code=command.scope==='board'?null:normalizeSummonCode(command.code);
   if(command.scope==='code'&&!code)return null;
   const zoom=Number(command.scope==='code'?1:command.zoom),x=Number(command.scope==='code'?0:command.offset?.x),y=Number(command.scope==='code'?0:command.offset?.y);
   if (![zoom,x,y].every(Number.isFinite) || zoom<=0 || Math.abs(x)>1000000 || Math.abs(y)>1000000) return null;
   return {id:command.id,pageId:command.pageId,studentId,zoom,offset:{x,y},
-    ...(code?{code}:{}),...(['board','code'].includes(command.scope)?{scope:command.scope}:{}),...(command.view==='collab'||command.scope==='code'?{view:'collab'}:{})};
+    ...(Object.hasOwn(command,'recipientIds')?{recipientIds:command.recipientIds}:{}),...(code?{code}:{}),...(['board','code'].includes(command.scope)?{scope:command.scope}:{}),...(command.view==='collab'||command.scope==='code'?{view:'collab'}:{})};
 }
