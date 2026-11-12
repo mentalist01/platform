@@ -19,6 +19,48 @@ test('weekly reserves persist, exclude empty lessons and reject partial overlaps
   assert.throws(()=>store.setSlots('t',[{day:0,time:'12:00',durationMinutes:30},{day:0,time:'14:00',durationMinutes:40}],1),/разные дни/);
   assert.throws(()=>store.setSlots('t',Array.from({length:5},(_,day)=>({day,time:'12:00',durationMinutes:60})),1),/четырёх/);
 });
+
+test('dated meeting links and teacher-wide invitation templates persist without creating empty lessons or overwriting participants',async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'ivan-trial-invitation-')),file=path.join(root,'slots.json');
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const store=createTrialSlotStore(file,now),slot=store.setSlots('t',[{day:1,time:'14:00',durationMinutes:60}],0).slots[0];
+  const app=express();app.use(express.json());app.use((req,res,next)=>{req.auth={role:req.headers['x-role'] || 'teacher',id:req.headers['x-id'] || 't'};next();});
+  let syncCalls=0;
+  registerTrialSlots(app,{store,getTeacher:id=>['t','other'].includes(id),getStudent:id=>({id,teacherId:'t',name:'Аня'}),getEntries:async()=>[],applyStudents:async()=>{},syncGoogle:async()=>{syncCalls++;return{};},now});
+  const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));t.after(()=>new Promise(resolve=>server.close(resolve)));
+  const base=`http://127.0.0.1:${server.address().port}/api/trial-slots`;
+  const request=async(method,url,body,status=200,headers={})=>{
+    const response=await fetch(base+url,{method,headers:{'content-type':'application/json',...headers},...(body?{body:JSON.stringify(body)}:{})});
+    const result=await response.json();assert.equal(response.status,status,JSON.stringify(result));return result;
+  };
+  const endpoint=`/${slot.id}/${date}/meeting`,url='https://telemost.yandex.ru/j/first';
+  await request('PATCH',endpoint,{meetingUrl:url,revision:0},403,{'x-role':'student'});
+  await request('PATCH',endpoint,{meetingUrl:url,revision:0},404,{'x-id':'other'});
+  await request('PATCH',`/${slot.id}/2026-11-11/meeting`,{meetingUrl:url,revision:0},404);
+  await request('PATCH',endpoint,{meetingUrl:'javascript:alert(1)',revision:0},400);
+  let result=await request('PATCH',endpoint,{meetingUrl:url,revision:0});
+  assert.equal(result.bookings[0].meetingUrl,url);assert.deepEqual(result.bookings[0].studentIds,[]);
+  assert.equal(syncCalls,0);assert.deepEqual(store.entries('t'),[],'a link in an empty reserve must not start a lesson or trigger Google');
+  await request('PATCH',endpoint,{meetingUrl:'https://example.com/other',revision:0},409);
+  const template='Привет!\nЧерез час начинаем: {ссылка}';
+  await request('PUT','/invitation-template',{template:'без ссылки',revision:1},400);
+  result=await request('PUT','/invitation-template',{template,revision:1});
+  assert.equal(result.invitationTemplate,template);assert.equal(result.revision,2);
+  await request('PUT','/invitation-template',{template,revision:1},409);
+  assert.notEqual((await request('GET','',undefined,200,{'x-id':'other'})).invitationTemplate,template);
+  // Slot edits retain the global template, and participant changes retain the dated link.
+  result=await request('PUT','',{slots:[slot],revision:2});assert.equal(result.invitationTemplate,template);
+  result=await request('POST',`/${slot.id}/${date}/participants`,{studentId:'a',revision:1});
+  assert.equal(result.bookings[0].meetingUrl,url);assert.deepEqual(result.bookings[0].studentIds,['a']);
+  const restored=createTrialSlotStore(file,now);
+  assert.equal(restored.configuration('t').invitationTemplate,template);assert.equal(restored.getBooking('t',slot.id,date).meetingUrl,url);
+  const nextDate='2026-11-17';
+  result=await request('PATCH',`/${slot.id}/${nextDate}/meeting`,{meetingUrl:'https://telemost.yandex.ru/j/second',revision:0});
+  assert.equal(result.bookings.find(row=>row.date===date).meetingUrl,url,'the following week does not replace this meeting link');
+  const booked=store.getBooking('t',slot.id,date);
+  result=await request('PATCH',endpoint,{meetingUrl:'',revision:booked.revision});
+  assert.deepEqual(result.bookings.find(row=>row.date===date).studentIds,['a']);assert.equal(store.getBooking('t',slot.id,date).meetingUrl,'');
+});
 test('moving a reserve keeps past lessons and shifts all future bookings atomically with stable Google identities',t=>{
   const store=storeFor(t),slot=store.setSlots('t',[{day:1,time:'14:00',durationMinutes:60}],0).slots[0];
   const row={teacherId:'t',slotId:slot.id,id:'booked',date,time:'14:00',durationMinutes:60,studentIds:['a'],studentNames:['Аня'],revision:1,google:{eventId:'stable'},syncStatus:'synced'};

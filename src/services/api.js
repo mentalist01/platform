@@ -528,6 +528,8 @@ export const api = {
   claimAchievementNotifications: () => requestLearningGroupJson('/api/student-achievements/claim', { method: 'POST', body: {} }),
   getTeacherCalendarEdits: teacherId => requestLearningGroupJson(`/api/teacher-calendar/edits?teacherId=${encodeURIComponent(teacherId || '')}`),
   getTrialSlots: teacherId => requestLearningGroupJson(`/api/trial-slots?teacherId=${encodeURIComponent(teacherId || '')}`),
+  saveTrialInvitationTemplate: (teacherId,body) => requestLearningGroupJson('/api/trial-slots/invitation-template',{method:'PUT',body:{...body,teacherId}}),
+  saveTrialMeeting: (teacherId,slotId,date,body) => requestLearningGroupJson(`/api/trial-slots/${encodeURIComponent(slotId)}/${date}/meeting`,{method:'PATCH',body:{...body,teacherId}}),
   saveTrialSlots: (teacherId,body) => requestLearningGroupJson('/api/trial-slots',{method:'PUT',body:{...body,teacherId}}),
   moveTrialSlot: (teacherId,slotId,body) => requestLearningGroupJson(`/api/trial-slots/${encodeURIComponent(slotId)}/move`,{method:'POST',body:{...body,teacherId}}),
   addTrialParticipant: (teacherId,slotId,date,body) => requestLearningGroupJson(`/api/trial-slots/${encodeURIComponent(slotId)}/${date}/participants`,{method:'POST',body:{...body,teacherId}}),

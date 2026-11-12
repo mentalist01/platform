@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { withTeacherCalendarLock } from './calendarMutations.js';
 import { expandRescheduleOccurrences } from './lessonReschedule.js';
 import { AVAILABILITY_WEEKDAYS, AVAILABILITY_DAY_NAMES, moscowDay, addCalendarDays, weekdayIndex } from '../src/utils/groupAvailability.js';
+import { DEFAULT_TRIAL_INVITATION, normalizeTrialMeetingUrl, normalizeTrialInvitationTemplate } from '../src/utils/trialInvitation.js';
 
 const fail = (message, status = 400) => { throw Object.assign(Error(message), {status}); };
 export const validTrialDate = date => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0,10) === date;
@@ -29,6 +30,13 @@ export function createTrialSlotStore(file, now = Date.now) {
     allBookings:()=>structuredClone(Object.values(db.bookings)),
     getBooking:(teacherId,slotId,date)=>structuredClone(db.bookings[`${teacherId}:${bookingKey(slotId,date)}`] || null),
     putBooking(row){save({...db,bookings:{...db.bookings,[`${row.teacherId}:${bookingKey(row.slotId,row.date)}`]:row}});return structuredClone(row);},
+    setInvitationTemplate(teacherId,template,revision){
+      const previous=configuration(teacherId);
+      if(previous.revision!==revision)fail('Настройки пробных изменились в другом окне. Обновите окно.',409);
+      let invitationTemplate;
+      try{invitationTemplate=normalizeTrialInvitationTemplate(template);}catch(error){fail(error.message);}
+      save({...db,teachers:{...db.teachers,[teacherId]:{...previous,revision:previous.revision+1,invitationTemplate}}});
+    },
     setSlots(teacherId,slots,revision,{moveBookings=false}={}){
       const previous=configuration(teacherId);
       if (previous.revision!==revision) fail('Слоты изменились в другом окне. Обновите календарь.',409);
@@ -59,7 +67,7 @@ export function createTrialSlotStore(file, now = Date.now) {
             revision:row.revision+1,syncStatus:'pending',updatedAt:new Date(now()).toISOString()};
         }
       }
-      const value={revision:previous.revision+1,slots:normalized};save({...db,teachers:{...db.teachers,[teacherId]:value},bookings:nextBookings});return value;
+      const value={...previous,revision:previous.revision+1,slots:normalized};save({...db,teachers:{...db.teachers,[teacherId]:value},bookings:nextBookings});return value;
     },
     reservations(teacherId){return configuration(teacherId).slots.map(slot=>({id:`trial-reserve-${slot.id}`,trialReservation:true,
       weekdayKey:AVAILABILITY_WEEKDAYS[slot.day],weekdayOrder:slot.day+1,time:slot.time,durationMinutes:slot.durationMinutes,repeatFrom:slot.repeatFrom,subject:'Резерв для пробного'}));},
@@ -85,7 +93,7 @@ export function registerTrialSlots(app,{store,getTeacher,getStudent,getEntries,a
     const teacherId=req.auth.role==='teacher'?req.auth.id:String(req.query?.teacherId || req.body?.teacherId || '');
     if(!getTeacher(teacherId)) fail('Преподаватель не найден',404);return teacherId;
   };
-  const view=teacherId=>({...store.configuration(teacherId),bookings:store.bookings(teacherId).map(row=>({...row,
+  const view=teacherId=>({...store.configuration(teacherId),invitationTemplate:store.configuration(teacherId).invitationTemplate || DEFAULT_TRIAL_INVITATION,bookings:store.bookings(teacherId).map(row=>({...row,
     participants:row.studentIds.map((id,index)=>({id,name:getStudent(id)?.teacherId===teacherId?getStudent(id)?.name || row.studentNames[index]:'Ученик недоступен'}))}))});
   const sync=async row=>{
     try{
@@ -99,6 +107,27 @@ export function registerTrialSlots(app,{store,getTeacher,getStudent,getEntries,a
   const route=action=>async(req,res)=>{res.setHeader('Cache-Control','private, no-store');try{res.json(await action(req));}
     catch(error){res.status(error.status||503).json({error:error.status?error.message:'Не удалось сохранить пробные слоты. Повторите попытку.'});}};
   app.get('/api/trial-slots',route(req=>view(access(req))));
+  app.put('/api/trial-slots/invitation-template',route(req=>{
+    const teacherId=access(req);
+    return withTeacherCalendarLock(teacherId,async()=>{
+      store.setInvitationTemplate(teacherId,req.body?.template,req.body?.revision);notify(teacherId);return view(teacherId);
+    });
+  }));
+  app.patch('/api/trial-slots/:slotId/:date/meeting',route(req=>{
+    const teacherId=access(req),{slotId,date}=req.params;
+    return withTeacherCalendarLock(teacherId,async()=>{
+      const slot=store.configuration(teacherId).slots.find(value=>value.id===slotId),previous=store.getBooking(teacherId,slotId,date);
+      if(!validTrialDate(date)||(!previous&&(!slot||weekdayIndex(date)!==slot.day||date<slot.repeatFrom)))fail('Пробное занятие не найдено',404);
+      if((previous?.revision || 0)!==req.body?.revision)fail('Пробное изменилось в другом окне. Обновите окно перед сохранением ссылки.',409);
+      let meetingUrl;
+      try{meetingUrl=normalizeTrialMeetingUrl(req.body?.meetingUrl);}catch(error){fail(error.message);}
+      if(previous||meetingUrl)store.putBooking({...previous,id:previous?.id || crypto.randomUUID(),teacherId,slotId,date,
+        time:previous?.time || slot.time,durationMinutes:previous?.durationMinutes || slot.durationMinutes,
+        studentIds:previous?.studentIds || [],studentNames:previous?.studentNames || [],
+        meetingUrl,revision:(previous?.revision || 0)+1,updatedAt:new Date(now()).toISOString()});
+      notify(teacherId);return view(teacherId);
+    });
+  }));
   const assertSlotsAvailable=async(teacherId,slots)=>{
       if(!Array.isArray(slots) || slots.length>4)fail('Можно закрепить до четырёх пробных слотов.');
       // Check the complete upcoming year plus weekly rules before reserving time.

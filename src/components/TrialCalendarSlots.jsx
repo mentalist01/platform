@@ -9,11 +9,13 @@ import { studentContacts } from '../services/studentContacts';
 import { normalizeStudentParentContact, normalizeStudentContact, studentContactDraft, copyParentMessage } from '../utils/studentParentContact';
 import StudentContactFields from './StudentContactFields';
 import StudentContactLinks from './StudentContactLinks';
+import TrialInvitation, {TrialInvitationButton} from './TrialInvitation.jsx';
+import {trialInvitationMessage} from '../utils/trialInvitation.js';
 import { AVAILABILITY_DAY_NAMES, clockTime, weekdayIndex } from '../utils/groupAvailability';
 import './TrialCalendarSlots.css';
 
 const minute=time=>Number(time.slice(0,2))*60+Number(time.slice(3));
-function Participant({person,busy,onRemove}){
+function Participant({person,busy,onRemove,invitation}){
   const [copying,setCopying]=useState(false),[copied,setCopied]=useState(false),[error,setError]=useState('');
   const [contactsOpen,setContactsOpen]=useState(false);
   const copy=async()=>{
@@ -27,7 +29,7 @@ function Participant({person,busy,onRemove}){
   };
   return <div className="trial-slots__participant"><div className="trial-slots__person"><span>{person.name?.[0]}</span><strong>{person.name}</strong><button type="button" disabled={busy||copying} onClick={copy} aria-label={`${copied?'Код скопирован':'Копировать код'}: ${person.name}`}>
     {copied?<Check size={14}/>:<Copy size={14}/>}<span>{copying?'Загружаем…':copied?'Скопировано':'Копировать код'}</span>
-  </button><button type="button" aria-expanded={contactsOpen} onClick={()=>setContactsOpen(value=>!value)}>Контакты</button>{onRemove&&<button type="button" disabled={busy} onClick={onRemove}>Снять запись</button>}</div>{contactsOpen&&<div className="trial-slots__contact-panel"><StudentContactLinks studentId={person.id} studentName={person.name}/></div>}{copied&&<span className="sr-only" role="status">Код ученика {person.name} скопирован</span>}{error&&<p role="alert" className="trial-slots__error">{error}</p>}</div>;
+  </button><button type="button" aria-expanded={contactsOpen} onClick={()=>setContactsOpen(value=>!value)}>Контакты</button>{onRemove&&<button type="button" disabled={busy} onClick={onRemove}>Снять запись</button>}</div><TrialInvitationButton person={person} message={invitation} disabled={busy}/>{contactsOpen&&<div className="trial-slots__contact-panel"><StudentContactLinks studentId={person.id} studentName={person.name}/></div>}{copied&&<span className="sr-only" role="status">Код ученика {person.name} скопирован</span>}{error&&<p role="alert" className="trial-slots__error">{error}</p>}</div>;
 }
 function Dialog({title,subtitle,onClose,children}){
   return createPortal(<div className="trial-slots__backdrop" onClick={onClose}><section className="trial-slots__dialog" role="dialog" aria-modal="true" aria-label={title} onClick={event=>event.stopPropagation()}><header><span className="trial-slots__icon"><CalendarClock size={24}/></span><div><small>ПРОБНЫЕ ЗАНЯТИЯ</small><h2>{title}</h2><p>{subtitle}</p></div><button aria-label="Закрыть пробные слоты" onClick={onClose}><X size={20}/></button></header>{children}</section></div>,document.body);
@@ -89,7 +91,8 @@ function Participants({teacherId,plan,selection,students,onSaved,onClose,onEdit}
   const createdEnrolled=!!created&&enrolled.some(person=>person.id===created.id);
   return <Dialog title={enrolled.length?'Участники пробного':'Кто придёт на пробное?'} subtitle={`${new Date(`${selection.date}T12:00:00`).toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})} · ${time}–${time?clockTime(minute(time)+duration):''} · Москва`} onClose={()=>!busy&&onClose()}><div className="trial-slots__body">
     <div className={`trial-slots__attendance ${enrolled.length?'has-people':''}`}><Users size={22}/><div><strong>{enrolled.length?`Записано: ${enrolled.length}`:'Пока никого нет'}</strong><p>{enrolled.length?'Все участники придут в одно и то же время.':'Резерв занят в расписании, но урока и уведомления пока нет.'}</p></div></div>
-    {enrolled.map(person=><Participant key={person.id} person={person} busy={busy} onRemove={future?()=>run(()=>api.removeTrialParticipant(teacherId,selection.slotId,selection.date,person.id,booking.revision)):null}/>)}
+    <TrialInvitation teacherId={teacherId} plan={plan} selection={selection} booking={booking} busy={busy} onBusyChange={setBusy} onSaved={onSaved}/>
+    {enrolled.map(person=><Participant key={person.id} person={person} busy={busy} invitation={trialInvitationMessage(plan.invitationTemplate,booking?.meetingUrl || '')} onRemove={future?()=>run(()=>api.removeTrialParticipant(teacherId,selection.slotId,selection.date,person.id,booking.revision)):null}/>)}
     {booking?.syncStatus==='pending'&&<div className="trial-slots__sync" role="status"><span>{booking.syncError || 'Обновляем Google Calendar…'}</span><button disabled={busy} onClick={()=>run(()=>api.syncTrialBooking(teacherId,selection.slotId,selection.date))}><RefreshCcw size={14}/>Повторить</button></div>}
     {booking?.syncStatus==='synced'&&<p className="trial-slots__synced"><Check size={14}/>{enrolled.length?'Есть в Google Calendar · напоминания как обычно':'Событие убрано из Google · резерв остаётся'}</p>}
     {future&&slot&&<><div className="trial-slots__tabs"><button disabled={busy||!!created&&!createdEnrolled} aria-pressed={mode==='existing'} onClick={()=>setMode('existing')}>Существующий ученик</button><button disabled={busy||!!created&&!createdEnrolled} aria-pressed={mode==='new'} onClick={()=>setMode('new')}><UserPlus size={15}/>Новый ученик</button></div>{!(mode==='new'&&createdEnrolled)&&<form onSubmit={add}>
