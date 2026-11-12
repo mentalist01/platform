@@ -181,6 +181,36 @@ if (process.env.GROUP_WALLET_UI_FIXTURE !== '1') test('group pricing preserves c
   } finally { await f.stop(); }
 });
 
+if (process.env.GROUP_WALLET_UI_FIXTURE !== '1') test('calendar received payment settles the selected group member only and retries do not duplicate money', {timeout:60000}, async()=>{
+  const f=await createGroupWalletFixture();
+  try{
+    const token=(await f.ok('/api/login',{body:{code:'group-wallet-teacher'}})).token;
+    const preview=await f.ok('/api/student-payment-balances',{token});
+    await f.ok('/api/student-payment-balances/enable',{token,body:{previewToken:preview.previewToken}});
+    const lessons=await f.ok('/api/teacher-schedule',{token});
+    const past=lessons.find(event=>event.lessonId==='past');
+    const occurrence={...past,studentId:'anna'};
+    const quote=await f.ok('/api/teacher-lesson-payment/preview',{token,body:{occurrence}});
+    assert.equal(quote.amount,1000);assert.equal(quote.usesBalance,true);assert.equal(quote.available,0);assert.equal(quote.paid,false);
+    const insufficient=await f.request('/api/teacher-lesson-payment',{token,body:{occurrence,paid:true,paymentSource:'balance'}});
+    assert.equal(insufficient.status,409);
+    const receivedAt=new Date().toISOString(),body={occurrence,paid:true,paymentSource:'receipt',receipt:{amount:2400,receivedAt,
+      senderName:'Родитель Анны',confirmed:true,confirmedSeparate:true,idempotencyKey:'group-calendar-receipt'}};
+    const payment=await f.ok('/api/teacher-lesson-payment',{token,body});
+    assert.equal(payment.amount,1000);assert.equal(payment.receivedAmount,2400);
+    const load=()=>f.ok('/api/student-payment-balances',{token}),row=(data,id)=>data.students.find(s=>s.studentId===id);
+    const paid=await load();
+    assert.equal(row(paid,'anna').received,2400);assert.equal(row(paid,'anna').allocated,2000);assert.equal(row(paid,'anna').available,400);
+    assert.equal(row(paid,'egor').received,900,'Payment cannot add money to another member');
+    assert.ok(row(paid,'anna').entries.some(entry=>entry.senderName==='Родитель Анны'));
+    const retry=await f.ok('/api/teacher-lesson-payment',{token,body});
+    assert.equal(retry.alreadyPaid,true);assert.equal(retry.receivedAmount,0);
+    assert.equal(row(await load(),'anna').received,2400);
+    const other=(await f.ok('/api/login',{body:{code:'group-wallet-second'}})).token;
+    assert.equal((await f.request('/api/teacher-lesson-payment/preview',{token:other,body:{occurrence}})).status,403);
+  }finally{await f.stop();}
+});
+
 if (process.env.GROUP_WALLET_UI_FIXTURE !== '1') test('group wallets preserve migration, individual rates, receipts, marks, moves and refunds', { timeout: 90000 }, async () => {
   const f = await createGroupWalletFixture();
   const { ok, request, read, canonicalMark, rawMark } = f;

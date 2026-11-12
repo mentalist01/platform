@@ -2797,6 +2797,13 @@ const TeacherCalendarSection = ({
     const markKey = String(member?.paidMarkKey || '').trim();
     if (eventDetailsCancelled || !eventDetailsIsGroup || !studentId || !markKey || !teacherId || lessonPanelFinanceBusy) return;
     const undo = Boolean(lessonPanelMarks[markKey]);
+    if (!undo) {
+      setLessonPanelError(''); setLessonPanelSuccess('');
+      setLessonPaymentRequest({...eventDetails,dayKey:eventDetailsDayKey,studentId,
+        studentName:member.studentName||studentNameById[studentId]||'Ученик',
+        time:eventDetails.time||formatMinutesAsTime(eventDetails.startMinutes)});
+      return;
+    }
     setLessonPanelFinanceBusy(`group-paid:${studentId}`);
     setLessonPanelError('');
     setLessonPanelSuccess('');
@@ -2826,7 +2833,18 @@ const TeacherCalendarSection = ({
     lessonPanelFinanceBusy,
     lessonPanelMarks,
     teacherId,
+    studentNameById,
   ]);
+
+  const handleLessonPaymentSaved = useCallback(result => {
+    const marks=normalizeLessonPanelMarks(result.marks);
+    setLessonPanelMarks(marks);writeLessonPanelMarks(teacherId,marks);
+    setLessonPanelSuccess(result.alreadyPaid ? 'Занятие уже было оплачено. Повторного начисления нет.'
+      : `${result.receivedAmount ? 'Перевод учтён, занятие оплачено' : result.fromBalance ? 'Оплачено из баланса' : 'Оплата добавлена'}: ${result.amount.toLocaleString('ru-RU')} ₽.`);
+    setLessonPaymentRequest(null);
+    calendarSnapshotGuard.current.invalidate();
+    void loadTeacherCalendar({silent:true});
+  },[teacherId,loadTeacherCalendar]);
 
   const handleGroupMemberAbsenceToggle = useCallback(async (member) => {
     if (!eventDetails?.groupId || !eventDetails?.lessonId || eventDetailsCancelled || lessonPanelFinanceBusy) return;
@@ -5444,7 +5462,13 @@ const TeacherCalendarSection = ({
                             senders={eventDetailsPaymentSenders} cancelled={eventDetailsCancelled}
                             busy={Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
                             canMarkAbsence={Boolean(eventDetails.lessonId) && eventDetailsStatusLabel !== 'Урок'}
-                            onPayment={handleGroupMemberPaymentToggle} onAbsence={handleGroupMemberAbsenceToggle} />
+                            onPayment={handleGroupMemberPaymentToggle} onAbsence={handleGroupMemberAbsenceToggle}
+                            paymentPanel={lessonPaymentRequest?.id===eventDetails.id&&lessonPaymentRequest.studentId===member.studentId
+                              &&lessonPaymentRequest.dayKey===eventDetailsDayKey&&<React.Suspense fallback={<p className="text-xs text-slate-500">Загружаем оплату…</p>}>
+                                <LessonPaymentPanel key={`${lessonPaymentRequest.id}:${member.studentId}:${eventDetailsDayKey}`} teacherId={teacherId}
+                                  occurrence={lessonPaymentRequest} onClose={()=>setLessonPaymentRequest(null)} onSaved={handleLessonPaymentSaved}
+                                  onBusyChange={busy=>setLessonPanelFinanceBusy(busy?'payment-panel':'')}/>
+                              </React.Suspense>}/>
                         );
                       })}
                     </div>
@@ -5637,17 +5661,12 @@ const TeacherCalendarSection = ({
                     {lessonPanelError || lessonPanelSuccess}
                   </div>
                 )}
-                {lessonPaymentRequest && lessonPaymentRequest.id === eventDetailsLessonInfo?.event?.id
+                {!eventDetailsIsGroup && lessonPaymentRequest && lessonPaymentRequest.id === eventDetailsLessonInfo?.event?.id
                   && lessonPaymentRequest.studentId === eventDetailsStudentId && lessonPaymentRequest.dayKey === eventDetailsDayKey && (
                   <React.Suspense fallback={null}>
-                    <LessonPaymentPanel teacherId={teacherId} occurrence={lessonPaymentRequest} onClose={() => setLessonPaymentRequest(null)}
-                      onSaved={result => {
-                        const marks = normalizeLessonPanelMarks(result.marks);
-                        setLessonPanelMarks(marks); writeLessonPanelMarks(teacherId, marks);
-                        setLessonPanelSuccess(result.alreadyPaid ? 'Занятие уже было оплачено. Повторного начисления нет.'
-                          : `${result.receivedAmount ? 'Перевод учтён, занятие оплачено' : result.fromBalance ? 'Оплачено из баланса' : 'Оплата добавлена'}: ${result.amount.toLocaleString('ru-RU')} ₽.`);
-                        setLessonPaymentRequest(null);
-                      }} />
+                    <LessonPaymentPanel key={`${lessonPaymentRequest.id}:${lessonPaymentRequest.studentId}:${eventDetailsDayKey}`} teacherId={teacherId}
+                      occurrence={lessonPaymentRequest} onClose={() => setLessonPaymentRequest(null)} onSaved={handleLessonPaymentSaved}
+                      onBusyChange={busy=>setLessonPanelFinanceBusy(busy?'payment-panel':'')}/>
                   </React.Suspense>
                 )}
               </div>

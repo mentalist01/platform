@@ -5,11 +5,12 @@ import { getLessonPaymentQuote, setLessonPayment } from '../services/lessonPayme
 const money = value => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 2 }).format(value || 0);
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow' }).format(new Date());
 
-export default function LessonPaymentPanel({ teacherId, occurrence, onSaved, onClose }) {
+export default function LessonPaymentPanel({ teacherId, occurrence, onSaved, onClose, onBusyChange }) {
   const [quote, setQuote] = useState(null);
   const [source, setSource] = useState('receipt');
   const [amount, setAmount] = useState('');
   const [receivedDate, setReceivedDate] = useState(today);
+  const [senderName, setSenderName] = useState('');
   const [separate, setSeparate] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -28,21 +29,21 @@ export default function LessonPaymentPanel({ teacherId, occurrence, onSaved, onC
   const submit = async event => {
     event.preventDefault();
     if (!quote || saving.current || quote.paid) return;
-    saving.current = true; setBusy(true); setError('');
+    saving.current = true; setBusy(true); onBusyChange?.(true); setError('');
     try {
       const receivedAt = receivedDate === today() ? new Date().toISOString() : `${receivedDate}T12:00:00+03:00`;
       const result = await setLessonPayment(teacherId, occurrence, true, {
         paymentSource: source,
         ...(source === 'receipt' ? { receipt: { amount: Number(amount), receivedAt,
           idempotencyKey: requestId.current, confirmed: true, confirmedSeparate: separate,
-          note: `Оплата занятия ${occurrence.dayKey} ${occurrence.time}` } } : {}),
+          senderName: senderName.trim(), note: `Оплата занятия ${occurrence.dayKey} ${occurrence.time}` } } : {}),
       });
       onSaved(result);
     } catch (err) { setError(err.message); }
-    finally { saving.current = false; setBusy(false); }
+    finally { saving.current = false; setBusy(false); onBusyChange?.(false); }
   };
   return <section className="mt-3 border-t border-slate-200 pt-3" aria-label="Учесть оплату занятия">
-    <header className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">Оплата занятия</h3>
+    <header className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">Оплата занятия{occurrence.studentName ? ` · ${occurrence.studentName}` : ''}</h3>
       <button type="button" onClick={onClose} disabled={busy} aria-label="Закрыть оплату" title="Закрыть оплату" className="p-1 text-slate-500"><X size={16} /></button></header>
     {!quote && !error && <p role="status" className="flex items-center gap-2 text-sm"><LoaderCircle size={16} className="animate-spin" />Проверяем оплату...</p>}
     {error && <p role="alert" className="mb-3 text-sm text-rose-600">{error}</p>}
@@ -60,6 +61,8 @@ export default function LessonPaymentPanel({ teacherId, occurrence, onSaved, onC
             className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
           <label className="text-xs text-slate-600">Дата перевода<input type="date" required max={today()} value={receivedDate} disabled={busy}
             onChange={event => change(() => setReceivedDate(event.target.value))} className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
+          <label className="col-span-full text-xs text-slate-600">Отправитель · необязательно<input value={senderName} maxLength={200} disabled={busy}
+            onChange={event=>change(()=>setSenderName(event.target.value))} className="mt-1 block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
           {quote.usesBalance && <label className="col-span-full flex items-start gap-2 text-xs text-slate-600"><input type="checkbox" checked={separate} disabled={busy}
             onChange={event => change(() => setSeparate(event.target.checked))} />Это отдельный перевод, даже если рядом есть такая же сумма.</label>}
         </div>}

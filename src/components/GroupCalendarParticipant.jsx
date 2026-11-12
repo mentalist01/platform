@@ -1,6 +1,6 @@
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 
-export default function GroupCalendarParticipant({member, senders, cancelled, busy, canMarkAbsence, onPayment, onAbsence}) {
+export default function GroupCalendarParticipant({member, senders, cancelled, busy, canMarkAbsence, onPayment, onAbsence, paymentPanel}) {
   const status = String(member.status || 'pending');
   const paid = status === 'paid', trial = status === 'trial', absent = member.absenceWaived === true;
   const unavailable = cancelled || status === 'cancelled';
@@ -21,11 +21,14 @@ export default function GroupCalendarParticipant({member, senders, cancelled, bu
       </button>}
     </div>
     <button type="button" onClick={() => onPayment(member)}
+      aria-label={`Оплата ${member.studentName || 'ученика'}: ${paid ? 'отменить' : 'учесть'}`}
+      title={paid ? 'Отменить оплату этого занятия' : 'Учесть полученный перевод или оплатить из баланса'}
       disabled={busy || unavailable || trial || absent || status === 'not-required'}
       className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold disabled:cursor-not-allowed ${
         unavailable || absent || status === 'not-required' ? 'border-slate-200 bg-slate-50 text-slate-600'
           : paid ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
             : status === 'unpaid' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-700'
       }`}>{statusLabel}</button>
+    {paymentPanel&&<div className="w-full min-w-0">{paymentPanel}</div>}
   </div>;
 }
