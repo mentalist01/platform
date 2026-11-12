@@ -42,6 +42,21 @@ html[data-theme='dark'] .teacher-student-card__group { background: #302743; bord
 html[data-theme='dark'] .student-directory-tools{background:#262235;border-color:#4e3e64}html[data-theme='dark'] .student-directory-tools__search,html[data-theme='dark'] .student-directory-tools select,html[data-theme='dark'] .teacher-student-card__more>div,html[data-theme='dark'] .student-directory-create{background:#211d2e;border-color:#514363;color:#e7def6}html[data-theme='dark'] .student-directory-tools__search input{color:#e7def6}html[data-theme='dark'] .student-directory-tools__filters label>span,html[data-theme='dark'] .student-directory-tools__bottom{color:#aca2bc}html[data-theme='dark'] .student-directory-tools button,html[data-theme='dark'] .student-directory-create>summary{color:#c59bf9}
 @media(max-width:640px){.student-directory-tools{padding:12px}.student-directory-tools__filters{gap:10px}.student-directory-tools__filters>svg{display:none}.student-directory-tools__filters label{flex-basis:42%;min-width:100px}.student-directory-tools__search input{font-size:16px}.student-directory-tools__filters select{min-height:44px;font-size:13px}.student-directory-tools__bottom button{min-height:40px}.teacher-student-card__more>div{right:0}.teacher-student-card__more summary{min-height:38px;display:flex;align-items:center}}
 .student-directory-tools__search input::-webkit-search-cancel-button{display:none}
+.student-directory-tools__contacts{display:flex;align-items:center;flex-wrap:wrap;gap:9px 12px;margin-top:14px}
+.teacher-student-roster .student-directory-tools .student-directory-tools__missing-contacts{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:8px 12px;border:1px solid #b8a0db;border-radius:10px;background:#fff;color:#65349b;font-size:12px;font-weight:650;transition:background .15s,border-color .15s}
+.teacher-student-roster .student-directory-tools .student-directory-tools__missing-contacts:hover:not(:disabled){border-color:#8652c4;background:#f5efff}
+.teacher-student-roster .student-directory-tools .student-directory-tools__missing-contacts[aria-pressed=true]{background:#7138b7;border-color:#7138b7;color:#fff}
+.student-directory-tools__missing-contacts b{padding:2px 7px;border-radius:12px;background:#eee5fa;color:#65349b;font-size:11px}
+.student-directory-tools__missing-contacts[aria-pressed=true] b{background:#ffffff26;color:#fff}
+.student-directory-tools__missing-contacts:disabled{opacity:.6;cursor:wait}
+.student-directory-tools__missing-contacts:focus-visible{outline:2px solid #7c3aed;outline-offset:3px}
+.student-directory-tools__contacts>span{font-size:12px;color:#536178}
+.student-directory-tools__contacts>span button{text-decoration:underline;text-underline-offset:3px}
+html[data-theme='dark'] .student-directory-tools__contacts>span{color:#c2b7d4}
+html[data-theme='dark'] .teacher-student-roster .student-directory-tools .student-directory-tools__missing-contacts{background:#30253f;border-color:#85689e;color:#e4cdff}
+html[data-theme='dark'] .teacher-student-roster .student-directory-tools .student-directory-tools__missing-contacts:hover:not(:disabled){background:#423053;border-color:#b191d0}
+html[data-theme='dark'] .teacher-student-roster .student-directory-tools .student-directory-tools__missing-contacts[aria-pressed=true]{background:#7947b8;border-color:#b18adf;color:#fff}
+@media(max-width:640px){.teacher-student-roster .student-directory-tools .student-directory-tools__missing-contacts{min-height:44px}.student-directory-tools__contacts>span{flex-basis:100%}}
 
 /* Distinct surfaces make filters, groups and individual pupils easy to scan. */
 .teacher-students-card .student-directory-tools{background:#e8edf5;border-color:#aebbd0;box-shadow:none}

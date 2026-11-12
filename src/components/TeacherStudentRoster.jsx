@@ -3,7 +3,8 @@ import { ChevronDown, ChevronUp, Users, Search, SlidersHorizontal, X } from 'luc
 import { api } from '../services/api';
 import { normalizeLearningGroupList } from '../utils/learningGroups';
 import { studentRosterGroups } from '../utils/studentRosterGroups';
-import { filterStudentDirectory } from '../utils/studentDirectory.js';
+import { filterStudentDirectory, hasParentContact } from '../utils/studentDirectory.js';
+import useStudentParentContacts from '../hooks/useStudentParentContacts';
 import {StudentStudyBadge} from './StudentStudyProgress.jsx';
 import './TeacherStudentRoster.css';
 
@@ -17,7 +18,9 @@ export default function TeacherStudentRoster({ students, teacherId, activeStuden
   const [result, setResult] = useState(null);
   const [revision, setRevision] = useState(0);
   const [expanded, setExpanded] = useState({});
-  const [filters, setFilters] = useState({ query: '', grade: '', format: '', group: '', sort: 'name' });
+  const [filters, setFilters] = useState({ query: '', grade: '', format: '', group: '', sort: 'name', parentContact: '' });
+  const [contactRevision, setContactRevision] = useState(0);
+  const { contacts: parentContacts, loading: contactsLoading, error: contactsError } = useStudentParentContacts(`${teacherId}:${contactRevision}`);
   const [allExpanded, setAllExpanded] = useState(null);
   const panelId = useId();
   useEffect(() => {
@@ -50,9 +53,11 @@ export default function TeacherStudentRoster({ students, teacherId, activeStuden
   const current = result?.teacherId === teacherId ? result : null;
   const groups = current?.groups || [];
   const activeGroups = groups.filter(group => !group.deletedAt && !group.completedAt && group.status !== 'completed');
-  const filtered = useMemo(() => filterStudentDirectory(students, current?.groups || [], filters), [students, current?.groups, filters]);
+  const filtered = useMemo(() => filterStudentDirectory(students, current?.groups || [], filters, parentContacts), [students, current?.groups, filters, parentContacts]);
+  const missingContactsCount = useMemo(() => students.filter(student => !hasParentContact(parentContacts[student.id])).length, [students, parentContacts]);
+  const contactsUnavailable = contactsLoading || Boolean(contactsError);
   const { entries, memberships } = useMemo(() => studentRosterGroups(filtered, current?.groups || []), [filtered, current?.groups]);
-  const filtering = Boolean(filters.query || filters.grade || filters.format || filters.group);
+  const filtering = Boolean(filters.query || filters.grade || filters.format || filters.group || filters.parentContact);
   const setFilter = (key, value) => setFilters(previous => ({ ...previous, [key]: value }));
   return <div className="teacher-student-roster">
     <div className="student-directory-tools">
@@ -61,14 +66,21 @@ export default function TeacherStudentRoster({ students, teacherId, activeStuden
         <label><span>Формат</span><select value={filters.format} onChange={event => setFilter('format', event.target.value)}><option value="">Все ученики</option><option value="individual">Индивидуальные</option><option value="group">В мини-группах</option></select></label>
         <label><span>Группа</span><select value={filters.group} onChange={event => setFilter('group', event.target.value)}><option value="">Все группы</option>{activeGroups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
         <label><span>Класс</span><select value={filters.grade} onChange={event => setFilter('grade', event.target.value)}><option value="">Все классы</option><option value="10">10 класс</option><option value="11">11 класс</option><option value="graduate">Выпускники</option></select></label>
-        <label><span>Порядок</span><select value={filters.sort} onChange={event => setFilter('sort', event.target.value)}><option value="name">По имени</option><option value="newest">Сначала новые</option></select></label>
+        <label><span>Порядок</span><select value={filters.sort} onChange={event => setFilter('sort', event.target.value)}><option value="name">По имени</option><option value="newest">Дата создания · сначала новые</option><option value="oldest">Дата создания · сначала ранние</option></select></label>
       </div>
-      <div className="student-directory-tools__bottom"><span role="status">{filtering ? 'Найдено' : 'В списке'}: <b>{filtered.length}</b> из {students.length} учеников</span><div>{filtering && <button type="button" onClick={() => setFilters({ query: '', grade: '', format: '', group: '', sort: 'name' })}>Сбросить фильтры</button>}<button type="button" onClick={() => { setExpanded({}); setAllExpanded(previous => !previous); }}>{allExpanded ? 'Свернуть группы' : 'Раскрыть группы'}</button></div></div>
+      <div className="student-directory-tools__contacts">
+        <button type="button" className="student-directory-tools__missing-contacts" aria-pressed={filters.parentContact === 'missing'} disabled={contactsUnavailable}
+          onClick={() => setFilter('parentContact', filters.parentContact === 'missing' ? '' : 'missing')}>
+          <Users size={16} aria-hidden="true" />Нет контакта родителя{!contactsUnavailable && <b>{missingContactsCount}</b>}
+        </button>
+        {contactsLoading ? <span role="status">Проверяем контакты…</span> : contactsError ? <span role="alert">Не удалось проверить контакты. <button type="button" onClick={() => setContactRevision(value => value + 1)}>Повторить</button></span> : filters.parentContact && <span>Сохраните контакт в карточке ученика — он исчезнет из этого списка.</span>}
+      </div>
+      <div className="student-directory-tools__bottom"><span role="status">{filters.parentContact && contactsUnavailable ? 'Список ожидает проверки контактов' : <>{filtering ? 'Найдено' : 'В списке'}: <b>{filtered.length}</b> из {students.length} учеников</>}</span><div>{filtering && <button type="button" onClick={() => setFilters(previous => ({ ...previous, query: '', grade: '', format: '', group: '', parentContact: '' }))}>Сбросить фильтры</button>}<button type="button" onClick={() => { setExpanded({}); setAllExpanded(previous => !previous); }}>{allExpanded ? 'Свернуть группы' : 'Раскрыть группы'}</button></div></div>
     </div>
     {!current && <p className="teacher-student-roster__notice" role="status">Уточняем состав мини-групп…</p>}
     {current?.error && <p className="teacher-student-roster__notice" role="status">Не удалось обновить состав мини-групп. <button type="button" onClick={() => setRevision(value => value + 1)}>Повторить</button></p>}
-    {!filtered.length && <div className="student-directory-tools__empty"><Search size={25} /><b>Никого не нашли</b><span>Попробуйте другое имя или уберите часть фильтров.</span></div>}
-    {entries.map(entry => {
+    {!contactsUnavailable && !filtered.length && <div className="student-directory-tools__empty"><Search size={25} /><b>{filters.parentContact && !missingContactsCount ? 'Контакты всех родителей сохранены' : 'Никого не нашли'}</b><span>{filters.parentContact && !missingContactsCount ? 'Когда появится ученик без контакта родителя, он будет в этом списке.' : 'Попробуйте другое имя или уберите часть фильтров.'}</span></div>}
+    {!(filters.parentContact && contactsUnavailable) && entries.map(entry => {
       if (entry.student) return <React.Fragment key={`student:${entry.student.id}`}>{renderStudent(entry.student, [])}<StudentStudyBadge teacherId={teacherId} studentId={entry.student.id}/></React.Fragment>;
       const group = entry.group;
       const selected = group.students.some(student => String(student.id) === String(activeStudentId));
