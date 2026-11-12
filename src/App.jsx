@@ -21929,9 +21929,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     return () => window.clearTimeout(timerId);
   }, [activeLearningLessonId, activeLearningLessonNotStarted, activeLearningLessonStartsAt, activeLearningLessonStatus]);
 
+  const currentTrialWorkspaceRef = useRef(null);
+  currentTrialWorkspaceRef.current = activeLearningLesson?.trialBookingId ? activeLearningLesson : null;
   const refreshStudentLessonWorkspace = useCallback(async ({ silent = false } = {}) => {
     if (user.role !== 'student') return null;
-    if (activeLearningLesson?.trialBookingId) return activeLearningLesson;
+    if (currentTrialWorkspaceRef.current) return currentTrialWorkspaceRef.current;
     const requestId = studentLessonWorkspaceRequestRef.current + 1;
     studentLessonWorkspaceRequestRef.current = requestId;
     if (!silent) {
@@ -22031,7 +22033,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       }));
       return null;
     }
-  }, [user.id, user.role, activeLearningLesson, handleOpenLearningGroupLesson]);
+  }, [user.id, user.role, handleOpenLearningGroupLesson]);
 
   // The server reveals Telemost five minutes before the lesson. Refresh at
   // that boundary so an already-open tab receives the link immediately.
