@@ -46,7 +46,7 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     lessonTopic: lessonTopicFor(job),
     desired: job.desired, cutoffAt: recordingDeadline(job), startedAt: job.startedAt,
     ...(job.endControl?{endControl:job.endControl}:{}),
-    stoppedAt: job.stoppedAt || '', updatedAt: job.updatedAt, video: job.video || null,
+    stoppedAt: job.stoppedAt || '', stopReason: job.stopReason || '', updatedAt: job.updatedAt, video: job.video || null,
     previousJobId: job.previousJobId || '', error: job.error || '', deviceId: job.deviceId || '', audioMode: job.audioMode || '',
   });
   const settings = (teacherId) => ({
@@ -81,6 +81,9 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     finishControl(teacherId,id,revision){
       const job=db.jobs[id];if(!job||job.teacherId!==teacherId)fail('Запись не найдена',404);
       if(!lessonControl(job)||revision!==job.endControl.revision)fail('Режим урока изменён в другом окне',409);
+      if(job.desired==='stop'&&!['end-button','end-countdown'].includes(job.stopReason))fail('Остановлена часть записи, а не занятие. Обновите статус записи.',409);
+      const latest=jobs(teacherId).filter(other=>other.occurrence.key===job.occurrence.key).at(-1);
+      if(latest.id!==id&&latest.desired==='record')fail('Запись уже продолжена в новой части. Обновите статус записи.',409);
       if(job.desired==='record')stop(job.occurrence.key,'end-button');
       return {...job};
     },
@@ -180,16 +183,16 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
     start(teacherId, occurrence, title, cutoffAt, { audioMode = '', transitionFrom = '', endPrompt=false } = {}) {
       if (!enabled(teacherId)) fail('Запись на компьютере не включена', 409);
       const bound=jobs(teacherId).filter(job=>job.occurrence.key===occurrence?.key).at(-1);
-      const continued=bound?.desired==='record'&&lessonControl(bound)&&bound.endControl.mode!=='scheduled';
+      const recoverablePlatformStop=bound?.desired==='stop'&&(bound.occurrence.lessonId||bound.occurrence.studentId)
+        &&!bound.quarantinedAt&&['explicit-group-hangup','explicit-hangup','lesson-ended','reconnect-timeout','next-platform-lesson'].includes(bound.stopReason)&&audioMode==='platform';
+      const continued=(bound?.desired==='record'||recoverablePlatformStop)&&lessonControl(bound)&&bound.endControl.mode!=='scheduled';
       cutoffAt = continued?recordingDeadline(bound):recordingDeadline({ occurrence, cutoffAt });
       if (!occurrence?.key || !Number.isFinite(cutoffAt) || cutoffAt <= now()) fail('Занятие уже завершено', 409);
       const departing = db.jobs[transitionFrom];
       if (departing?.teacherId === teacherId && departing.occurrence.key !== occurrence.key) stop(departing.occurrence.key);
       const previous = jobs(teacherId).filter((job) => job.occurrence.key === occurrence.key).at(-1);
-      const newGroupPart = previous?.desired === 'stop' && previous.occurrence.lessonId
-        && !previous.quarantinedAt && ['explicit-group-hangup', 'lesson-ended', 'reconnect-timeout', 'next-platform-lesson'].includes(previous.stopReason)
-        && audioMode === 'platform';
-      if (previous && !newGroupPart) {
+      const newPlatformPart = recoverablePlatformStop;
+      if (previous && !newPlatformPart) {
         if (previous.desired === 'record') {
           previous.occurrence = { ...occurrence };
           previous.cutoffAt = continued?cutoffAt:Math.min(cutoffAt, previous.startedAt + 5 * 3600_000);
@@ -211,8 +214,8 @@ export function createDesktopRecordingStore(file, { now = Date.now, lessonNameFo
       if (jobs(teacherId).some((job) => job.desired === 'record' && job.cutoffAt > now())) fail('Сначала завершите предыдущий урок', 409);
       const id = crypto.randomUUID();
       db.jobs[id] = { id, teacherId, occurrence, title: String(title || 'Запись урока').slice(0, 150),
-        ...(newGroupPart ? { previousJobId: previous.id } : {}),
-        ...(endPrompt?{endControl:{version:1,mode:'scheduled',revision:0}}:{}),
+        ...(newPlatformPart ? { previousJobId: previous.id } : {}),
+        ...(newPlatformPart&&lessonControl(previous)?{endControl:{...previous.endControl}}:endPrompt?{endControl:{version:1,mode:'scheduled',revision:0}}:{}),
         status: 'waiting', desired: 'record', audioMode, cutoffAt: Math.min(cutoffAt, now() + 5 * 3600_000), startedAt: now(), lastActiveAt: now(), updatedAt: now() };
       save(); return publicJob(db.jobs[id]);
     },

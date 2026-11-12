@@ -18,7 +18,7 @@ function ActiveRecordingWarning({ recorder,onEnded,learningLessonId }) {
   const warning = recordingHealthWarning({ ...recorder, active: true, activeSince, now });
   const warningKey = warning ? JSON.stringify([activeSince, warning.title, warning.detail, (recorder?.settings?.jobs || []).filter(job => job.desired === 'record' && job.cutoffAt > now).map(job => job.id).sort()]) : null;
   const job=(recorder?.settings?.jobs||[]).find(job=>job.id===recorder.jobId||(learningLessonId&&job.occurrence.lessonId===learningLessonId&&job.endControl)),phase=lessonEndPhase(job,now);
-  if(lessonControl(job)&&(phase||job.endControl.mode==='timed'))return <LessonEndNotice key={job.id} job={job} refresh={recorder.refresh} onEnded={onEnded} recordingWarning={phase==='ended'?null:warning}/>;
+  if(lessonControl(job)&&(phase||(job.desired==='record'&&job.endControl.mode==='timed')))return <LessonEndNotice key={job.id} job={job} refresh={recorder.refresh} onEnded={onEnded} recordingWarning={phase==='ended'?null:warning}/>;
   return warning ? <RecordingWarningNotice key={warningKey} warning={warning} /> : null;
 }
 

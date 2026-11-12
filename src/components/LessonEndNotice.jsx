@@ -24,7 +24,7 @@ export default function LessonEndNotice({job,refresh,onEnded,recordingWarning}){
   };
   useEffect(()=>{
     const key=`${job.id}:${control.revision}`;
-    if(phase==='ended'&&automatic.current!==key){automatic.current=key;void action('finish');}
+    if(phase==='ended'&&job.desired==='record'&&automatic.current!==key){automatic.current=key;void action('finish');}
   },[phase,job.id,control.revision]);
   if(!phase&&control.mode!=='timed')return null;
   const question=phase==='question',ended=phase==='ended',manual=phase==='manual';

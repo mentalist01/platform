@@ -17,3 +17,10 @@ test('extended lessons get the same three-minute notice at their new deadline',(
   assert.equal(formatLessonEndRemaining(180000),'3:00');assert.equal(formatLessonEndRemaining(179100),'3:00');
   assert.equal(formatLessonEndRemaining(61000),'1:01');assert.equal(formatLessonEndRemaining(-1),'0:00');
 });
+
+test('an interrupted recording part does not claim that the ongoing lesson ended',()=>{
+  const job={desired:'stop',status:'ready',cutoffAt:1000000,occurrence:{endMs:1000000},endControl:{version:1,mode:'scheduled',revision:0}};
+  for(const stopReason of ['explicit-hangup','reconnect-timeout','next-platform-lesson',''])assert.equal(lessonEndPhase({...job,stopReason},500000),null);
+  for(const stopReason of ['end-button','end-countdown'])assert.equal(lessonEndPhase({...job,stopReason},500000),'ended');
+  assert.equal(lessonEndPhase({...job,stopReason:'reconnect-timeout'},1000000),'ended');
+});

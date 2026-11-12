@@ -15,7 +15,7 @@ export function lessonEndDeadline(job){
 export function lessonEndPhase(job,now=Date.now()){
   const control=lessonControl(job);
   if(!control)return null;
-  if(job.desired!=='record')return 'ended';
+  if(job.desired!=='record')return ['end-button','end-countdown'].includes(job.stopReason)||now>=lessonEndDeadline(job)?'ended':null;
   if(control.mode==='manual')return 'manual';
   const end=lessonEndDeadline(job);
   return now>=end?'ended':now>=end-LESSON_END_QUESTION_MS?'question':null;

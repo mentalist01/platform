@@ -8,6 +8,39 @@ import { createStudentBalanceReadCoordinator } from './studentBalanceReadCoordin
 
 const video = 'https://rutube.ru/video/private/1234567890abcdef1234567890abcdef/?p=Secret_Key-123';
 
+test('individual reconnection starts one new recording part and stale end notices cannot finish it', t=>{
+  const f=fixture(t),{device}=f.connect('teacher');
+  const occurrence={key:'ongoing-individual',studentId:'pupil',endMs:f.now()+3600000};
+  const first=f.store.start('teacher',occurrence,'Lesson',occurrence.endMs,{audioMode:'platform',endPrompt:true});
+  f.store.report(device,first.id,{status:'recording'});
+  f.store.stop(occurrence.key,'reconnect-timeout');
+  f.store.report(device,first.id,{status:'saved'});
+  f.store.report(device,first.id,{status:'ready',url:video});
+  assert.equal(f.store.settings('teacher').jobs.find(j=>j.id===first.id).stopReason,'reconnect-timeout');
+  assert.throws(()=>f.store.finishControl('teacher',first.id,0),/часть записи/);
+  assert.equal(f.store.pendingEnds('teacher').length,0);
+  const next=f.store.start('teacher',occurrence,'Lesson',occurrence.endMs,{audioMode:'platform',endPrompt:true});
+  assert.notEqual(next.id,first.id);assert.equal(next.previousJobId,first.id);assert.equal(next.desired,'record');
+  assert.equal(f.store.start('teacher',occurrence,'Lesson',occurrence.endMs,{audioMode:'platform',endPrompt:true}).id,next.id);
+  assert.throws(()=>f.store.finishControl('teacher',first.id,0),/часть записи/);
+  assert.equal(f.store.lessonJob('teacher',next.id).desired,'record');
+  assert.equal(f.store.lessonJob('teacher',first.id).video.url,video);
+  f.store.finishControl('teacher',next.id,0);
+  assert.equal(f.store.start('teacher',occurrence,'Lesson',occurrence.endMs,{audioMode:'platform',endPrompt:true}).desired,'stop','An intentional finish is never resumed');
+});
+
+test('reconnected parts retain timed and manual extensions rather than the old calendar deadline',t=>{
+  for(const mode of ['timed','manual']){
+    const f=fixture(t),{device}=f.connect('teacher'),occurrence={key:'extended',studentId:'pupil',endMs:f.now()+40000};
+    const first=f.store.start('teacher',occurrence,'Lesson',occurrence.endMs,{audioMode:'platform',endPrompt:true});
+    f.store.report(device,first.id,{status:'recording'});
+    f.store.control('teacher',first.id,{mode,minutes:10,revision:0});
+    f.advance(50000);f.store.stop(occurrence.key,'reconnect-timeout');
+    const next=f.store.start('teacher',occurrence,'Lesson',occurrence.endMs,{audioMode:'platform',endPrompt:true});
+    assert.equal(next.endControl.mode,mode);assert.equal(next.endControl.revision,1);assert.equal(next.previousJobId,first.id);assert.ok(next.cutoffAt>f.now());
+  }
+});
+
 test('manual continuation persists and renews for hours without changing the calendar or reviving a stopped lesson',t=>{
   const f=fixture(t),{device}=f.connect('teacher');
   const occurrence={key:'manual',studentId:'pupil',endMs:f.now()+40000};
