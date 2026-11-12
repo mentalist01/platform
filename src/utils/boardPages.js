@@ -51,9 +51,10 @@ export function boardPageSummonTarget(command,userId,pages,now=boardCommandNow()
     || !pages.some(p=>p.id===command.pageId)) return null;
   const studentId=String(command.studentId || '');
   if (studentId && studentId!==userId) return null;
-  const zoom=Number(command.zoom),x=Number(command.offset?.x),y=Number(command.offset?.y);
+  const code=command.scope==='board'?null:normalizeSummonCode(command.code);
+  if(command.scope==='code'&&!code)return null;
+  const zoom=Number(command.scope==='code'?1:command.zoom),x=Number(command.scope==='code'?0:command.offset?.x),y=Number(command.scope==='code'?0:command.offset?.y);
   if (![zoom,x,y].every(Number.isFinite) || zoom<=0 || Math.abs(x)>1000000 || Math.abs(y)>1000000) return null;
-  const code=normalizeSummonCode(command.code);
   return {id:command.id,pageId:command.pageId,studentId,zoom,offset:{x,y},
-    ...(code?{code}:{}),...(command.view==='collab'?{view:'collab'}:{})};
+    ...(code?{code}:{}),...(['board','code'].includes(command.scope)?{scope:command.scope}:{}),...(command.view==='collab'||command.scope==='code'?{view:'collab'}:{})};
 }

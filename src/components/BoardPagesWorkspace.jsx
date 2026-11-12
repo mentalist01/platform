@@ -15,7 +15,6 @@ import {useCollapsedLessonPages} from '../hooks/useCollapsedLessonPages.js';
 import {lessonPageTree,lessonPageParentChoices} from '../utils/lessonPageTree.js';
 import {requestLessonPages} from '../services/lessonPages.js';
 import {boardCommandNow,observeLiveBoardCommand} from '../utils/boardCommandClock.js';
-import {readTeacherSummonCode} from '../utils/lessonSummonCode.js';
 
 const id = () => crypto.randomUUID();
 export default function BoardPagesWorkspace(props) {
@@ -85,8 +84,8 @@ function PagedBoardWorkspace(props) {
       };
       const controls=()=>{
         const command=control.get('summon');if(teacher || command?.id===lastCommand.current)return;
-        const target=boardPageSummonTarget(command,userId,boardPagesList(map));if(!target)return;
-        lastCommand.current=target.id;setPageId(target.pageId);setStudentId(target.studentId);setNavigation(target);
+        const target=boardPageSummonTarget(command,userId,boardPagesList(map));if(!target||target.scope==='code')return;
+        lastCommand.current=target.id;setPageId(target.pageId,{only:target.scope==='board'});setStudentId(target.studentId);setNavigation(target);
         setNotice('Учитель переместил вас на свою страницу и к своему месту');
       };
       const presence=()=>{const next=Array.from(provider.awareness.getStates().entries())
@@ -96,7 +95,7 @@ function PagedBoardWorkspace(props) {
       };
       const status=()=>setConnected(provider.wsconnected && provider.synced);
       const sync=()=>{status();update();controls();publish();delivery.flush();};
-      const liveControls=()=>{if(!teacher && provider.synced)observeLiveBoardCommand(control.get('summon'));controls();};
+      const liveControls=event=>{if(!event.keysChanged.has('summon'))return;if(!teacher && provider.synced)observeLiveBoardCommand(control.get('summon'));controls();};
       map.observe(update);control.observe(liveControls);provider.awareness.on('change',presence);
       provider.on('status',status);provider.on('sync',sync);update();publish();
       cleanup=()=>{delivery.dispose();summonDelivery.current=null;setChannelReady(false);map.unobserve(update);control.unobserve(liveControls);provider.awareness.off('change',presence);provider.off('status',status);provider.off('sync',sync);provider.destroy();doc.destroy();runtime.current=null;};
@@ -135,10 +134,8 @@ function PagedBoardWorkspace(props) {
   };
   const summon=useCallback(viewport=>{if(!teacher || readOnly)return;
     const targetIds=group?(boardStudentId?[boardStudentId]:(canvasProps.participantIds || [])):[activeStudentId];
-    const code=readTeacherSummonCode({bookRoom,pageId,studentId:boardStudentId,role,userId,current:canvasProps.summonCodeSelection});
-    summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,...viewport,
-      ...(code?{code}:{}),...(canvasProps.summonView==='collab'?{view:'collab'}:{})},targetIds);
-  },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId,bookRoom,role,userId,canvasProps.summonCodeSelection,canvasProps.summonView]);
+    summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,scope:'board',...viewport},targetIds);
+  },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId]);
   const acknowledgeNavigation=useCallback(command=>{
     if(teacher || !command?.id || command.id!==lastCommand.current
       || command.pageId!==pageId || command.studentId!==boardStudentId)return false;

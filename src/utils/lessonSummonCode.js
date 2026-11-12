@@ -1,4 +1,4 @@
-import { lessonCodePageId } from './lessonPageSelection.js';
+import { lessonCodePageId, lessonPageSelectionKey, writeLessonPageSelection } from './lessonPageSelection.js';
 
 const solutionId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 
@@ -27,7 +27,7 @@ export function readTeacherSummonCode({ bookRoom, pageId, studentId = '', role, 
 }
 
 export function summonedCodeSelection(command, bookRoom, userId) {
-  const code = normalizeSummonCode(command?.code);
+  const code = command?.scope==='board'?null:normalizeSummonCode(command?.code);
   if (!code || (command.studentId && command.studentId !== userId)) return null;
   const room = lessonSummonCodeRoom(bookRoom, command.studentId);
   return room ? { room, pageId: lessonCodePageId(command.pageId), ...code } : null;
@@ -43,5 +43,6 @@ export function rememberSummonedCode(command, bookRoom, userId, storage = global
     const saved = JSON.parse(storage?.getItem(key) || '{}');
     storage?.setItem(key, JSON.stringify({ ...saved, pageId: selected.pageId, solutionId: selected.solutionId,
       byPage: { ...saved.byPage, [selected.pageId]: selected.solutionId } }));
+    writeLessonPageSelection(lessonPageSelectionKey(bookRoom,'student',userId,'code'),command.pageId,storage);
   } catch { /* The live command still works without local storage. */ }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown, Layers, Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ChevronDown, Code2, Layers, Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { MAX_BOARD_PAGES } from '../utils/boardPages.js';
 import {lessonCodePageId,lessonBoardPageId} from '../utils/lessonPageSelection.js';
 import {useLessonPages} from '../hooks/useLessonPages.js';
@@ -15,7 +15,7 @@ const suggestedName = pages => {
 };
 
 export default function CollabCodePages({ pages:codePages, activeId, onSelect, roomId,role,userId,
-  onSummonCode, disabled = false, readOnly = false, dark = false, peers = [], lockedPageId = null, protectedPageId = null }) {
+  onSummonCode, summonSolutionId, summonStudentId='', summonTargetIds=[], disabled = false, readOnly = false, dark = false, peers = [], lockedPageId = null, protectedPageId = null }) {
   const common=useLessonPages(roomId,role,userId);
   const sharedSelected=common.selected,selectShared=common.select;
   const pages=lessonPageTree(common.pages.map(page=>({id:lessonCodePageId(page.id),name:page.title,...(page.parentId?{parentId:lessonCodePageId(page.parentId)}:{}),count:codePages.find(p=>p.id===lessonCodePageId(page.id))?.count||1})));
@@ -23,14 +23,20 @@ export default function CollabCodePages({ pages:codePages, activeId, onSelect, r
   const previousActive=useRef(null),requested=useRef(null);
   const [deletedPage,setDeletedPage]=useState(null);
   const appliedSummon=useRef('');
+  const applyingSummon=useRef(null);
   useEffect(()=>{
     const command=common.navigation;
     if(disabled||role!=='student'||!command?.code||appliedSummon.current===command.id)return;
     // Retry after room/catalog synchronization or a running program finishes.
-    if(onSummonCode?.(command))appliedSummon.current=command.id;
+    applyingSummon.current=lessonCodePageId(command.pageId);
+    if(onSummonCode?.(command)){appliedSummon.current=command.id;common.acknowledgeCode(command);}
   },[common.navigation,disabled,role,onSummonCode]);
   useEffect(()=>{
     if(disabled||lockedPageId!==null||!pages.length){previousActive.current=null;return;}
+    if(applyingSummon.current){
+      if(activeId!==applyingSummon.current)return;
+      applyingSummon.current=null;previousActive.current=null;requested.current=null;
+    }
     const selected=lessonCodePageId(sharedSelected);
     if(previousActive.current&&previousActive.current!==activeId){
       previousActive.current=activeId;
@@ -75,9 +81,17 @@ export default function CollabCodePages({ pages:codePages, activeId, onSelect, r
         {lockedPageId!==null ? <Lock size={15}/> : <Layers size={16}/>}<strong>{current.name}</strong><small>{pages.findIndex(page => page.id === current.id) + 1}/{pages.length}</small><ChevronDown size={14}/>
       </button>
       <span className="collab-code-pages__count">Вкладок: {current.count || 1}</span>
+      {['teacher','admin'].includes(role)&&summonSolutionId&&<button type="button" className="collab-code-pages__summon"
+        disabled={disabled||readOnly||!common.connected||!common.canEdit}
+        title="Открыть у учеников эту вкладку кода, сохранив их место на доске" aria-label="Позвать в код"
+        onClick={()=>common.summonCode({solutionId:summonSolutionId,pageId:lessonBoardPageId(activeId),studentId:summonStudentId},summonTargetIds)}>
+        <Code2 size={16}/><span>Позвать в код</span></button>}
       {!readOnly && common.canEdit && <button type="button" className="collab-code-pages__create" disabled={!editable || pages.length >= MAX_BOARD_PAGES}
         onClick={() => edit('create')} aria-label="Создать страницу кода"><Plus size={16}/><span>Новая страница</span></button>}
     </div>
+    {common.summonState.phase!=='idle'&&<div className="collab-code-pages__summon-status" role="status" data-summon-phase={common.summonState.phase}>
+      {{queued:'Восстанавливаем связь — позовём в код после подключения',waiting:'Зовём в код…',confirmed:'Ученики открыли ваш код',sent:'Призыв в код отправлен',expired:'Связь не восстановилась. Позовите в код ещё раз после подключения.',unconfirmed:'Ждём подтверждения от учеников. Проверьте, открылась ли у них вкладка кода.'}[common.summonState.phase]}
+    </div>}
     {open && <section className="collab-code-pages__panel" aria-label="Страницы кода">
       <div className="collab-code-pages__heading"><div><strong>Страницы занятия</strong><p>Одна страница — доска и свой набор вкладок кода.</p></div>
         <button type="button" aria-label="Закрыть страницы кода" onClick={() => { setOpen(false); setForm(null); }}><X size={16}/></button></div>

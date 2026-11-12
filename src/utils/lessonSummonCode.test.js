@@ -4,6 +4,7 @@ import * as Y from 'yjs';
 import { boardPageSummonTarget } from './boardPages.js';
 import { normalizeSummonCode, lessonSummonCodeRoom, readTeacherSummonCode, summonedCodeSelection, rememberSummonedCode } from './lessonSummonCode.js';
 import { createEmptyCollabSolution, getCollabSolutionChannels, resolveCollabPageSelection } from './collabSolutions.js';
+import {lessonPageSelectionKey,readLessonPageSelection,writeScopedLessonPageSelection} from './lessonPageSelection.js';
 
 const bookRoom='board-teacher-pupil~pages', room='collab-teacher-pupil';
 const storage=()=>{const values=new Map();return {getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value)};};
@@ -57,4 +58,34 @@ test('invalid code targets are ignored without breaking the board summon',()=>{
   const target=boardPageSummonTarget(command({code:{solutionId:'../other'}}),'pupil',[{id:'main'}]);
   assert.equal(target.pageId,'main');assert.equal('code' in target,false);
   assert.doesNotThrow(()=>rememberSummonedCode(command(),bookRoom,'pupil',{getItem(){throw Error('disabled')}}));
+});
+
+test('code-only and board-only summons preserve the other pane across pages and cold loads',()=>{
+  const s=storage(),scope={book:bookRoom,role:'student',userId:'pupil'};
+  writeScopedLessonPageSelection(scope,'page-first-01',s,null);
+  const codeTarget=boardPageSummonTarget(command({scope:'code',pageId:'page-second-02',zoom:undefined,offset:undefined}),'pupil',[{id:'page-second-02'}]);
+  assert.equal(codeTarget.scope,'code');assert.equal(codeTarget.view,'collab');
+  rememberSummonedCode(codeTarget,bookRoom,'pupil',s);
+  assert.equal(readLessonPageSelection(lessonPageSelectionKey(bookRoom,'student','pupil'),'main',s),'page-first-01','Code summon keeps the board page');
+  assert.equal(readLessonPageSelection(lessonPageSelectionKey(bookRoom,'student','pupil','code'),'main',s),'page-second-02');
+  const boardTarget=boardPageSummonTarget(command({scope:'board',pageId:'page-third-03'}),'pupil',[{id:'page-third-03'}]);
+  assert.equal('code' in boardTarget,false,'Board-only intent cannot carry a code switch');
+  rememberSummonedCode(boardTarget,bookRoom,'pupil',s);
+  writeScopedLessonPageSelection({...scope,only:true},boardTarget.pageId,s,null);
+  assert.equal(readLessonPageSelection(lessonPageSelectionKey(bookRoom,'student','pupil'),'main',s),'page-third-03');
+  assert.equal(readLessonPageSelection(lessonPageSelectionKey(bookRoom,'student','pupil','code'),'main',s),'page-second-02','Board summon keeps the code page');
+  writeScopedLessonPageSelection({...scope,scope:'code'},'page-manual-04',s,null);
+  assert.equal(readLessonPageSelection(lessonPageSelectionKey(bookRoom,'student','pupil'),'main',s),'page-manual-04','Ordinary navigation still opens the paired board and code');
+});
+
+test('separate command channels retain both destinations and private code recipients stay scoped',()=>{
+  const doc=new Y.Doc(),control=doc.getMap('pageControl'),pages=[{id:'main'}];
+  control.set('summon',command({scope:'board'}));
+  control.set('summonCode',command({scope:'code',id:'code-private',studentId:'anna',zoom:undefined,offset:undefined}));
+  assert.equal(boardPageSummonTarget(control.get('summon'),'boris',pages).scope,'board');
+  assert.equal(boardPageSummonTarget(control.get('summonCode'),'boris',pages),null);
+  const target=boardPageSummonTarget(control.get('summonCode'),'anna',pages);
+  assert.equal(summonedCodeSelection(target,'board-group-test~pages','anna').room,'collab-group-test~student~anna');
+  assert.equal(boardPageSummonTarget(command({scope:'code',code:null}),'anna',pages),null);
+  doc.destroy();
 });

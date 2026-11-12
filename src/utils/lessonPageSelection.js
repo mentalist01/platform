@@ -1,5 +1,5 @@
 export const LESSON_PAGE_SELECTION_EVENT='platform:lesson-page-selected';
-export const lessonPageSelectionKey=(book,role,userId)=>`lesson-page:${book}:${role}:${userId}`;
+export const lessonPageSelectionKey=(book,role,userId,scope='board')=>`lesson-page:${book}:${role}:${userId}${scope==='code'?':code':''}`;
 export const lessonBookForCodeRoom=room=>typeof room==='string'&&room.startsWith('collab-')?`board-${room.slice(7).split('~student~')[0]}~pages`:'';
 export const lessonCodePageId=id=>id==='main'?'page-main':id;
 export const lessonBoardPageId=id=>id==='page-main'?'main':id;
@@ -17,5 +17,13 @@ export function writeLessonPageSelection(key,value,storage=globalThis.localStora
   selections.set(key,next);
   try{storage?.setItem(key,next);}catch{/* Local preferences are optional. */}
   if(next!==previous)target?.dispatchEvent(new CustomEvent(LESSON_PAGE_SELECTION_EVENT,{detail:{key,pageId:next}}));
+  return next;
+}
+
+export function writeScopedLessonPageSelection({book,role,userId,scope='board',only=false,fallback='main'},value,storage=globalThis.localStorage,target=globalThis.window){
+  const key=lessonPageSelectionKey(book,role,userId,scope);
+  const previous=readLessonPageSelection(key,fallback,storage);
+  const next=writeLessonPageSelection(key,value,storage,target);
+  if(!only&&next!==previous)writeLessonPageSelection(lessonPageSelectionKey(book,role,userId,scope==='code'?'board':'code'),next,storage,target);
   return next;
 }

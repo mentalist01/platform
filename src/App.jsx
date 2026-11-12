@@ -3743,9 +3743,9 @@ export const CollabSection = ({
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const preparedBook = isSandbox ? '' : lessonBookForCodeRoom(roomId);
-  const [selectedBoardPage] = useLessonPageSelection(preparedBook,role,userId);
+  const [selectedCodePage] = useLessonPageSelection(preparedBook,role,userId,'main','code');
   const pinnedCode = studentCodeFocus?.room === roomId ? studentCodeFocus : null;
-  const preparedPage = pinnedCode ? lessonBoardPageId(pinnedCode.pageId) : selectedBoardPage;
+  const preparedPage = pinnedCode ? lessonBoardPageId(pinnedCode.pageId) : selectedCodePage;
   const preparedRoom = !pythonExplanation && preparedBook ? preparedBook.slice(0,-6)+(preparedPage==='main'?'':`~page~${preparedPage}`) : null;
   const preparedContext = usePreparedLesson(preparedRoom);
   const preparedActive = preparedContext.run?.mode === 'prepared';
@@ -9312,7 +9312,7 @@ export const CollabSection = ({
     const selected=summonedCodeSelection(command,preparedBook,userId);
     if (!selected) return false;
     // A summon never bypasses the teacher's existing restriction on code tabs.
-    if (studentCodeFocus && (studentCodeFocus.room!==selected.room||studentCodeFocus.solutionId!==selected.solutionId)) return true;
+    if (studentCodeFocus && (studentCodeFocus.room!==selected.room||studentCodeFocus.solutionId!==selected.solutionId)) return false;
     if (isGroupLesson && selected.room!==roomId) {
       setActiveGroupParticipantId(command.studentId || GROUP_SHARED_CODE_ID);
       return false;
@@ -10329,8 +10329,6 @@ export const CollabSection = ({
                   {collabBoardFullscreenButton}
                   <BoardSection
                     workspaceRoomId={pythonExplanation ? (learningGroupId ? pythonGroupBoardRoom(learningGroupId) : pythonExplanationBoardRoom(teacherId,effectiveStudentId)) : undefined}
-                    summonView="collab"
-                    summonCodeSelection={{room:roomId,pageId:activeCodePageId,solutionId:activeSolutionId}}
                     embedded
                     hideStudentPicker
                     showEmbeddedSummonButton={isTeacher}
@@ -11190,6 +11188,9 @@ export const CollabSection = ({
           <CollabCodePages key={`pages:${roomId}`} pages={codePages} activeId={activeCodePageId}
             onSelect={selectCodePage} roomId={roomId} role={role} userId={userId}
             onSummonCode={followSummonedCode}
+            summonSolutionId={isTeacher?activeSolutionId:undefined}
+            summonStudentId={isGroupLesson&&effectiveGroupParticipantId!==GROUP_SHARED_CODE_ID?effectiveGroupParticipantId:''}
+            summonTargetIds={isGroupLesson?(effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?learningParticipantIds:[effectiveGroupParticipantId]):[effectiveStudentId]}
             lockedPageId={studentCodeFocus ? pinnedCode?.pageId || '' : null}
             protectedPageId={isTeacher && codeFocus.focus?.room === roomId ? codeFocus.focus?.pageId : null}
             disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted} readOnly={collabReadOnly} dark={isCollabDarkUi}
@@ -18339,8 +18340,8 @@ export const BoardCanvasSection = ({
                 onClick={handleSummonStudent}
                 disabled={!roomId || !pages?.canSummon}
                 className="board-bottom-controls__button"
-                aria-label="Призвать к себе"
-                data-tooltip="Призвать к себе"
+                aria-label="Позвать на доску"
+                data-tooltip="Позвать на доску"
               >
                 <Users size={19} />
               </button>
