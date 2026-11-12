@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {startTrialLesson} from '../services/trialLesson.js';
 import {
   BookOpen,
   CheckCircle,
@@ -683,6 +684,7 @@ const TeacherLessonStartPrompt = ({
 
   const joinCall = useCallback(() => {
     if (activePrompt?.isTrialEvent) {
+      void startTrialLesson(activePrompt.trialBookingId).catch(error=>window.dispatchEvent(new CustomEvent('ivan100:trial-lesson-error',{detail:error.message})));
       if (activePrompt.trialMeetingUrl) rememberDismissedPrompt(activePrompt.occurrenceKey);
       return;
     }

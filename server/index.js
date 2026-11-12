@@ -313,6 +313,7 @@ import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
 import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
 import {registerGroupStudyProgressRoutes} from './groupStudyProgress.js';
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
+import {isTrialLesson, trialRoomId, trialRoomGroup, trialRoomSession, trialRoomPayload} from './trialLessonRooms.js';
 import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
 import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
 import {PreparedHomework,registerPreparedHomeworkRoutes} from './preparedHomework.js';
@@ -10813,7 +10814,7 @@ const enrichGoogleCalendarLearningGroupEntry = (entry, teacherId, students = [])
   const match = resolveGoogleCalendarLearningGroupMatch({
     title: entry?.subject,
     teacherId,
-    groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+    groups: LEARNING_GROUPS_ENABLED ? readLearningWorkspaceGroups() : [],
   });
   const explicitGroupId = entry?.calendarPlatformOwner?.groupId;
   const explicitGroup = explicitGroupId ? getLearningGroupById(explicitGroupId) : null;
@@ -21937,7 +21938,7 @@ const preparedLessonTasks = new PreparedLessonTasks({
   authorize:async(auth,room,{write}={})=>{
     if(String(room).startsWith('prepared-homework-'))return preparedHomeworkStore?.access(auth,room,{write})||{allowed:false};
     const access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(room)}`,auth,
-      sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningGroupsDb():[],
+      sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningWorkspaceGroups():[],
       attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
     const scope=access.allowed?lessonPageRooms(access.target):null;
     if(!scope||access.target.kind!=='board'||access.target.boardPagesBook||getLearningSubscriptionRoomError(auth,access))return {allowed:false};
@@ -24226,7 +24227,7 @@ const boardTabletService = createBoardTabletService({
       requestUrl: `/collab/${encodeURIComponent(roomId)}`,
       auth: session.user,
       sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [],
-      groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+      groups: LEARNING_GROUPS_ENABLED ? readLearningWorkspaceGroups() : [],
       attendanceRecords: LEARNING_GROUPS_ENABLED ? readLearningAttendanceDb() : [],
       students: readStudentsDb(),
     });
@@ -24239,7 +24240,7 @@ app.delete('/api/board-tablet/:id', boardTabletService.remove);
 const handleLessonPages=async(req,res)=>{
   const room=String(req.method==='GET'?req.query.room:req.body?.room||'');
   const access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(room)}`,auth:req.auth,
-    sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningGroupsDb():[],
+    sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningWorkspaceGroups():[],
     attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
   const scope=access.allowed?lessonPageRooms(access.target):null;
   if(!scope||getLearningSubscriptionRoomError(req.auth,access))return forbid(res);
@@ -24274,7 +24275,7 @@ app.post('/api/lesson-code-focus', (req, res) => {
   let focus = null;
   if (locked) {
     const access = authorizeLearningCollabUpgrade({ requestUrl: '/collab/' + encodeURIComponent(String(room || '')), auth: req.auth,
-      students: readStudentsDb(), groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+      students: readStudentsDb(), groups: LEARNING_GROUPS_ENABLED ? readLearningWorkspaceGroups() : [],
       sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [] });
     const target = access.target;
     const individual = target?.kind === 'collab' && target.studentId === student.id;
@@ -24320,7 +24321,7 @@ registerPreparedSetExchangeRoutes(app,preparedLessonTasks,readTeachersDb);
 const egeStudyPlans=registerEgeStudyPlanRoutes(app,{dataDir});
 const groupStudyScope=async group=>{
   const auth={id:group.teacherId,role:'teacher'},access=authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(groupNotebookBoard(group.id)+'~pages')}`,auth,
-    sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningGroupsDb():[],attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
+    sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],groups:LEARNING_GROUPS_ENABLED?readLearningWorkspaceGroups():[],attendanceRecords:LEARNING_GROUPS_ENABLED?readLearningAttendanceDb():[],students:readStudentsDb()});
   if(!access.allowed||getLearningSubscriptionRoomError(auth,access))throw Object.assign(Error('Нет доступа к доске группы'),{status:403});
   await ensureGroupNotebook(access);
   return {access,scope:lessonPageRooms(access.target)||{book:groupNotebookBoard(group.id)+'~pages',codes:[groupNotebookCode(group.id)],codeRoom:''}};
@@ -24571,7 +24572,13 @@ const getLearningGroupById = (groupId) => {
   reconcileLearningGroupLifecycle();
   const normalizedId = String(groupId || '').trim();
   if (!normalizedId) return null;
-  return readLearningGroupsDb().find((entry) => entry.id === normalizedId && !entry.deletedAt) || null;
+  return readLearningWorkspaceGroups().find((entry) => entry.id === normalizedId && !entry.deletedAt) || null;
+};
+
+const readLearningWorkspaceGroups = () => {
+  const students = readStudentsDb();
+  return [...readLearningGroupsDb(), ...readLearningLessonSessionsDb().filter(isTrialLesson)
+    .map(lesson => trialRoomGroup(lesson, students)).filter(Boolean)];
 };
 
 const getLearningLessonById = (groupId, lessonId) => {
@@ -26027,6 +26034,15 @@ const trialSlotRunner = registerTrialSlots(app, {
       // A trial is not a new regular lesson and must not move homework deadlines.
       setStudentData(id,{...data,schedule});
     }
+    const sessions = readLearningLessonSessionsDb();
+    const previous = sessions.find(lesson => lesson.id === trialRoomId(row.id));
+    if (previous && !['completed','cancelled'].includes(previous.status)) {
+      const updated = trialRoomSession(row, previous);
+      writeLearningLessonSessionsDb(replaceLearningStoreEntry(sessions, updated));
+      // Re-check the room ACL after enrollment changes; departed pupils cannot
+      // keep editing through an already connected socket.
+      closeLearningLessonCollabConnections(updated);
+    }
   },
   syncGoogle:async row=>{
     const connection=getTeacherCalendarGoogleConnection(row.teacherId);
@@ -26038,6 +26054,46 @@ const trialSlotRunner = registerTrialSlots(app, {
     notifyScheduleSyncUpdate({scope:'teacher-schedule',action:'trial-slot-updated',teacherId});
   },
 });
+app.post('/api/trial-lessons/:bookingId/open', handleLearningRoute((req, res) => {
+  const previous = readLearningLessonSessionsDb().find(lesson => isTrialLesson(lesson) && lesson.externalOccurrenceId === req.params.bookingId);
+  const booking = trialSlots.allBookings().find(row => row.id === req.params.bookingId);
+  const teacherId = booking?.teacherId || previous?.teacherId;
+  const student = isStudentRole(req.auth) ? findStudentById(req.auth.id) : null;
+  const roster = previous && ['completed','cancelled'].includes(previous.status) ? previous.participantIds : booking?.studentIds;
+  if (!teacherId || !(isTeacherRole(req.auth) && req.auth.id === teacherId)
+    && !(student?.teacherId === teacherId && roster?.includes(student.id))) return forbid(res);
+  if (!roster?.length) return res.status(409).json({error:'В пробном пока нет участников'});
+  let lesson = booking ? trialRoomSession(booking, previous) : previous;
+  if (!lesson) return res.status(404).json({error:'Пробное не найдено'});
+  const startMs = Date.parse(lesson.startAt), endMs = startMs + lesson.durationMinutes * 60000;
+  const nowMs = Date.now();
+  const canRecord = isTeacherRole(req.auth) && req.body?.recording === true
+    && !['completed','cancelled'].includes(lesson.status) && nowMs >= startMs - 30 * 60000 && nowMs < endMs;
+  if (canRecord) lesson = updateLearningLessonSession(lesson, {status:'active'}, {actorId:req.auth.id});
+  if (!previous) writeLearningLessonSessionsDb([lesson, ...readLearningLessonSessionsDb()]);
+  else writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(), lesson));
+  let recording = null, recordingError = '';
+  if (isTeacherRole(req.auth) && req.body?.recording === true) {
+    try {
+      if (!canRecord) throw Error('Запись пробного доступна за 30 минут до начала и до его окончания');
+      if (!booking?.meetingUrl) throw Error('Сначала сохраните ссылку Телемоста');
+      const occurrence = buildLearningGroupReplayOccurrence({group:trialRoomGroup(lesson, readStudentsDb()), lesson});
+      recording = desktopRecordings.start(teacherId, occurrence, `Пробное ${occurrence.dayKey} ${occurrence.time}`, occurrence.endMs,
+        {audioMode:'telemost', endPrompt:desktopRecordings.supportsEndControl(teacherId)});
+    } catch (error) { recordingError = error.message || 'Запись не запустилась. Проверьте пульт записи.'; }
+  }
+  return res.json({lesson:trialRoomPayload(lesson), recording, recordingError});
+}));
+
+app.get('/api/trial-lessons/current', handleLearningRoute((req, res) => {
+  if (!isStudentRole(req.auth)) return forbid(res);
+  const student = findStudentById(req.auth.id), nowMs = Date.now();
+  const lesson = readLearningLessonSessionsDb().filter(isTrialLesson).find(entry => entry.teacherId === student?.teacherId
+    && entry.participantIds.includes(req.auth.id) && entry.status === 'active'
+    && nowMs >= Date.parse(entry.startAt) - LEARNING_LESSON_EARLY_JOIN_MS && nowMs < learningLessonAutoCloseMs(entry));
+  return res.json({lesson:lesson ? trialRoomPayload(lesson) : null});
+}));
+
 let trialSlotsRecovering=false;
 setInterval(async()=>{
   if(trialSlotsRecovering)return;trialSlotsRecovering=true;
@@ -35574,7 +35630,7 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
   rawSchedule = Array.isArray(rawSchedule) ? rawSchedule : [];
 
   const learningGroupsById = new Map(
-    readLearningGroupsDb().map((group) => [String(group?.id || '').trim(), group])
+    readLearningWorkspaceGroups().map((group) => [String(group?.id || '').trim(), group])
   );
   const groupLessonSchedule = readResolvedGroupLessonSessions()
     .filter((lesson) => (
@@ -35619,7 +35675,7 @@ const buildResolvedStudentLessonHistory = async (student, auth, options = {}) =>
         lessonId: String(lesson.id || '').trim(),
         replayKey: buildLearningGroupLessonReplayKey(lesson.id),
         startAt: start.toISOString(),
-        source: 'learning-group-session',
+        source: isTrialLesson(lesson) ? 'trial-booking' : 'learning-group-session',
         createdAt: lesson.createdAt || start.toISOString(),
         updatedAt: lesson.updatedAt || lesson.createdAt || start.toISOString(),
       };
@@ -36173,6 +36229,7 @@ const serializeStudentLessonHistoryEntry = (entry, replayStorage = null, student
   endMs: entry.endMs,
   studentName: String(student?.name || '').trim(),
   subject: entry.subject,
+  ...(entry.source === 'trial-booking' ? {trialBookingId: entry.lessonId?.replace(/^trial-/, ''), source: entry.source} : {}),
   ...(entry.groupId ? {
     groupId: entry.groupId,
     groupName: entry.groupName || '',
@@ -38501,7 +38558,7 @@ app.get('/api/lesson-recordings', async (req,res)=>{
   if(!student)return;
   try{
     const history=(await buildResolvedStudentLessonHistory(student,req.auth,{persist:false}))
-      .filter(entry=>!entry.groupId&&matchLessonRecording(entry,String(req.query?.query||'').slice(0,200)));
+      .filter(entry=>(!entry.groupId||entry.source==='trial-booking')&&matchLessonRecording(entry,String(req.query?.query||'').slice(0,200)));
     const page=paginateStudentLessonHistory(history,req.query);
     res.setHeader('Cache-Control','no-store');
     res.json({...page,items:page.items.map(entry=>{
@@ -44923,7 +44980,7 @@ const getRtcRoomAccessError = (auth, roomMeta) => {
     auth,
     roomId: roomMeta.roomId,
     sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [],
-    groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+    groups: LEARNING_GROUPS_ENABLED ? readLearningWorkspaceGroups() : [],
     attendanceRecords: LEARNING_GROUPS_ENABLED ? readLearningAttendanceDb() : [],
     students: readStudentsDb(),
     allowedKinds: ['rtc'],
@@ -45883,7 +45940,7 @@ server.on('upgrade', (request, socket, head) => {
       requestUrl: request.url,
       auth: session.user,
       sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [],
-      groups: LEARNING_GROUPS_ENABLED ? readLearningGroupsDb() : [],
+      groups: LEARNING_GROUPS_ENABLED ? readLearningWorkspaceGroups() : [],
       attendanceRecords: LEARNING_GROUPS_ENABLED ? readLearningAttendanceDb() : [],
       students: readStudentsDb(),
     });

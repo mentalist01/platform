@@ -1659,6 +1659,18 @@ export const api = {
     if (!res.ok) throw new Error(await parseApiError(res));
     return parseJsonResponse(res);
   },
+  currentTrialLesson: async () => {
+    const res = await apiFetch('/api/trial-lessons/current');
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
+  startTrialLesson: async (bookingId, recording = true) => {
+    const res = await apiFetch(`/api/trial-lessons/${encodeURIComponent(bookingId)}/open`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({recording}),
+    });
+    if (!res.ok) throw new Error(await parseApiError(res));
+    return parseJsonResponse(res);
+  },
   activateTelemostLesson: async (studentId, occurrenceKey = '') => {
     const res = await apiFetch('/api/telemost/activate', {
       method: 'POST',

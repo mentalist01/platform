@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { authenticatedUploadsFetch, resolveAuthenticatedUploadsUrl } from '../services/api';
 import LessonReplayPlayer from './LessonReplayPlayer';
 import RutubeLessonRecording from './RutubeLessonRecording';
+import {startTrialLesson} from '../services/trialLesson.js';
 
 const isPythonFile = (file) => /\.py$/i.test(String(file?.name || '').trim());
 const isImageFile = (file) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(file?.name || '').trim());
@@ -87,6 +88,7 @@ const StudentLessonDetailModal = ({
   const dialogRef = useRef(null);
   const requestedCodeIdsRef = useRef(new Set());
   const [codeByFileId, setCodeByFileId] = useState({});
+  const [trialOpenError,setTrialOpenError] = useState('');
 
   const normalizedMaterials = useMemo(() => {
     const unique = new Map();
@@ -313,6 +315,10 @@ const StudentLessonDetailModal = ({
         </header>
 
         <div className="student-lesson-capsule__body">
+          {lesson?.trialBookingId&&<div className="student-lesson-capsule__topic">
+            <button type="button" onClick={()=>{setTrialOpenError('');void startTrialLesson(lesson.trialBookingId,{recording:false}).then(()=>onClose?.()).catch(cause=>setTrialOpenError(cause.message));}}><BookOpen size={16}/>Открыть доску и код пробного</button>
+            {trialOpenError&&<p role="alert">{trialOpenError}</p>}
+          </div>}
           <section className={`student-lesson-capsule__topic${hasTopic ? '' : ' student-lesson-capsule__topic--empty'}`} id="student-lesson-capsule-topic">
             <span><BookOpen size={15} /> Тема занятия</span>
             <strong>{topicText || 'Тема не сохранилась'}</strong>

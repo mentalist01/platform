@@ -1,4 +1,5 @@
 import {useFullscreenPortalTarget} from './hooks/useFullscreenPortalTarget.js';
+import {TRIAL_LESSON_STARTED} from './services/trialLesson.js';
 import {pythonExplanationBoardRoom,pythonExplanationCodeRoom} from './utils/pythonExplanationBoard.js';
 import {pythonGroupBoardRoom} from './utils/pythonGroupWorkspace.js';
 import {installBoardSelectionGuard} from './utils/boardTextSelection.js';
@@ -20157,7 +20158,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Домашка', icon: Calendar },
-        ...(!studentHasGroups ? [{id:'student-recordings',label:'Записи',icon:Video}] : []),
+        {id:'student-recordings',label:studentHasGroups?'Личные записи':'Записи',icon:Video},
         ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : studentHasLibraryAccess ? 'Групповые занятия' : 'Подбор группы', icon: Users }] : []),
         { id: 'progress', label: 'Все задания', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
@@ -20177,7 +20178,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
-        ...(!studentHasGroups ? ['student-recordings'] : []),
+        'student-recordings',
         ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? ['groups'] : []),
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
@@ -21855,6 +21856,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setActiveLearningLesson({
       lessonId,
       groupId,
+      ...(lesson.trialBookingId ? {trialBookingId:lesson.trialBookingId, callProvider:lesson.callProvider, replayActive:Boolean(lesson.replayActive)} : {}),
       participantIds,
       groupName: String(lesson?.groupName || '').trim(),
       topic: String(lesson?.topic || '').trim(),
@@ -21888,6 +21890,17 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setMenuOpen(false);
   }, [isCallViewAvailable, navigateToView, user.role]);
 
+  useEffect(() => {
+    const open = event => {
+      handleOpenLearningGroupLesson(event.detail);
+      setTelemostLessonFinishError(event.detail?.recordingError ? `Запись пробного не запустилась: ${event.detail.recordingError}` : '');
+    };
+    const failed = event => setTelemostLessonFinishError(event.detail || 'Не удалось открыть пробное занятие');
+    window.addEventListener(TRIAL_LESSON_STARTED, open);
+    window.addEventListener('ivan100:trial-lesson-error', failed);
+    return () => {window.removeEventListener(TRIAL_LESSON_STARTED, open);window.removeEventListener('ivan100:trial-lesson-error', failed);};
+  }, [handleOpenLearningGroupLesson]);
+
   const activeLearningLessonId = String(activeLearningLesson?.lessonId || '').trim();
   const activeLearningLessonStartsAt = String(activeLearningLesson?.startsAt || '').trim();
   const activeLearningLessonStatus = String(activeLearningLesson?.status || '').trim().toLowerCase();
@@ -21918,6 +21931,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const refreshStudentLessonWorkspace = useCallback(async ({ silent = false } = {}) => {
     if (user.role !== 'student') return null;
+    if (activeLearningLesson?.trialBookingId) return activeLearningLesson;
     const requestId = studentLessonWorkspaceRequestRef.current + 1;
     studentLessonWorkspaceRequestRef.current = requestId;
     if (!silent) {
@@ -21926,6 +21940,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ));
     }
     try {
+      const trial = await api.currentTrialLesson();
+      if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
+      if (trial.lesson) {
+        handleOpenLearningGroupLesson(trial.lesson);
+        return trial.lesson;
+      }
       const groupsPayload = await api.getLearningGroups({
         studentId: user.id,
         includeCompleted: true,
@@ -22011,7 +22031,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       }));
       return null;
     }
-  }, [user.id, user.role]);
+  }, [user.id, user.role, activeLearningLesson, handleOpenLearningGroupLesson]);
 
   // The server reveals Telemost five minutes before the lesson. Refresh at
   // that boundary so an already-open tab receives the link immediately.
@@ -24924,6 +24944,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   return (
     <div className="app-min-h app-shell flex font-sans text-slate-900">
+      {telemostLessonFinishError&&!isAnyTelemostLessonReplayActive&&<div role="alert" className="fixed right-4 top-4 z-[1600] max-w-md rounded-2xl border border-amber-200 bg-white p-4 text-sm text-amber-900 shadow-xl">{telemostLessonFinishError}<div className="mt-3 flex gap-4"><button type="button" onClick={()=>navigateToView('recording')}>Открыть пульт записи</button><button type="button" onClick={()=>setTelemostLessonFinishError('')}>Понятно</button></div></div>}
       {recordingPrivacy.error && <div role="alert" className="fixed left-1/2 top-4 z-[1600] w-[min(92vw,600px)] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white p-4 text-sm text-rose-700 shadow-xl">{recordingPrivacy.error}<button type="button" className="mt-2 block font-semibold text-violet-700" onClick={() => navigateToView('lesson')}>Вернуться к уроку</button></div>}
       {user.role === 'teacher' && isAnyTelemostLessonReplayActive && (
         <details className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] right-3 z-[1350] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-violet-200/90 bg-white/95 shadow-lg backdrop-blur-xl md:bottom-20 md:right-5">

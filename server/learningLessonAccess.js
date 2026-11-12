@@ -253,6 +253,7 @@ export const canAccessLearningLessonSession = (auth, session, options = {}) => {
       normalizeText(typeof entry === 'string' ? entry : (entry?.studentId || entry?.id)) === authId
     ))
     : null;
+  if (session.source === 'trial-booking' && (!member || !isActiveLearningGroupMember(member))) return false;
   if (getLearningLessonParticipantIds(session).includes(authId)) {
     // A removed student keeps the historical lesson snapshot, but not a
     // future lesson that happened to retain the old participantIds array.

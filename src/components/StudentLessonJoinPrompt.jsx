@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BellRing, CalendarDays, Clock3, ExternalLink, PhoneCall, Users, Video, X } from 'lucide-react';
+import { BookOpen, BellRing, CalendarDays, Clock3, ExternalLink, PhoneCall, Users, Video, X } from 'lucide-react';
 
 import { api } from '../services/api';
 import { normalizeHttpUrl } from '../utils/linkifyText';
 import { normalizeTelemostUrl } from '../utils/telemost';
 import { trialLessonMeetingUrl } from '../utils/trialInvitation.js';
+import {startTrialLesson} from '../services/trialLesson.js';
 
 const LESSON_JOIN_PROMPT_LEAD_MS = 3 * 60 * 1000;
 const LESSON_JOIN_PROMPT_AFTER_START_MS = 12 * 60 * 1000;
@@ -413,6 +414,10 @@ const StudentLessonJoinPrompt = ({
   const openPlatformLesson = useCallback(() => {
     if (!activePrompt) return;
     markPromptOpened();
+    if (activePrompt.trialBookingId) {
+      void startTrialLesson(activePrompt.trialBookingId,{recording:false}).catch(error=>window.dispatchEvent(new CustomEvent('ivan100:trial-lesson-error',{detail:error.message})));
+      return;
+    }
     if (activePrompt.isLearningGroupEvent) {
       if (typeof onOpenLearningGroupLesson === 'function') {
         onOpenLearningGroupLesson(activePrompt);
@@ -431,7 +436,11 @@ const StudentLessonJoinPrompt = ({
   const openTelemostLesson = useCallback(() => {
     if (!activePrompt?.telemostUrl) return;
     markPromptOpened();
-    if (activePrompt.isLearningGroupEvent || activePrompt.trialBookingId) return;
+    if (activePrompt.trialBookingId) {
+      void startTrialLesson(activePrompt.trialBookingId,{recording:false}).catch(error=>window.dispatchEvent(new CustomEvent('ivan100:trial-lesson-error',{detail:error.message})));
+      return;
+    }
+    if (activePrompt.isLearningGroupEvent) return;
     if (typeof onTelemostLessonStart === 'function') {
       onTelemostLessonStart({
         active: true,
@@ -519,8 +528,9 @@ const StudentLessonJoinPrompt = ({
             {activePrompt.isLearningGroupEvent ? <Users size={20} /> : <PhoneCall size={20} />}
             {activePrompt.isLearningGroupEvent
               ? (groupLessonReady ? 'Открыть занятие группы' : 'Группа ещё не запущена')
-              : 'Подключиться по платформе'}
+              : activePrompt.trialBookingId ? 'Открыть доску и код пробного' : 'Подключиться по платформе'}
           </button>}
+          {activePrompt.trialMeetingUrl&&<button type="button" onClick={openPlatformLesson} className="student-lesson-join-prompt__secondary"><BookOpen size={18}/>Общая доска и код</button>}
 
           {groupLessonReady
             && !activePrompt.trialMeetingUrl

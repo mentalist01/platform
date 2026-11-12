@@ -5,6 +5,7 @@ import {studentContacts} from '../services/studentContacts';
 import {copyParentMessage, normalizeStudentContact} from '../utils/studentParentContact';
 import {DEFAULT_TRIAL_INVITATION, normalizeTrialMeetingUrl, normalizeTrialInvitationTemplate, trialInvitationMessage} from '../utils/trialInvitation.js';
 import ContactMessengerIcon from './ContactMessengerIcon.jsx';
+import {startTrialLesson} from '../services/trialLesson.js';
 
 export function TrialInvitationButton({person, message, disabled}) {
   const [contact,setContact]=useState(()=>studentContacts.snapshot(person.id)),[copied,setCopied]=useState(false),[error,setError]=useState('');
@@ -35,6 +36,13 @@ export default function TrialInvitation({teacherId,plan,selection,booking,busy,o
   const [editingTemplate,setEditingTemplate]=useState(false),[saving,setSaving]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const savedTemplate=plan.invitationTemplate || DEFAULT_TRIAL_INVITATION;
   const preview=trialInvitationMessage(savedTemplate,booking?.meetingUrl || '');
+  const openLesson = recording => {
+    setError('');setNotice('');
+    void startTrialLesson(booking.id,{recording}).then(result=>{
+      if(result.recordingError)setError(`Телемост открыт, но запись не запустилась: ${result.recordingError}`);
+      else setNotice(recording?'Пробное открыто. Команда на запись передана пульту.':'Общая доска и код открыты для участников пробного.');
+    }).catch(failure=>setError(failure.message));
+  };
   const save=async kind=>{
     if(busy)return;
     let value;
@@ -53,7 +61,8 @@ export default function TrialInvitation({teacherId,plan,selection,booking,busy,o
   return <section className="trial-invitation" aria-label="Ссылка и сообщение для пробного">
     <label><span><Link2 size={15}/>Ссылка Телемоста для этого пробного</span><input type="url" value={link} disabled={busy} aria-label="Ссылка Телемоста для пробного" placeholder="https://telemost.yandex.ru/j/…" maxLength={2048} onChange={event=>{setLink(event.target.value);setError('');setNotice('');}}/></label>
     <div className="trial-invitation__tools"><button type="button" disabled={busy || link===(booking?.meetingUrl || '')} className="trial-slots__primary" onClick={()=>void save('link')}>{saving==='link'?'Сохраняем…':'Сохранить ссылку'}</button>
-      {booking?.meetingUrl&&<a className="trial-invitation__join" href={normalizeTrialMeetingUrl(booking.meetingUrl)} target="_blank" rel="noopener noreferrer"><Video size={16}/>Войти в занятие<ExternalLink size={13}/></a>}
+      {booking?.meetingUrl&&<a className="trial-invitation__join" href={normalizeTrialMeetingUrl(booking.meetingUrl)} target="_blank" rel="noopener noreferrer" onClick={()=>openLesson(true)}><Video size={16}/>Войти в занятие<ExternalLink size={13}/></a>}
+      {booking?.studentIds?.length>0&&<button type="button" disabled={busy} onClick={()=>openLesson(false)}>Общая доска и код</button>}
       <button type="button" disabled={busy} aria-expanded={editingTemplate} onClick={()=>{setEditingTemplate(value=>!value);setTemplate(savedTemplate);setError('');}}>Изменить шаблон сообщения</button>
     </div>
     {editingTemplate&&<div className="trial-invitation__template">
