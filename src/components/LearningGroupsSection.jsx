@@ -1656,11 +1656,11 @@ const LearningGroupsSection = ({
               <Users size={16} />
               Обучение вместе
             </div>
-            <h1 className={`${tab === 'availability' ? 'text-xl' : 'mt-2 text-2xl sm:text-3xl'} font-black tracking-tight`}>{isTeacher ? 'Мини-группы' : 'Моя группа'}</h1>
+            <h1 className={`${tab === 'availability' ? 'text-xl' : 'mt-2 text-2xl sm:text-3xl'} font-black tracking-tight`}>{isTeacher ? 'Мини-группы' : allowPersonalGroupPlacement && !groups.length ? 'Выбрать время' : 'Моя группа'}</h1>
             <p className={`${tab === 'availability' ? 'hidden' : ''} mt-2 max-w-2xl text-sm leading-relaxed text-violet-100 sm:text-base`}>
               {isTeacher
                 ? 'Состав, расписание, занятия и персональная проверка работ — в одном рабочем пространстве.'
-                : 'Все занятия, материалы и домашние задания вашей группы собраны здесь.'}
+                : allowPersonalGroupPlacement && !groups.length ? 'Сначала отметьте удобное время. Затем преподаватель поможет выбрать группу.' : 'Все занятия, материалы и домашние задания вашей группы собраны здесь.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

@@ -31745,6 +31745,8 @@ app.post('/api/students', (req, res) => {
     createdAt: new Date().toISOString(),
     deletedAt: null,
   };
+  // New pupils choose their free hours before a group or preparation plan is selected.
+  studentAvailabilityStore.setSeekingGroup({ teacherId: entry.teacherId, studentId: entry.id, enabled: true });
   students.unshift(entry);
   writeStudentsDb(students);
   rememberStudentAccessCode(entry, plainCode);

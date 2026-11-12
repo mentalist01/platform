@@ -20159,7 +20159,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : [
         { id: 'schedule', label: 'Домашка', icon: Calendar },
         {id:'student-recordings',label:studentHasGroups?'Личные записи':'Записи',icon:Video},
-        ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : studentHasLibraryAccess ? 'Групповые занятия' : 'Подбор группы', icon: Users }] : []),
+        ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : studentSeekingGroup ? 'Выбрать время' : 'Групповые занятия', icon: Users }] : []),
         { id: 'progress', label: 'Все задания', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -26534,7 +26534,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           {view === 'student-recordings' && user.role === 'student' && <React.Suspense fallback={<div role="status">Открываем записи занятий…</div>}><StudentLessonRecordings key={user.id} userId={user.id}/></React.Suspense>}
           {view === 'meetings' && user.role === 'teacher' && <GuestMeetingsSection user={user} theme={theme} />}
           {view === 'groups' && ['teacher', 'student'].includes(user.role) && (
-            <StudentGroupLibrary user={user} theme={theme} startWithRecordings={!studentHasGroups && studentHasLibraryAccess} openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
+            <StudentGroupLibrary user={user} theme={theme} startWithRecordings={!studentHasGroups && !studentSeekingGroup && studentHasLibraryAccess} openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
             <LearningGroupsSection
               role={user.role}
               userId={user.id}

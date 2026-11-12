@@ -54,7 +54,7 @@ export function PersonalGroupAvailability({ transport = api, individual = true }
     try {
       const next = await transport.savePersonalGroupAvailability({ durationMinutes: duration, revision: data.revision, choices: draft });
       if (token === generation.current) { install(next); setNotice(individual
-        ? 'Свободное время сохранено. Преподаватель сможет подобрать группу; ваши индивидуальные занятия продолжаются.'
+        ? 'Свободное время сохранено. Преподаватель увидит ваши отметки и подберёт подходящую группу.'
         : 'Свободное время сохранено для будущего подбора. Текущее расписание группы не меняется.'); }
     } catch (error) { if (token === generation.current) setError(error.message); }
     finally { if (token === generation.current) setBusy(false); }
@@ -65,7 +65,7 @@ export function PersonalGroupAvailability({ transport = api, individual = true }
   };
   const slots = availabilitySlots(data?.config).filter(slot => early || slot.minutes >= 480);
   return <section className="ga-shell placement-personal" aria-label="Свободное время для подбора группы">
-    <header className="ga-hero"><div className="ga-hero-icon"><CalendarDays size={26} /></div><div className="ga-hero-copy"><span className="ga-eyebrow">ПОДБОР БУДУЩЕЙ ГРУППЫ</span><h2>Когда вам удобно заниматься?</h2><p>Отметьте все свободные варианты обычной недели. {individual ? 'Пока преподаватель выбирает группу, вы продолжаете заниматься индивидуально.' : 'Это личная анкета для будущего подбора; текущее расписание группы не меняется.'}</p></div><span className="ga-zone"><Clock3 size={15} />Москва · UTC+3</span></header>
+    <header className="ga-hero"><div className="ga-hero-icon"><CalendarDays size={26} /></div><div className="ga-hero-copy"><span className="ga-eyebrow">ПОДБОР БУДУЩЕЙ ГРУППЫ</span><h2>Когда вам удобно заниматься?</h2><p>Отметьте все свободные варианты обычной недели. {individual ? 'Преподаватель подберёт подходящую группу и при необходимости назначит предподготовку.' : 'Это личная анкета для будущего подбора; текущее расписание группы не меняется.'}</p></div><span className="ga-zone"><Clock3 size={15} />Москва · UTC+3</span></header>
     <div className="ga-body">
       <div className="placement-toolbar"><label>Длительность занятия<select value={duration} onChange={changeDuration} disabled={busy}>{durations.map(n => <option key={n} value={n}>{n} минут</option>)}</select></label><p>Одна карточка — полное занятие. «Могу подстроиться» помогает найти дополнительные варианты.</p></div>
       {error && <div className="ga-alert" role="alert">{error}<button disabled={busy} onClick={() => { if (!dirty || window.confirm('Обновить анкету и отменить несохранённые изменения?')) void load(); }}>Обновить анкету</button></div>}

@@ -27,10 +27,10 @@ export default function StudentAvailabilityPrompt({ userId, onOpen, visible = tr
     return () => { alive = false; clearInterval(timer); unsubscribe(); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('learning-groups-changed', refresh); };
   }, [userId, transport, onPromptChange]);
   if (!visible || !prompt) return null;
-  const title = prompt.kind === 'personal' ? 'Свободное время для будущей группы'
+  const title = prompt.kind === 'personal' ? 'Выберите удобное время занятий'
     : prompt.needsVote ? 'Ответьте на предложение времени занятий'
       : prompt.answered ? 'В группе открыт подбор времени' : 'Выберите время занятий с группой';
-  const description = prompt.kind === 'personal' ? 'Преподаватель подбирает вам группу. Заполните анкету; индивидуальные занятия продолжаются.'
+  const description = prompt.kind === 'personal' ? 'Отметьте все свободные часы. Преподаватель подберёт группу и при необходимости назначит предподготовку.'
     : prompt.answered && !prompt.needsVote ? `${prompt.groupName}: ваши отметки сохранены. Здесь можно проверить или изменить их.`
       : `${prompt.groupName}: отметьте удобные часы и ответьте на предложение преподавателя.`;
   return <button type="button" onClick={() => onOpen(prompt)} className="mb-4 flex w-full items-center gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left text-violet-900">
