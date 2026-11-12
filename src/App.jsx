@@ -17285,7 +17285,7 @@ export const BoardCanvasSection = ({
         <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto py-1" role="tablist" aria-label="Доски группы">
           {['', ...(isTeacher ? learningParticipantIds : [String(userId)])].map((studentId) => {
             const student = (Array.isArray(students) ? students : []).find((entry) => entry.id === studentId);
-            const label = !studentId ? 'Общая доска' : (isTeacher ? (student?.nickname || student?.name || 'Ученик') : 'Моя доска');
+            const label = !studentId ? 'Общая доска' : (isTeacher ? (student?.name || 'Ученик') : 'Моя доска');
             const selected = boardStudentId === studentId;
             return (
               <button key={studentId || 'shared'} type="button" role="tab" aria-selected={selected}
