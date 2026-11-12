@@ -21931,6 +21931,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   const currentTrialWorkspaceRef = useRef(null);
   currentTrialWorkspaceRef.current = activeLearningLesson?.trialBookingId ? activeLearningLesson : null;
+  // Navigation changes this handler. Polling the workspace must not depend on
+  // navigation: restarting the initial load unmounts an individual call.
+  const openLearningLessonRef = useRef(handleOpenLearningGroupLesson);
+  openLearningLessonRef.current = handleOpenLearningGroupLesson;
   const refreshStudentLessonWorkspace = useCallback(async ({ silent = false } = {}) => {
     if (user.role !== 'student') return null;
     if (currentTrialWorkspaceRef.current) return currentTrialWorkspaceRef.current;
@@ -21938,14 +21942,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     studentLessonWorkspaceRequestRef.current = requestId;
     if (!silent) {
       setStudentLessonWorkspace((current) => (
-        current.status === 'group' ? current : { ...current, status: 'loading', error: '' }
+        ['group', 'individual'].includes(current.status) ? current : { ...current, status: 'loading', error: '' }
       ));
     }
     try {
       const trial = await api.currentTrialLesson();
       if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
       if (trial.lesson) {
-        handleOpenLearningGroupLesson(trial.lesson);
+        openLearningLessonRef.current(trial.lesson);
         return trial.lesson;
       }
       const groupsPayload = await api.getLearningGroups({
@@ -22033,7 +22037,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       }));
       return null;
     }
-  }, [user.id, user.role, handleOpenLearningGroupLesson]);
+  }, [user.id, user.role]);
 
   // The server reveals Telemost five minutes before the lesson. Refresh at
   // that boundary so an already-open tab receives the link immediately.
