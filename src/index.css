@@ -82725,7 +82725,14 @@ html[data-theme='dark'] .homework-stats-page,
   }
 
   .mock-exam-modal-card__main--answer-table .mock-exam-answer-grid--table {
-    max-height: calc(100dvh - 24rem);
+    min-height: 0;
+    max-height: none;
+    flex: 1 1 0;
+  }
+
+  .mock-exam-answer-table-content > p,
+  .mock-exam-answer-table-content > .text-xs {
+    flex-shrink: 0;
   }
 }
 

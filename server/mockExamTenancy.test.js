@@ -25,5 +25,5 @@ test('personal generated exams stay with their pupil instead of being copied to 
   const copied=copyLegacyMockExams({exams:[exam],teacherIds:['a','b'],primaryTeacherId:'a',studentTeachers:{q:'b'}});
   assert.deepEqual(copied.exams,[{...exam,teacherId:'b'}]);
   assert.deepEqual(copied.mappings,{a:{},b:{}});
-  assert.throws(()=>copyLegacyMockExams({exams:[exam],teacherIds:['a','b'],primaryTeacherId:'a'}),/owner/);
+  assert.equal(copyLegacyMockExams({exams:[exam],teacherIds:['a','b'],primaryTeacherId:'a'}).exams[0].teacherId,'a');
 });

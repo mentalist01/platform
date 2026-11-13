@@ -2025,7 +2025,7 @@ const MockExamModal = ({
                 data-mock-review-state={reviewMode?mockReviewTaskStatus(activeAttempt,taskKey):undefined}
                 className={`mock-exam-modal-card__answer relative shrink-0 overflow-hidden rounded-[1.4rem] border p-3.5 ${panelClassName} ${hasLargeAnswerGrid ? 'mock-exam-modal-card__answer--dense flex min-h-0 flex-col' : ''}`}
               >
-                <div className={`flex min-h-0 flex-col gap-4 xl:flex-row xl:justify-between ${hasLargeAnswerGrid ? 'h-full' : ''}`}>
+                <div className={`flex min-h-0 flex-col gap-4 ${isAnswerTable ? '' : 'xl:flex-row xl:justify-between'} ${hasLargeAnswerGrid ? 'h-full' : ''}`}>
                   <div className="min-w-0 flex flex-1 flex-col gap-3 min-h-0">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className={labelClassName}>{reviewMode?'Сохранённый ответ ученика':'Ответ'}</div>
@@ -2045,7 +2045,7 @@ const MockExamModal = ({
                       )}
                     </div>
 
-                    <div className={hasLargeAnswerGrid ? 'min-h-0 flex-1' : ''}>
+                    <div className={hasLargeAnswerGrid ? `min-h-0 flex-1 ${isAnswerTable ? 'mock-exam-answer-table-content flex flex-col' : ''}` : ''}>
                       {isAnswerTable && <p className="mb-2 text-xs text-slate-500">Количество строк в таблице для ответа избыточно. Заполните нужные строки, остальные оставьте пустыми. В каждой ячейке — одно число.</p>}
                       <div className={`mb-2 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                         {isCurrentTaskCarried?'Этот ответ уже был верным в предыдущей попытке и перенесён автоматически.':reviewMode?'Зелёным отмечены верные задания, жёлтым — ошибки. Серым — без ответа.':isTimerMode && !timerResultsVisible
@@ -2159,7 +2159,7 @@ const MockExamModal = ({
                   </div>
 
                   {!isTimerMode && !readOnly && (
-                    <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col xl:self-end">
+                    <div className={isAnswerTable ? 'grid w-full shrink-0 grid-cols-2 gap-2' : 'flex w-full shrink-0 flex-col gap-2 sm:flex-row xl:w-auto xl:flex-col xl:self-end'}>
                       <label className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold sm:w-auto xl:min-w-[9rem] ${
                         isDarkTheme
                           ? 'border-white/10 bg-white/[0.04] text-slate-300'

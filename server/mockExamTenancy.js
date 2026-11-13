@@ -17,7 +17,8 @@ export function copyLegacyMockExams({exams, teacherIds, primaryTeacherId, studen
   for (const exam of exams) {
     if (exam.teacherId) { result.push(clone(exam)); continue; }
     if (exam.source === 'personal-random') {
-      const teacherId = studentTeachers[exam.generatedForStudentId];
+      // Orphaned legacy variants keep the original library owner; never clone them.
+      const teacherId = studentTeachers[exam.generatedForStudentId] || primaryTeacherId;
       if (!teachers.includes(teacherId)) throw Error('Personal exam owner cannot be determined');
       result.push({...clone(exam), teacherId});
       continue;
