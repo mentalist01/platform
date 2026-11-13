@@ -21,8 +21,8 @@ test('monthly mock publication is scoped, replaces one month and launches a whol
   write('students', ['a', 'group', 'b'].map(id => ({ id, teacherId: id === 'b' ? 'teacher-b' : 'teacher-a', name: id, code: `${id}-code`, grade: '11', createdAt: now })));
   write('tests', {});
   const tasks = { 1: { question: 'Один', answer: '1' }, 2: { question: 'Два', answer: '2' } };
-  const exam = (id, access = { all: true, students: [], mode: 'timer' }) => ({ id, title: `Пробник ${id}`, tasks, access, createdAt: now });
-  write('mock-exams', [exam('first'), exam('second'), exam('private', { all: false, students: [], mode: 'timer' }), { ...exam('empty'), tasks: {} }]);
+  const exam = (id, access = { all: true, students: [], mode: 'timer' }) => ({ id, teacherId:'teacher-a', title: `Пробник ${id}`, tasks, access, createdAt: now });
+  write('mock-exams', [exam('first'), exam('second'), exam('private', { all: false, students: [], mode: 'timer' }), { ...exam('empty'), tasks: {} }, {...exam('second-b'),teacherId:'teacher-b'}]);
   const homework = { id: 'hw', issuedAt: now, goals: [{ type: 'mock', mockExamId: 'first', mode: 'classic', targetTaskKeys: ['1'] }] };
   write('progress', {
     a: { homeworks: [homework], mockAttempts: { first: { mode: 'classic', status: 'active', targetTaskKeys: ['1'], homeworkId: 'hw', answers: { 1: '1' }, updatedAt: now } } },
@@ -70,8 +70,8 @@ test('monthly mock publication is scoped, replaces one month and launches a whol
     assert.ok(!('monthlyReviewVideos' in first));
     assert.ok(!(await json(await request('/api/mock-exams/first/monthly-review', student))).reviewVideoUrl);
     assert.equal((await json(await request('/api/mock-exams/first/monthly-review', teacher))).url, reviewUrl);
-    assert.equal((await json(await request('/api/mock-exams/first/monthly-review', otherTeacher))).url, '');
-    assert.equal((await json(await request('/api/mock-exams', otherTeacher))).find(entry => entry.id === 'first').monthlyReviewVideoUrl, '');
+    await json(await request('/api/mock-exams/first/monthly-review', otherTeacher),403);
+    assert.ok(!(await json(await request('/api/mock-exams', otherTeacher))).some(entry => entry.id === 'first'));
     assert.deepEqual(first.monthlyAssignedMonths, [month]);
     assert.ok(!('monthlyAssignments' in first), 'internal teacher map stays private');
     const getStatus = token => request('/api/monthly-mock-status', token).then(json);
@@ -104,15 +104,15 @@ test('monthly mock publication is scoped, replaces one month and launches a whol
     assert.ok(!(await getStatus(groupedStudent)).assignment.reviewVideoUrl, 'another student finishing another variant does not unlock this video');
     const progress = JSON.parse(fs.readFileSync(path.join(dataDir, 'progress.json')));
     assert.deepEqual(progress.a.homeworks[0].goals, [homework.goals[0]], 'ordinary homework is preserved');
-    await json(await mark('second', otherTeacher));
+    await json(await mark('second-b', otherTeacher));
     await json(await mark('second'));
     assert.equal((await getStatus(student)).assignment.examId, 'second');
     assert.equal((await getStatus(student)).rows[0].status, 'pending');
-    assert.equal((await getStatus(otherStudent)).assignment.examId, 'second');
+    assert.equal((await getStatus(otherStudent)).assignment.examId, 'second-b');
     assert.equal(storedExams().find(entry => entry.id === 'first').monthlyAssignments['teacher-a'], undefined);
     await json(await mark('second', teacher, { month, assigned: false }));
     assert.equal((await getStatus(student)).assignment, null);
-    assert.equal((await getStatus(otherStudent)).assignment.examId, 'second');
+    assert.equal((await getStatus(otherStudent)).assignment.examId, 'second-b');
     await json(await mark('private', teacher, assignment, { access: { all: true, students: [], mode: 'timer' } }));
     assert.equal((await getStatus(student)).assignment.examId, 'private');
     // The designation is stored on disk, not only in the response.

@@ -199,6 +199,7 @@ export const isMonthlyMockPublished = (exam, teacherId, month = getMonthlyMockMo
 
 export const getAssignedMonthlyMockExam = (exams, teacherId, month = getMonthlyMockMonth()) => (
   (Array.isArray(exams) ? exams : []).find(exam => (
+    (!exam.teacherId || text(exam.teacherId) === text(teacherId)) &&
     normalizeMonthlyMockAssignments(exam?.monthlyAssignments)[text(teacherId)]?.includes(month)
     && exam?.access?.all === true
     && Object.keys(record(exam?.tasks) ? exam.tasks : {}).length > 0
@@ -209,6 +210,7 @@ export const getAssignedMonthlyMockExam = (exams, teacherId, month = getMonthlyM
 // dates. An empty/inaccessible draft cannot retire the last published exam.
 export const getActiveMonthlyMockAssignment = (exams, teacherId, now = Date.now()) => {
   const publications = (Array.isArray(exams) ? exams : []).flatMap(exam => {
+    if (exam.teacherId && text(exam.teacherId) !== text(teacherId)) return [];
     if (exam?.access?.all !== true || !Object.keys(record(exam.tasks) ? exam.tasks : {}).length) return [];
     return (normalizeMonthlyMockAssignments(exam.monthlyAssignments)[text(teacherId)] || [])
       .map(month => ({ exam, month, ...getMonthlyMockPublication(exam, teacherId, month) }));
@@ -226,6 +228,7 @@ export const isMonthlyMockReleased = (exam, teacherId, now = Date.now()) => {
 
 // Replace only this teacher's designation for this month; keep earlier months.
 export const updateMonthlyMockAssignment = (exams, { examId, teacherId, month, assigned, publicationDay }) => exams.map(exam => {
+  if (exam.teacherId && text(exam.teacherId) !== text(teacherId)) return exam;
   const assignments = normalizeMonthlyMockAssignments(exam.monthlyAssignments);
   const previous = assignments[teacherId] || [];
   const months = assigned || exam.id === examId ? previous.filter(value => value !== month) : previous;

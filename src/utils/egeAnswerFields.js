@@ -12,14 +12,20 @@ export const getAnswerCountForTask = taskNumber => {
 };
 
 export const getMockAnswerCountForTask = (taskNumber, question) => {
+  const number = getMockTaskRuleNumber(taskNumber, question);
   const table = normalizePreparedAnswerTable(question?.answerTable);
   const override = table ? table.rows * table.columns : Number(question?.answerCountOverride);
+  // №25 must not reveal the number of matching results through its input count.
+  // Keep twelve pairs even when an imported key contains only five filled rows.
+  if (number === 25) return Number.isInteger(override) && override > 24 && override <= 50
+    ? Math.ceil(override / 2) * 2 : 24;
   if (Number.isInteger(override) && override >= 1 && override <= 50) return override;
-  const number = getMockTaskRuleNumber(taskNumber, question);
   if (number === 20) return 2;
   if (number === 19) return 1;
   return getAnswerCountForTask(number);
 };
+
+export const isMockAnswerTableTask = (taskNumber, question) => getMockTaskRuleNumber(taskNumber, question) === 25;
 
 export function preparedAnswerTask(task, taskNumber) {
   const raw = (Array.isArray(task.answers) ? task.answers : [task.answer ?? '']).map(value => String(value ?? ''));

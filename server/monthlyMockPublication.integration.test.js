@@ -28,8 +28,8 @@ globalThis.Date = class extends RealDate {
   write('students', ['a', 'group', 'b'].map(id => ({ id, teacherId: id === 'b' ? 'teacher-b' : 'teacher-a', name: id, code: `${id}-code`, grade: '11' })));
   write('tests', {});
   const tasks = { 1: { question: 'HIDDEN_MONTHLY_QUESTION', answer: '1' } };
-  const exam = id => ({ id, title: id === 'scheduled' ? 'HIDDEN_MONTHLY_TITLE' : id, tasks, access: { all: true, students: [], mode: 'timer' } });
-  write('mock-exams', [exam('scheduled'), exam('ordinary'), exam('replacement')]);
+  const exam = id => ({ id, teacherId:'teacher-a', title: id === 'scheduled' ? 'HIDDEN_MONTHLY_TITLE' : id, tasks, access: { all: true, students: [], mode: 'timer' } });
+  write('mock-exams', [exam('scheduled'), exam('ordinary'), exam('replacement'), {...exam('scheduled-b'),teacherId:'teacher-b'}]);
   const previousProgress = { a: { mockAttempts: { scheduled: { mode: 'classic', status: 'active', answers: { 1: 'draft' }, examSnapshot: exam('scheduled') } }, homeworks: [{ id: 'ordinary-homework', goals: [{ type: 'task', taskNumber: '4' }] }] } };
   write('progress', previousProgress);
   const port = await new Promise(resolve => { const probe = net.createServer(); probe.listen(0, '127.0.0.1', () => { const value = probe.address().port; probe.close(() => resolve(value)); }); });
@@ -67,11 +67,11 @@ globalThis.Date = class extends RealDate {
     assert.deepEqual(saved.monthlyAssignedMonths, [month]);
     assert.equal(saved.monthlyPublicationDay, 10);
     assert.ok(!('monthlyPublicationDays' in saved));
-    await json(await mark(otherTeacher, 'scheduled', 1));
+    await json(await mark(otherTeacher, 'scheduled-b', 1));
     const listed = async token => json(await request('/api/mock-exams', token));
     const status = async token => json(await request('/api/monthly-mock-status', token));
     assert.equal((await listed(teacher)).find(entry => entry.id === 'scheduled').monthlyPublicationDay, 10);
-    assert.equal((await listed(otherTeacher)).find(entry => entry.id === 'scheduled').monthlyPublicationDay, 1);
+    assert.equal((await listed(otherTeacher)).find(entry => entry.id === 'scheduled-b').monthlyPublicationDay, 1);
     for (const token of [student, groupStudent]) {
       assert.ok(!(await listed(token)).some(entry => entry.id === 'scheduled'));
       assert.ok(!(await listed(token)).some(entry => entry.id === 'ordinary'), 'unassigned ordinary exams are not available for self-start');
@@ -83,7 +83,7 @@ globalThis.Date = class extends RealDate {
       await json(await request('/api/mock-exams/attempt', token, 'PUT', { examId: 'scheduled', mode: 'timer', startOnly: true }), 403);
       await json(await request('/api/mock-exams/attempt/history?examId=scheduled', token), 403);
     }
-    assert.equal((await status(otherStudent)).assignment.examId, 'scheduled');
+    assert.equal((await status(otherStudent)).assignment.examId, 'scheduled-b');
     const safeProgress = await json(await request('/api/student-data?studentId=a', student));
     assert.ok(!JSON.stringify(safeProgress).includes('HIDDEN_MONTHLY'));
     assert.deepEqual(safeProgress.homeworks, previousProgress.a.homeworks);
@@ -107,7 +107,7 @@ globalThis.Date = class extends RealDate {
     await json(await mark(teacher, 'replacement', 28));
     assert.equal((await status(student)).assignment, null);
     assert.ok(!stored('mock-exams')[0].monthlyPublicationDays['teacher-a']);
-    assert.equal(stored('mock-exams')[0].monthlyPublicationDays['teacher-b'][month], 1);
+    assert.equal(stored('mock-exams').find(entry=>entry.id==='scheduled-b').monthlyPublicationDays['teacher-b'][month], 1);
     await json(await mark(teacher, 'replacement', 28, false));
     assert.equal((await status(student)).publicationPending, false);
     assert.ok(!(await listed(student)).some(entry => entry.id === 'replacement'), 'removing monthly designation requires a homework assignment to start');
@@ -146,7 +146,7 @@ globalThis.Date = class extends RealDate {
     const may=await status(pupil);assert.equal(may.period.month,'2026-03');assert.equal(may.assignment.examId,'replacement');assert.equal(may.assignment.dueAt,null);
     const startedLate=await json(await request('/api/mock-exams/attempt',pupil,'PUT',{examId:'replacement',mode:'classic',startOnly:true}));
     assert.equal(startedLate.monthlyPolicy.month,'2026-03');assert.equal(startedLate.monthlyPolicy.archived,false);
-    const independent=await status(await login('b-code'));assert.equal(independent.period.month,'2026-02');assert.equal(independent.assignment.examId,'scheduled');
+    const independent=await status(await login('b-code'));assert.equal(independent.period.month,'2026-02');assert.equal(independent.assignment.examId,'scheduled-b');
   } finally {
     if (child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; }
     if (path.resolve(root).startsWith(`${path.resolve(os.tmpdir())}${path.sep}`)) fs.rmSync(root, { recursive: true, force: true });

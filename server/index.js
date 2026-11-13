@@ -7543,9 +7543,19 @@ const normalizeMockExamAccessForSave = (access) => {
   return { all: false, students: normalized.students, mode: normalized.mode };
 };
 
+// Legacy entries belong to the original account until the explicit copy migration.
+// New entries always have an owner; "all" means only that owner's pupils.
+const mockExamBelongsToTeacher = (exam, teacherId) => {
+  const owner = String(exam?.teacherId || PAYMENT_NOTIFICATION_DEFAULT_TEACHER_ID || SIGNUP_DEFAULT_TEACHER_ID || readTeachersDb()[0]?.id || '').trim();
+  return Boolean(teacherId && owner && owner === String(teacherId).trim());
+};
+const canAccessMockExam = (auth, exam) => isAdminRole(auth)
+  || mockExamBelongsToTeacher(exam, getTaskContentTeacherIdForAuth(auth));
+
 const isMockExamVisibleToStudent = (exam, studentId) => {
   if (!exam) return false;
   const teacherId = readStudentsDb().find(student => student.id === studentId)?.teacherId;
+  if (!mockExamBelongsToTeacher(exam, teacherId)) return false;
   if (!isMonthlyMockReleased(exam, teacherId)) return false;
   const access = normalizeMockExamAccess(exam.access, true);
   if (access.all) return true;
@@ -23070,12 +23080,14 @@ registerDesktopDeviceRoutes(app, desktopRecordings, {
   mockReviewCatalog: (teacherId) => {
     const teacher = readTeachersDb().find(t => t.id === teacherId);
     if (!teacher || !isTeacherSubscriptionAccessAllowed({ ...teacher, role: 'teacher' })) throw Object.assign(new Error('Доступ к платформе приостановлен'), { status: 402 });
-    return recorderMockReviewCatalog(readMockExamsDb(), teacherId);
+    return recorderMockReviewCatalog(readMockExamsDb().filter(exam => mockExamBelongsToTeacher(exam, teacherId)), teacherId);
   },
   mockReviewMaterial: (teacherId, payload) => {
     const teacher = readTeachersDb().find(t => t.id === teacherId);
     if (!teacher || !isTeacherSubscriptionAccessAllowed({ ...teacher, role: 'teacher' })) throw Object.assign(new Error('Доступ к платформе приостановлен'), { status: 402 });
-    const result = attachRecorderMockReview(readMockExamsDb(), teacherId, payload);
+    const exams = readMockExamsDb();
+    if (!exams.some(exam => exam.id === payload?.examId && mockExamBelongsToTeacher(exam, teacherId))) throw Object.assign(new Error('Пробник недоступен'), {status: 403});
+    const result = attachRecorderMockReview(exams, teacherId, payload);
     if (result.created) writeMockExamsDb(result.exams);
     const { exams: _exams, ...material } = result;
     return material;
@@ -32862,7 +32874,7 @@ app.get('/api/mock-exams', (req, res) => {
     return res.json(filtered.map((exam) => serializeMockExamEntry(exam, { studentData, monthlyTeacherId: student.teacherId, student, exams:list })));
   }
   res.json((Array.isArray(list) ? list : [])
-    .filter((exam) => !isPersonalRandomMockExam(exam))
+    .filter((exam) => !isPersonalRandomMockExam(exam) && canAccessMockExam(req.auth, exam))
     .map((exam) => serializeMockExamEntry(exam, { monthlyTeacherId: getTaskContentTeacherIdForAuth(req.auth) })));
 });
 
@@ -32870,6 +32882,7 @@ app.get('/api/mock-exams/:id/monthly-review', (req, res) => {
   const exams = readMockExamsDb();
   const exam = exams.find(entry => entry.id === req.params.id);
   if (!exam) return res.status(404).json({ error: 'Пробник не найден' });
+  if (!canAccessMockExam(req.auth, exam)) return forbid(res);
   res.setHeader('Cache-Control', 'no-store');
   if (isTeacherRole(req.auth)) return res.json({ url: monthlyReviewUrl(exam, req.auth.id) });
   if (!isStudentRole(req.auth)) return forbid(res);
@@ -32901,7 +32914,7 @@ app.get('/api/mock-exams/task-analytics', (req, res) => {
   const mockExams = readMockExamsDb();
   const visibleMockExams = isStudentRole(req.auth)
     ? mockExams.filter((exam) => isMockExamVisibleToStudent(exam, req.auth.id))
-    : mockExams;
+    : mockExams.filter(exam => canAccessMockExam(req.auth, exam));
   const selectedExams = requestedExamId
     ? visibleMockExams.filter((exam) => String(exam?.id || '') === requestedExamId)
     : visibleMockExams;
@@ -32966,11 +32979,12 @@ app.get('/api/mock-exams/task-analytics', (req, res) => {
 app.post('/api/mock-exams/random', (req, res) => mockAssignmentRequired(res));
 
 app.post('/api/mock-exams', (req, res) => {
-  if (isStudentRole(req.auth)) return forbid(res);
+  if (!isTeacherRole(req.auth)) return forbid(res);
   const { title } = req.body || {};
   const trimmed = typeof title === 'string' ? title.trim() : '';
   const entry = {
     id: crypto.randomUUID(),
+    teacherId: req.auth.id,
     title: trimmed || `Пробник ${new Date().toLocaleDateString('ru-RU')}`,
     contentRevision: 1,
     createdAt: new Date().toISOString(),
@@ -34143,13 +34157,14 @@ app.put('/api/mock-exams/attempt', (req, res) => {
 });
 
 app.patch('/api/mock-exams/:id', (req, res) => {
-  if (isStudentRole(req.auth)) return forbid(res);
+  if (!isStaffRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const { title, tasks, access, badges, monthlyAssignment, monthlyReviewVideoUrl } = req.body || {};
   let list = readMockExamsDb();
   const idx = list.findIndex((exam) => exam.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Пробник не найден' });
   const current = list[idx];
+  if (!canAccessMockExam(req.auth, current)) return forbid(res);
   const currentAccess = normalizeMockExamAccess(current.access, true);
   const nextTasks = tasks && typeof tasks === 'object' ? tasks : current.tasks || {};
   const tasksChanged = !areMockExamTasksEqual(current.tasks, nextTasks);
@@ -34209,9 +34224,11 @@ app.patch('/api/mock-exams/:id', (req, res) => {
 });
 
 app.delete('/api/mock-exams/:id', (req, res) => {
-  if (isStudentRole(req.auth)) return forbid(res);
+  if (!isStaffRole(req.auth)) return forbid(res);
   const { id } = req.params;
   const list = readMockExamsDb();
+  const current = list.find(exam => exam.id === id);
+  if (current && !canAccessMockExam(req.auth, current)) return forbid(res);
   const filtered = list.filter((exam) => exam.id !== id);
   if (filtered.length === list.length) return res.status(404).json({ error: 'Пробник не найден' });
   writeMockExamsDb(filtered);
@@ -34909,6 +34926,7 @@ app.post('/api/broadcast-notifications', (req, res) => {
   );
   const mockExamId = String(req.body?.mockExamId || req.body?.mockExam?.id || '').trim();
   const selectedMockExam = mockExamId ? findMockExamById(mockExamId) : null;
+  if (selectedMockExam && !canAccessMockExam(req.auth, selectedMockExam)) return forbid(res);
   if (mockExamId && !selectedMockExam) {
     return res.status(400).json({ error: 'Прикреплённый пробник не найден.' });
   }

@@ -23,14 +23,14 @@ test('legacy answers split only when all fields are unambiguous, preserving orde
   assert.deepEqual(preparedAnswerTask({answers: ['a', 'b', 'c']}, 3).answers, ['a', 'b', 'c']);
 });
 
-test('mock answers honor an explicit count without truncating legacy tasks', () => {
-  assert.equal(getMockAnswerCountForTask(25, {answerCountOverride: 5}), 5);
-  assert.equal(getMockAnswerCountForTask(25, {answerTable: {rows: 5, columns: 2}, answers: Array(10).fill('1')}), 10);
-  assert.equal(getMockAnswerCountForTask(25), 20);
-  assert.equal(getMockAnswerCountForTask(25, {answers: Array(10).fill('1')}), 20);
+test('mock task 25 retains excess paired cells regardless of key length', () => {
+  assert.equal(getMockAnswerCountForTask(25, {answerCountOverride: 5}), 24);
+  assert.equal(getMockAnswerCountForTask(25, {answerTable: {rows: 5, columns: 2}, answers: Array(10).fill('1')}), 24);
+  assert.equal(getMockAnswerCountForTask(25), 24);
+  assert.equal(getMockAnswerCountForTask(25, {answers: Array(10).fill('1')}), 24);
   assert.equal(getMockAnswerCountForTask(3, {answerCountOverride: 2}), 2);
   for (const override of [0, -1, 51, 2.5, 'invalid']) {
-    assert.equal(getMockAnswerCountForTask(25, {answerCountOverride: override}), 20);
+    assert.equal(getMockAnswerCountForTask(25, {answerCountOverride: override}), 24);
   }
 });
 

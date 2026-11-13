@@ -16,6 +16,7 @@ import { Button } from './ui';
 import { resolveUploadsUrl } from '../utils/runtimeUrls';
 import { formatDifficultyDuration } from '../utils/questionDifficulty';
 import MockExamTaskDifficultyBadge from './MockExamTaskDifficultyBadge';
+import {isMockAnswerTableTask} from '../utils/egeAnswerFields.js';
 import {
   getAcceptedAnswerVariants,
   getAnswerVectorSignature,
@@ -129,6 +130,7 @@ const MockExamEditorModal = ({
   const currentTaskEntry = exam?.tasks?.[String(selectedTask)] || null;
   const currentTaskAnalytics = taskAnalytics?.[String(selectedTask)] || null;
   const requiredAnswerCount = getMockAnswerCountForTask(selectedTask, currentTaskEntry);
+  const isAnswerTable = isMockAnswerTableTask(selectedTask, currentTaskEntry);
   const initialAnswers = normalizeAnswerValues(
     getExpectedAnswers(currentTaskEntry, requiredAnswerCount),
     requiredAnswerCount
@@ -915,7 +917,8 @@ const MockExamEditorModal = ({
                       : `Нужно заполнить ${requiredAnswerCount} ответов.`)
                     : 'Нужно заполнить один ответ.'}
                 </div>
-                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {isAnswerTable && <p className="mt-2 text-xs text-purple-600">{requiredAnswerCount / 2} строк по 2 ячейки: ответы 1–2 — первая строка, 3–4 — вторая. Лишние строки оставьте пустыми.</p>}
+                <div className={`mt-2 grid gap-2 ${isAnswerTable ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
                   {Array.from({ length: requiredAnswerCount }).map((_, idx) => (
                     <input
                       key={idx}
@@ -930,6 +933,7 @@ const MockExamEditorModal = ({
                         });
                       }}
                       placeholder={`Ответ ${idx + 1}`}
+                      aria-label={`Правильный ответ ${idx + 1}`}
                       className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 focus:border-purple-500 outline-none text-sm"
                     />
                   ))}
@@ -949,7 +953,7 @@ const MockExamEditorModal = ({
                             <Trash2 size={14} />
                           </button>
                         </div>
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                        <div className={`grid gap-2 ${isAnswerTable ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
                           {Array.from({ length: requiredAnswerCount }).map((_, answerIndex) => (
                             <input
                               key={answerIndex}

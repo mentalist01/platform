@@ -27,6 +27,7 @@ import { subscribeQuestionSolveEnvironment } from '../hooks/useQuestionSolveTime
 import { Button } from './ui';
 import {mockReviewTaskStatus} from '../utils/monthlyMockReviewAttempt.js';
 import {getMockCarriedTaskKeys,getMockCarriedSolved} from '../utils/mockExamRetake.js';
+import {isMockAnswerTableTask} from '../utils/egeAnswerFields.js';
 
 const artifactImageModules = import.meta.glob('../assets/artefacts/**/*.png', { eager: true, import: 'default' });
 
@@ -87,7 +88,6 @@ const normalizeMockTaskDurationsMs = (value) => {
 const getMockAnswerFieldLabel = (taskNumber, index) => {
   const numericTaskNumber = Number(taskNumber);
   if (numericTaskNumber === 20) return `20.${index + 1}`;
-  if (numericTaskNumber === 25) return `Строка ${index + 1}`;
   return `Ответ ${index + 1}`;
 };
 
@@ -734,6 +734,7 @@ const MockExamModal = ({
   const taskKey = String(selectedTask);
   const currentQuestion = exam?.tasks?.[taskKey];
   const answerCount = getMockAnswerCountForTask(selectedTask, currentQuestion);
+  const isAnswerTable = isMockAnswerTableTask(selectedTask, currentQuestion);
   const rawAnswer = answers[taskKey];
   const currentAnswers = Array.isArray(rawAnswer)
     ? rawAnswer
@@ -1868,7 +1869,7 @@ const MockExamModal = ({
             )}
           </aside>
 
-          <section className={`mock-exam-modal-card__main flex min-h-0 flex-col gap-2.5 ${hasCompactQuestion ? 'mock-exam-modal-card__main--compact-question' : ''} ${hasLargeAnswerGrid ? 'mock-exam-modal-card__main--dense-answer' : ''}`}>
+          <section className={`mock-exam-modal-card__main flex min-h-0 flex-col gap-2.5 ${hasCompactQuestion ? 'mock-exam-modal-card__main--compact-question' : ''} ${hasLargeAnswerGrid ? 'mock-exam-modal-card__main--dense-answer' : ''} ${isAnswerTable ? 'mock-exam-modal-card__main--answer-table' : ''}`}>
             <div className={`mock-exam-mobile-nav rounded-[1.35rem] border p-3 xl:hidden ${mutedPanelClassName}`}>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className={labelClassName}>Навигация</div>
@@ -2045,6 +2046,7 @@ const MockExamModal = ({
                     </div>
 
                     <div className={hasLargeAnswerGrid ? 'min-h-0 flex-1' : ''}>
+                      {isAnswerTable && <p className="mb-2 text-xs text-slate-500">Количество строк в таблице для ответа избыточно. Заполните нужные строки, остальные оставьте пустыми. В каждой ячейке — одно число.</p>}
                       <div className={`mb-2 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                         {isCurrentTaskCarried?'Этот ответ уже был верным в предыдущей попытке и перенесён автоматически.':reviewMode?'Зелёным отмечены верные задания, жёлтым — ошибки. Серым — без ответа.':isTimerMode && !timerResultsVisible
                           ? (
@@ -2066,7 +2068,7 @@ const MockExamModal = ({
                       </div>
                       {answerCount > 1 ? (
                         <div
-                          className={`mock-exam-answer-grid ${
+                          className={`mock-exam-answer-grid ${isAnswerTable ? 'mock-exam-answer-grid--table' : ''} ${
                             hasLargeAnswerGrid
                               ? 'mock-exam-answer-grid--dense'
                               : answerCount >= 4
