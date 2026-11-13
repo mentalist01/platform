@@ -24,7 +24,7 @@ export async function serve({port=0,onReady=console.log,runner=new AssistantRunn
     const supplied=Buffer.from(req.headers['x-assistant-key']||''),correct=Buffer.from(secret);
     if(supplied.length!==correct.length||!timingSafeEqual(supplied,correct))return json(res,403,{error:'Open the local panel link produced by this process'});
     try {
-      if(req.method==='GET'&&url.pathname==='/api/state')return json(res,200,{status:runner.status,running:!!runner.controller,busy:runner.busy,styleCount:styleCount(),config:runner.config,connections:Object.values(runner.inbox.data.connections),peers:Object.values(runner.inbox.data.peers),cases:Object.values(runner.inbox.data.cases).filter(c=>chatAllowed(runner.config,c.chatId)&&runner.inbox.data.connections[c.connectionId]?.enabled&&runner.inbox.data.connections[c.connectionId]?.ownerId===runner.config.telegramOwnerId).map(c=>({key:c.key,name:c.name,revision:c.revision,status:c.status,updatedAt:c.updatedAt,draft:c.draft,error:c.error,latest:c.messages.filter(m=>!m.outgoing).at(-1)?.text||'Вложение'}))});
+      if(req.method==='GET'&&url.pathname==='/api/state')return json(res,200,{status:runner.status,running:!!runner.controller,busy:runner.busy,styleCount:styleCount(),config:runner.config,connections:Object.values(runner.inbox.data.connections),peers:Object.values(runner.inbox.data.peers),cases:Object.values(runner.inbox.data.cases).filter(c=>chatAllowed(runner.config,c.chatId)&&runner.inbox.data.connections[c.connectionId]?.enabled&&runner.inbox.data.connections[c.connectionId]?.ownerId===runner.config.telegramOwnerId).map(c=>({key:c.key,name:c.name,revision:c.revision,status:c.status,updatedAt:c.updatedAt,draft:c.draft,error:c.error,technicalEscalation:c.technicalEscalation,latest:c.messages.filter(m=>!m.outgoing).at(-1)?.text||'Вложение'}))});
       if(req.method!=='POST')return json(res,404,{error:'Not found'});
       const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>16384)return json(res,413,{error:'Request is too large'});chunks.push(chunk);}
       const body=JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');
@@ -43,7 +43,7 @@ export async function serve({port=0,onReady=console.log,runner=new AssistantRunn
       if(url.pathname==='/api/context') {
         const item=runner.inbox.data.cases[body.key],connection=item&&runner.inbox.data.connections[item.connectionId];
         if(!item||!chatAllowed(runner.config,item.chatId)||!connection?.enabled||connection.ownerId!==runner.config.telegramOwnerId)throw Error('Choose a message in a selected chat');
-        return json(res,200,{prompt:buildPrompt(item,[])});
+        return json(res,200,{prompt:buildPrompt(item,[],[],runner.templates.context(),await runner.directoryClient.lookup({telegramUserId:item.chatId,username:item.telegramUsername}),runner.escalations.enabled(),runner.config.calendarAccess||null)});
       }
       if(url.pathname==='/api/draft') {
         const item=runner.inbox.data.cases[body.key];

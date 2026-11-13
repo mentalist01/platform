@@ -23,3 +23,8 @@ test('wrong request receipts cannot be presented as a draft',async()=>{
  const f=fixture(async()=>{const job=path.join(f.directory,fs.readdirSync(f.directory)[0]);fs.writeFileSync(path.join(job,'response.json'),JSON.stringify({requestId:'another-pupil',draft:'Wrong answer'}));});
  try{await f.client.start(thread);await assert.rejects(f.client.draft('test'),/Invalid Codex receipt/);}finally{f.cleanup();}
 });
+
+test('technical reports come only from the matching receipt and are cleared for the next draft',async()=>{
+ let calls=0;const f=fixture(async()=>{const folders=fs.readdirSync(f.directory);const job=folders.find(name=>!fs.existsSync(path.join(f.directory,name,'response.json')));const request=JSON.parse(fs.readFileSync(path.join(f.directory,job,'request.json')));calls++;fs.writeFileSync(request.responsePath,JSON.stringify({requestId:request.requestId,draft:'Кому: Тест\nОтвет для отправки: Пришли снимок ошибки.',technicalIssue:calls===1?{summary:'Ошибка таблицы',actual:'Не открылась',evidenceMessageIds:[7]}:null}));});
+ try{await f.client.start(thread);await f.client.draft('Technical request');assert.equal(f.client.lastTechnicalIssue.summary,'Ошибка таблицы');assert.deepEqual(f.client.lastTechnicalIssue.evidenceMessageIds,[7]);await f.client.draft('Ordinary request');assert.equal(f.client.lastTechnicalIssue,null);}finally{f.cleanup();}
+});
