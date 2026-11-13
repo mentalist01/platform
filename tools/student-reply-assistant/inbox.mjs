@@ -65,6 +65,7 @@ export class Inbox {
     const kind = message.document ? 'document' : message.voice ? 'voice' : file ? 'image' : null;
     const normalized = {id: message.message_id, outgoing, date: message.date, text: messageText(message.text || message.caption).slice(0, 16000), replyTo: message.reply_to_message?.message_id || null,
       file: file?.file_id ? {id: file.file_id, name: message.document?.file_name || (kind === 'voice' ? 'voice.ogg' : 'photo.jpg'), bytes: file.file_size || null, mime: file.mime_type || (kind === 'image' ? 'image/jpeg' : 'audio/ogg'), kind} : null};
+    if (outgoing && item.replyDelivery?.messageId === normalized.id && item.messages.some(m => m.id === normalized.id)) return;
     item.messages = [...item.messages.filter(m => m.id !== normalized.id), normalized].sort((a, b) => a.id - b.id).slice(-40);
     this.invalidate(item); item.status = item.messages.at(-1)?.outgoing ? 'answered' : 'pending';
     this.data.cases[key] = item;

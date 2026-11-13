@@ -25,7 +25,8 @@ export async function startDesktop({port=5638,tokenLoader=loadToken,stateDirecto
   const originalClose=panel.close;
   panel.close=async()=>{clearTimeout(retry);await originalClose();};
   await connect();
-  fs.writeFileSync(path.join(stateDirectory,'desktop-status.json'),JSON.stringify({startedAt:new Date().toISOString(),port,mode:'drafts-only'}),{mode:0o600});
+  const mode = panel.runner.config.replyTranscript ? 'approved-replies' : 'drafts-only';
+  fs.writeFileSync(path.join(stateDirectory,'desktop-status.json'),JSON.stringify({startedAt:new Date().toISOString(),port,mode}),{mode:0o600});
   return panel;
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href)startDesktop().catch(()=>{console.error('Не удалось запустить локального помощника.');process.exitCode=1;});

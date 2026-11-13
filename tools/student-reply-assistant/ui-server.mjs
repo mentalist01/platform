@@ -28,6 +28,10 @@ export async function serve({port=0,onReady=console.log,runner=new AssistantRunn
       if(req.method!=='POST')return json(res,404,{error:'Not found'});
       const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>16384)return json(res,413,{error:'Request is too large'});chunks.push(chunk);}
       const body=JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');
+      if (url.pathname === '/api/send-approved-reply') {
+        if (!body || Object.keys(body).length) return json(res,400,{status:'invalid_request'});
+        return json(res,200,await runner.approvedReplies.send());
+      }
       if(url.pathname==='/api/start'){
         const token=body.token||process.env.IVAN100_ASSISTANT_BOT_TOKEN||await loadToken(path.join(ROOT,'private'));
         await runner.start(token);

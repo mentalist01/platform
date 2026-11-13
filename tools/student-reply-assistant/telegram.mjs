@@ -2,8 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 
-// This transport deliberately has no send/edit/delete/mark-read methods.
-const allowedMethods = new Set(['getMe', 'getWebhookInfo', 'getUpdates', 'getFile']);
+const allowedMethods = new Set(['getMe', 'getWebhookInfo', 'getUpdates', 'getFile', 'getBusinessConnection']);
 export class TelegramReader {
   constructor(token, request = fetch) {
     if (!/^\d+:[\w-]{20,}$/.test(token || '')) throw Error('Configure a separate assistant bot token in the local environment');
@@ -11,12 +10,39 @@ export class TelegramReader {
   }
   async call(method, body = {}, signal) {
     if (!allowedMethods.has(method)) throw Error('This assistant only reads Telegram');
+    return this.#request(method, body, signal);
+  }
+  async #request(method, body, signal) {
     let response;
     try {response = await this.request(`https://api.telegram.org/bot${this.token}/${method}`, {method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:signal || AbortSignal.timeout(65000)});}
     catch {throw Error('Telegram connection failed; retry without exposing bot credentials');}
     const data = await response.json();
-    if (!response.ok || data.ok !== true) throw Error(`Telegram ${method} failed (${response.status}); check connection and bot settings`);
+    if (!response.ok || data.ok !== true) {
+      const error = Error(`Telegram ${method} failed (${response.status}); check connection and bot settings`);
+      error.telegramRejected = data.ok === false && Number.isInteger(data.error_code);
+      throw error;
+    }
     return data.result;
+  }
+  getBusinessConnection(connectionId) {
+    return this.call('getBusinessConnection', {business_connection_id: connectionId}, AbortSignal.timeout(10000));
+  }
+  async sendApprovedReply({connectionId, chatId, text}) {
+    if (!connectionId || !Number.isSafeInteger(chatId) || chatId <= 0 || typeof text !== 'string' || !text.trim() || text.length > 4096) {
+      throw Error('Invalid approved Telegram reply');
+    }
+    const result = await this.#request('sendMessage', {
+      business_connection_id: connectionId,
+      chat_id: chatId,
+      text,
+      link_preview_options: {is_disabled: true},
+    }, AbortSignal.timeout(15000));
+    if (!Number.isSafeInteger(result?.message_id) || result.message_id <= 0 ||
+        result.chat?.id !== chatId || result.chat.type !== 'private' ||
+        (result.business_connection_id && result.business_connection_id !== connectionId)) {
+      throw Error('Telegram delivery could not be confirmed');
+    }
+    return result;
   }
   async check() {
     const me = await this.call('getMe'), hook = await this.call('getWebhookInfo');

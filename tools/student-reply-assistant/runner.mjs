@@ -9,6 +9,7 @@ import {CodexQueueClient} from './codex-queue.mjs';
 import {TemplateLibrary} from './templates.mjs';
 import {PlatformDirectory} from './platform-directory.mjs';
 import {TechnicalEscalations} from './escalations.mjs';
+import {ApprovedReplies} from './approved-replies.mjs';
 
 export const ROOT=path.dirname(fileURLToPath(import.meta.url));
 export function validateConfig(config) {
@@ -22,6 +23,10 @@ export function validateConfig(config) {
   if(config.technicalThreadId && (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(config.technicalThreadId)||config.technicalThreadId===config.codexThreadId))throw Error('Invalid development thread');
   if(config.platformDirectory && (typeof config.platformDirectory.teacherId!=='string'||config.platformDirectory.url!=='https://ivan100.ru/api/reply-assistant/directory'))throw Error('Invalid platform directory');
   if(config.calendarAccess && (config.calendarAccess.provider!=='google-calendar-connector'||typeof config.calendarAccess.calendarId!=='string'||!config.calendarAccess.calendarId||config.calendarAccess.timezone!=='Europe/Moscow'))throw Error('Invalid calendar source');
+  if (config.replyTranscript && (!path.isAbsolute(config.replyTranscript) ||
+      !path.basename(config.replyTranscript).endsWith('-' + config.codexThreadId + '.jsonl'))) {
+    throw Error('Invalid Codex approval transcript');
+  }
   return config;
 }
 export function loadConfig() {
@@ -41,12 +46,17 @@ export class AssistantRunner {
     this.inbox=new Inbox(inboxFile,config);this.templates=new TemplateLibrary(path.join(path.dirname(inboxFile),'template-library.json'),config);this.controller=null;this.client=null;this.busy=false;this.status='Остановлен';
     this.directoryClient=directoryClient||new PlatformDirectory(config,{directory:path.dirname(inboxFile)});
     this.escalations=escalations||new TechnicalEscalations(config,{directory:path.join(path.dirname(inboxFile),'technical-issues'),cwd:path.resolve(ROOT,'../..')});
+    this.approvedReplies = new ApprovedReplies(this, {
+      transcript: config.replyTranscript,
+      jobsDirectory: path.join(path.dirname(inboxFile), 'codex-jobs'),
+    });
   }
   async start(token) {
     if(this.controller)throw Error('Receiver is already running');
     if(token)this.reader=new TelegramReader(token);
     if(!this.reader)throw Error('Telegram bot token is required');
     const info=await this.reader.check();
+    this.lastPollAt = null;
     this.controller=new AbortController();this.status=`Подключён @${info.username}`;this.onStatus(this.status);
     const signal=this.controller.signal;
     this.pollTask=this.poll(signal);this.workerTask=this.work(signal);
@@ -54,7 +64,7 @@ export class AssistantRunner {
   }
   async poll(signal) {
     while(!signal.aborted) {
-      try {for(const update of await this.reader.updates(this.inbox.data.offset,signal,!!this.config.templateSource?.live)){this.templates.ingest(update);this.inbox.ingest(update);}if(this.status.startsWith('Приём временно'))this.status='Telegram подключён; приём восстановлен';}
+      try {for(const update of await this.reader.updates(this.inbox.data.offset,signal,!!this.config.templateSource?.live)){this.templates.ingest(update);this.inbox.ingest(update);}this.lastPollAt=Date.now();if(this.status.startsWith('Приём временно'))this.status='Telegram подключён; приём восстановлен';}
       catch(error) {if(signal.aborted)break;this.status='Приём временно недоступен; повтор через 5 секунд';this.onStatus(this.status);await delay(5000,undefined,{signal}).catch(()=>{});}
     }
   }

@@ -8,6 +8,20 @@ import {TemplateLibrary} from './templates.mjs';
 
 export async function main(args=process.argv.slice(2)) {
   const [command='help',...rest]=args;
+  if (command === 'send-approved') {
+    if (rest.length) throw Error('No message or recipient arguments are accepted');
+    const panel = new URL(fs.readFileSync(path.join(ROOT, 'private', 'panel-url.txt'), 'utf8').trim());
+    if (panel.protocol !== 'http:' || panel.hostname !== '127.0.0.1') throw Error('Invalid local panel URL');
+    const response = await fetch(panel.origin + '/api/send-approved-reply', {
+      method: 'POST',
+      headers: {'x-assistant-key': panel.hash.slice(1), 'Content-Type': 'application/json'},
+      body: '{}',
+      redirect: 'error',
+      signal: AbortSignal.timeout(32000),
+    });
+    console.log(JSON.stringify(await response.json()));
+    return;
+  }
   if(command==='init') {
     const filename=path.join(ROOT,'config.local.json');
     if(fs.existsSync(filename))return console.log('Existing local configuration preserved.');
@@ -38,6 +52,6 @@ export async function main(args=process.argv.slice(2)) {
   if(command==='serve') {
     const {serve}=await import('./ui-server.mjs');return serve();
   }
-  console.log('Commands: init [thread-id] | serve | run | import-style <selected-chat-result.json> | import-templates <template-group-result.json>');
+  console.log('Commands: init [thread-id] | serve | run | send-approved | import-style <selected-chat-result.json> | import-templates <template-group-result.json>');
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href)main().catch(()=>{console.error('Could not start. Check the local settings and connection instructions in README.md.');process.exitCode=1;});
