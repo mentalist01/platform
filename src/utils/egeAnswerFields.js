@@ -12,6 +12,9 @@ export const getAnswerCountForTask = taskNumber => {
 };
 
 export const getMockAnswerCountForTask = (taskNumber, question) => {
+  const table = normalizePreparedAnswerTable(question?.answerTable);
+  const override = table ? table.rows * table.columns : Number(question?.answerCountOverride);
+  if (Number.isInteger(override) && override >= 1 && override <= 50) return override;
   const number = getMockTaskRuleNumber(taskNumber, question);
   if (number === 20) return 2;
   if (number === 19) return 1;
