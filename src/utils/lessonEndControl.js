@@ -5,6 +5,17 @@ export function formatLessonEndRemaining(milliseconds){
 }
 export const LESSON_MANUAL_LEASE_MS=10*60_000;
 export const lessonControl=job=>job?.endControl?.version===1?job.endControl:null;
+export function selectLessonEndJob(jobs, {jobId, learningLessonId, lastLiveJobId, now = Date.now()} = {}) {
+  const controlled = (jobs || []).filter(lessonControl);
+  const recording = controlled.filter(job => job.desired === 'record');
+  const ongoing = recording.filter(job => lessonEndDeadline(job) > now);
+  const live = ongoing.length ? ongoing : recording;
+  return live.find(job => job.occurrence?.lessonId && job.occurrence.lessonId === learningLessonId)
+    || live.find(job => job.id === jobId)
+    || live[0]
+    || controlled.find(job => job.id === lastLiveJobId && ['end-button', 'end-countdown'].includes(job.stopReason))
+    || null;
+}
 export function lessonEndDeadline(job){
   const control=lessonControl(job);
   if(control?.mode==='manual')return job.cutoffAt;

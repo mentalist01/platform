@@ -379,7 +379,7 @@ export function registerDesktopDeviceRoutes(app, store, { isEnded, isActive, ref
   app.use('/api/desktop-recorder', (_req, res) => res.status(404).json({ error: 'Not found' }));
 }
 
-export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolveLesson, refreshSchedule, finishLesson, legacyRecordingEnabled = false }) {
+export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolveLesson, refreshSchedule, finishLesson, onEndControlChanged, legacyRecordingEnabled = false }) {
   const handle = (fn, teacherOnly = true) => async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (teacherOnly && req.auth?.role !== 'teacher') return res.status(403).json({ error: 'Только для учителя' });
@@ -405,7 +405,11 @@ export function registerDesktopRecordingRoutes(app, store, { teacherFor, resolve
     const { occurrence, cutoffAt, audioMode } = result;
     res.json(store.start(req.auth.id, occurrence, `Урок ${occurrence.dayKey} ${occurrence.time}`, cutoffAt, { audioMode, transitionFrom: req.body?.transitionFrom, endPrompt:req.body?.endPrompt===true&&store.supportsEndControl(req.auth.id) }));
   }));
-  app.post('/api/desktop-recording/end-control',handle((req,res)=>res.json(store.control(req.auth.id,req.body?.id,req.body||{}))));
+  app.post('/api/desktop-recording/end-control', handle((req, res) => {
+    const job = store.control(req.auth.id, req.body?.id, req.body || {});
+    onEndControlChanged?.(req.auth.id, job);
+    res.json(job);
+  }));
   app.post('/api/desktop-recording/finish-lesson',handle(async(req,res)=>{
     const job=store.finishControl(req.auth.id,req.body?.id,req.body?.revision);
     if(!job.endHandledAt){await finishLesson(job);store.endHandled(job.id);}res.json({ok:true});

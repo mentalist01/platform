@@ -1,6 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {lessonEndPhase,changeLessonEnd,formatLessonEndRemaining} from './lessonEndControl.js';
+import {lessonEndPhase,changeLessonEnd,formatLessonEndRemaining,selectLessonEndJob} from './lessonEndControl.js';
+
+test('Python windows without a local call or recording ID still find the live group or individual lesson', () => {
+  const job = { id: 'current', desired: 'record', cutoffAt: 1000000, endControl: { version: 1, mode: 'scheduled' } };
+  const history = { ...job, id: 'old', desired: 'stop', stopReason: 'end-countdown' };
+  const legacy = { ...job, id: 'legacy', endControl: null };
+  for (const occurrence of [{ lessonId: 'group', endMs: 1000000 }, { studentId: 'student', endMs: 1000000 }]) {
+    const live = { ...job, occurrence };
+    const jobs = [history, legacy, live];
+    assert.equal(selectLessonEndJob(jobs), live);
+    assert.equal(selectLessonEndJob(jobs, { jobId: history.id, learningLessonId: occurrence.lessonId }), live);
+    assert.equal(lessonEndPhase(selectLessonEndJob(jobs), 700000), 'question');
+    const expired = { ...live, id: 'expired', cutoffAt: 690000 };
+    assert.equal(selectLessonEndJob([expired, ...jobs], { jobId: expired.id, now: 700000 }), live);
+  }
+  assert.equal(selectLessonEndJob([history], { jobId: history.id }), null);
+  assert.equal(selectLessonEndJob([history], { lastLiveJobId: history.id }), history);
+  assert.equal(selectLessonEndJob([{ ...history, stopReason: 'reconnect-timeout' }], { lastLiveJobId: history.id }), null);
+});
 test('question starts five minutes before the real deadline; manual continuation and stale windows remain safe',()=>{
   const job={desired:'record',status:'recording',occurrence:{endMs:1000000},cutoffAt:1000000,endControl:{version:1,mode:'scheduled',revision:0}};
   assert.equal(lessonEndPhase(job,699999),null);assert.equal(lessonEndPhase(job,700000),'question');

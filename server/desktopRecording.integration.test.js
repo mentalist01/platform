@@ -30,6 +30,13 @@ test('real platform routes isolate devices and expose one group recording to its
     startAt: new Date(now - 60 * 60000 + 45000).toISOString(), durationMinutes: 60, status: 'active', createdAt: old },
     {id:'boundary-group',groupId:'g1',teacherId:'t1',participantIds:participants,
       startAt:new Date(now-60000).toISOString(),durationMinutes:60,status:'active',createdAt:old}]);
+  const homeworkDueAt = new Date(now - 60 * 60000 + 45000).toISOString();
+  write('learning-assignments', [{
+    id: 'review-homework', groupId: 'g1', teacherId: 't1', lessonId: 'lesson1',
+    title: 'Homework for lesson review', dueAt: homeworkDueAt,
+    homework: { homeWork: 'Review exercise', dueAt: homeworkDueAt },
+    recipientIds: ['s1'], recipientMode: 'selected', status: 'assigned', createdAt: old, publishedAt: old,
+  }]);
   const reserve = net.createServer(); reserve.listen(0, '127.0.0.1'); await once(reserve, 'listening');
   const port = reserve.address().port; await new Promise(resolve => reserve.close(resolve));
   const child = spawn(process.execPath, ['server/index.js'], {
@@ -130,10 +137,18 @@ test('real platform routes isolate devices and expose one group recording to its
   await request('/desktop-recorder/poll',{token,body:{ready:true,endControlVersion:1}});
   const controlled=await request('/desktop-recording/start',{body:{learningLessonId:'lesson1',audioMode:'platform',endPrompt:true}});
   assert.equal(controlled.endControl.mode,'scheduled');
+  const getReviewHomework = async () => (await request('/student-next-lesson', { actor: 's1' })).homeworks
+    .find(entry => entry.learningAssignmentId === 'review-homework');
+  const beforeExtension = await getReviewHomework();
+  assert.equal(beforeExtension.dueAt, homeworkDueAt);
+  assert.equal(Date.parse(beforeExtension.learningHomeworkReviewUntil), controlled.cutoffAt);
   await request('/desktop-recording/end-control',{actor:'s1',body:{id:job.id,mode:'manual',revision:0},status:403});
   await request('/desktop-recording/end-control',{actor:'t2',body:{id:job.id,mode:'manual',revision:0},status:404});
   const extended=await request('/desktop-recording/end-control',{body:{id:job.id,mode:'manual',revision:0}});
   assert.equal(extended.id,job.id);assert.equal(extended.endControl.mode,'manual');assert.deepEqual(extended.occurrence,job.occurrence);
+  const duringExtension = await getReviewHomework();
+  assert.equal(duringExtension.dueAt, homeworkDueAt);
+  assert.ok(Date.parse(duringExtension.learningHomeworkReviewUntil) >= extended.cutoffAt);
   await request('/desktop-recording/finish-lesson',{body:{id:job.id,revision:0},status:409});
   assert.equal((await request('/desktop-recording/start',{body:{learningLessonId:'lesson1',audioMode:'platform'}})).endControl.mode,'manual');
   const liveRecording = await request('/learning-groups/g1/lessons/lesson1/replay', { actor: 's1' });
@@ -144,6 +159,9 @@ test('real platform routes isolate devices and expose one group recording to its
   await request('/desktop-recording/finish-lesson',{body:{id:job.id,revision:1}});
   const endedLesson=(await request('/learning-groups/g1/lessons/lesson1')).lesson;
   assert.equal(endedLesson.status,'completed');assert.equal(endedLesson.durationMinutes,60);
+  const afterFinish = await getReviewHomework();
+  assert.equal(afterFinish.dueAt, homeworkDueAt);
+  assert.equal(afterFinish.learningHomeworkReviewUntil, undefined);
   await request('/learning-groups/g1/lessons/lesson1', { method: 'PATCH', body: { status: 'completed' } });
   assert.equal((await request('/learning-lesson-feedback/pending', { actor: 's1' })).lesson.id, 'lesson1');
   assert.equal((await request('/learning-lesson-feedback/pending', { actor: 's1' })).lesson.id, 'lesson1');

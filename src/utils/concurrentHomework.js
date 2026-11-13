@@ -35,7 +35,7 @@ export const weeklyHomeworkLessonChoices = (schedule = [], now = Date.now()) => 
   return choices.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
 };
 
-export const partitionConcurrentHomeworks = (entries = [], now = Date.now(), {includeTodayReview=false}={}) => {
+export const partitionConcurrentHomeworks = (entries = [], now = Date.now(), { includeLessonReview = false } = {}) => {
   entries = mergeGroupHomeworkCarryover(entries).filter(entry => !entry.learningEgeCarryover);
   const latestIndividual = entries.find(entry => entry.source !== 'learning-group');
   const active = [], history = [], review = [];
@@ -47,9 +47,7 @@ export const partitionConcurrentHomeworks = (entries = [], now = Date.now(), {in
         && !entry.learningCarryoverSupersededBy
         && !entry.learningHomeworkCancelledAt && (!Number.isFinite(due) || due > now)
       : entry === latestIndividual;
-    const dueToday=Number.isFinite(due)&&now>=due
-      && Math.floor((due+3*3600000)/86400000)===Math.floor((Number(now)+3*3600000)/86400000);
-    const keepForReview=includeTodayReview&&group&&dueToday&&!open
+    const keepForReview=includeLessonReview&&group&&now>=due&&now<Date.parse(entry.learningHomeworkReviewUntil)&&!open
       && !entry.learningMembershipEndedAt&&!entry.learningHomeworkCancelledAt&&!entry.learningCarryoverSupersededBy;
     (open ? active : keepForReview ? review : history).push(entry);
   }

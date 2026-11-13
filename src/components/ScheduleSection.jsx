@@ -954,7 +954,7 @@ const ScheduleSection = ({
     return true;
   }, [effectiveStudentId, role]);
 
-  const loadNextLesson = useCallback(async () => {
+  const loadNextLesson = useCallback(async ({ silent = false } = {}) => {
     const requestId = nextLessonRequestRef.current + 1;
     nextLessonRequestRef.current = requestId;
     if (!effectiveStudentId) {
@@ -988,19 +988,21 @@ const ScheduleSection = ({
       setHomeworkDataSource('none');
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
-      const data = await api.getStudentNextLesson(requestStudentId);
+      const data = await api.getStudentNextLesson(requestStudentId, { force: silent });
       if (nextLessonRequestRef.current !== requestId) return;
       const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
       const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
       const safeData = buildNextLessonData(latest);
       setHomeworks(list);
+      setHomeworkClock(Date.now());
       setNextLesson(safeData);
       setHomeworkDataSource('online');
       setError('');
     } catch (err) {
       if (nextLessonRequestRef.current !== requestId) return;
+      if (silent) return;
       const restored = await restoreOfflineHomework();
       if (!restored && nextLessonRequestRef.current === requestId) {
         setHomeworkDataSource('none');
@@ -1305,6 +1307,10 @@ const ScheduleSection = ({
         loadScheduleRequests();
         return;
       }
+      if (scope === 'group-homework-review') {
+        loadNextLesson({ silent: true });
+        return;
+      }
       loadSchedule();
       loadNextLesson();
       loadScheduleRequests();
@@ -1363,6 +1369,7 @@ const ScheduleSection = ({
   const handleRefreshData = useCallback(async () => {
     if (!effectiveStudentId || refreshingData) return;
     const requestId = refreshDataRequestRef.current + 1;
+    const nextLessonRequestId = nextLessonRequestRef.current;
     refreshDataRequestRef.current = requestId;
     setRefreshingData(true);
     try {
@@ -1376,16 +1383,17 @@ const ScheduleSection = ({
         api.getStudentData(requestStudentId),
       ]);
       if (refreshDataRequestRef.current !== requestId) return;
-      if (nextLessonResult.status === 'fulfilled') {
+      if (nextLessonRequestRef.current === nextLessonRequestId && nextLessonResult.status === 'fulfilled') {
         const data = nextLessonResult.value;
         const list = Array.isArray(data?.homeworks) ? data.homeworks : [];
         const latest = data?.latest && typeof data.latest === 'object' ? data.latest : {};
         const safeData = buildNextLessonData(latest);
         setHomeworks(list);
+        setHomeworkClock(Date.now());
         setNextLesson(safeData);
         setHomeworkDataSource('online');
         setError('');
-      } else {
+      } else if (nextLessonRequestRef.current === nextLessonRequestId) {
         const restored = role === 'student' ? await restoreOfflineHomework() : false;
         if (!restored) {
           setHomeworkDataSource('none');
@@ -2878,8 +2886,8 @@ const ScheduleSection = ({
     testsDbError,
   ]);
 
-  const { active: deadlineOrderedHomework, history: previousHomeworkEntries, review: todayReviewHomework } = partitionConcurrentHomeworks(
-    sortedHomeworks, homeworkClock, {includeTodayReview:true}
+  const { active: deadlineOrderedHomework, history: previousHomeworkEntries, review: lessonReviewHomework } = partitionConcurrentHomeworks(
+    sortedHomeworks, homeworkClock, { includeLessonReview: true }
   );
   const homeworkPriority = role === 'student' && !loading && !scheduleLoading
     ? getGroupHomeworkPriority(deadlineOrderedHomework, [...editableLessonSchedule, ...groupHomeworkSlots], homeworkClock)
@@ -2899,8 +2907,8 @@ const ScheduleSection = ({
   useEffect(() => {
     const now = Date.now();
     const nextDeadline = sortedHomeworks
-      .filter(entry => entry.source === 'learning-group' && entry.learningAssignmentStatus !== 'closed')
-      .map(entry => Date.parse(entry.dueAt))
+      .filter(entry => entry.source === 'learning-group')
+      .flatMap(entry => [Date.parse(entry.dueAt), Date.parse(entry.learningHomeworkReviewUntil)])
       .filter(due => due > now)
       .sort((left, right) => left - right)[0];
     if (!nextDeadline) return undefined;
@@ -3634,7 +3642,7 @@ const ScheduleSection = ({
         <article key={key} className={`student-today-homework-card relative overflow-hidden rounded-[26px] border border-purple-200/85 bg-white/94 p-4 shadow-[0_18px_42px_rgba(99,102,241,0.13)] md:p-5${isPriority ? ' group-homework-guide__priority-card' : ''}`}>
           <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-purple-100/70 blur-3xl" />
           {section==='review'&&<p className="relative mb-4 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700">
-            <BookOpen size={15} className="mr-1.5 inline"/>Для разбора на сегодняшнем занятии · Видна до конца дня по Москве. Срок сдачи уже прошёл, результаты к сроку сохранены.
+            <BookOpen size={15} className="mr-1.5 inline"/>Для разбора на занятии · Видна до конца урока. Срок сдачи уже прошёл, результаты к сроку сохранены.
           </p>}
           <header className="student-today-homework__header relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
@@ -6039,9 +6047,9 @@ const ScheduleSection = ({
           )
         ) : (
           <div className="space-y-4 md:space-y-6">
-            {todayReviewHomework.length>0&&<section aria-label="Домашка для разбора сегодня" className="space-y-4">
-              <h3 className="text-lg font-bold text-gray-800">К сегодняшнему занятию</h3>
-              {todayReviewHomework.map(entry=>renderHomeworkEntryCard(entry,'review',entry.id))}
+            {lessonReviewHomework.length>0&&<section aria-label="Домашка для разбора на занятии" className="space-y-4">
+              <h3 className="text-lg font-bold text-gray-800">Для разбора на уроке</h3>
+              {lessonReviewHomework.map(entry=>renderHomeworkEntryCard(entry,'review',entry.id))}
             </section>}
             <div ref={node => {
               if (nextHomeworkFlyRef) nextHomeworkFlyRef.current = node;

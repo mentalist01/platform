@@ -76,6 +76,7 @@ import { registerStudentPlacementNotes } from './studentPlacementNotes.js';
 import { registerMessageTemplates } from './messageTemplates.js';
 import { createMessageTemplateTelegram } from './messageTemplateTelegram.js';
 import { isGroupHomeworkRequired, groupHomeworkMembershipProjection } from './groupHomeworkMembership.js';
+import { groupHomeworkReviewUntil } from './groupHomeworkReviewWindow.js';
 import { projectGroupEgeCarryover } from './groupEgeCarryover.js';
 import { normalizeGroupHomeworkCancellations, registerGroupHomeworkCancellations } from './groupHomeworkCancellations.js';
 import { mergeGroupHomeworkCarryover } from '../src/utils/groupHomeworkCarryover.js';
@@ -23001,6 +23002,13 @@ const refreshBoundDesktopRecordingSchedule = async teacherId => {
   }
 };
 const controlledLessonFinishes=new Map();
+const notifyGroupHomeworkReviewChanged = (lesson) => {
+  for (const studentId of lesson.participantIds) {
+    notifyScheduleSyncUpdate({
+      scope: 'group-homework-review', teacherId: lesson.teacherId, studentId, entryId: lesson.id,
+    });
+  }
+};
 const finishControlledLesson=async job=>{
   if(controlledLessonFinishes.has(job.id))return controlledLessonFinishes.get(job.id);
   const task=(async()=>{
@@ -23011,6 +23019,7 @@ const finishControlledLesson=async job=>{
         writeLearningLessonSessionsDb(replaceLearningStoreEntry(lessons,updated));
         const finalized=createLearningAttendanceRoster(updated,readLearningAttendanceDb()).map(r=>finalizeLearningAttendanceRecord(r,updated.completedAt||updated.updatedAt)).filter(Boolean);
         writeLearningAttendanceUpdates(finalized);
+        notifyGroupHomeworkReviewChanged(updated);
         try{homeworkReminders.finishLesson(job.teacherId,job.occurrence);}catch(error){console.error('[lesson-end] homework reminder',error.message);}
         closeLearningLessonCollabConnections(updated);
       }
@@ -23379,6 +23388,11 @@ registerHomeworkLives(app, homeworkLives, {
 
 registerDesktopRecordingRoutes(app, desktopRecordings, {
   finishLesson:finishControlledLesson,
+  onEndControlChanged: (teacherId, job) => {
+    if (!job.occurrence.lessonId) return;
+    const lesson = readLearningLessonSessionsDb().find(entry => entry.id === job.occurrence.lessonId && entry.teacherId === teacherId);
+    if (lesson) notifyGroupHomeworkReviewChanged(lesson);
+  },
   legacyRecordingEnabled,
   refreshSchedule: refreshDesktopRecordingSchedule,
   teacherFor: (auth) => findStudentById(isParentRole(auth) ? auth.studentId : auth.id)?.teacherId,
@@ -25603,7 +25617,10 @@ const reconcileLearningGroupLifecycle = (nowMs = Date.now(), options = {}) => {
       .map((record) => finalizeLearningAttendanceRecord(record, record.updatedAt || new Date(nowMs).toISOString()))
       .filter(Boolean)
       .forEach((record) => writeLearningAttendanceUpdates([record]));
-    changedLessons.filter(lesson => ['completed', 'cancelled'].includes(lesson.status)).forEach(closeLearningLessonCollabConnections);
+    changedLessons.filter(lesson => ['completed', 'cancelled'].includes(lesson.status)).forEach(lesson => {
+      closeLearningLessonCollabConnections(lesson);
+      notifyGroupHomeworkReviewChanged(lesson);
+    });
     return { changed: true, lessons: changedLessons };
   } finally {
     learningGroupLifecycleSweepInProgress = false;
@@ -26737,6 +26754,9 @@ app.patch('/api/learning-groups/:groupId/lessons/:lessonId', handleLearningRoute
   }
   if (['completed', 'cancelled'].includes(updated.status)) {
     closeLearningLessonCollabConnections(updated);
+  }
+  if (updated.status !== lesson.status || updated.startAt !== lesson.startAt || updated.durationMinutes !== lesson.durationMinutes) {
+    notifyGroupHomeworkReviewChanged(updated);
   }
   return res.json({ lesson: serializeLearningLessonForAuth(updated, req.auth, group) });
 }));
@@ -42042,11 +42062,26 @@ app.get('/api/student-next-lesson', async (req, res) => {
       ...(legacyNextLesson?.dayPlan ? { dayPlan: legacyNextLesson.dayPlan } : {}),
     }]
     : homeworks;
+  const groupLessons = normalizedHomeworks.some(entry => entry.source === 'learning-group')
+    ? readLearningLessonSessionsDb().filter(lesson => lesson.teacherId === student.teacherId)
+    : [];
+  const now = Date.now();
+  let groups, marks;
+  const findScheduledSlot = (groupId, day, time) => {
+    groups ??= readLearningGroupsDb();
+    const group = groups.find(candidate => candidate.id === groupId && candidate.teacherId === student.teacherId
+      && candidate.status === 'active' && !candidate.deletedAt);
+    if (!group) return null;
+    marks ??= Object.freeze(normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[student.teacherId]));
+    return [...group.schedule.filter(entry => entry.date), ...getLearningGroupStudySchedule(group)].find(entry => entry.time === time
+      && doesTeacherCalendarEntryOccurOnDay(entry, day)
+      && !isTeacherCalendarLessonCancelled(student.teacherId, { ...entry, groupId, isLearningGroupEvent: true }, day, marks));
+  };
   const withGoals = normalizedHomeworks.map((entry) => {
     const goals = normalizeGoals(entry?.goals, testsDb);
-    if (goals.length) return decorateHomeworkEntry({ ...entry, goals });
-    const legacyGoalsEntry = normalizeGoalsFromLegacy(entry, testsDb);
-    return decorateHomeworkEntry({ ...entry, goals: legacyGoalsEntry });
+    const decorated = decorateHomeworkEntry({ ...entry, goals: goals.length ? goals : normalizeGoalsFromLegacy(entry, testsDb) });
+    const reviewUntil = groupHomeworkReviewUntil(decorated, student.teacherId, groupLessons, learningLessonAutoCloseMs, findScheduledSlot);
+    return Date.parse(reviewUntil) > now ? { ...decorated, learningHomeworkReviewUntil: reviewUntil } : decorated;
   });
   const latest = withGoals[0] || decorateHomeworkEntry(legacyNextLesson);
   res.json({
