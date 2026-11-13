@@ -57,6 +57,10 @@ export class Inbox {
     if (!outgoing && (message.from.id !== chat.id || message.from.is_bot)) return;
     if (outgoing && !existing) return;
     const item = existing || {key, connectionId, chatId: chat.id, name: this.config.studentNames?.[String(chat.id)] || this.data.peers[String(chat.id)].name, revision: 0, messages: [], draft: null, status: 'pending'};
+    // Bot API identity is evidence for a platform-contact lookup; display names
+    // and user-supplied message text must never become an account binding.
+    const username = chat.username ?? (!outgoing ? message.from.username || null : undefined);
+    if (username !== undefined) item.telegramUsername = /^[a-zA-Z0-9_]{5,32}$/.test(username) ? username.toLowerCase() : null;
     const file = message.document || message.voice || message.photo?.at(-1);
     const kind = message.document ? 'document' : message.voice ? 'voice' : file ? 'image' : null;
     const normalized = {id: message.message_id, outgoing, date: message.date, text: messageText(message.text || message.caption).slice(0, 16000), replyTo: message.reply_to_message?.message_id || null,
