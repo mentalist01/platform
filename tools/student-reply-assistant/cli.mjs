@@ -4,6 +4,7 @@ import {pathToFileURL} from 'node:url';
 import {ROOT,loadConfig,saveConfig,AssistantRunner} from './runner.mjs';
 import {styleExamples,chatAllowed} from './inbox.mjs';
 import {loadToken} from './token-store.mjs';
+import {TemplateLibrary} from './templates.mjs';
 
 export async function main(args=process.argv.slice(2)) {
   const [command='help',...rest]=args;
@@ -24,6 +25,12 @@ export async function main(args=process.argv.slice(2)) {
     fs.writeFileSync(filename,JSON.stringify({version:1,examples:unique},null,2),{mode:0o600});
     return console.log(`Imported ${examples.length} text reply examples locally. No model request was made.`);
   }
+  if(command==='import-templates') {
+    const config=loadConfig();if(!config.templateSource)throw Error('Configure the exact template group first');
+    const library=new TemplateLibrary(path.join(ROOT,'private/template-library.json'),config);
+    const data=library.import(JSON.parse(fs.readFileSync(path.resolve(rest[0]),'utf8')));
+    return console.log(`Imported ${Object.keys(data.entries).length} template messages in ${Object.keys(data.topics).length} topics locally.`);
+  }
   if(command==='run') {
     const runner=new AssistantRunner(loadConfig(),{onStatus:console.log});await runner.start(process.env.IVAN100_ASSISTANT_BOT_TOKEN||await loadToken(path.join(ROOT,'private')));
     process.once('SIGINT',()=>runner.stop());process.once('SIGTERM',()=>runner.stop());return;
@@ -31,6 +38,6 @@ export async function main(args=process.argv.slice(2)) {
   if(command==='serve') {
     const {serve}=await import('./ui-server.mjs');return serve();
   }
-  console.log('Commands: init [thread-id] | serve | run | import-style <selected-chat-result.json>');
+  console.log('Commands: init [thread-id] | serve | run | import-style <selected-chat-result.json> | import-templates <template-group-result.json>');
 }
 if(import.meta.url===pathToFileURL(process.argv[1]||'').href)main().catch(()=>{console.error('Could not start. Check the local settings and connection instructions in README.md.');process.exitCode=1;});

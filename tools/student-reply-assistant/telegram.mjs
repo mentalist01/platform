@@ -25,8 +25,8 @@ export class TelegramReader {
     if (me.can_connect_to_business !== true) throw Error('Enable Secretary / Business mode in BotFather first');
     return {username:me.username};
   }
-  updates(offset, signal) {
-    return this.call('getUpdates',{offset,timeout:45,allowed_updates:['business_connection','business_message','edited_business_message','deleted_business_messages']},signal);
+  updates(offset, signal, templatesEnabled=false) {
+    return this.call('getUpdates',{offset,timeout:45,allowed_updates:['business_connection','business_message','edited_business_message','deleted_business_messages',...(templatesEnabled?['message','edited_message']:[])]},signal);
   }
   async download(file, folder, maxBytes) {
     if (file.bytes > maxBytes) throw Error('File is larger than the configured limit');

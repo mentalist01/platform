@@ -14,6 +14,15 @@ test('a bot with an existing webhook is rejected without deleting or changing it
 test('transport errors never expose the token',async()=>{
  const reader=new TelegramReader(token,async()=>{throw Error('fetch failed '+token);});await assert.rejects(reader.call('getMe'),error=>!error.message.includes(token));
 });
+
+test('regular group updates are requested only when template sync is enabled',async()=>{
+ const bodies=[];const reader=new TelegramReader(token,async(url,options)=>{bodies.push(JSON.parse(options.body));return ok([]);});
+ await reader.updates(123);await reader.updates(124,undefined,true);
+ assert.equal(bodies[0].allowed_updates.includes('message'),false);
+ assert.equal(bodies[1].allowed_updates.includes('message'),true);
+ assert.equal(bodies[1].allowed_updates.includes('edited_message'),true);
+ assert.equal(bodies[1].allowed_updates.includes('business_message'),true);
+});
 test('attachment names cannot choose paths and excessive files are rejected',async t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'reply-file-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
  const reader=new TelegramReader(token,async url=>url.includes('/getFile')?ok({file_path:'documents/file_1.txt',file_size:2}):new Response('ok'));
