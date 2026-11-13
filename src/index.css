@@ -82699,6 +82699,7 @@ html[data-theme='dark'] .homework-stats-page,
   overflow-y: auto;
   padding: 0.15rem 0.4rem 0.2rem 0.1rem;
   scrollbar-width: thin;
+  scrollbar-color: rgba(139, 92, 246, 0.55) transparent;
 }
 
 @media (min-width: 1280px) {
