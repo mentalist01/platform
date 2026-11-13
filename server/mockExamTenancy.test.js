@@ -19,3 +19,11 @@ test('legacy libraries become independent and references/history stay with their
   assert.equal(remapped.q.mockAttemptResults[0].examId,b.id);assert.equal(remapped.q.homeworks[0].goals[0].mockExamId,b.id);
   assert.deepEqual(copyLegacyMockExams({exams:copied.exams,teacherIds:['a','b'],primaryTeacherId:'a'}).exams,copied.exams,'Reapplying does not clone private libraries again');
 });
+
+test('personal generated exams stay with their pupil instead of being copied to other teachers',()=>{
+  const exam={id:'personal',source:'personal-random',generatedForStudentId:'q',access:{all:false,students:['q']}};
+  const copied=copyLegacyMockExams({exams:[exam],teacherIds:['a','b'],primaryTeacherId:'a',studentTeachers:{q:'b'}});
+  assert.deepEqual(copied.exams,[{...exam,teacherId:'b'}]);
+  assert.deepEqual(copied.mappings,{a:{},b:{}});
+  assert.throws(()=>copyLegacyMockExams({exams:[exam],teacherIds:['a','b'],primaryTeacherId:'a'}),/owner/);
+});

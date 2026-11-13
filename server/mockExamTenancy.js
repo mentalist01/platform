@@ -16,6 +16,12 @@ export function copyLegacyMockExams({exams, teacherIds, primaryTeacherId, studen
   const result = [];
   for (const exam of exams) {
     if (exam.teacherId) { result.push(clone(exam)); continue; }
+    if (exam.source === 'personal-random') {
+      const teacherId = studentTeachers[exam.generatedForStudentId];
+      if (!teachers.includes(teacherId)) throw Error('Personal exam owner cannot be determined');
+      result.push({...clone(exam), teacherId});
+      continue;
+    }
     for (const teacherId of teachers) {
       const id = teacherId === primaryTeacherId ? exam.id : idFor(exam.id, teacherId);
       if (id !== exam.id && used.has(id)) throw Error('Duplicate destination exam');
