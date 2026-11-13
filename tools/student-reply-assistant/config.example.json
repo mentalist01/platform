@@ -1,0 +1,12 @@
+{
+  "telegramOwnerId": null,
+  "allowedChatIds": [],
+  "allPrivateChats": false,
+  "studentNames": {},
+  "codexThreadId": "",
+  "codexCommand": "codex",
+  "codexTransport": "queue",
+  "autoDraft": false,
+  "debounceMs": 8000,
+  "maxFileBytes": 20971520
+}

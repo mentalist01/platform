@@ -1,0 +1,7 @@
+{
+  "name": "ivan100-student-reply-assistant",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.test.mjs", "start": "node cli.mjs run" },
+  "engines": { "node": ">=22" }
+}
