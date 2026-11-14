@@ -178,7 +178,7 @@ export default function EgeStudyPlan({teacherId,students=[],groups=[],groupsLoad
             <p className="study-plan__muted">Нажми на блок, чтобы настроить части. Перетащи блок на другой, чтобы поменять порядок; на свободное место — чтобы переместить.</p>
             <div className="study-plan__parts-heading"><h3>Ещё задания</h3><span>{bank.length}</span></div>
             {bank.length>0?<><label className="study-plan__search"><Search size={15}/><input aria-label="Найти задание" placeholder="Номер или тема" value={query} onChange={e=>setQuery(e.target.value)}/></label><div className="study-plan__bank">{filtered.map(id=><button key={id} title={`Добавить задание ${id}`} onClick={()=>add(id)}><span>{id}</span><strong>{plan.blocks[id].title}</strong><Plus size={14}/></button>)}</div>{!filtered.length&&<p className="study-plan__muted">Ничего не нашлось</p>}<button className="study-plan__add-part" onClick={()=>remember(completeStudyPlan(plan))}><Plus size={15}/> Добавить все {bank.length}</button></>:<div className="study-plan__complete"><Check size={21}/><strong>Все 27 заданий на холсте</strong><span>Теперь настрой порядок и части.</span></div>}
-            <div className="study-plan__source">Нумерация по проекту ЕГЭ-2027.<br/><a href={STUDY_PLAN_SOURCE} target="_blank" rel="noreferrer">Документы ФИПИ ↗</a></div>
+            <div className="study-plan__source">Нумерация по утверждённой демоверсии ЕГЭ 2027.<br/><a href={STUDY_PLAN_SOURCE} target="_blank" rel="noreferrer">Документы ФИПИ ↗</a></div>
           </>}
         </aside>
       </div>
