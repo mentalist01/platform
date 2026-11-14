@@ -8,6 +8,7 @@ import StudentAvailabilitySummary from './StudentAvailabilitySummary.jsx';
 import GroupPlacementComparison from './GroupPlacementComparison.jsx';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import GroupMemberLevels from './GroupMemberLevels.jsx';
+import { GroupPreparationCount } from './GroupPreparationRoster.jsx';
 import GroupPlacementRoster from './GroupPlacementRoster.jsx';
 
 const durations = [30, 45, 60, 90, 120];
@@ -106,6 +107,7 @@ export function TeacherGroupPlacement({ students = [], onChoose, transport = api
   }, [studentId, transport]);
   const answered = data?.answers.filter(answer => answer.answer) || [];
   const currentGroup = data?.groups.find(group => group.alreadyMember);
+  const comparingGroup = data?.groups.find(group => group.id === comparing);
   const setSeekingGroup = async enabled => {
     const token = ++generation.current; setBusy(true); setError('');
     try {
@@ -137,16 +139,16 @@ export function TeacherGroupPlacement({ students = [], onChoose, transport = api
       </>}
         {currentGroup && <p className="placement-answer">Ученик уже состоит в группе «{currentGroup.name}». Для перехода используйте «Перенести» в составе этой группы.</p>}
         {data.calendarError && <p className="ga-alert" role="alert">Не удалось проверить календарь преподавателя. Совпадения с установленным расписанием показаны, но свободные часы формирующихся групп нужно проверить повторно.</p>}
-        {!data.groups.length ? <p className="placement-empty">Пока нет доступных групп. Можно создать группу под свободное время ученика.</p> : <div className="placement-results">{data.groups.map(group => <article key={group.id} className={`placement-result fit-${group.fit}`}><header><div><h3>{group.name}</h3><p>{memberLabel(group.memberCount)} · {group.mode === 'schedule' ? 'Расписание выбрано' : group.mode === 'forming' ? 'Подбираем расписание' : 'Нет расписания'}</p></div><span className="placement-fit">{labels[group.fit]}</span></header>
+        {!data.groups.length ? <p className="placement-empty">Пока нет доступных групп. Можно создать группу под свободное время ученика.</p> : <div className="placement-results">{data.groups.map(group => <article key={group.id} className={`placement-result fit-${group.fit}`}><header><div><h3>{group.name}</h3><p className="flex flex-wrap items-center gap-x-2"><span>{memberLabel(group.memberCount)} · {group.mode === 'schedule' ? 'Расписание выбрано' : group.mode === 'forming' ? 'Подбираем расписание' : 'Нет расписания'}</span><GroupPreparationCount students={group.preparingStudents} /></p></div><span className="placement-fit">{labels[group.fit]}</span></header>
           <p>{group.mode === 'schedule' ? `Подходит ${group.matchedCount} из ${group.totalCount} занятий.` : group.mode === 'forming' ? `Полностью согласовано дней: ${group.availableDays}. Для группы нужны два разных дня.${group.pendingMembers ? ` Ждём ответы: ${group.pendingMembers}.` : ''}` : 'Откройте подбор времени в этой группе, чтобы сравнить отметки участников.'}</p>
           {group.fit === 'unanswered' && <p>Нужны отметки для длительности занятий этой группы или для часов, которых не было в прошлой анкете.</p>}
-          <GroupMemberLevels key={`${studentId}-${group.id}`} candidate={data.student} candidateNote={placementNote} members={group.members} memberCount={group.memberCount} transport={transport} />
+          <GroupMemberLevels key={`${studentId}-${group.id}`} candidate={data.student} candidateNote={placementNote} members={group.members} memberCount={group.memberCount} preparingStudents={group.preparingStudents} transport={transport} />
           <div className="placement-slots">{group.slots.map(slot => <span key={`${slot.id}-${slot.durationMinutes}`} className={`choice-${slot.choice}`} title={slot.pending ? 'Часть участников ещё не ответила' : undefined}>{slotLabel(slot)}{slot.choice === 'maybe' || slot.flexible ? ' · подстроиться' : slot.choice === 'no' ? ' · не подходит' : slot.choice === 'pending' ? ' · нет ответа' : ''}{slot.pending ? ' · ждём ответы' : ''}</span>)}</div>
-          <button type="button" className="placement-compare-button" onClick={() => setComparing(group)}>Примерить время</button>
+          <button type="button" className="placement-compare-button" onClick={() => setComparing(group.id)}>Примерить время</button>
           {!group.alreadyMember && <button type="button" disabled={busy || !!currentGroup} onClick={() => onChoose?.(group.id,studentId)}>Выбрать эту группу</button>}
         </article>)}</div>}
         <p className="placement-answer">Выбор откроет состав группы с выбранным учеником. Вступление и изменение формата занятий подтверждаются отдельно.</p>
     </>}
-    {comparing && data && <GroupPlacementComparison key={`${studentId}-${comparing.id}`} student={data.student} answers={data.answers} group={comparing} transport={transport} onClose={() => setComparing(null)} />}
+    {comparingGroup && <GroupPlacementComparison key={`${studentId}-${comparingGroup.id}`} student={data.student} answers={data.answers} group={comparingGroup} transport={transport} onClose={() => setComparing(null)} />}
   </section>;
 }

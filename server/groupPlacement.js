@@ -173,10 +173,13 @@ export function registerGroupPlacement(app, deps) {
     const answers = durations.map(duration => ({ durationMinutes: duration, ...snapshot(fresh, duration) }));
     const ownGroups = groups().filter(group => group.teacherId === fresh.teacherId);
     const ranked = rankPlacementGroups({ groups: ownGroups, polls: polls(), records, studentId: fresh.id, entries, calendarError });
+    const preparationRoster = deps.preparationRoster?.(fresh.teacherId);
     return { student: { id: fresh.id, name: fresh.name, nickname: fresh.nickname || '' }, seekingGroup: store.seekingGroup({ teacherId: fresh.teacherId, studentId: fresh.id }), answers, calendarError,
       groups: ranked.map(result => ({ ...result, members: (ownGroups.find(group => group.id === result.id)?.members || [])
         .filter(member => member.status === 'active').map(member => getStudent(member.studentId))
         .filter(pupil => pupil && !pupil.deletedAt && pupil.teacherId === fresh.teacherId)
-        .map(pupil => ({ id: pupil.id, name: pupil.name })) })) };
+        .map(pupil => ({ id: pupil.id, name: pupil.name })),
+        preparingStudents: preparationRoster?.get(result.id) || [],
+      })) };
   }));
 }

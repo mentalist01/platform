@@ -1,0 +1,11 @@
+.group-preparation-badge {
+  color: #85460f;
+  background: #fffae9;
+  border-color: #dbac5b;
+}
+
+[data-theme="dark"] .group-preparation-badge {
+  color: #ffe1a6;
+  background: #46321b;
+  border-color: #a7783a;
+}

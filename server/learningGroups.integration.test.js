@@ -1508,19 +1508,53 @@ test('learning groups keep shared work isolated while legacy student schedules r
     assert.equal((await transitionRequest('/api/student-group-preparations')).plans['student-b'].groupId, target.id);
     await transitionRequest('/api/student-group-preparations', { token: studentB.token, status: 403 });
     await transitionRequest(planPath, { ...savePlan, status: 409 });
-    assert.equal((await transitionRequest(targetPath)).group.memberCount, 1);
+    const roster = [{ id: 'student-b', name: 'Student B' }];
+    const groupWithPreparation = (await transitionRequest(targetPath)).group;
+    assert.equal(groupWithPreparation.memberCount, 1);
+    assert.deepEqual(groupWithPreparation.members.map(member => member.studentId), ['student-a']);
+    assert.deepEqual(groupWithPreparation.preparingStudents, roster);
+    assert.deepEqual((await transitionRequest('/api/learning-groups')).groups.find(group => group.id === target.id).preparingStudents, roster);
+    const placements = await transitionRequest('/api/students/student-b/group-placement');
+    assert.deepEqual(placements.groups.find(group => group.id === target.id).preparingStudents, roster);
+    const studentGroup = (await transitionRequest(targetPath, { token: studentA.token })).group;
+    assert.equal(Object.hasOwn(studentGroup, 'preparingStudents'), false);
+    await transitionRequest(targetPath, { token: foreignTeacher.token, status: 403 });
+
+    const secondPlanPath = '/api/students/student-c/group-preparation';
+    const secondPlan = (await transitionRequest(secondPlanPath, savePlan)).plan;
+    assert.deepEqual((await transitionRequest(targetPath)).group.preparingStudents, [
+      ...roster, { id: 'student-c', name: 'Student C' },
+    ]);
+    await transitionRequest(secondPlanPath, {
+      method: 'PATCH', body: { groupId: '', note: '', revision: secondPlan.revision },
+    });
+
+    const otherGroup = (await transitionRequest('/api/learning-groups', {
+      method: 'POST', status: 201, body: { name: 'Alternate preparation group' },
+    })).group;
+    const movePlan = (groupId, revision) => transitionRequest(planPath, {
+      method: 'PATCH', body: { ...savePlan.body, groupId, revision },
+    }).then(result => result.plan);
+    const movedPlan = await movePlan(otherGroup.id, plan.revision);
+    assert.deepEqual((await transitionRequest(targetPath)).group.preparingStudents, []);
+    assert.deepEqual((await transitionRequest(`/api/learning-groups/${otherGroup.id}`)).group.preparingStudents, roster);
+    const cancelledPlan = await movePlan('', movedPlan.revision);
+    assert.deepEqual((await transitionRequest(`/api/learning-groups/${otherGroup.id}`)).group.preparingStudents, []);
+    const restoredPlan = await movePlan(target.id, cancelledPlan.revision);
 
     const preview = await transitionRequest(`${planPath}/preview`);
     assert.deepEqual(preview.assignments.map(assignment => assignment.id).sort(), [assignedId, skippedId].sort());
     assert.equal(preview.nextLesson.startAt, new Date(`${date}T18:00:00+03:00`).toISOString());
     assert.ok(preview.individualLessons.some(lesson => lesson.startAt === new Date(`${date}T15:00:00+03:00`).toISOString()));
-    const join = assignmentIds => ({ method: 'POST', body: { revision: plan.revision, assignmentIds } });
+    const join = assignmentIds => ({ method: 'POST', body: { revision: restoredPlan.revision, assignmentIds } });
     await transitionRequest(`${planPath}/join`, { ...join([expiredId]), status: 409 });
     const joined = await transitionRequest(`${planPath}/join`, join([assignedId]));
     assert.equal(joined.group.id, target.id);
     assert.equal(joined.plan.groupId, '');
     await transitionRequest(`${planPath}/join`, join([assignedId]));
-    assert.equal((await transitionRequest(targetPath)).group.memberCount, 2);
+    const groupAfterJoin = (await transitionRequest(targetPath)).group;
+    assert.equal(groupAfterJoin.memberCount, 2);
+    assert.deepEqual(groupAfterJoin.preparingStudents, []);
     const homeworkAfterJoin = await transitionRequest('/api/student-next-lesson', { token: studentB.token });
     assert.deepEqual(homeworkAfterJoin.homeworks.filter(homework => homework.learningGroupId === target.id)
       .map(homework => homework.learningAssignmentId), [assignedId]);

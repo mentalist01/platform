@@ -24951,7 +24951,7 @@ const getLearningGroupNextLesson = (group, now = new Date(), auth = null) => {
     : occurrence;
 };
 
-const serializeLearningGroupForAuth = (group, auth) => {
+const serializeLearningGroupForAuth = (group, auth, preparationRoster) => {
   const serialized = serializeLearningGroup(group);
   if (!serialized) return null;
   const staffView = isAdminRole(auth) || isTeacherRole(auth);
@@ -24974,6 +24974,9 @@ const serializeLearningGroupForAuth = (group, auth) => {
     ...(staffView || currentStudentMember ? {} : { schedule: [] }),
     telemostUrl: canUseTelemost ? serialized.telemostUrl : '',
     members,
+    ...(isTeacherRole(auth) && auth.id === group.teacherId ? {
+      preparingStudents: (preparationRoster ?? getGroupPreparationRoster(auth.id)).get(group.id) || [],
+    } : {}),
     nextLesson: staffView || currentStudentMember ? getLearningGroupNextLesson(group, new Date(), auth) : null,
   };
 };
@@ -25834,6 +25837,9 @@ const notifyLearningGroupScheduleAccess = group => {
   for (const member of group.members || []) {
     notifyScheduleSyncUpdate({ scope: 'learning-group-membership', teacherId: group.teacherId, studentId: member.studentId, entryId: group.id });
   }
+  if (groupPreparationStore.all().some(plan => plan.teacherId === group.teacherId && plan.groupId)) {
+    notifyScheduleSyncUpdate({ scope: 'group-preparation', teacherId: group.teacherId });
+  }
 };
 
 registerWeeklySchedules(app, {
@@ -26162,6 +26168,7 @@ registerGroupPlacement(app, {
   students: teacherId => readStudentsDb().filter(student => student.teacherId === teacherId && !student.deletedAt && isCurrentStudent(student)),
   getStudent: findStudentById,
   groups: readLearningGroupsDb,
+  preparationRoster: teacherId => getGroupPreparationRoster(teacherId),
   polls: () => availabilityStore.all(),
   getEntries: (teacherId, throughDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay),
   notify: student => notifyScheduleSyncUpdate({ scope: 'student-availability', action: 'answered', teacherId: student.teacherId, studentId: student.id }),
@@ -26279,8 +26286,9 @@ app.get('/api/learning-groups', handleLearningRoute((req, res) => {
   groups = groups
     .slice()
     .sort((left, right) => Date.parse(right.updatedAt || right.createdAt || 0) - Date.parse(left.updatedAt || left.createdAt || 0));
+  const preparationRoster = isTeacherRole(req.auth) ? getGroupPreparationRoster(req.auth.id) : undefined;
   return res.json({
-    groups: groups.map((group) => serializeLearningGroupForAuth(group, req.auth)),
+    groups: groups.map((group) => serializeLearningGroupForAuth(group, req.auth, preparationRoster)),
     ...(isStudentRole(req.auth) ? { libraryAccess: hasGroupLibraryAccess(req.auth) } : {}),
   });
 }));
@@ -26373,6 +26381,27 @@ const groupPreparationStore = createRescheduleStore(path.join(dataDir, 'student-
 const listPreparationGroups = teacherId => readLearningGroupsDb().filter(group => (
   group.teacherId === teacherId && !group.deletedAt && group.status !== 'completed'
 ));
+const getGroupPreparationRoster = teacherId => {
+  const roster = new Map();
+  const plans = groupPreparationStore.all().filter(plan => plan.teacherId === teacherId && plan.groupId);
+  if (!plans.length) return roster;
+
+  const groups = listPreparationGroups(teacherId);
+  const groupIds = new Set(groups.map(group => group.id));
+  const memberIds = new Set(groups.flatMap(group => getActiveLearningGroupMembers(group).map(member => member.studentId)));
+  const students = new Map(readStudentsDb()
+    .filter(student => student.teacherId === teacherId && !student.deletedAt && isCurrentStudent(student))
+    .map(student => [student.id, student]));
+
+  for (const plan of plans) {
+    const student = students.get(plan.id);
+    if (!student || !groupIds.has(plan.groupId) || memberIds.has(student.id)) continue;
+    if (!roster.has(plan.groupId)) roster.set(plan.groupId, []);
+    roster.get(plan.groupId).push({ id: student.id, name: getStudentChatVisibleName(student, { exposeStudentNicknames: true }) });
+  }
+  for (const entries of roster.values()) entries.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  return roster;
+};
 const preparationGroupSummary = ({ id, name }) => ({ id, name });
 const readGroupPreparation = student => {
   const plan = groupPreparationStore.get(student.id);
@@ -26439,6 +26468,7 @@ app.patch('/api/students/:id/group-preparation', studentPreparationRoute((req, r
     const plan = groupPreparationStore.put({
       id: student.id, teacherId: student.teacherId, groupId, note: groupId ? note.trim() : '', revision: crypto.randomUUID(),
     });
+    if (groupId !== previous.groupId) notifyScheduleSyncUpdate({ scope: 'group-preparation', teacherId: student.teacherId });
     if (built) await preparationLessons.create(student, built);
     if (!groupId) await preparationLessons.cancelFuture(student);
     return res.json({ plan: publicGroupPreparation(plan) });
