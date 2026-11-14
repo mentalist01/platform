@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { isCurrentStudent } from '../utils/studentStudyStatus';
 import { buildLearningGroupTargetValue } from '../utils/lessonTargets';
+import { GroupPreparationCount } from './GroupPreparationRoster.jsx';
 
 const normalizeSearchText = (value) => String(value || '').trim().toLowerCase();
 
@@ -63,6 +64,7 @@ const normalizeGroups = (groups) => (
         kind: 'group',
         label,
         secondaryLabel,
+        preparingStudents: group.preparingStudents,
         primaryName: label,
         nickname: '',
         searchText: [label, secondaryLabel].filter(Boolean).join(' ').toLowerCase(),
@@ -291,9 +293,10 @@ const StudentSearchSelect = ({
                     </span>
                   )}
                 </span>
-                {student.secondaryLabel && (
-                  <span className={`mt-0.5 block truncate text-[11px] ${emptyClassName}`}>
-                    {student.secondaryLabel}
+                {(student.secondaryLabel || student.preparingStudents?.length > 0) && (
+                  <span className={`mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] ${emptyClassName}`}>
+                    {student.secondaryLabel && <span className="truncate">{student.secondaryLabel}</span>}
+                    <GroupPreparationCount students={student.preparingStudents} />
                   </span>
                 )}
               </button>

@@ -4,6 +4,7 @@ import { LessonAlarmSettings } from './LessonAlarmControls';
 import {StudentStudyBadge} from './StudentStudyProgress.jsx';
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 import GroupCalendarParticipant from './GroupCalendarParticipant.jsx';
+import GroupPreparationRoster, { GroupPreparationCount } from './GroupPreparationRoster.jsx';
 import { getLearningGroupCalendarParticipants } from '../utils/groupCalendarParticipants.js';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
@@ -1194,13 +1195,31 @@ const TeacherCalendarSection = ({
   }, [getStudentLabel, students]);
 
   useEffect(() => {
-    let cancelled = false;
+    let request = 0;
     setCalendarCreateGroups([]); setCalendarCreateGroupsError('');
-    if (teacherId) api.getLearningGroups({ teacherId }).then(result => {
-      if (!cancelled) setCalendarCreateGroups((Array.isArray(result) ? result : result.groups || []).filter(group => !group.deletedAt && group.status !== 'archived'));
-    }).catch(failure => { if (!cancelled) setCalendarCreateGroupsError(failure.message); });
-    return () => { cancelled = true; };
+    if (!teacherId) return undefined;
+
+    const refresh = async () => {
+      const currentRequest = ++request;
+      try {
+        const result = await api.getLearningGroups({ teacherId });
+        if (request !== currentRequest) return;
+        setCalendarCreateGroups((Array.isArray(result) ? result : result.groups || []).filter(group => !group.deletedAt && group.status !== 'archived'));
+        setCalendarCreateGroupsError('');
+      } catch (failure) {
+        if (request === currentRequest) setCalendarCreateGroupsError(failure.message);
+      }
+    };
+    void refresh();
+    window.addEventListener('learning-groups-changed', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      request++;
+      window.removeEventListener('learning-groups-changed', refresh);
+      window.removeEventListener('focus', refresh);
+    };
   }, [teacherId]);
+  const preparationByGroup = useMemo(() => new Map(calendarCreateGroups.map(group => [group.id, group.preparingStudents])), [calendarCreateGroups]);
 
   const calendarSnapshotGuard = useRef(null);
   if (!calendarSnapshotGuard.current) calendarSnapshotGuard.current = createCalendarSnapshotGuard();
@@ -1560,6 +1579,7 @@ const TeacherCalendarSection = ({
       }
       const payloadTeacherId = String(payload?.teacherId || '').trim();
       if (payloadTeacherId && payloadTeacherId !== String(teacherId || '').trim()) return;
+      if (payload?.scope === 'group-preparation') return;
       const action = String(payload?.action || '');
       if (action.includes('calendar-marks')) {
         loadLessonPanelMarks({ silent: true });
@@ -2628,6 +2648,9 @@ const TeacherCalendarSection = ({
     || String(eventDetails?.groupStatus || '').trim().toLowerCase() === 'completed'
   );
   const eventDetailsGroupReadOnly = eventDetailsGroupClosed || eventDetailsGroupNotStarted;
+  const eventDetailsPreparingStudents = eventDetailsIsGroup && !eventDetailsGroupClosed && !availabilityShareMode
+    ? preparationByGroup.get(String(eventDetails.groupId).trim())
+    : undefined;
   const eventDetailsHomeworkText = String(eventDetailsHomework?.homeWork || '').trim();
   const eventDetailsHomeworkPreview = eventDetailsHomeworkText
     ? eventDetailsHomeworkText.split(/\r?\n/).map((line) => line.trim()).find(Boolean)
@@ -4944,6 +4967,9 @@ const TeacherCalendarSection = ({
                                 const cancelled = paymentState.cancelled;
                                 if (availabilityShareMode && cancelled) return null;
                                 const eventFinished = paymentState.finished;
+                                const preparingStudents = isGroupEvent && !availabilityShareMode && !cancelled && !eventFinished
+                                  ? preparationByGroup.get(String(event.groupId).trim())
+                                  : undefined;
                                 const paidMarked = paymentState.paidMarked;
                                 const trialMarked = paymentState.trialMarked;
                                 const color = cancelled
@@ -5023,6 +5049,7 @@ const TeacherCalendarSection = ({
                                   >
                                     <div className="teacher-calendar-shell__event-heading">
                                       <div className={`min-w-0 flex-1 truncate text-[11px] font-bold leading-tight ${cancelled ? 'line-through' : ''}`}>{cardPrimaryLabel}</div>
+                                      <GroupPreparationCount students={preparingStudents} compact />
                                       {!availabilityShareMode && !cancelled && !isGroupEvent && !trialMarked && paidMarked && (
                                         <span className="teacher-calendar-shell__paid-badge"><CheckCircle size={10} aria-hidden="true" />Оплачено</span>
                                       )}
@@ -5472,6 +5499,9 @@ const TeacherCalendarSection = ({
                         );
                       })}
                     </div>
+                    {!!eventDetailsPreparingStudents?.length && (
+                      <div className="mt-3 border-t border-violet-100 pt-3"><GroupPreparationRoster students={eventDetailsPreparingStudents} /></div>
+                    )}
                   </div>
                 ) : eventDetailsHasStudent ? (
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">

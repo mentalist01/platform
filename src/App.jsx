@@ -23141,7 +23141,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     const unsubscribe = subscribeScheduleSync(event => {
       try {
         const payload = JSON.parse(event.data);
-        if (payload?.scope === 'group-availability' && payload.teacherId === user.id) void fetchEvents();
+        if (payload?.teacherId !== user.id) return;
+        if (payload.scope === 'group-availability') void fetchEvents();
+        if (payload.scope === 'group-preparation') window.dispatchEvent(new Event('learning-groups-changed'));
       } catch { /* Ignore unrelated or malformed stream messages. */ }
     });
     const handleFocus = () => void fetchEvents();

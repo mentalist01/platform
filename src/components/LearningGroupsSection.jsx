@@ -53,6 +53,7 @@ import LearningGroupChat from './LearningGroupChat';
 import GroupAvailability from './GroupAvailability';
 const GroupAvailabilityShare = React.lazy(() => import('./GroupAvailabilityShare'));
 import { PersonalGroupAvailability, TeacherGroupPlacement } from './GroupPlacement';
+import GroupPreparationRoster, { GroupPreparationCount } from './GroupPreparationRoster.jsx';
 import {
   LEARNING_GROUP_STATUS_ACTIVE,
   LEARNING_GROUP_STATUS_COMPLETED,
@@ -1819,6 +1820,7 @@ const LearningGroupsSection = ({
                       <span className="text-[11px] font-semibold text-slate-500">
                         Участников: {group.memberCount}
                       </span>
+                      {isTeacher && <GroupPreparationCount students={group.preparingStudents} />}
                     </div>
                     {group.nextLesson && tab !== 'availability' && (
                       <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500">
@@ -1847,10 +1849,14 @@ const LearningGroupsSection = ({
                       </div>
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
                         <span className="inline-flex items-center gap-1.5"><Users size={15} /> Участников: {selectedGroup.memberCount}</span>
+                        {isTeacher && <GroupPreparationCount students={selectedGroup.preparingStudents} />}
                         {selectedGroup.plannedStartDate && (
                           <span className="inline-flex items-center gap-1.5"><CalendarDays size={15} /> Старт {formatDate(selectedGroup.plannedStartDate)}</span>
                         )}
                       </div>
+                      {isTeacher && tab !== 'overview' && !!selectedGroup.preparingStudents?.length && (
+                        <div className="mt-2"><GroupPreparationRoster students={selectedGroup.preparingStudents} /></div>
+                      )}
                     </div>
                     {isTeacher && (
                       <div className="flex flex-wrap gap-2">
@@ -2041,6 +2047,7 @@ const LearningGroupsSection = ({
                             )}
                           </div>
                         ))}
+                        {isTeacher && <GroupPreparationRoster students={selectedGroup.preparingStudents} />}
                       </div>
 
                       {isTeacher && selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && (
