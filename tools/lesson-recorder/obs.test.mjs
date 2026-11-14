@@ -1,6 +1,40 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ObsClient } from './obs.mjs';
+import { ObsClient, primaryScreen } from './obs.mjs';
+
+test('trial capture finds the primary display by its OBS marker instead of the saved monitor or list order', async () => {
+  const f = fixture();
+  const choices = await f.obs.choices();
+  const secondary = { itemEnabled: true, itemValue: 'small', itemName: 'Small: 1920x1080 @ 2560,208' };
+  const primary = { itemEnabled: true, itemValue: 'large', itemName: 'Large: 2560x1440 @ 0,0 (Основной монитор)' };
+  assert.equal(primaryScreen([secondary, primary]), 'large');
+  assert.equal(primaryScreen([secondary, {...primary, itemName: 'Large: 2560x1440 @ 0,0 (Hauptmonitor)'}]), 'large');
+  assert.equal(primaryScreen([secondary, {...primary, itemValue: 'small'}]), '');
+  assert.equal(primaryScreen([secondary, {...primary, itemEnabled: false}]), '');
+  f.obs.choices = async () => ({ ...choices, platform: [], screen: [secondary, primary] });
+  const config = { platform: 'closed', telemost: 'platform', mic: 'mic', screen: 'small' };
+  await f.obs.prepare(config, 'unused', 'telemost', 'trial-screen');
+  assert.equal(f.configured().screen, 'large');
+  assert.equal(f.configured().telemost, 'meeting');
+  assert.equal(config.screen, 'small');
+  const modes = [];
+  f.obs.select = async mode => { modes.push(mode); };
+  f.obs.waitRecordingState = async () => ({outputActive:true});
+  await f.obs.start('trial-one', 'trial-screen');
+  await f.obs.start('ordinary');
+  assert.deepEqual(modes, ['screen', 'platform']);
+});
+
+test('an ambiguous multi-monitor listing blocks the trial instead of recording a different display', async () => {
+  const f = fixture();
+  const choices = await f.obs.choices();
+  f.obs.choices = async () => ({ ...choices, screen: [
+    { itemEnabled: true, itemValue: 'screen-a', itemName: 'Screen A' },
+    { itemEnabled: true, itemValue: 'screen-b', itemName: 'Screen B' },
+  ] });
+  await assert.rejects(f.obs.prepare({}, 'unused', 'telemost', 'trial-screen'), /основной монитор/);
+  assert.equal(f.configured(), undefined);
+});
 
 function fixture() {
   const obs = new ObsClient(); const collection = 'IVAN100 Lessons'; let configured;

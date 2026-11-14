@@ -15,7 +15,7 @@ import { ObsClient, SCENES, INPUTS, PYTHON_SCENES } from './obs.mjs';
 import { pythonCaptureConfig, pythonCaptureReason, configurePythonCapture, PythonPreviewSession } from './python-capture.mjs';
 import { atomicJson, readJson, ownedRecording } from './storage.mjs';
 import { recordingSegments, concatList } from './segments.mjs';
-import { RecorderEngine } from './engine.mjs';
+import { RecorderEngine, trialScreenRecording } from './engine.mjs';
 import { startPythonTheory, continuePythonTheory, publishPythonTheory } from './python-theory.mjs';
 import { editTimeline, approveTimeline, finalizeTimeline } from './python-timeline.mjs';
 import { PythonEditMedia, sendPreview } from './python-edit-media.mjs';
@@ -195,10 +195,12 @@ async function queue() {
   } catch (failure) { error = failure.message; }
   finally { queueBusy = false; queueRunning = false; }
 }
-const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), enabled: () => !engine.active()?.pythonTheory && !engine.active()?.mockReview && !engine.active()?.fallbackMode && state.config.autoFollowShare !== false });
+const canFollowWindows = () => !trialScreenRecording(engine.active());
+const shareBridge = new ShareBridge({ obs, api, active: () => engine.active(), canSwitch: canFollowWindows,
+  enabled: () => canFollowWindows() && !engine.active()?.pythonTheory && !engine.active()?.mockReview && !engine.active()?.fallbackMode && state.config.autoFollowShare !== false });
 const foregroundReader = new ForegroundWindowReader();
 const officeFollower = new OfficeFollower({ obs, reader: foregroundReader, config: () => state.config,
-  shareActive: () => Boolean(shareBridge.offer) });
+  shareActive: () => Boolean(shareBridge.offer), canSwitch: canFollowWindows });
 process.on('exit', () => foregroundReader.stop());
 archive = new LessonArchive({ directory, recordDirectory: () => state.config.recordDirectory,
   topicSync: payload => api('/archive/lesson-topic',payload),
@@ -256,6 +258,7 @@ const publicState = () => ({
   pythonSourceReason: !obsStatus ? 'Подключите OBS в настройках пульта.' : !state.config.recordDirectory ? 'Выберите папку для видео в настройках пульта.' : pythonCaptureReason(state.config.pythonCapture, pythonSourceChoices),
   preparingUpload: queueBusy || Boolean(editMedia.work), editorBusy: editMedia.work || '', archiveBusy: archive.captureBusy,
   currentLesson: engine.currentLesson || null,
+  trialScreen: trialScreenRecording(engine.active()),
   shareMessage: shareBridge.message || '',
   officeMessage: officeFollower.message,
   recoveryDrafts: recoveryDrafts(),
@@ -545,11 +548,11 @@ const server = http.createServer(async (req, res) => {
         const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(here, 'hotkeys.ps1')], { detached: true, stdio: 'ignore', windowsHide: true }); child.unref();
       } else if (req.url === '/auto-follow') {
         state.config.autoFollowShare = payload.enabled === true; save();
-        if (payload.enabled) await obs.select('platform');
+        if (payload.enabled && !trialScreenRecording(engine.active())) await obs.select('platform');
       } else if (req.url === '/auto-office') {
         if (payload.enabled === true && !(await obs.call('GetInputList')).inputs.some(input => input.inputName === INPUTS.office)) throw new Error('Перед уроком нажмите «Начать сегодняшний день», чтобы добавить источник LibreOffice.');
         state.config.autoOffice = payload.enabled === true; save();
-        if (payload.enabled || (await obs.status()).scene === SCENES.office) await obs.select('platform');
+        if (!trialScreenRecording(engine.active()) && (payload.enabled || (await obs.status()).scene === SCENES.office)) await obs.select('platform');
       } else if (req.url === '/auto-upload') {
         state.config.autoUpload = payload.enabled === true; save();
       } else if (req.url === '/test-start') {
@@ -659,6 +662,7 @@ setInterval(() => {
         pythonSourceChoices = choices;
         sourceWarnings = [];
         for (const [key, label] of [['platform', 'Окно платформы'], ['mic', 'Микрофон']]) {
+          if (key === 'platform' && trialScreenRecording(engine.active() || engine.currentLesson)) continue;
           const selected = state.config[key];
           if (!choices[key].some((item) => item.itemEnabled && item.itemValue === selected)) sourceWarnings.push(`${label}: источник недоступен. Откройте его и проверьте выбор в настройках.`);
         }

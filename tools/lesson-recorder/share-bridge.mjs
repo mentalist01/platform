@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import { SCENES, INPUTS } from './obs.mjs';
 
 export class ShareBridge {
-  constructor({ obs, api, active, enabled, now = Date.now, origin = 'http://127.0.0.1:18765' }) {
-    Object.assign(this, { obs, api, active, enabled, now, origin });
+  constructor({ obs, api, active, enabled, canSwitch, now = Date.now, origin = 'http://127.0.0.1:18765' }) {
+    Object.assign(this, { obs, api, active, enabled, canSwitch, now, origin });
     this.key = crypto.randomBytes(32).toString('base64url');
     this.offer = null; this.readyAt = 0; this.lastSuccess = 0; this.initialized = false;
   }
@@ -50,8 +50,8 @@ export class ShareBridge {
       const scene = (await this.obs.call('GetCurrentProgramScene')).currentProgramSceneName;
       const live = this.enabled() && active && this.offer && this.readyAt && this.now() - this.readyAt < 4000;
       // Pause and deliberate manual scene choices always take precedence.
-      if (live && [SCENES.platform, SCENES.office].includes(scene)) await this.obs.select('share');
-      if (!live && scene === SCENES.share) await this.obs.select('platform');
+      if (live && [SCENES.platform, SCENES.office].includes(scene)) await this.obs.select('share', undefined, { canSwitch: this.canSwitch });
+      if (!live && scene === SCENES.share) await this.obs.select('platform', undefined, { canSwitch: this.canSwitch });
       this.message = this.offer && !live ? 'Подключаем демонстрацию к записи…' : live ? 'Записывается ваша демонстрация' : '';
     } finally { this.busy = false; }
   }

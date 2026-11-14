@@ -33,6 +33,9 @@ test('a dated trial shares persistent board/code and one private recording with 
     const lesson=result.lesson;
     assert.equal(lesson.trialBookingId,booking.id);
     assert.equal(result.recording.audioMode,'telemost');
+    assert.equal(result.recording.occurrence.source,'trial-booking');
+    const poll = await f.request('/api/desktop-recorder/poll',secret,{ready:true});
+    assert.equal(poll.jobs.find(job=>job.id===result.recording.id)?.occurrence.source,'trial-booking');
     assert.equal(result.recording.occurrence.lessonId,lesson.id);
     assert.deepEqual(result.recording.occurrence.participantIds,booking.studentIds);
     const again=await f.request(open,teacher,{recording:true});

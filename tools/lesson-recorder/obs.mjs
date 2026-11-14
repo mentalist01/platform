@@ -54,6 +54,15 @@ export function archiveObsStartupMarkers(configDir) {
   return destination;
 }
 
+export function primaryScreen(items = []) {
+  const screens = items.filter(item => item.itemEnabled && item.itemValue && item.itemValue !== 'DUMMY');
+  const marked = screens.filter(item => /\((?:Primary Monitor|Основной монитор)\)\s*$/iu.test(item.itemName));
+  const positioned = screens.filter(item => /@\s*0\s*,\s*0(?:\s|$)/u.test(item.itemName));
+  const primary = marked.length ? marked : positioned;
+  const selected = primary.length === 1 ? primary[0] : null;
+  return selected && screens.filter(item => item.itemValue === selected.itemValue).length === 1 ? selected.itemValue : '';
+}
+
 export class ObsClient {
   constructor({ configDir = path.join(process.env.APPDATA || '', 'obs-studio'), executable = 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', webSocketClass = globalThis.WebSocket,
     processProbe = runningObsProcesses, spawnProcess = spawn, wait = delay } = {}) {
@@ -198,13 +207,18 @@ export class ObsClient {
       return;
     }
     config = { ...config };
+    const trialScreen = captureProfile === 'trial-screen';
+    if (trialScreen) {
+      config.screen = primaryScreen(choices.screen);
+      if (!config.screen) throw new Error('OBS не смог однозначно определить основной монитор. Проверьте экраны в Windows и обновите источники в пульте.');
+    }
     if (audioMode === 'platform') config.telemost = config.platform;
     if (audioMode === 'telemost') {
       const call = selectTelemostWindow(choices.telemost, config.telemost);
       if (call) config.telemost = call;
     }
     for (const [key, label] of [['platform', 'платформы'], ['telemost', 'звука разговора'], ['mic', 'микрофона']]) {
-      if (key === 'telemost' && audioMode === 'teacher') continue;
+      if ((key === 'platform' && trialScreen) || (key === 'telemost' && audioMode === 'teacher')) continue;
       if (!choices[key].some((item) => item.itemEnabled && item.itemValue === config[key])) {
         throw new Error(`Не найден источник ${label}. Откройте нужное окно и проверьте выбор в пульте.`);
       }
@@ -381,15 +395,16 @@ export class ObsClient {
     await this.fit('platform'); await this.fit('screen');
     this.audioWindow = telemost;
   }
-  async fit(mode) {
+  async fit(mode, { uncropped = false } = {}) {
     const sceneName = SCENES[mode]; const sourceName = INPUTS[mode];
     const { sceneItemId } = await this.call('GetSceneItemId', { sceneName, sourceName });
     const { baseWidth, baseHeight } = await this.call('GetVideoSettings');
     await this.call('SetSceneItemTransform', { sceneName, sceneItemId, sceneItemTransform: {
       positionX: 0, positionY: 0, rotation: 0, boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsWidth: baseWidth, boundsHeight: baseHeight, boundsAlignment: 0,
+      ...(uncropped ? { cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, scaleX: 1, scaleY: 1, alignment: 5, cropToBounds: false } : {}),
     } });
   }
-  async select(mode, window) {
+  async select(mode, window, { uncropped = false, canSwitch } = {}) {
     await this.assertCollection();
     if (!SCENES[mode]) throw new Error('Неизвестный источник');
     if (mode === 'window' || mode === 'office') {
@@ -398,8 +413,8 @@ export class ObsClient {
       if (!choices.platform.some((item) => item.itemEnabled && item.itemValue === window)) throw new Error('Окно программы закрыто или свёрнуто. Откройте его и обновите список окон.');
       await this.call('SetInputSettings', { inputName: INPUTS[mode], inputSettings: { window, priority: 0 }, overlay: true });
     }
-    if (INPUTS[mode]) await this.fit(mode);
-    await this.call('SetCurrentProgramScene', { sceneName: SCENES[mode] });
+    if (INPUTS[mode]) await this.fit(mode, { uncropped });
+    if (!canSwitch || canSwitch()) await this.call('SetCurrentProgramScene', { sceneName: SCENES[mode] });
   }
   async ensurePythonSources() {
     await this.assertCollection();
@@ -474,6 +489,7 @@ export class ObsClient {
     this.assertNoPendingStart();
     if ((await this.call('GetRecordStatus')).outputActive) throw new Error('В OBS уже идёт запись. Завершите её или восстановите текущую запись в пульте.');
     if (captureProfile === 'python') await this.selectPython(captureMode);
+    else if (captureProfile === 'trial-screen') await this.select('screen', undefined, { uncropped: true });
     else await this.select('platform');
     await this.call('SetProfileParameter', { parameterCategory: 'Output', parameterName: 'FilenameFormatting', parameterValue: `lesson-${id}` });
     this.recordingStartPending = true;

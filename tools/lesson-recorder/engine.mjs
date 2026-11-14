@@ -18,6 +18,10 @@ export function recordingDeadline(job) {
     ? Math.min(Number.isFinite(job.cutoffAt) ? job.cutoffAt : end, end) : job?.cutoffAt;
 }
 
+export const trialScreenRecording = job => job?.occurrence?.source === 'trial-booking' || (
+  job?.occurrence?.scope === 'learning-group' && job.occurrence.lessonId?.startsWith('trial-')
+);
+
 export class RecorderEngine {
   constructor({ obs, state, save, api, recordDirectory, ready, now = Date.now }) {
     Object.assign(this, { obs, state, save, api, recordDirectory, ready, now });
@@ -50,15 +54,16 @@ export class RecorderEngine {
     job = { ...job, cutoffAt: recordingDeadline(job) };
     if (job.cutoffAt <= this.now()) throw new Error('Время урока по расписанию закончилось. Запись этого занятия завершена.');
     if (this.state.jobs[job.id]?.file || fs.existsSync(ownedRecording(this.recordDirectory, job.id))) throw new Error('Файл этой записи уже существует. Продолжите урок новой частью, чтобы сохранить обе записи.');
+    const captureProfile = trialScreenRecording(job) ? 'trial-screen' : job.captureProfile;
     await this.obs.launch();
-    if (this.obs.prepare) await this.obs.prepare({ ...this.state.config, ...job.captureConfig }, this.recordDirectory, job.audioMode, job.captureProfile);
+    if (this.obs.prepare) await this.obs.prepare({ ...this.state.config, ...job.captureConfig }, this.recordDirectory, job.audioMode, captureProfile);
     else if ((await this.obs.status()).outputActive) throw new Error('В OBS уже идёт запись. Сначала завершите её.');
     if (job.cutoffAt <= this.now()) throw new Error('Время урока по расписанию закончилось. Запись не начата.');
     // Persist the intent first: a crash after StartRecord must not create a second recording.
     const local = { ...job, status: 'starting', error: '', createdAt: this.now() };
     this.state.jobs[job.id] = local; this.save();
     try {
-      await this.obs.start(job.id, job.captureProfile, job.captureConfig?.mode);
+      await this.obs.start(job.id, captureProfile, job.captureConfig?.mode);
       local.status = 'recording';
       delete local.startFailureRetryable; delete local.startRetryAfter;
       delete local.startFailedBeforeRecording;

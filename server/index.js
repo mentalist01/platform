@@ -36159,6 +36159,7 @@ const buildLearningGroupReplayOccurrence = (context) => {
     key: buildLearningGroupLessonReplayKey(context.lesson.id),
     studentId: '',
     scope: 'learning-group',
+    ...(isTrialLesson(context.lesson) ? { source: 'trial-booking' } : {}),
     groupId: context.group.id,
     lessonId: context.lesson.id,
     participantIds,

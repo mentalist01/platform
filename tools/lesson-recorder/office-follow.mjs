@@ -33,28 +33,29 @@ export function focusedSource(items, foreground, platform) {
 }
 
 export class OfficeFollower {
-  constructor({ obs, reader, config, shareActive }) { Object.assign(this, { obs, reader, config, shareActive }); this.message = ''; this.selected = ''; }
+  constructor({ obs, reader, config, shareActive, canSwitch = () => true }) { Object.assign(this, { obs, reader, config, shareActive, canSwitch }); this.message = ''; this.selected = ''; }
   async tick() {
-    if (!this.config().autoOffice) { this.reader.stop(); this.message = ''; return; }
+    if (!this.config().autoOffice || !this.canSwitch()) { this.reader.stop(); this.message = ''; return; }
     this.reader.start();
     // Explicit screen sharing and manual scene choices have priority.
     const scene = (await this.obs.call('GetCurrentProgramScene')).currentProgramSceneName;
     if (this.shareActive() || scene === SCENES.share) { this.message = 'Сейчас запись следует демонстрации в звонке на платформе.'; return; }
     if (![SCENES.platform, SCENES.office].includes(scene)) { this.message = 'Сейчас выбран ручной источник. Нажмите «Платформа», чтобы вернуть автоматическое переключение.'; return; }
     const items = (await this.obs.call('GetInputPropertiesListPropertyItems', { inputName: INPUTS.platform, propertyName: 'window' })).propertyItems;
+    if (!this.canSwitch()) return;
     const foreground = this.reader.current();
     const next = focusedSource(items, foreground, this.config().platform);
     if (next?.mode === 'office') {
       if (this.selected !== next.item.itemValue || scene !== SCENES.office) {
-        await this.obs.select('office', next.item.itemValue); this.selected = next.item.itemValue;
+        await this.obs.select('office', next.item.itemValue, { canSwitch: this.canSwitch }); this.selected = next.item.itemValue;
       }
       this.message = `В записи: ${foreground.title}`;
     } else if (next?.mode === 'platform' || (scene === SCENES.office && !items.some(i => i.itemEnabled && i.itemValue === this.selected))) {
-      if (scene === SCENES.office) await this.obs.select('platform');
+      if (scene === SCENES.office) await this.obs.select('platform', undefined, { canSwitch: this.canSwitch });
       this.message = 'В записи платформа. Перейдите в документ LibreOffice — запись переключится сама.';
     } else if (!foreground) {
       // Do not leave an indefinitely frozen document if the watcher failed.
-      if (scene === SCENES.office) await this.obs.select('platform');
+      if (scene === SCENES.office) await this.obs.select('platform', undefined, { canSwitch: this.canSwitch });
       this.message = 'Подключаем автоматическое переключение LibreOffice…';
     } else if (scene === SCENES.platform) {
       this.message = 'Автоматически: платформа ↔ документ LibreOffice. Остальные приложения не подхватываются.';

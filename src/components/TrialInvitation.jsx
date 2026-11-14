@@ -40,7 +40,7 @@ export default function TrialInvitation({teacherId,plan,selection,booking,busy,o
     setError('');setNotice('');
     void startTrialLesson(booking.id,{recording}).then(result=>{
       if(result.recordingError)setError(`Телемост открыт, но запись не запустилась: ${result.recordingError}`);
-      else setNotice(recording?'Пробное открыто. Команда на запись передана пульту.':'Общая доска и код открыты для участников пробного.');
+      else setNotice(recording?'Пробное открыто. Пульт записи 1.5.34 или новее запишет основной монитор.':'Общая доска и код открыты для участников пробного.');
     }).catch(failure=>setError(failure.message));
   };
   const save=async kind=>{
@@ -65,6 +65,7 @@ export default function TrialInvitation({teacherId,plan,selection,booking,busy,o
       {booking?.studentIds?.length>0&&<button type="button" disabled={busy} onClick={()=>openLesson(false)}>Общая доска и код</button>}
       <button type="button" disabled={busy} aria-expanded={editingTemplate} onClick={()=>{setEditingTemplate(value=>!value);setTemplate(savedTemplate);setError('');}}>Изменить шаблон сообщения</button>
     </div>
+    {booking?.meetingUrl&&<small>На пробном пульт записи 1.5.34 или новее захватывает весь основной монитор.</small>}
     {editingTemplate&&<div className="trial-invitation__template">
       <label>Общий шаблон для всех ваших пробных<textarea aria-label="Шаблон приглашения на пробное" rows={3} maxLength={4000} value={template} disabled={busy} onChange={event=>{setTemplate(event.target.value);setError('');}}/></label>
       <small>Вместо {'{ссылка}'} подставится ссылка выбранного пробного.</small>

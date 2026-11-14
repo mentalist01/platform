@@ -62,6 +62,22 @@ function fixture(t) {
   return { engine, obs, state, root, job, reports, remote: (value) => { remote = value; }, offline: () => { offline = true; }, online: () => { offline = false; }, advance: (ms) => { now += ms; }, counts: () => [startCount, stopCount], foreign: () => { recording = true; name = 'foreign-output'; } };
 }
 
+test('the recorder starts trial occurrences on the primary-screen profile and ordinary lessons on their usual profile', async t => {
+  const f = fixture(t);
+  const profiles = [], start = f.obs.start;
+  f.obs.prepare = async (_config, _directory, audioMode, profile) => profiles.push(['prepare', audioMode, profile]);
+  f.obs.start = async (id, profile) => { profiles.push(['start', profile]); await start(id); };
+  const trial = { ...f.job, occurrence: { key: 'trial', lessonId: 'trial-booking-a', scope: 'learning-group', source: 'trial-booking' }, audioMode: 'telemost' };
+  await f.engine.start(trial);
+  const regular = { ...f.job, id: 'next', occurrence: { key: 'group', lessonId: 'regular', scope: 'learning-group' }, audioMode: 'platform' };
+  f.remote({ enabled: true, currentLesson: regular, jobs: [regular] });
+  await f.engine.tick();
+  assert.deepEqual(profiles, [
+    ['prepare', 'telemost', 'trial-screen'], ['start', 'trial-screen'],
+    ['prepare', 'platform', undefined], ['start', undefined],
+  ]);
+});
+
 test('a different current lesson closes the old OBS output even when its stop command is absent', async t => {
   const f=fixture(t);await f.engine.start({...f.job,occurrence:{key:'group'},audioMode:'platform'});
   const next={...f.job,id:'next',occurrence:{key:'individual'},audioMode:'platform'};
