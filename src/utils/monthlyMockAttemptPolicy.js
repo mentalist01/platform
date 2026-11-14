@@ -82,7 +82,7 @@ export function getMonthlyAttemptScore(attempt,exam){
   if(record(attempt.solved)){
     const tasks=attempt.tasks||attempt.examSnapshot?.tasks||exam?.tasks;
     const solved=tasks&&Object.keys(tasks).length?Object.fromEntries(Object.keys(tasks).map(key=>[key,attempt.solved[key]])):attempt.solved;
-    return getMockSecondaryScoreFromSolved(solved);
+    return getMockSecondaryScoreFromSolved(solved, attempt.partialCredit ?? attempt.attemptSnapshot?.partialCredit);
   }
   if(attempt.secondaryScore!=null&&String(attempt.secondaryScore).trim()!==''&&Number.isFinite(Number(attempt.secondaryScore)))return Math.max(0,Math.min(100,Number(attempt.secondaryScore)));
   return attempt.primaryScore!=null?getMockSecondaryScoreFromPrimary(attempt.primaryScore):null;

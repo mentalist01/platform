@@ -31,7 +31,7 @@ export function getMonthlyMockCompletionScore(studentData={},completion){
   }
   for(const attempt of completedAttempts(studentData,completion)){
     if(!attempt)continue;
-    if(record(attempt.solved))return getMockSecondaryScoreFromSolved(attempt.solved);
+    if(record(attempt.solved))return getMockSecondaryScoreFromSolved(attempt.solved, attempt.partialCredit ?? attempt.attemptSnapshot?.partialCredit);
     const secondary=score(attempt.secondaryScore);
     if(secondary!==null)return secondary;
     if(score(attempt.primaryScore)!==null)return getMockSecondaryScoreFromPrimary(attempt.primaryScore);

@@ -85,11 +85,11 @@ const buildSectionAnalysis = (tasks) => {
     };
     current.totalCount += 1;
     current.primaryTotal += task.primaryWeight;
+    current.primaryEarned += task.primaryEarned || 0;
     current.taskKeys.push(task.taskKey);
     if (task.answered) current.answeredCount += 1;
     if (task.status === 'correct') {
       current.correctCount += 1;
-      current.primaryEarned += task.primaryWeight;
     } else if (task.status === 'incorrect') {
       current.incorrectCount += 1;
       current.problemTaskKeys.push(task.taskKey);
@@ -212,7 +212,8 @@ export const buildMockExamAnalysis = ({
       manualOverride,
       status,
       primaryWeight,
-      lostPrimary: resultsVisible && !isCorrect ? primaryWeight : 0,
+      primaryEarned: resultsVisible ? (isCorrect ? primaryWeight : attempt?.partialCredit?.[taskKey] || 0) : 0,
+      lostPrimary: resultsVisible && !isCorrect ? primaryWeight - (attempt?.partialCredit?.[taskKey] || 0) : 0,
       sectionId: section.id,
       sectionLabel: section.label,
       activeDurationMs,
@@ -230,7 +231,8 @@ export const buildMockExamAnalysis = ({
     result[task.taskKey] = task.status === 'correct';
     return result;
   }, {});
-  const primaryScore = resultsVisible ? Number(getPrimaryScoreFromSolved(solvedForScope)) || 0 : null;
+  const partialCreditForScope = Object.fromEntries(tasks.map(({taskKey}) => [taskKey, attempt?.partialCredit?.[taskKey]]));
+  const primaryScore = resultsVisible ? Number(getPrimaryScoreFromSolved(solvedForScope, partialCreditForScope)) || 0 : null;
   const secondaryScore = primaryScore == null ? null : Number(getSecondaryScoreFromPrimary(primaryScore)) || 0;
   const primaryMaximum = tasks.reduce((sum, task) => sum + task.primaryWeight, 0);
   const recoverablePrimary = resultsVisible

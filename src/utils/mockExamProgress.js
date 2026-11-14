@@ -163,7 +163,7 @@ export const buildMockExamProgressEntries = ({
         || `${normalizeText(result.attemptId) || examId || 'result'}-${index}-${finishedAtMs}`;
       const storedSecondaryScore = clampScore(result.secondaryScore);
       const calculatedSecondaryScore = hasSolvedMap(scoreAttempt)
-        ? getMockSecondaryScoreFromSolved(scope.solvedMap)
+        ? getMockSecondaryScoreFromSolved(scope.solvedMap, scoreAttempt.partialCredit ?? scoreAttempt.attemptSnapshot?.partialCredit)
         : null;
       return {
         id: `online-result:${resultId}`,
@@ -234,7 +234,7 @@ export const buildMockExamProgressEntries = ({
           : {}),
         title: normalizeText(exam?.title) || 'Онлайн-пробник',
         comment: '',
-        score: getMockSecondaryScoreFromSolved(scope.solvedMap),
+        score: getMockSecondaryScoreFromSolved(scope.solvedMap, attempt.partialCredit),
         dateMs: completedAtMs,
         date: new Date(completedAtMs).toISOString(),
         academicYear: getAcademicYearMeta(completedAtMs),

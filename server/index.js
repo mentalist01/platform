@@ -203,6 +203,7 @@ import {
   getMockExamContentRevision,
   resolveMockExamForAttempt,
 } from '../src/utils/mockExamVersioning.js';
+import {getMockPairPartialCredit,getMockPrimaryScoreFromSolved,getMockSecondaryScoreFromSolved,isMockPairScored} from '../src/utils/mockExamScore.js';
 import {buildMockRetakeCarry,getMockCarriedTaskKeys,getMockCarriedSolved} from '../src/utils/mockExamRetake.js';
 import {
   QuestionTargetRemapConflictError,
@@ -13589,7 +13590,7 @@ const getLeaderboardProfileMockSummary = (mockAttempts, mockExamById = {}) => {
   const normalizedResults = attempts.map(([examId, attempt]) => {
     const normalizedExamId = String(examId || '').trim();
     const mockExam = normalizedExamId ? mockExamById?.[normalizedExamId] : null;
-    const score = getMockSecondaryScoreFromSolved(attempt?.solved);
+    const score = getMockSecondaryScoreFromSolved(attempt?.solved, attempt?.partialCredit);
     const { solvedTasks, totalTasks } = getLeaderboardProfileMockTaskCounts(mockExam, attempt);
     const updatedAt = typeof attempt?.updatedAt === 'string' && attempt.updatedAt.trim()
       ? attempt.updatedAt.trim()
@@ -13673,38 +13674,6 @@ const allowsPartialMockAnswers = (taskNumber, question) => getMockTaskRuleNumber
 
 const MOCK_TASK_NUMBERS = Array.from({ length: 27 }, (_, index) => index + 1);
 const PERSONAL_RANDOM_MOCK_COOLDOWN_MS = 1500;
-const MOCK_PRIMARY_TO_SECONDARY = {
-  1: 7,
-  2: 14,
-  3: 20,
-  4: 27,
-  5: 34,
-  6: 40,
-  7: 43,
-  8: 46,
-  9: 48,
-  10: 51,
-  11: 54,
-  12: 56,
-  13: 59,
-  14: 62,
-  15: 64,
-  16: 67,
-  17: 70,
-  18: 72,
-  19: 75,
-  20: 78,
-  21: 80,
-  22: 83,
-  23: 85,
-  24: 88,
-  25: 90,
-  26: 93,
-  27: 95,
-  28: 98,
-  29: 100,
-};
-
 const MOCK_COIN_MILESTONES = [
   { score: 30, coins: 30 },
   { score: 50, coins: 50 },
@@ -13749,19 +13718,6 @@ const normalizeMockScore = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return 0;
   return Math.max(0, Math.min(100, Math.floor(num)));
-};
-
-const getMockPrimaryScoreFromSolved = (solvedMap) => {
-  const solved = solvedMap && typeof solvedMap === 'object' ? solvedMap : {};
-  return MOCK_TASK_NUMBERS.reduce((sum, taskNumber) => (
-    solved[String(taskNumber)] ? sum + (taskNumber === 26 || taskNumber === 27 ? 2 : 1) : sum
-  ), 0);
-};
-
-const getMockSecondaryScoreFromSolved = (solvedMap) => {
-  const primaryScore = Math.max(0, Math.min(29, getMockPrimaryScoreFromSolved(solvedMap)));
-  if (primaryScore <= 0) return 0;
-  return normalizeMockScore(MOCK_PRIMARY_TO_SECONDARY[primaryScore] || 0);
 };
 
 const normalizeMockCoinMilestones = (value) => {
@@ -14378,6 +14334,18 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
   Object.keys(resultOverrides).forEach((taskKey) => {
     solved[taskKey] = true;
   });
+  const partialCredit = {};
+  for (const taskNumber of [26, 27]) {
+    const question = exam?.tasks?.[taskNumber];
+    if (solved[taskNumber] || !isMockPairScored(taskNumber, question)
+        || getMockAnswerCountForTask(taskNumber, question) !== 2) continue;
+    const points = getMockPairPartialCredit(
+      parseMockAttemptAnswers(answers[taskNumber], 2),
+      getAcceptedAnswerVariantsForQuestion(question, 2),
+      normalizeAnswerValue,
+    );
+    if (points) partialCredit[taskNumber] = points;
+  }
   const hasTimerMarkers = Boolean(
     normalizeMockTimerTimestamp(meta?.timerStartedAt)
     || normalizeMockTimerTimestamp(meta?.timerExpiresAt)
@@ -14480,6 +14448,7 @@ const normalizeMockAttemptPayload = (exam, rawAnswers, updatedAt, meta = {}) => 
     answers,
     solved,
     solvedEver,
+    ...(Object.keys(partialCredit).length ? { partialCredit } : {}),
     ...(getMockCarriedTaskKeys(meta).length ? {carriedTaskKeys:getMockCarriedTaskKeys(meta).filter(key=>Object.hasOwn(answers,key)),carriedFromAttemptId:String(meta.carriedFromAttemptId||'')} : {}),
     ...(Object.keys(resultOverrides).length > 0 ? { resultOverrides } : {}),
     mode,
@@ -14530,6 +14499,7 @@ const hideUnfinishedMockTimerResults = (attempt) => {
     ...attempt,
     solved: getMockCarriedSolved(attempt),
     solvedEver: getMockCarriedSolved(attempt),
+    partialCredit: undefined,
   };
 };
 
@@ -33233,8 +33203,8 @@ app.patch('/api/mock-exams/attempt/task-result', (req, res) => {
   }
 
   const attemptId = String(historyEntry?.attemptId || reviewedAttempt?.attemptId || requestedAttemptId).trim();
-  const primaryScore = getMockPrimaryScoreFromSolved(reviewedAttempt.solved);
-  const secondaryScore = getMockSecondaryScoreFromSolved(reviewedAttempt.solved);
+  const primaryScore = getMockPrimaryScoreFromSolved(reviewedAttempt.solved, reviewedAttempt.partialCredit);
+  const secondaryScore = getMockSecondaryScoreFromSolved(reviewedAttempt.solved, reviewedAttempt.partialCredit);
   const sourceKey = buildMockExamFollowupSourceKey({
     examId: requestedExamId,
     attemptId,
@@ -33829,6 +33799,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       ...normalizedAttemptBase,
       solved: canRestartTimerAttempt ? getMockCarriedSolved(normalizedAttemptBase) : previousSolved,
       solvedEver: canRestartTimerAttempt ? normalizedAttemptBase.solvedEver : previousSolvedEver,
+      partialCredit: undefined,
       mode: attemptMode,
       attemptNumber,
       isFirstAttempt: attemptNumber === 1,
@@ -33858,7 +33829,7 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       ...(monthlyContext ? {monthlyPolicy:monthlyAttemptContext(updated,list,exam,student).policy} : {}),
     });
   }
-  const secondaryScore = getMockSecondaryScoreFromSolved(normalizedAttemptBase.solved);
+  const secondaryScore = getMockSecondaryScoreFromSolved(normalizedAttemptBase.solved, normalizedAttemptBase.partialCredit);
   const reachedMilestones = examRewardsDisabled || !isFirstAttempt
     ? []
     : getMockCoinMilestoneScoresForScore(secondaryScore);
@@ -33926,10 +33897,10 @@ app.put('/api/mock-exams/attempt', (req, res) => {
       enqueueReview: attemptNumber === 1,
       taskCatalog: readClassicTaskCatalogForTeacher(student.teacherId).activeTasks,
     });
-    const primaryScore = getMockPrimaryScoreFromSolved(normalizedAttempt.solved);
+    const primaryScore = getMockPrimaryScoreFromSolved(normalizedAttempt.solved, normalizedAttempt.partialCredit);
     mockAttemptResults = followup.history.map((entry) => (
       entry.attemptId === attemptId
-        ? { ...entry, primaryScore, secondaryScore }
+        ? { ...entry, primaryScore, secondaryScore, partialCredit: normalizedAttempt.partialCredit }
         : entry
     ));
     mockTestingQueue = followup.queue;

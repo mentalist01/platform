@@ -125,6 +125,7 @@ import {
 import { isCurrentStudent, normalizeStudentStudyStatus } from './utils/studentStudyStatus';
 import { resolveHomeworkTaskTargetDescriptors } from './utils/homeworkComposer';
 import { buildDefaultClassicTaskCatalog } from './data/classicTaskCatalog';
+import {getMockPrimaryScoreFromSolved as getPrimaryScoreFromSolved, getMockSecondaryScoreFromPrimary as getSecondaryScoreFromPrimary} from './utils/mockExamScore';
 import { getMockTaskRuleNumber } from './utils/mockTaskIdentity';
 import {
   formatClassicTaskNumber,
@@ -1476,37 +1477,6 @@ let TASK_XP_REWARDS = {
   27: 500,
 };
 const MOCK_TASK_NUMBERS = Array.from({ length: 27 }, (_, i) => i + 1);
-const PRIMARY_TO_SECONDARY = {
-  1: 7,
-  2: 14,
-  3: 20,
-  4: 27,
-  5: 34,
-  6: 40,
-  7: 43,
-  8: 46,
-  9: 48,
-  10: 51,
-  11: 54,
-  12: 56,
-  13: 59,
-  14: 62,
-  15: 64,
-  16: 67,
-  17: 70,
-  18: 72,
-  19: 75,
-  20: 78,
-  21: 80,
-  22: 83,
-  23: 85,
-  24: 88,
-  25: 90,
-  26: 93,
-  27: 95,
-  28: 98,
-  29: 100,
-};
 const LEGACY_MOCK_EXAM_ACCESS = { all: true, students: [], mode: MOCK_EXAM_MODE_TIMER };
 
 const normalizeMockExamAccess = (access, fallback = LEGACY_MOCK_EXAM_ACCESS) => {
@@ -2102,20 +2072,6 @@ const getExpectedAnswers = (question, count) => {
     answers.push(question?.[key] ?? '');
   }
   return answers;
-};
-
-const getPrimaryScoreFromSolved = (solvedMap) => {
-  if (!solvedMap || typeof solvedMap !== 'object') return 0;
-  return MOCK_TASK_NUMBERS.reduce((sum, num) => {
-    if (!solvedMap[String(num)]) return sum;
-    return sum + (num === 26 || num === 27 ? 2 : 1);
-  }, 0);
-};
-
-const getSecondaryScoreFromPrimary = (primary) => {
-  const normalized = Math.max(0, Math.min(29, Number(primary) || 0));
-  if (!normalized) return 0;
-  return PRIMARY_TO_SECONDARY[normalized] || 0;
 };
 
 const getStudentLabel = (student) => {

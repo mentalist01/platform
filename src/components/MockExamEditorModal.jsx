@@ -366,6 +366,8 @@ const MockExamEditorModal = ({
         ...(previousTaskEntry || {}),
         id: taskIdentity,
         analyticsVersion,
+        ...([26, 27].includes(Number(selectedTask)) && requiredCount === 2
+          ? { answerCountOverride: 2, scoring: 'fipi-2027-pair' } : {}),
         question: question.trim(),
         screenshots: finalScreens,
         files: finalFiles,

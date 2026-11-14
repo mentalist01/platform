@@ -18,6 +18,11 @@ const makeQuestion = (taskNumber, levelId, suffix = '1') => {
     delete question.answer;
     question.answers = ['19', '20-a', '20-b', '21'];
   }
+  if (taskNumber === 27) {
+    delete question.answer;
+    question.answerCountOverride = 2;
+    question.answers = ['27-a', '27-b'];
+  }
   return question;
 };
 

@@ -30,17 +30,35 @@ const PRIMARY_TO_SECONDARY = {
   29: 100,
 };
 
-export const getMockPrimaryScoreFromSolved = (solvedMap) => {
+export const MOCK_PAIR_SCORING = 'fipi-2027-pair';
+export const isMockPairScored = (taskNumber, question) => (
+  [26, 27].includes(Number(taskNumber)) && question?.scoring === MOCK_PAIR_SCORING
+);
+
+export const getMockPairPartialCredit = (provided, variants, normalize) => {
+  const [first, second] = provided.map(normalize);
+  if (!first && !second) return 0;
+  return variants.some((variant) => {
+    const [expectedFirst, expectedSecond] = variant.map(normalize);
+    return Boolean(expectedFirst && expectedSecond && (
+      (first && first === expectedFirst)
+      || (second && second === expectedSecond)
+      || (first === expectedSecond && second === expectedFirst)
+    ));
+  }) ? 1 : 0;
+};
+
+export const getMockPrimaryScoreFromSolved = (solvedMap, partialCredit) => {
   const solved = solvedMap && typeof solvedMap === 'object' ? solvedMap : {};
   return Array.from({ length: 27 }, (_, index) => index + 1).reduce((sum, taskNumber) => (
     solved[String(taskNumber)]
       ? sum + ([26, 27].includes(taskNumber) ? 2 : 1)
-      : sum
+      : sum + ([26, 27].includes(taskNumber) && partialCredit?.[taskNumber] === 1 ? 1 : 0)
   ), 0);
 };
 
-export const getMockSecondaryScoreFromSolved = (solvedMap) => {
-  return getMockSecondaryScoreFromPrimary(getMockPrimaryScoreFromSolved(solvedMap));
+export const getMockSecondaryScoreFromSolved = (solvedMap, partialCredit) => {
+  return getMockSecondaryScoreFromPrimary(getMockPrimaryScoreFromSolved(solvedMap, partialCredit));
 };
 
 export const getMockSecondaryScoreFromPrimary = value => {

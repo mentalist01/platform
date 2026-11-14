@@ -22,7 +22,11 @@ test('mock №25 checks ordered pairs with blank excess rows and preserves them 
   write('progress.json', {student:{homeworks:[{id:'hw', issuedAt:now, goals:[{type:'mock', mockExamId:'table', mode:'classic'}]}]}});
   const correct = ['600001','437','600002','47','600003','1227','600005','217','600012','16667'];
   write('mock-exams.json', [{id:'table', teacherId:'teacher', title:'Pairs', createdAt:now,
-    access:{all:true, students:[], mode:'classic'}, monthlyAssignments:{teacher:[getMonthlyMockMonth()]}, tasks:{25:{question:'Find five pairs', answerTable:{rows:12, columns:2}, answerCountOverride:24, answers:correct}}}]);
+    access:{all:true, students:[], mode:'classic'}, monthlyAssignments:{teacher:[getMonthlyMockMonth()]}, tasks:{
+      25:{question:'Find five pairs', answerTable:{rows:12, columns:2}, answerCountOverride:24, answers:correct},
+      26:{question:'Two values', answers:['26','62'], scoring:'fipi-2027-pair'},
+      27:{question:'Two values', answers:['27','72'], answerCountOverride:2, scoring:'fipi-2027-pair'},
+    }}]);
   const port = await new Promise(resolve => {
     const server=net.createServer();server.listen(0,'127.0.0.1',()=>{const n=server.address().port;server.close(()=>resolve(n));});
   });
@@ -60,6 +64,16 @@ test('mock №25 checks ordered pairs with blank excess rows and preserves them 
     const persisted=JSON.parse(fs.readFileSync(path.join(data,'progress.json'),'utf8')).student.mockAttempts.table;
     assert.deepEqual(persisted.answers['25'],values);
     assert.equal(persisted.solved['25'],true);
+    const finish=await request('/api/mock-exams/attempt','PUT',{
+      examId:'table',mode:'classic',finishAttempt:true,answers:{25:values,26:['','62'],27:['72','27']},
+    });
+    assert.equal(finish.status,200,await finish.clone().text());
+    const finished=await finish.json();
+    assert.deepEqual(finished.partialCredit,{'26':1,'27':1});
+    assert.equal(finished.solved['26'],false);
+    assert.equal(finished.solved['27'],false);
+    const result=JSON.parse(fs.readFileSync(path.join(data,'progress.json'),'utf8')).student.mockAttemptResults[0];
+    assert.equal(result.primaryScore,3);
   } finally {
     const exited=new Promise(resolve=>child.once('exit',resolve));child.kill('SIGTERM');
     await Promise.race([exited,new Promise(resolve=>setTimeout(resolve,1500))]);

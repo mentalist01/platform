@@ -5,10 +5,10 @@ import {STUDY_PLAN_IDS,STUDY_CARD,createStudyPlan,arrangeStudyPlan,completeStudy
 test('initial teacher route preserves requested order, editable parts and 2027 topic coverage',()=>{
   const plan=createStudyPlan();
   assert.equal(countStudyTasks(plan.order),20);
-  assert.deepEqual(STUDY_PLAN_IDS.filter(id=>!plan.order.includes(id)),['1','2','6','10','12','15','23']);
+  assert.deepEqual(STUDY_PLAN_IDS.filter(id=>!plan.order.includes(id)),['1','2','6','10','12','13','15']);
   assert.equal(plan.blocks['7'].parts.length,3);assert.equal(plan.blocks['26'].parts.length,8);
   assert.equal(plan.blocks['5'].parts.length,0,'Do not guess unknown part counts');
-  assert.match(plan.blocks['10'].title,/IP/);assert.match(plan.blocks['13'].title,/программ/);assert.match(plan.blocks['23'].title,/граф/);
+  assert.match(plan.blocks['10'].title,/текстовом/);assert.match(plan.blocks['13'].title,/IP/);assert.match(plan.blocks['23'].title,/траектории/);
   assert.equal(isStudyPlanDraft(plan),true);assert.equal(isStudyPlanDraft({...plan,order:['99']}),false);
 });
 test('adding omitted tasks keeps teacher sequence and custom part names, arrangement does not overlap',()=>{

@@ -14,7 +14,7 @@ export function mockCompletionNotifications(data,studentId,exams,scoreFor) {
     const previous=events.get(String(event.attemptId));
     events.set(String(event.attemptId),{id:`mock-completed:${studentId}:${event.attemptId}`,source:'mock-exam-completed',
       mockExamId:String(event.examId),mockExamTitle:event.examTitle || event.examSnapshot?.title || previous?.mockExamTitle || exams.find(exam=>String(exam.id)===String(event.examId))?.title || 'Пробник',
-      secondaryScore:Number.isFinite(Number(event.secondaryScore)) ? Number(event.secondaryScore) : scoreFor(event.solved),solvedAt:event.finishedAt});
+      secondaryScore:Number.isFinite(Number(event.secondaryScore)) ? Number(event.secondaryScore) : scoreFor(event.solved, event.partialCredit ?? event.attemptSnapshot?.partialCredit),solvedAt:event.finishedAt});
   };
   // Read historical finished attempts as well as new completion events. Partial
   // answers never become notifications and a retry has the same attempt ID.

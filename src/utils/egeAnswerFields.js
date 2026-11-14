@@ -22,6 +22,7 @@ export const getMockAnswerCountForTask = (taskNumber, question) => {
   if (Number.isInteger(override) && override >= 1 && override <= 50) return override;
   if (number === 20) return 2;
   if (number === 19) return 1;
+  if (number === 27 && !question) return 2;
   return getAnswerCountForTask(number);
 };
 

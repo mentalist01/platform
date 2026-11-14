@@ -1,3 +1,6 @@
+import {getMockAnswerCountForTask} from '../src/utils/egeAnswerFields.js';
+import {MOCK_PAIR_SCORING} from '../src/utils/mockExamScore.js';
+
 export const PERSONAL_RANDOM_MOCK_SOURCE = 'personal-random';
 export const PERSONAL_RANDOM_MOCK_LEVEL_ID = 'basic';
 export const PERSONAL_RANDOM_MOCK_LEVEL_IDS = Object.freeze(['basic', 'advanced']);
@@ -206,6 +209,8 @@ const withSelectionMetadata = (question, sourceTaskNumber, sourceLevelId, select
   sourceLevelId,
   randomSelection: selected.isFresh ? 'fresh' : 'repeat',
   randomMockTaskNumber: mockTaskNumber,
+  ...([26, 27].includes(mockTaskNumber) && getMockAnswerCountForTask(mockTaskNumber, question) === 2
+    ? {scoring: MOCK_PAIR_SCORING} : {}),
 });
 
 const expandGameTheoryQuestion = (question, levelId, selected) => {
@@ -255,7 +260,8 @@ export const buildPersonalRandomMockTasks = ({
       const questions = sourceDb?.[String(taskNumber)]?.[candidateLevelId];
       if (!Array.isArray(questions) || questions.length === 0) continue;
       const levelSelection = chooseQuestion(
-        questions.filter((question) => isRecord(question)),
+        questions.filter((question) => isRecord(question)
+          && (slotNumber !== 27 || getMockAnswerCountForTask(27, question) === 2)),
         getTaskSolvedQuestionIds(solved, randomSolved, taskNumber, candidateLevelId),
         pickIndex
       );

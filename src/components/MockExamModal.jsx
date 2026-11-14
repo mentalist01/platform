@@ -767,7 +767,8 @@ const MockExamModal = ({
     const count = getMockAnswerCountForTask(taskNumber, exam?.tasks?.[String(taskNumber)]);
     const filledCount = getFilledAnswerCountForTask(taskNumber, answersMap);
     if (count <= 1) return filledCount > 0;
-    return allowsPartialAnswers(taskNumber, exam?.tasks?.[String(taskNumber)])
+    return (allowsPartialAnswers(taskNumber, exam?.tasks?.[String(taskNumber)])
+      || exam?.tasks?.[String(taskNumber)]?.scoring === 'fipi-2027-pair')
       ? filledCount > 0
       : filledCount >= count;
   };
@@ -817,7 +818,8 @@ const MockExamModal = ({
   const isCurrentTaskAnswered = hasAnswerForTask(selectedTask);
   const currentFilledAnswerCount = getFilledAnswerCountForTask(selectedTask);
   const isCurrentTaskSolved = Boolean(visibleSolved[taskKey]);
-  const allowPartialForTask = answerCount > 1 ? allowsPartialAnswers(selectedTask, currentQuestion) : false;
+  const allowPartialForTask = answerCount > 1 && (allowsPartialAnswers(selectedTask, currentQuestion)
+    || currentQuestion?.scoring === 'fipi-2027-pair');
   const hasLargeAnswerGrid = answerCount > 6;
   const answerFieldLabels = Array.from(
     { length: answerCount },
@@ -826,7 +828,10 @@ const MockExamModal = ({
   const isAnswerReady = isCurrentTaskAnswered;
   const answeredCount = modalTaskNumbers.filter((taskNumber) => hasAnswerForTask(taskNumber)).length;
   const solvedCount = Object.values(visibleSolved || {}).filter(Boolean).length;
-  const primaryScore = getPrimaryScoreFromSolved(visibleSolved);
+  const visiblePartialCredit = !isTimerMode || timerResultsVisible
+    ? Object.fromEntries(modalTaskNumbers.map((number) => [number, activeAttempt.partialCredit?.[number]]))
+    : null;
+  const primaryScore = getPrimaryScoreFromSolved(visibleSolved, visiblePartialCredit);
   const secondaryScore = getSecondaryScoreFromPrimary(primaryScore);
   const displayProgressCount = isTimerMode && !timerResultsVisible ? answeredCount : solvedCount;
   const currentTaskStatusLabel = isCurrentTaskCarried?'Зачтено ранее':isTimerMode && !timerResultsVisible
@@ -1086,13 +1091,13 @@ const MockExamModal = ({
         setResults(nextResults);
         const mockChestRewards = getMockChestRewards(saved);
         const mockArtifactDrop = mockChestRewards.length > 0 ? null : getFeaturedMockArtifactDrop(saved);
-        const savedSecondaryScore = getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(savedSolved));
+        const savedSecondaryScore = getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(savedSolved, saved.partialCredit));
         const fullExam = !hasRequestedTaskScope || modalTaskNumbers.length === Object.keys(exam.tasks || {}).length;
         if (fullExam && isMockAttemptFinished(saved)) {
           completionRewardsRef.current={chests:mockChestRewards,artifact:mockArtifactDrop};
           setCompletionResult({
             score:savedSecondaryScore,
-            bestScore:saved.bestAttempt ? getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(readAttemptSolved(saved.bestAttempt))) : null,
+            bestScore:saved.bestAttempt ? getSecondaryScoreFromPrimary(getPrimaryScoreFromSolved(readAttemptSolved(saved.bestAttempt), saved.bestAttempt.partialCredit)) : null,
             completedAt:saved.timerFinishedAt || saved.finishedAt,
             attemptNumber:Number(saved.attemptNumber)||1,
             timedOut:isTimerMode && timerExpired,
@@ -2040,7 +2045,7 @@ const MockExamModal = ({
                               : 'border border-rose-200 bg-rose-50 text-rose-600')
                         }`}>
                           {results[taskKey] ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />}
-                          {results[taskKey] ? 'Верно' : 'Неверно'}
+                          {results[taskKey] ? 'Верно' : activeAttempt.partialCredit?.[taskKey] === 1 ? '1 из 2 баллов' : 'Неверно'}
                         </div>
                       )}
                     </div>
@@ -2068,7 +2073,7 @@ const MockExamModal = ({
                       </div>
                       {answerCount > 1 ? (
                         <div
-                          className={`mock-exam-answer-grid ${isAnswerTable ? 'mock-exam-answer-grid--table' : ''} ${
+                          className={`mock-exam-answer-grid ${isAnswerTable || currentQuestion?.scoring === 'fipi-2027-pair' ? 'mock-exam-answer-grid--table' : ''} ${
                             hasLargeAnswerGrid
                               ? 'mock-exam-answer-grid--dense'
                               : answerCount >= 4
