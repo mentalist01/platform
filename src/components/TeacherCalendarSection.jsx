@@ -8,8 +8,11 @@ import GroupPreparationRoster, { GroupPreparationCount } from './GroupPreparatio
 import { getLearningGroupCalendarParticipants } from '../utils/groupCalendarParticipants.js';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
 import CalendarEditStatus from './CalendarEditStatus.jsx';
-import CalendarEventEditor from './CalendarEventEditor.jsx';
-import { TrialSlotDialogs, TrialSlotDay } from './TrialCalendarSlots.jsx';
+import { createDeferredWorkspacePart } from '../utils/deferWorkspacePart.js';
+import { loadCalendarSnapshot } from '../utils/calendarSnapshot.js';
+import TrialSlotDay from './TrialSlotDay.jsx';
+const CalendarEventEditor = createDeferredWorkspacePart(() => import('./CalendarEventEditor.jsx'), { label: 'Открываем редактор занятия…', dialog: true });
+const TrialSlotDialogs = createDeferredWorkspacePart(() => import('./TrialCalendarSlots.jsx').then(module => ({ default: module.TrialSlotDialogs })), { label: 'Открываем пробные занятия…', dialog: true });
 import AvailabilityMinimumControl from './AvailabilityMinimumControl.jsx';
 import { snapCalendarDragStart, retainCalendarDragSource, createCalendarDragWeekPager } from '../utils/calendarDrag.js';
 import { applySavedCalendarEdit, createCalendarSnapshotGuard } from '../utils/calendarSnapshot.js';
@@ -1226,8 +1229,8 @@ const TeacherCalendarSection = ({
 
   const loadTeacherCalendar = useCallback(async ({ silent = false } = {}) => {
     const guard = calendarSnapshotGuard.current;
-    const token = guard.begin();
     if (!teacherId) {
+      guard.invalidate();
       setEntries([]);
       setError('');
       setLoading(false);
@@ -1238,19 +1241,25 @@ const TeacherCalendarSection = ({
     if (silent) setRefreshing(true);
     else setLoading(true);
 
-    try {
-      const [data,trialResult] = await Promise.all([api.getTeacherSchedule(teacherId),api.getTrialSlots(teacherId).catch(failure=>({error:failure.message}))]);
-      if (!guard.isCurrent(token)) return;
-      if(trialResult.error)setTrialError(trialResult.error);else{setTrialPlan(trialResult);setTrialError('');}
-      setEntries(sortScheduleEntries(Array.isArray(data) ? data : []));
-      setError('');
-    } catch (err) {
-      if (!guard.isCurrent(token)) return;
-      if (!silent) setEntries([]);
-      setError(silent ? 'Не удалось обновить календарь. Сохранённые изменения остаются в силе.' : err?.message || 'Не удалось загрузить общий календарь.');
-    } finally {
-      if (guard.isCurrent(token)) { setLoading(false); setRefreshing(false); }
-    }
+    await loadCalendarSnapshot({
+      guard,
+      schedule: () => api.getTeacherSchedule(teacherId),
+      trials: () => api.getTrialSlots(teacherId),
+      onSchedule: data => {
+        setEntries(sortScheduleEntries(Array.isArray(data) ? data : []));
+        setError('');
+      },
+      onTrials: result => {
+        if (result.error) setTrialError(result.error);
+        else { setTrialPlan(result); setTrialError(''); }
+      },
+      onScheduleError: err => {
+        if (!silent) setEntries([]);
+        setError(silent ? 'Не удалось обновить календарь. Сохранённые изменения остаются в силе.' : err?.message || 'Не удалось загрузить общий календарь.');
+      },
+      onTrialsError: err => setTrialError(err.message),
+      onScheduleSettled: () => { setLoading(false); setRefreshing(false); },
+    });
   }, [teacherId]);
 
   const showSavedCalendarEdit = useCallback((saved, source) => {
@@ -5238,8 +5247,8 @@ const TeacherCalendarSection = ({
           </div>
         </div>
       )}
-      <TrialSlotDialogs teacherId={teacherId} plan={trialPlan} selection={trialSelection} configure={trialConfigure} move={trialMove} onMove={value=>{setTrialSelection(null);setTrialMove(value);}} students={students || []}
-        onSaved={value=>{setTrialPlan(value);void loadTeacherCalendar({silent:true});}} onClose={()=>{setTrialSelection(null);setTrialConfigure(false);setTrialMove(null);}}/>
+      {(trialSelection || trialConfigure || trialMove) && <TrialSlotDialogs teacherId={teacherId} plan={trialPlan} selection={trialSelection} configure={trialConfigure} move={trialMove} onMove={value=>{setTrialSelection(null);setTrialMove(value);}} students={students || []}
+        onSaved={value=>{setTrialPlan(value);void loadTeacherCalendar({silent:true});}} onClose={()=>{setTrialSelection(null);setTrialConfigure(false);setTrialMove(null);}}/>}
       {quickCreateDraft && <CalendarEventEditor draft={quickCreateDraft} onChange={setQuickCreateDraft}
         anchor={quickCreateDraft.anchor} onClose={closeQuickCreate} onSubmit={handleQuickCreateSave}
         busy={quickCreateSaving || quickCreateFindingSlot} error={quickCreateError} ownerError={calendarCreateGroupsError}

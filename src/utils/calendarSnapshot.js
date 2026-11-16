@@ -4,6 +4,26 @@ export function createCalendarSnapshotGuard() {
   return { begin: () => ++revision, invalidate: () => ++revision, isCurrent: token => token === revision };
 }
 
+// Publish each source as soon as it is ready. Trial bookings must not hold the
+// timetable behind a spinner; both sources still share the edit/reload guard.
+export async function loadCalendarSnapshot({ guard, schedule, trials, onSchedule, onTrials, onScheduleError, onTrialsError, onScheduleSettled }) {
+  const token = guard.begin();
+  const run = async (request, accept, reject, settled) => {
+    try {
+      const result = await request();
+      if (guard.isCurrent(token)) accept(result);
+    } catch (error) {
+      if (guard.isCurrent(token)) reject(error);
+    } finally {
+      if (guard.isCurrent(token)) settled?.();
+    }
+  };
+  await Promise.all([
+    run(schedule, onSchedule, onScheduleError, onScheduleSettled),
+    run(trials, onTrials, onTrialsError),
+  ]);
+}
+
 export function applySavedCalendarEdit(entries, { source, entry }) {
   if (!entry?.id) return entries;
   const result = entries.flatMap(value => {

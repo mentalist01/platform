@@ -25,11 +25,13 @@ import {
   normalizeQuestionLabelColor,
   normalizeQuestionLabelText,
 } from '../utils/questionLabel';
-import BroadcastNotificationsPanel from './BroadcastNotificationsPanel';
+import { createDeferredWorkspacePart } from '../utils/deferWorkspacePart.js';
+import { formatRosterMoney } from '../utils/rosterMoney.js';
+const BroadcastNotificationsPanel = createDeferredWorkspacePart(() => import('./BroadcastNotificationsPanel'), { label: 'Открываем уведомления…' });
 import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
-import StudentMonthlyReportModal from './StudentMonthlyReportModal';
+const StudentMonthlyReportModal = createDeferredWorkspacePart(() => import('./StudentMonthlyReportModal'), { label: 'Открываем отчёт ученика…', dialog: true });
 import MessageTemplatesButton from './MessageTemplatesButton.jsx';
 import StudentContactLinks from './StudentContactLinks';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
@@ -177,23 +179,13 @@ const parseLessonPriceInput = (value) => {
 const formatLessonPrice = (value) => {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0) return '';
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
-    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  return formatRosterMoney(amount);
 };
 
 const formatFinanceMoney = (value) => {
   const amount = Number(value);
   const safeAmount = Number.isFinite(amount) ? amount : 0;
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
-    minimumFractionDigits: safeAmount % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(safeAmount);
+  return formatRosterMoney(safeAmount);
 };
 
 const formatLessonCount = (value) => {

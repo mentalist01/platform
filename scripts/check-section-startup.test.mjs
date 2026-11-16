@@ -16,9 +16,9 @@ async function fixture(t) {
   const write = (file, source) => fs.writeFile(path.join(root, file), source);
   await write('index.html', '<script type="module" src="/assets/index-fixture.js"></script>');
   await write('assets/index-fixture.js', 'const app = () => import("./App-fixture.js");');
-  await write('assets/App-fixture.js', 'import "./common.js"; const paths = ["assets/PythonSection-fixture.js", "assets/ProgressSection-fixture.js", "assets/NotesSection-fixture.js"];');
+  await write('assets/App-fixture.js', 'import "./common.js"; const paths = ["assets/PythonSection-fixture.js", "assets/ProgressSection-fixture.js", "assets/NotesSection-fixture.js", "assets/TeacherCalendarSection-fixture.js", "assets/TeacherPanel-fixture.js"];');
   await write('assets/common.js', 'export const common = true;');
-  for (const name of ['PythonSection','ProgressSection','NotesSection']) await write(`assets/${name}-fixture.js`, 'import "./common.js"; export const solve = () => import("./editor-adapter-fixture.js");');
+  for (const name of ['PythonSection','ProgressSection','NotesSection','TeacherCalendarSection','TeacherPanel']) await write(`assets/${name}-fixture.js`, 'import "./common.js"; export const solve = () => import("./editor-adapter-fixture.js");');
   await write('assets/editor-adapter-fixture.js', 'export const editor = true;');
   return { root, write };
 }
@@ -26,7 +26,7 @@ async function fixture(t) {
 test('allows an editor loaded on demand and excludes already loaded shared code', async t => {
   const { root } = await fixture(t);
   const report = await verifySectionStartup(root);
-  assert.equal(report.length, 3);
+  assert.equal(report.length, 5);
   for (const section of report) {
     assert.equal(section.modules.length, 1);
     assert.ok(section.modules[0].includes(section.name));

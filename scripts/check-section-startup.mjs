@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseAst } from 'rollup/parseAst';
 
-const sections = { PythonSection: 450_000, ProgressSection: 600_000, NotesSection: 650_000 };
+const sections = { PythonSection: 450_000, ProgressSection: 600_000, NotesSection: 650_000, TeacherCalendarSection: 230_000, TeacherPanel: 245_000 };
 
 export async function verifySectionStartup(directory) {
   const root = path.resolve(directory), modules = new Map();
