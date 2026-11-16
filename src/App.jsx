@@ -25973,7 +25973,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </button>
           </div>
         </header>
-        {user.role === 'teacher' && <LessonAlarmNotice alarm={lessonAlarm} />}
+        {user.role === 'teacher' && recordingPrivacy.ready && <LessonAlarmNotice alarm={lessonAlarm} />}
         {user.role === 'teacher' && <TeacherSubscriptionReminder subscription={user.subscription} />}
         <main
           ref={mainScrollRef}

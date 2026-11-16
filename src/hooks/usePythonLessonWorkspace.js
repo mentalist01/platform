@@ -6,7 +6,7 @@ import {boardPageBookRoom} from '../utils/boardPages.js';
 import {buildLearningGroupTargetValue, parseLessonTargetValue, LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS} from '../utils/lessonTargets.js';
 import {pythonExplanationBoardRoom} from '../utils/pythonExplanationBoard.js';
 import {
-  livePythonLessonTask, pythonGroupBoardRoom, pythonLessonTaskControl,
+  flushPythonLessonTask, livePythonLessonTask, pythonGroupBoardRoom, pythonLessonTaskControl,
   pythonLessonTeacherPresent,
 } from '../utils/pythonGroupWorkspace.js';
 import {resolvePythonWorkspaceMode} from '../utils/pythonWorkspaceMode.js';
@@ -70,17 +70,16 @@ export default function usePythonLessonWorkspace({role, userId, teacherId, group
   }, [teacher, onSelectStudent, mode.scope]);
   const joinLesson = useCallback(() => setManual(null), []);
 
+  const flushTask = useCallback(() => {
+    flushPythonLessonTask(pending, runtime.current, roomId, controlKey, userId);
+  }, [roomId, controlKey, userId]);
+
   const publishTask = useCallback(state => {
+    if (!teacher || !roomId) return;
     const next = {...state, active:true, teacherId:owner, ...(groupId ? {groupId} : {studentId})};
     pending.current = {roomId, command:next};
-    const live = runtime.current;
-    if (!teacher || !roomId || live?.roomId !== roomId || !live.provider.synced) return;
-    const previous = live.control.get(controlKey);
-    if (previous && JSON.stringify({...previous, id:undefined}) === JSON.stringify({...next, id:undefined})) return;
-    const command = {...next, id:crypto.randomUUID()};
-    live.control.set(controlKey, command);
-    live.provider.awareness.setLocalStateField(controlKey, {id:command.id, userId, open:command.open});
-  }, [teacher, roomId, groupId, owner, studentId, controlKey, userId]);
+    flushTask();
+  }, [teacher, roomId, groupId, owner, studentId, flushTask]);
 
   useEffect(() => {
     if (!roomId) return undefined;
@@ -94,7 +93,7 @@ export default function usePythonLessonWorkspace({role, userId, teacherId, group
       const update = () => {
         if (disposed) return;
         setConnectedRoom(provider.wsconnected && provider.synced ? roomId : '');
-        if (teacher) { if (provider.synced && pending.current?.roomId === roomId) publishTask(pending.current.command); return; }
+        if (teacher) return;
         if (!provider.synced || !provider.wsconnected || mode.personalWork) { setTeacherRoom(''); return; }
         const peers = Array.from(provider.awareness.getStates().values());
         const command = livePythonLessonTask(control.get(controlKey), peers, {teacherId:owner, studentId, groupId});
@@ -106,20 +105,34 @@ export default function usePythonLessonWorkspace({role, userId, teacherId, group
           setRemoteTask({...command, workspaceRoom:roomId});
         }
       };
-      control.observe(update); provider.on('sync', update); provider.on('status', update); provider.awareness.on('change', update);
+      const sync = () => {
+        update();
+        if (teacher) flushTask();
+      };
+      if (!teacher) {
+        control.observe(update);
+        provider.awareness.on('change', update);
+      }
+      provider.on('sync', sync);
+      provider.on('status', update);
       cleanup = () => {
         const local = provider.awareness.getLocalState()?.[controlKey];
         const command = control.get(controlKey);
         if (teacher && provider.synced && local?.id === command?.id) {
           control.set(controlKey, {...command, id:crypto.randomUUID(), active:false, open:false});
         }
-        control.unobserve(update); provider.off('sync', update); provider.off('status', update); provider.awareness.off('change', update);
+        if (!teacher) {
+          control.unobserve(update);
+          provider.awareness.off('change', update);
+        }
+        provider.off('sync', sync);
+        provider.off('status', update);
         provider.destroy(); doc.destroy();
         if (runtime.current?.doc === doc) runtime.current = null;
       };
     }).catch(failure => { if (!disposed) setError(failure.message || 'Не удалось подключить совместный урок'); });
     return () => { disposed = true; cleanup?.(); };
-  }, [roomId, groupId, owner, studentId, teacher, publishTask, controlKey, mode.personalWork]);
+  }, [roomId, groupId, owner, studentId, teacher, flushTask, controlKey, mode.personalWork]);
 
   return {groups, group, groupId, targetValue:groupId ? buildLearningGroupTargetValue(groupId) : teacher ? activeStudentId || '' : '',
     selectTarget, joinLesson, publishTask, remoteTask:!mode.personalWork && remoteTask?.workspaceRoom === roomId ? remoteTask : null,

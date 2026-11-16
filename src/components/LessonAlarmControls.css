@@ -1,6 +1,20 @@
 .lesson-alarm-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px; color: rgb(var(--ink)); background: rgb(var(--surface)); border-bottom: 1px solid rgb(var(--ink) / .12); font-size: 12px; }
-.lesson-alarm-notice[data-ringing="true"] { background: #fef3c7; color: #92400e; }
+.lesson-alarm-notice[data-ringing="true"] {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 1400;
+  width: min(620px, calc(100vw - 24px));
+  box-sizing: border-box;
+  transform: translateX(-50%);
+  border: 1px solid #f5d681;
+  border-radius: 14px;
+  background: #fef3c7;
+  color: #92400e;
+  box-shadow: var(--shadow-panel);
+}
 .lesson-alarm-notice > span { flex: 1; min-width: 180px; }
+.lesson-alarm-notice[data-ringing="true"] > span { overflow-wrap: anywhere; }
 .lesson-alarm-notice button, .lesson-alarm-settings button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 10px; border-radius: 9px; border: 1px solid rgb(var(--ink) / .18); font-size: 12px; background: rgb(var(--surface)); color: rgb(var(--ink)); }
 .lesson-alarm-notice button:focus-visible, .lesson-alarm-settings button:focus-visible { outline: 2px solid #8b5cf6; outline-offset: 2px; }
 .lesson-alarm-settings { padding-top: 10px; color: rgb(var(--ink)); font-size: 12px; }
