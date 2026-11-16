@@ -47,6 +47,7 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
   const [reviews, setReviews] = useState([]);
   const [activeReview, setActiveReview] = useState(null);
   const seen = useRef(new Set());
+  const autoReviewSnoozedUntil = useRef(0);
   const alive = useRef(false);
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +56,7 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
     setReminders([]);
     setSnoozed({});
     setActiveReview(null);
+    autoReviewSnoozedUntil.current = 0;
     setReviews([]);
     try {seen.current = new Set(JSON.parse(localStorage.getItem(`lesson-reviews-seen:${userId}`) || '[]'));}
     catch {seen.current = new Set();}
@@ -81,7 +83,7 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
     };
   }, [userId]);
   useEffect(() => {
-    if (!paused && !activeReview) setActiveReview(reviews.find(review => !seen.current.has(review.id)) || null);
+    if (!paused && !activeReview && autoReviewSnoozedUntil.current <= Date.now()) setActiveReview(reviews.find(review => !seen.current.has(review.id)) || null);
   }, [paused, reviews, activeReview]);
   const closeReview = () => {
     if (!activeReview) return;
@@ -128,7 +130,11 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
   };
   return <><TeacherHomeworkNotes teacherId={userId} students={students} groups={noteContext.groups} activeStudentId={noteContext.studentId} activeGroupId={noteContext.groupId} visible={paused} />
     <TeacherParentReportReminder userId={userId} students={students} onStudentUpdated={onStudentUpdated} paused={paused || Boolean(activeReview)} showEntry={!reminder} />
-    {activeReview && !paused && <TeacherLessonReviewDialog lesson={activeReview} teacherId={userId} onClose={closeReview} onAssign={onOpen}/>}
+    {activeReview && !paused && <TeacherLessonReviewDialog lesson={activeReview} teacherId={userId} onClose={closeReview} onAssign={request => {
+      autoReviewSnoozedUntil.current = Date.now() + 10 * 60_000;
+      setSnoozed(current => ({...current,[request.id]:autoReviewSnoozedUntil.current}));
+      onOpen?.(request);
+    }}/>}
     {reminder && !paused && !activeReview && <HomeworkReminderCard reminder={reminder} teacherId={userId} count={visible.length} busy={busy} error={error}
     suggestion={suggestion?.id === reminder.id && suggestion?.userId === userId ? suggestion : null}
     onDismiss={dismiss} onOpen={() => {
