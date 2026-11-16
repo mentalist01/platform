@@ -10,7 +10,10 @@ export default defineConfig({
         manualChunks(id) {
           const moduleId = id.replace(/\\/g, '/')
           if (!moduleId.includes('/node_modules/')) return undefined
-          if (moduleId.includes('/monaco-editor/') || moduleId.includes('/@monaco-editor/')) return 'editor-vendor'
+          // Plain editors use the small React/AMD adapter; Yjs uses the ESM
+          // runtime. Do not make every adapter download the whole ESM editor.
+          if (moduleId.includes('/@monaco-editor/')) return 'editor-adapter'
+          if (moduleId.includes('/monaco-editor/')) return 'editor-vendor'
           if (moduleId.includes('/yjs/') || moduleId.includes('/y-websocket/') || moduleId.includes('/y-monaco/')) return 'collaboration-vendor'
           if (moduleId.includes('/prismjs/')) return 'syntax-vendor'
           if (moduleId.includes('/lucide-react/')) return 'icons-vendor'

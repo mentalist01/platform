@@ -26,7 +26,8 @@ import {
   X,
 } from 'lucide-react';
 import { createPortal, flushSync } from 'react-dom';
-import Editor from './SelfHostedMonacoEditor';
+import { createDeferredWorkspacePart } from '../utils/deferWorkspacePart.js';
+const Editor = createDeferredWorkspacePart(() => import('./SelfHostedMonacoEditor'), { label: 'Загружаем редактор…' });
 import ImageViewer from './ImageViewer';
 import StudentSearchSelect from './StudentSearchSelect';
 import { api, authenticatedUploadsFetch, resolveAuthenticatedApiUrl } from '../services/api';

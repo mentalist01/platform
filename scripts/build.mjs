@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
+import { verifySectionStartup } from './check-section-startup.mjs';
 import { recorderPackage, recorderRelease } from '../server/recorderPackage.js';
 import { MAC_PACKAGE_NAME, workbookHelperMacPackage } from '../tools/workbook-helper-mac/package.mjs';
 import {packageWorkbookHelperWindows} from '../tools/IvanEge.WorkbookHelper/package.mjs';
@@ -143,6 +144,8 @@ console.log('[build] packaged macOS workbook helper');
 const windowsHelper=await packageWorkbookHelperWindows(path.join(outDir,'downloads'));
 console.log(`[build] packaged Windows workbook helper ${windowsHelper.version} (${windowsHelper.authenticode.verification})`);
 await verifyInitialBundle();
+const sectionStartup = await verifySectionStartup(outDir);
+console.log('[build] section startup verified: ' + sectionStartup.map(section => `${section.name} ${Math.round(section.bytes / 1024)} KiB`).join(', '));
 await precompressDirectory(outDir);
 console.log(
   `[build] precompressed ${compressedFileCount} files: ${Math.round(rawByteCount / 1024)} KiB -> ${Math.round(compressedByteCount / 1024)} KiB`

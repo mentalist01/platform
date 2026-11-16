@@ -6,15 +6,14 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ArrowUpRight, BarChart2, BookOpen, CheckCircle, Pencil, Plus, RefreshCcw, Sparkles, Target, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import CoinGuideIcon from './CoinGuideTooltip';
-import ProgressReviewModal from './ProgressReviewModal';
-import PythonReviewModal from './PythonReviewModal';
-import PythonTestModal from './PythonTestModal';
+import { createDeferredWorkspacePart } from '../utils/deferWorkspacePart.js';
+const PythonReviewModal = createDeferredWorkspacePart(() => import('./PythonReviewModal'), { label: 'Открываем разбор задачи…', dialog: true });
+const PythonTestModal = createDeferredWorkspacePart(() => import('./PythonTestModal'), { label: 'Открываем задачу Python…', dialog: true });
 import PythonCourseGiftShare from './PythonCourseGiftShare';
 import { normalizePythonHomeworkNumbers } from '../utils/pythonHomeworkLaunch.js';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 import StudentSearchSelect from './StudentSearchSelect';
-import StudentTestModal from './StudentTestModal';
-import TheoryRecordingEditor from './TheoryRecordingEditor';
+const TheoryRecordingEditor = createDeferredWorkspacePart(() => import('./TheoryRecordingEditor'), { label: 'Открываем редактор видеоразбора…' });
 import { Button, Card } from './ui';
 import {
   buildPythonSubsectionModel,
