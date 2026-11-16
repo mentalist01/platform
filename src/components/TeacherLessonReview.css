@@ -31,6 +31,8 @@
 .teacher-lesson-review__homeworks tbody th {font-weight:500;}
 .teacher-lesson-review__homeworks small {margin-top:2px;}
 .teacher-lesson-review__parent {padding:14px;border:1px solid #f1d5a6;border-radius:12px;background:#fff9ee;}
+.teacher-lesson-review__copy {display:inline-flex;align-items:center;gap:7px;margin-top:12px;padding:8px 12px;border:1px solid #dcc8f4;border-radius:9px;background:white;color:#6a3daa;font:inherit;cursor:pointer;}
+.teacher-lesson-review__parent-prompt {display:block;width:100%;min-height:180px;margin-top:10px;padding:12px;resize:vertical;border:1px solid #e5d5bb;border-radius:9px;background:#fff;font:inherit;line-height:1.5;color:inherit;}
 .teacher-lesson-review details {margin-top:10px;font-size:13px;}
 .teacher-lesson-review summary {cursor:pointer;color:#6a3daa;}
 .teacher-lesson-review details p {margin-top:8px;}

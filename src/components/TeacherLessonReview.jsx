@@ -1,6 +1,6 @@
 import {useEffect, useId, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
-import {ArrowRight, BookOpen, Minus, X} from 'lucide-react';
+import {ArrowRight, BookOpen, Copy, Minus, X} from 'lucide-react';
 import {lessonReview, studentLessonReviews} from '../services/homeworkReminders';
 import {HomeworkLessonNotePreview} from './TeacherHomeworkNotes';
 import './TeacherLessonReview.css';
@@ -46,6 +46,30 @@ function HomeworkHistory({preparation}) {
   </tbody></table>;
 }
 
+function ParentMiniReport({row}) {
+  const [copyStatus,setCopyStatus]=useState('');
+  const recommended=row.preparation?.parent?.recommended;
+  const prompt=row.parentPrompt;
+  const copyPrompt=async()=>{
+    try{
+      await navigator.clipboard.writeText(prompt);
+      setCopyStatus('Скопировано');
+    }catch{
+      setCopyStatus('Выделите текст ниже и скопируйте его');
+    }
+  };
+  return <section className={recommended ? 'teacher-lesson-review__parent' : ''}>
+    <h4>{recommended ? 'Предлагаю мини-отчёт родителю' : 'Родителю'}</h4>
+    <p>{row.preparation?.parent?.text || row.parentRecommendation || 'По последним домашкам повода для мини-отчёта не выявлено.'}</p>
+    {prompt && <details><summary>Промпт для Gemini</summary>
+      <button type="button" className="teacher-lesson-review__copy" onClick={copyPrompt}><Copy size={15}/>Скопировать промпт</button>
+      {copyStatus && <small role="status">{copyStatus}</small>}
+      <textarea className="teacher-lesson-review__parent-prompt" aria-label={`Промпт для Gemini по ученику ${row.name}`} readOnly value={prompt} rows={10}/>
+    </details>}
+    {row.parentDraft && <details><summary>Черновик мини-отчёта</summary><p>{row.parentDraft}</p></details>}
+  </section>;
+}
+
 function StudentReview({row, review, teacherId, onAssign}) {
   const prep = row.preparation;
   const topics = (prep?.current || []).flatMap(work => work.topics || []);
@@ -55,7 +79,7 @@ function StudentReview({row, review, teacherId, onAssign}) {
   if (review.phase === 'before') return <article className="teacher-lesson-review__student"><h3>{row.name}</h3>
     <section><h4>Последние три домашки</h4><HomeworkHistory preparation={prep}/></section>
     {topics.length > 0 && <section><h4>К этому уроку</h4><ul>{topics.map((topic,index) => <li key={index}><span>{topic.label}</span><b>{topic.ready}/{topic.ready+topic.missing+topic.unknown}</b></li>)}</ul><p>Готово {prep.ready} · осталось {prep.missing}{prep.unknown ? ` · без точного времени ${prep.unknown}` : ''}</p></section>}
-    {prep?.parent?.recommended && <p className="teacher-lesson-review__parent">{prep.parent.text}</p>}
+    {prep?.parent?.recommended && <ParentMiniReport row={row}/>}
   </article>;
   return <article className="teacher-lesson-review__student">
     <h3>{row.name}</h3>
@@ -70,10 +94,7 @@ function StudentReview({row, review, teacherId, onAssign}) {
     <section><h4>Последние домашки</h4><HomeworkHistory preparation={prep}/></section>
     {row.concerns && <section><h4>Что не получилось</h4><p>{row.concerns}</p></section>}
     <ExamForecast exam={row.exam}/>
-    <section className={prep?.parent?.recommended ? 'teacher-lesson-review__parent' : ''}><h4>Родителю</h4>
-      <p>{prep?.parent?.recommended ? `${prep.parent.text} Стоит обсудить регулярность подготовки.` : 'По последним домашкам систематических пропусков не видно.'}</p>
-      {row.parentDraft && <details><summary>Текст для родителя</summary><p>{row.parentDraft}</p></details>}
-    </section>
+    <ParentMiniReport row={row}/>
     <details><summary>Подробности урока</summary>
       {topics.length > 0 && <><p>К началу урока готово {prep.ready}, осталось {prep.missing}{prep.unknown > 0 ? `, без точного времени ${prep.unknown}` : ''}.</p><ul>{topics.map((topic,index) => <li key={index}><span>{topic.label}</span><b>{topic.ready}/{topic.ready+topic.missing+topic.unknown}</b></li>)}</ul></>}
       {row.repeat && <p>{row.repeat}</p>}{row.context && <p>{row.context}</p>}
