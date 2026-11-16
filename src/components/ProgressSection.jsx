@@ -50,7 +50,7 @@ import StudentSearchSelect from './StudentSearchSelect';
 import StudentTestModal from './StudentTestModal';
 import StudentWeeklyRecap from './StudentWeeklyRecap';
 import { Button, Card } from './ui';
-import chestClosedImage from '../assets/mock-chest/chest-closed.png';
+import chestClosedImage from '../assets/mock-chest/chest-closed-thumb-96.webp';
 import { normalizeMockExamBadges } from '../utils/mockExamBadges';
 import { loadOfflineHomeworkPackage } from '../utils/offlineHomework';
 import useMockExamTimerConfirmation from '../hooks/useMockExamTimerConfirmation';

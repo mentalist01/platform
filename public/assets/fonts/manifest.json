@@ -1,0 +1,152 @@
+{
+  "cssSource": "https://fonts.googleapis.com/css2?family=Caveat:wght@500..700&family=Manrope:wght@300..800&family=Unbounded:wght@400..800&family=JetBrains+Mono:wght@400..600&display=swap",
+  "fonts": [
+    {
+      "family": "Caveat",
+      "subset": "cyrillic-ext",
+      "file": "caveat-cyrillic-ext-4956ec7b1979.woff2",
+      "bytes": 42856,
+      "source": "https://fonts.gstatic.com/s/caveat/v23/Wnz6HAc5bAfYB2Q7azYYmg8.woff2"
+    },
+    {
+      "family": "Caveat",
+      "subset": "cyrillic",
+      "file": "caveat-cyrillic-6276a2f5a555.woff2",
+      "bytes": 77216,
+      "source": "https://fonts.gstatic.com/s/caveat/v23/Wnz6HAc5bAfYB2Q7YjYYmg8.woff2"
+    },
+    {
+      "family": "Caveat",
+      "subset": "latin-ext",
+      "file": "caveat-latin-ext-f626b95c1efa.woff2",
+      "bytes": 29472,
+      "source": "https://fonts.gstatic.com/s/caveat/v23/Wnz6HAc5bAfYB2Q7aDYYmg8.woff2"
+    },
+    {
+      "family": "Caveat",
+      "subset": "latin",
+      "file": "caveat-latin-891951df5e8b.woff2",
+      "bytes": 74932,
+      "source": "https://fonts.gstatic.com/s/caveat/v23/Wnz6HAc5bAfYB2Q7ZjYY.woff2"
+    },
+    {
+      "family": "JetBrains Mono",
+      "subset": "cyrillic-ext",
+      "file": "jetbrains-mono-cyrillic-ext-62213be8a78b.woff2",
+      "bytes": 1640,
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx3cwhsk.woff2"
+    },
+    {
+      "family": "JetBrains Mono",
+      "subset": "cyrillic",
+      "file": "jetbrains-mono-cyrillic-e17cfd15fb96.woff2",
+      "bytes": 8872,
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxTcwhsk.woff2"
+    },
+    {
+      "family": "JetBrains Mono",
+      "subset": "greek",
+      "file": "jetbrains-mono-greek-0a557721b1f8.woff2",
+      "bytes": 6836,
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxPcwhsk.woff2"
+    },
+    {
+      "family": "JetBrains Mono",
+      "subset": "vietnamese",
+      "file": "jetbrains-mono-vietnamese-c89b9cc0bc62.woff2",
+      "bytes": 5888,
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx_cwhsk.woff2"
+    },
+    {
+      "family": "JetBrains Mono",
+      "subset": "latin-ext",
+      "file": "jetbrains-mono-latin-ext-db5ff4db83e5.woff2",
+      "bytes": 11624,
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx7cwhsk.woff2"
+    },
+    {
+      "family": "JetBrains Mono",
+      "subset": "latin",
+      "file": "jetbrains-mono-latin-83c005d49d8a.woff2",
+      "bytes": 31432,
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2"
+    },
+    {
+      "family": "Manrope",
+      "subset": "cyrillic-ext",
+      "file": "manrope-cyrillic-ext-3c09135e88bb.woff2",
+      "bytes": 2588,
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggqxSuXd.woff2"
+    },
+    {
+      "family": "Manrope",
+      "subset": "cyrillic",
+      "file": "manrope-cyrillic-447c49583b1b.woff2",
+      "bytes": 14352,
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggOxSuXd.woff2"
+    },
+    {
+      "family": "Manrope",
+      "subset": "greek",
+      "file": "manrope-greek-e507c109c317.woff2",
+      "bytes": 9268,
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggSxSuXd.woff2"
+    },
+    {
+      "family": "Manrope",
+      "subset": "vietnamese",
+      "file": "manrope-vietnamese-dbf64d973b39.woff2",
+      "bytes": 8388,
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggixSuXd.woff2"
+    },
+    {
+      "family": "Manrope",
+      "subset": "latin-ext",
+      "file": "manrope-latin-ext-2f7335119075.woff2",
+      "bytes": 15160,
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggmxSuXd.woff2"
+    },
+    {
+      "family": "Manrope",
+      "subset": "latin",
+      "file": "manrope-latin-8c2def024c1b.woff2",
+      "bytes": 24532,
+      "source": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggexSg.woff2"
+    },
+    {
+      "family": "Unbounded",
+      "subset": "cyrillic-ext",
+      "file": "unbounded-cyrillic-ext-f25c38d28da3.woff2",
+      "bytes": 1840,
+      "source": "https://fonts.gstatic.com/s/unbounded/v12/Yq6W-LOTXCb04q32xlpwtsZfrxE.woff2"
+    },
+    {
+      "family": "Unbounded",
+      "subset": "cyrillic",
+      "file": "unbounded-cyrillic-e30bf6a6063b.woff2",
+      "bytes": 31424,
+      "source": "https://fonts.gstatic.com/s/unbounded/v12/Yq6W-LOTXCb04q32xlpwv8ZfrxE.woff2"
+    },
+    {
+      "family": "Unbounded",
+      "subset": "vietnamese",
+      "file": "unbounded-vietnamese-aa6b9cba3768.woff2",
+      "bytes": 13884,
+      "source": "https://fonts.gstatic.com/s/unbounded/v12/Yq6W-LOTXCb04q32xlpwtMZfrxE.woff2"
+    },
+    {
+      "family": "Unbounded",
+      "subset": "latin-ext",
+      "file": "unbounded-latin-ext-845e1c9fe2e9.woff2",
+      "bytes": 118348,
+      "source": "https://fonts.gstatic.com/s/unbounded/v12/Yq6W-LOTXCb04q32xlpwtcZfrxE.woff2"
+    },
+    {
+      "family": "Unbounded",
+      "subset": "latin",
+      "file": "unbounded-latin-22f9b928aa39.woff2",
+      "bytes": 50904,
+      "source": "https://fonts.gstatic.com/s/unbounded/v12/Yq6W-LOTXCb04q32xlpwu8Zf.woff2"
+    }
+  ]
+}
