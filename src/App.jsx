@@ -17,6 +17,7 @@ import {studySubjectGroup} from './utils/studySubjects.js';
 import {STUDY_CONTINUE_EVENT} from './services/studentStudyProgress.js';
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import LessonFallback from './components/LessonFallback.jsx';
+import { createLessonRefreshGate } from './utils/lessonRefreshGate.js';
 import StudentViewSession,{StudentViewClosed} from './components/StudentViewSession.jsx';
 import {isStudentViewTab,readStoredAuthUser,writeStoredAuthUser,removeStoredAuthUser} from './utils/authSessionStorage.js';
 import BoardMinimap from './components/BoardMinimap.jsx';
@@ -21895,7 +21896,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   // navigation: restarting the initial load unmounts an individual call.
   const openLearningLessonRef = useRef(handleOpenLearningGroupLesson);
   openLearningLessonRef.current = handleOpenLearningGroupLesson;
-  const refreshStudentLessonWorkspace = useCallback(async ({ silent = false } = {}) => {
+  const workspaceRefreshGate = useMemo(() => createLessonRefreshGate(), [user.id, user.role]);
+  const refreshStudentLessonWorkspace = useCallback(({ silent = false, urgent = !silent } = {}) => workspaceRefreshGate(async () => {
     if (user.role !== 'student') return null;
     if (currentTrialWorkspaceRef.current) return currentTrialWorkspaceRef.current;
     const requestId = studentLessonWorkspaceRequestRef.current + 1;
@@ -21997,7 +21999,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       }));
       return null;
     }
-  }, [user.id, user.role]);
+  }, { urgent }), [user.id, user.role, workspaceRefreshGate]);
 
   // The server reveals Telemost five minutes before the lesson. Refresh at
   // that boundary so an already-open tab receives the link immediately.
@@ -22007,7 +22009,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (!Number.isFinite(startMs)) return undefined;
     const revealAtMs = startMs - LEARNING_GROUP_TELEMOST_EARLY_JOIN_MS;
     const refreshAtEarlyJoin = () => {
-      if (Date.now() >= revealAtMs) void refreshStudentLessonWorkspace({ silent: true });
+      if (Date.now() >= revealAtMs) void refreshStudentLessonWorkspace({ silent: true, urgent: true });
     };
     const delayMs = Math.max(0, revealAtMs - Date.now()) + 250;
     const timerId = window.setTimeout(refreshAtEarlyJoin, Math.min(delayMs, 2_147_000_000));
@@ -22018,19 +22020,19 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     if (user.role !== 'student') return undefined;
     void refreshStudentLessonWorkspace();
     if (typeof window === 'undefined') return undefined;
-    const refresh = () => void refreshStudentLessonWorkspace({ silent: true });
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') refresh();
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void refreshStudentLessonWorkspace({ silent: true });
     };
+    const refreshMembership = () => void refreshStudentLessonWorkspace({ silent: true, urgent: true });
     const timer = window.setInterval(refresh, 60 * 1000);
     window.addEventListener('focus', refresh);
-    window.addEventListener('learning-groups-changed', refresh);
-    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('learning-groups-changed', refreshMembership);
+    document.addEventListener('visibilitychange', refresh);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
-      window.removeEventListener('learning-groups-changed', refresh);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('learning-groups-changed', refreshMembership);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, [refreshStudentLessonWorkspace, user.role]);
 

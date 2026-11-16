@@ -7,6 +7,7 @@ import { normalizeHttpUrl } from '../utils/linkifyText';
 import { normalizeTelemostUrl } from '../utils/telemost';
 import { trialLessonMeetingUrl } from '../utils/trialInvitation.js';
 import {startTrialLesson} from '../services/trialLesson.js';
+import { createLessonRefreshGate } from '../utils/lessonRefreshGate.js';
 
 const LESSON_JOIN_PROMPT_LEAD_MS = 3 * 60 * 1000;
 const LESSON_JOIN_PROMPT_AFTER_START_MS = 12 * 60 * 1000;
@@ -325,7 +326,8 @@ const StudentLessonJoinPrompt = ({
     });
   }, [storageKey]);
 
-  const refreshPromptData = useCallback(async () => {
+  const refreshGate = useMemo(() => createLessonRefreshGate(), [studentId]);
+  const refreshPromptData = useCallback(({ urgent = false } = {}) => refreshGate(async () => {
     if (!studentId) {
       setScheduleEntries([]);
       setNextLesson({});
@@ -348,27 +350,25 @@ const StudentLessonJoinPrompt = ({
     if (telemostResult.status === 'fulfilled') {
       setTelemostUrl(normalizeTelemostUrl(telemostResult.value?.telemostUrl));
     }
-  }, [studentId]);
+  }, { urgent }), [refreshGate, studentId]);
 
   useEffect(() => {
     refreshPromptData();
     if (typeof window === 'undefined') return undefined;
 
     const refreshAndTick = () => {
+      if (document.visibilityState !== 'visible') return;
       setNow(new Date());
       refreshPromptData();
     };
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') refreshAndTick();
-    };
 
-    const timerId = window.setInterval(refreshPromptData, LESSON_JOIN_PROMPT_REFRESH_MS);
+    const timerId = window.setInterval(refreshAndTick, LESSON_JOIN_PROMPT_REFRESH_MS);
     window.addEventListener('focus', refreshAndTick);
-    document.addEventListener('visibilitychange', handleVisibility);
+    document.addEventListener('visibilitychange', refreshAndTick);
     return () => {
       window.clearInterval(timerId);
       window.removeEventListener('focus', refreshAndTick);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      document.removeEventListener('visibilitychange', refreshAndTick);
     };
   }, [refreshPromptData]);
 
@@ -397,7 +397,7 @@ const StudentLessonJoinPrompt = ({
     if (!Number.isFinite(startMs) || startMs <= Date.now()) return undefined;
     const delayMs = Math.max(0, startMs - Date.now()) + 250;
     const timerId = window.setTimeout(() => {
-      void refreshPromptData();
+      void refreshPromptData({ urgent: true });
       setNow(new Date());
     }, Math.min(delayMs, 2_147_000_000));
     return () => window.clearTimeout(timerId);

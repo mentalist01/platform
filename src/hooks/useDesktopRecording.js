@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
+import { createLessonRefreshGate } from '../utils/lessonRefreshGate.js';
 
 export default function useDesktopRecording({ user, active, studentId, learningLessonId, audioMode }) {
   const [settings, setSettings] = useState(null);
@@ -13,7 +14,15 @@ export default function useDesktopRecording({ user, active, studentId, learningL
   useEffect(() => {
     setSettings(null); setCheckedAt(0); jobRef.current = null; setJobId('');
     let cancelled = false;
-    const poll = () => api.desktopRecording().then((value) => { if (!cancelled) { setSettings(value); setCheckedAt(Date.now()); } }).catch(() => {});
+    const refreshGate = createLessonRefreshGate();
+    const poll = () => refreshGate(async () => {
+      try {
+        const value = await api.desktopRecording();
+        if (!cancelled) { setSettings(value); setCheckedAt(Date.now()); }
+      } catch {
+        // The next poll can recover when the server responds again.
+      }
+    });
     void poll(); const timer = setInterval(poll, 5000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [user.id, user.role]);
