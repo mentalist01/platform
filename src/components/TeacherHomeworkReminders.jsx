@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BookOpen, ArrowRight, Check } from 'lucide-react';
-import { homeworkReminders, homeworkSuggestion } from '../services/homeworkReminders';
+import { homeworkReminders, homeworkSuggestion, recentLessonReviews } from '../services/homeworkReminders';
+import {TeacherLessonReviewDialog} from './TeacherLessonReview';
 import './TeacherHomeworkReminders.css';
 import TeacherParentReportReminder from './TeacherParentReportReminder';
 import TeacherHomeworkNotes, { HomeworkLessonNotePreview } from './TeacherHomeworkNotes';
@@ -43,6 +44,9 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
   const [error, setError] = useState('');
   const [snoozed, setSnoozed] = useState({});
   const [suggestion, setSuggestion] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [activeReview, setActiveReview] = useState(null);
+  const seen = useRef(new Set());
   const alive = useRef(false);
   useEffect(() => {
     let cancelled = false;
@@ -50,12 +54,18 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
     alive.current = true;
     setReminders([]);
     setSnoozed({});
+    setActiveReview(null);
+    setReviews([]);
+    try {seen.current = new Set(JSON.parse(localStorage.getItem(`lesson-reviews-seen:${userId}`) || '[]'));}
+    catch {seen.current = new Set();}
     const refresh = async () => {
       if (inFlight || document.visibilityState === 'hidden') return;
       inFlight = true;
       try {
         const payload = await homeworkReminders();
         if (!cancelled) setReminders(payload.reminders || []);
+        const recent = await recentLessonReviews();
+        if (!cancelled) setReviews(recent.lessons || []);
       } catch { /* A temporary outage must not invent missing homework. */ }
       finally { inFlight = false; }
     };
@@ -70,6 +80,15 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
       window.removeEventListener('focus', refresh);
     };
   }, [userId]);
+  useEffect(() => {
+    if (!paused && !activeReview) setActiveReview(reviews.find(review => !seen.current.has(review.id)) || null);
+  }, [paused, reviews, activeReview]);
+  const closeReview = () => {
+    if (!activeReview) return;
+    seen.current.add(activeReview.id);
+    try {localStorage.setItem(`lesson-reviews-seen:${userId}`, JSON.stringify([...seen.current].slice(-100)));} catch { /* The dialog remains usable when browser storage is full. */ }
+    setActiveReview(null);
+  };
   const visible = reminders.filter(reminder => !(snoozed[reminder.id] > Date.now()));
   const reminder = visible[0];
   const suggestionId = paused ? null : reminder?.id;
@@ -108,11 +127,13 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
     finally { if (alive.current) setBusy(false); }
   };
   return <><TeacherHomeworkNotes teacherId={userId} students={students} groups={noteContext.groups} activeStudentId={noteContext.studentId} activeGroupId={noteContext.groupId} visible={paused} />
-    <TeacherParentReportReminder userId={userId} students={students} onStudentUpdated={onStudentUpdated} paused={paused} showEntry={!reminder} />
-    {reminder && !paused && <HomeworkReminderCard reminder={reminder} teacherId={userId} count={visible.length} busy={busy} error={error}
+    <TeacherParentReportReminder userId={userId} students={students} onStudentUpdated={onStudentUpdated} paused={paused || Boolean(activeReview)} showEntry={!reminder} />
+    {activeReview && !paused && <TeacherLessonReviewDialog lesson={activeReview} teacherId={userId} onClose={closeReview} onAssign={onOpen}/>}
+    {reminder && !paused && !activeReview && <HomeworkReminderCard reminder={reminder} teacherId={userId} count={visible.length} busy={busy} error={error}
     suggestion={suggestion?.id === reminder.id && suggestion?.userId === userId ? suggestion : null}
     onDismiss={dismiss} onOpen={() => {
-      onOpen?.(reminder);
+      const tasks = !reminder.groupId && suggestion?.id === reminder.id ? suggestion.rows?.find(row => row.studentId === reminder.studentId)?.tasks : [];
+      onOpen?.({...reminder,suggestionTasks:tasks});
       setError('');
       setSnoozed(current => ({ ...current, [reminder.id]: Date.now() + 10 * 60_000 }));
     }} />}</>;

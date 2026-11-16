@@ -32,6 +32,7 @@ import { Button, Card } from './ui';
 import LinkifiedText from './LinkifiedText';
 import QuestionDifficultyBadge from './QuestionDifficultyBadge';
 const StudentMonthlyReportModal = createDeferredWorkspacePart(() => import('./StudentMonthlyReportModal'), { label: 'Открываем отчёт ученика…', dialog: true });
+const StudentLessonReviewHistory = createDeferredWorkspacePart(() => import('./TeacherLessonReview'), {label:'Открываем разборы занятий…', dialog:true});
 import MessageTemplatesButton from './MessageTemplatesButton.jsx';
 import StudentContactLinks from './StudentContactLinks';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
@@ -225,6 +226,7 @@ const TeacherPanel = ({
   onStudentUpdated,
   teacherId,
   onAssignMonthlyMock,
+  onAssignLessonHomework,
   onOpenMonthlyMocks,
   monthlyMockRefreshKey,
   SOFT_DELETE_DAYS,
@@ -321,6 +323,7 @@ const TeacherPanel = ({
   const [resettingBoardStudentId, setResettingBoardStudentId] = useState(null);
   const [restoringStudentId, setRestoringStudentId] = useState(null);
   const [monthlyReportStudent, setMonthlyReportStudent] = useState(null);
+  const [lessonReviewStudent, setLessonReviewStudent] = useState(null);
   const [monthlyReportStatusMonth] = useState(getCurrentMoscowMonth);
   const [monthlyReportStatusSavingId, setMonthlyReportStatusSavingId] = useState('');
   const [teacherCodeForm, setTeacherCodeForm] = useState({ current: '', next: '', repeat: '' });
@@ -3519,6 +3522,7 @@ const TeacherPanel = ({
                           <span className="text-xs font-semibold text-purple-600">Активный</span>
                         )}
                         <OpenStudentSessionButton student={student}/>
+                        <button type="button" className="teacher-student-card__report-button" onClick={event => {event.stopPropagation();setLessonReviewStudent(student);}}><FileText size={15}/> Разборы занятий</button>
                         <label
                           className="teacher-student-card__report-status"
                           data-checked={monthlyReportSent ? 'true' : 'false'}
@@ -3777,6 +3781,7 @@ const TeacherPanel = ({
           onClose={() => setMonthlyReportStudent(null)}
         />
       )}
+      {isStudentsMode && lessonReviewStudent && <StudentLessonReviewHistory student={lessonReviewStudent} teacherId={teacherId} onClose={() => setLessonReviewStudent(null)} onAssign={onAssignLessonHomework}/>}
 
       {isTestsMode && (
       <div id="teacher-question-editor" className="teacher-test-builder-layout" style={selectedTaskAccentStyle}>

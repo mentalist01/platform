@@ -23650,11 +23650,11 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setActiveLearningLesson(null);
     const id = `homework-reminder-${reminder.id}-${Date.now()}`;
     if (reminder.groupId) {
-      setPendingGroupHomeworkRequest({ id, groupId: reminder.groupId });
+      setPendingGroupHomeworkRequest({ id, groupId: reminder.groupId, targetStudentId: reminder.targetStudentId, suggestionTasks: reminder.suggestionTasks });
       navigateToView('groups');
     } else {
       handleSelectStudent(reminder.studentId);
-      setPendingHomeworkPrefill({ id, source: 'reminder', studentId: reminder.studentId });
+      setPendingHomeworkPrefill({ id, source: 'reminder', studentId: reminder.studentId, suggestionTasks: reminder.suggestionTasks });
       navigateToView('schedule');
     }
     setMenuOpen(false);
@@ -27135,6 +27135,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onStudentRestored={handleStudentRestored}
               onStudentUpdated={handleStudentUpdated}
               onAssignMonthlyMock={handleAssignMonthlyMock}
+              onAssignLessonHomework={handleHomeworkReminderOpen}
               onOpenMonthlyMocks={handleOpenMonthlyMocks}
               monthlyMockRefreshKey={`${goalRefreshTick}:${homeworkSyncTick}`}
               teacherId={user.role === 'teacher' ? user.id : null}

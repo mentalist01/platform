@@ -13,3 +13,13 @@ export const homeworkSuggestion = async (id, signal) => {
   if (!response.ok) throw new Error(await parseApiError(response));
   return parseJsonResponse(response);
 };
+
+const reviewRequest = async (route, signal) => {
+  const response = await apiFetch(`/api/reply-assistant/learning/homework-suggestions/${route}`, {signal});
+  if (!response.ok) throw new Error(await parseApiError(response));
+  return parseJsonResponse(response);
+};
+
+export const recentLessonReviews = signal => reviewRequest('recent', signal);
+export const lessonReview = (id, studentId, signal) => reviewRequest(`review/${encodeURIComponent(id)}${studentId ? `/${encodeURIComponent(studentId)}` : ''}`, signal);
+export const studentLessonReviews = (studentId, signal) => reviewRequest(`student/${encodeURIComponent(studentId)}`, signal);

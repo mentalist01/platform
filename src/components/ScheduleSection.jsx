@@ -4693,7 +4693,8 @@ const ScheduleSection = ({
     // Every entry point uses the pupil's lesson draft, including reminders,
     // recordings and the regular “Задать новую домашку” button.
     const pendingBasketItems = [...homeworkLessonBasketItems,
-      ...(prefill?.source === 'lesson-basket' && Array.isArray(prefill.items) ? prefill.items : [])];
+      ...(prefill?.source === 'lesson-basket' && Array.isArray(prefill.items) ? prefill.items : []),
+      ...(prefill?.source === 'reminder' && Array.isArray(prefill.suggestionTasks) ? prefill.suggestionTasks : [])];
     const requestId = homeworkComposerRequestRef.current + 1;
     homeworkComposerRequestRef.current = requestId;
     setEditingId(null);
@@ -4736,6 +4737,7 @@ const ScheduleSection = ({
       ? testsResult.value
       : (testsDb || {});
     const normalizedBasketItems = resolveHomeworkLessonBasketTargets(pendingBasketItems, freshTests);
+    if (normalizedBasketItems.length < pendingBasketItems.length) warnings.push('Некоторые задания из предложения или черновика больше недоступны. Проверьте выбранные номера.');
     const freshMockExams = mockExamsResult.status === 'fulfilled' && Array.isArray(mockExamsResult.value)
       ? mockExamsResult.value
       : mockExams;

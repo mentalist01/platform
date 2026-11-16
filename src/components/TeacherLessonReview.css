@@ -1,0 +1,29 @@
+.teacher-lesson-review {width:min(1120px,94vw);max-height:88dvh;padding:0;border:1px solid #ddd4fe;border-radius:24px;background:#faf9ff;color:#302a43;box-shadow:0 24px 100px #231b4d40;overflow:hidden;font-family:inherit;}
+.teacher-lesson-review::backdrop {background:#26223d75;backdrop-filter:blur(5px);}
+.teacher-lesson-review > header {display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:24px 28px;border-bottom:1px solid #e9e2fb;background:linear-gradient(120deg,#f1eaff,#f2fafa);}
+.teacher-lesson-review h2 {margin:0;font-size:24px;line-height:1.3;}
+.teacher-lesson-review header p {margin:7px 0 0;color:#726784;font-size:14px;}
+.teacher-lesson-review__close {display:grid;place-items:center;flex-shrink:0;width:38px;height:38px;border:1px solid #ded4f4;border-radius:12px;background:#fff;color:#75658f;}
+.teacher-lesson-review__body {padding:24px;overflow:auto;max-height:calc(88dvh - 110px);}
+.teacher-lesson-review__grid {display:grid;gap:18px;}
+.teacher-lesson-review__grid[data-group="true"] {grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;}
+.teacher-lesson-review__student {display:flex;flex-direction:column;gap:17px;min-width:0;padding:22px;border:1px solid #e3d9f7;border-radius:18px;background:#fff;}
+.teacher-lesson-review h3 {margin:0;font-size:21px;}
+.teacher-lesson-review h4 {margin:0 0 7px;font-size:14px;color:#6a3daa;}
+.teacher-lesson-review p {margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;font-size:14px;}
+.teacher-lesson-review small {display:block;margin-top:7px;font-size:12px;line-height:1.45;color:#81768e;}
+.teacher-lesson-review__counts {display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;}
+.teacher-lesson-review__counts span {padding:6px 10px;border-radius:8px;background:#eff8f5;font-size:13px;}
+.teacher-lesson-review__counts span[data-missing="true"] {background:#fff1e3;color:#9b501e;}
+.teacher-lesson-review ul {margin:10px 0;padding:0;list-style:none;}
+.teacher-lesson-review li {display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0ebf8;font-size:13px;}
+.teacher-lesson-review li small {width:100%;margin:0;}
+.teacher-lesson-review__forecast {padding:16px;border:1px solid #d9e5f7;border-radius:12px;background:#f2f7fe;}
+.teacher-lesson-review__parent {padding:14px;border:1px solid #f1d5a6;border-radius:12px;background:#fff9ee;}
+.teacher-lesson-review details {margin-top:10px;font-size:13px;}
+.teacher-lesson-review summary {cursor:pointer;color:#6a3daa;}
+.teacher-lesson-review details p {margin-top:8px;}
+.teacher-lesson-review__assign {display:flex;justify-content:center;align-items:center;gap:8px;padding:12px;border:0;border-radius:12px;background:#8038ed;color:white;font-weight:600;font-size:14px;}
+.teacher-lesson-review__history {display:grid;gap:10px;margin-top:20px;}
+.teacher-lesson-review__history button {display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px;border:1px solid #e4dcf6;border-radius:12px;background:white;color:inherit;text-align:left;}
+@media(max-width:700px) {.teacher-lesson-review__grid[data-group="true"]{grid-template-columns:1fr;}.teacher-lesson-review > header{padding:18px;}.teacher-lesson-review h2{font-size:20px;}.teacher-lesson-review__body{padding:14px;}.teacher-lesson-review__student{padding:17px;}}

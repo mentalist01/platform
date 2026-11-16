@@ -70,6 +70,7 @@ import {
   normalizeLearningGroupMaterial,
 } from '../utils/learningGroups';
 import { formatHomeworkQuestionRanges } from '../utils/homeworkComposer';
+import {resolveHomeworkLessonBasketTargets} from '../utils/homeworkLessonBasket';
 import { weeklyHomeworkDeadline, homeworkStudyTrackLabel } from '../utils/concurrentHomework';
 import { groupHomeworkDefaultDueAt, groupHomeworkLessonChoices, groupHomeworkStudyTrackAt } from '../utils/groupStudyPlan';
 import GroupStudyPlanSettings from './GroupStudyPlanSettings';
@@ -958,10 +959,15 @@ const LearningGroupsSection = ({
     }
   };
 
-  const openAssignmentComposer = async (assignment = null) => {
+  const openAssignmentComposer = async (assignment = null, suggestion = null) => {
     if (!selectedGroup) return;
     setAssignmentComposerEditing(assignment);
-    setAssignmentComposerForm(buildGroupHomeworkComposerForm(assignment));
+    const initialForm = buildGroupHomeworkComposerForm(assignment);
+    if (suggestion?.targetStudentId) {
+      initialForm.recipientMode = 'selected';
+      initialForm.recipientIds = [suggestion.targetStudentId];
+    }
+    setAssignmentComposerForm(initialForm);
     setAssignmentComposerError('');
     setAssignmentComposerOpen(true);
     setAssignmentComposerLoading(true);
@@ -976,6 +982,20 @@ const LearningGroupsSection = ({
     ]);
     if (testsResult.status === 'fulfilled') {
       setAssignmentTestsDb(asObject(testsResult.value));
+      if (Array.isArray(suggestion?.suggestionTasks)) {
+        const targets = resolveHomeworkLessonBasketTargets(suggestion.suggestionTasks, testsResult.value);
+        const goals = new Map();
+        for (const item of targets) {
+          const key = `${item.taskNumber}:${item.levelId}`;
+          if (!goals.has(key)) goals.set(key, {...createDefaultGroupHomeworkGoal(),taskNumber:String(item.taskNumber),levelId:item.levelId,targetQuestions:[],targetQuestionIds:[]});
+          const goal = goals.get(key);
+          goal.targetQuestions.push(item.questionNumber);
+          goal.targetQuestionIds.push(item.questionId);
+          goal.targetInput = formatHomeworkQuestionRanges(goal.targetQuestions);
+        }
+        if (goals.size) setAssignmentComposerForm(current => ({...current,goals:[...goals.values()],studyTrack:targets.every(item=>item.levelId==='python')?'python':current.studyTrack}));
+        if (targets.length < suggestion.suggestionTasks.length) setAssignmentComposerError('Некоторые предложенные задания больше недоступны. Проверьте список перед назначением.');
+      }
     } else {
       setAssignmentTestsDb({});
       setAssignmentComposerError(`Не удалось загрузить базу заданий: ${testsResult.reason?.message || testsResult.reason}`);
@@ -1012,7 +1032,7 @@ const LearningGroupsSection = ({
     if (detailLoading || !group.homeworkDetailsLoaded) return;
     homeworkRequestHandledRef.current = openHomeworkRequest.id;
     setTab('assignments');
-    void openAssignmentComposer().finally(() => onHomeworkRequestHandled?.());
+    void openAssignmentComposer(null, openHomeworkRequest).finally(() => onHomeworkRequestHandled?.());
   }, [detailLoading, groups, isTeacher, loading, onHomeworkRequestHandled, openHomeworkRequest, selectedGroupId]);
 
   const updateAssignmentComposerGoal = (index, patch) => {
