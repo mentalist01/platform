@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, Volume2, X } from 'lucide-react';
+import { useFullscreenPortalTarget } from '../hooks/useFullscreenPortalTarget.js';
 import './LessonAlarmControls.css';
 
 export function LessonAlarmNotice({ alarm }) {
+  const portalTarget = useFullscreenPortalTarget();
   if (!alarm?.enabled) return null;
   const blocked = alarm.audioState !== 'running';
   if (!blocked && !alarm.ringing && !alarm.error) return null;
-  return <div className="lesson-alarm-notice" role="status" data-ringing={Boolean(alarm.ringing)}>
+  const notice = <div className="lesson-alarm-notice" role="status" data-ringing={Boolean(alarm.ringing)}>
     <Bell size={16} aria-hidden="true" />
     <span>{alarm.ringing
       ? `Через несколько минут занятие: ${alarm.ringing.title} · ${new Date(alarm.ringing.startMs).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}${alarm.ringing.simultaneousCount > 1 ? ` · сигналов: ${alarm.ringing.simultaneousCount}` : ''}`
@@ -14,6 +17,7 @@ export function LessonAlarmNotice({ alarm }) {
     {blocked && <button type="button" onClick={alarm.test}><Volume2 size={14} />Включить и проверить звук</button>}
     {alarm.ringing && <button type="button" onClick={alarm.stop}><X size={14} />Остановить во всех вкладках</button>}
   </div>;
+  return alarm.ringing && portalTarget ? createPortal(notice, portalTarget) : notice;
 }
 
 export function LessonAlarmSettings({ alarm }) {

@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {pythonGroupBoardRoom,pythonGroupCodeBase,livePythonGroupTask,livePythonLessonTask,pythonLessonTeacherPresent,pythonLessonTaskControl} from './pythonGroupWorkspace.js';
+import {Doc} from 'yjs';
+import {flushPythonLessonTask,pythonGroupBoardRoom,pythonGroupCodeBase,livePythonGroupTask,livePythonLessonTask,pythonLessonTeacherPresent,pythonLessonTaskControl} from './pythonGroupWorkspace.js';
 import {livePythonExplanation} from './pythonExplanationBoard.js';
 import {authorizeLearningCollabUpgrade} from '../../server/learningLessonAccess.js';
 const teacher={id:'teacher-a',role:'teacher'},pupil={id:'student-a',role:'student',teacherId:'teacher-a'},other={id:'student-b',role:'student',teacherId:'teacher-a'};
@@ -56,4 +57,60 @@ test('group discovery and individual navigation use separate live control channe
   assert.equal(pythonLessonTeacherPresent(command,peers,teacher.id,'group-a'),true);
   assert.equal(pythonLessonTeacherPresent(command,[],teacher.id,'group-a'),false);
   assert.equal(pythonLessonTeacherPresent(command,peers,teacher.id),false);
+});
+
+test('a second teacher tab cannot replay an old task or close the current task', t => {
+  for (const context of [{teacherId:teacher.id, studentId:pupil.id}, {teacherId:teacher.id, groupId:'group-a'}]) {
+    const doc = new Doc();
+    t.after(() => doc.destroy());
+    const roomId = context.groupId || context.studentId;
+    const controlKey = pythonLessonTaskControl(context.groupId);
+    const control = doc.getMap('pageControl');
+    const peers = [];
+    const studentSelections = [];
+    const getStudentTask = () => livePythonLessonTask(control.get(controlKey), peers, context);
+
+    function openTeacherTab() {
+      const pending = {current:null};
+      const local = {};
+      peers.push(local);
+      const provider = {wsconnected:true, synced:true, awareness:{
+        getLocalState: () => local,
+        setLocalStateField: (field, value) => {
+          local[field] = value;
+          const received = getStudentTask();
+          if (received?.open) studentSelections.push(received.questionIndex);
+        },
+      }};
+      const flush = () => flushPythonLessonTask(pending, {roomId, control, provider}, roomId, controlKey, teacher.id);
+      const select = questionIndex => {
+        pending.current = {roomId, command:{...context, active:true, open:questionIndex !== null,
+          taskNumber:questionIndex === null ? 0 : 105, questionIndex:questionIndex ?? 0}};
+        flush();
+      };
+      return {provider, flush, select};
+    }
+
+    const first = openTeacherTab();
+    first.select(1);
+    const second = openTeacherTab();
+    second.select(null);
+    assert.equal(getStudentTask()?.questionIndex, 1);
+
+    second.provider.synced = false;
+    second.select(2);
+    second.select(3);
+    assert.equal(getStudentTask()?.questionIndex, 1);
+    second.provider.synced = true;
+    second.flush();
+    first.flush();
+    second.flush();
+    assert.deepEqual(studentSelections, [1, 3]);
+    assert.equal(getStudentTask()?.questionIndex, 3);
+
+    first.select(null);
+    assert.equal(getStudentTask()?.questionIndex, 3);
+    second.select(null);
+    assert.equal(getStudentTask()?.open, false);
+  }
 });

@@ -13,6 +13,26 @@ export function pythonLessonTaskControl(groupId) {
   return groupId ? PYTHON_GROUP_TASK_CONTROL : PYTHON_INDIVIDUAL_TASK_CONTROL;
 }
 
+export function flushPythonLessonTask(pending, workspace, roomId, controlKey, userId) {
+  const queued = pending.current;
+  if (queued?.roomId !== roomId || workspace?.roomId !== roomId
+    || !workspace.provider.wsconnected || !workspace.provider.synced) return;
+
+  // Consume the selection before touching the shared map, whose observers run synchronously.
+  pending.current = null;
+  const {command} = queued;
+  const {control, provider: {awareness}} = workspace;
+  const previous = control.get(controlKey);
+  const local = awareness.getLocalState()?.[controlKey];
+  const ownsPrevious = Boolean(previous?.id && local?.id === previous.id);
+  if (!command.open && previous?.open && !ownsPrevious) return;
+  if (ownsPrevious && JSON.stringify({...previous, id:undefined}) === JSON.stringify(command)) return;
+
+  const next = {...command, id:crypto.randomUUID()};
+  control.set(controlKey, next);
+  awareness.setLocalStateField(controlKey, {id:next.id, userId, open:next.open});
+}
+
 export function pythonLessonTeacherPresent(command, peers, teacherId, groupId='') {
   const key = pythonLessonTaskControl(groupId);
   return Boolean(command?.active !== false && command?.id && peers.some(peer => (
