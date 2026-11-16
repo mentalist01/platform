@@ -989,6 +989,10 @@ const LearningGroupsSection = ({
           const key = `${item.taskNumber}:${item.levelId}`;
           if (!goals.has(key)) goals.set(key, {...createDefaultGroupHomeworkGoal(),taskNumber:String(item.taskNumber),levelId:item.levelId,targetQuestions:[],targetQuestionIds:[]});
           const goal = goals.get(key);
+          if (getPythonHomeworkTheorySelection(item) && !getPythonHomeworkTheorySelection(goal)) {
+            goal.pythonTheorySubsectionId = item.pythonTheorySubsectionId;
+            goal.pythonTheoryType = item.pythonTheoryType;
+          }
           goal.targetQuestions.push(item.questionNumber);
           goal.targetQuestionIds.push(item.questionId);
           goal.targetInput = formatHomeworkQuestionRanges(goal.targetQuestions);

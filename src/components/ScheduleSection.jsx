@@ -4738,6 +4738,7 @@ const ScheduleSection = ({
       : (testsDb || {});
     const normalizedBasketItems = resolveHomeworkLessonBasketTargets(pendingBasketItems, freshTests);
     if (normalizedBasketItems.length < pendingBasketItems.length) warnings.push('Некоторые задания из предложения или черновика больше недоступны. Проверьте выбранные номера.');
+    if (normalizedBasketItems.some(item => item.theoryUnavailable)) warnings.push('Предложенная теория больше недоступна. Выберите видео или текст вручную.');
     const freshMockExams = mockExamsResult.status === 'fulfilled' && Array.isArray(mockExamsResult.value)
       ? mockExamsResult.value
       : mockExams;
@@ -4937,6 +4938,7 @@ const ScheduleSection = ({
           || ''
         ));
         const nextQuestionIds = alignedQuestionIds.every(Boolean) ? alignedQuestionIds : [];
+        const theoryItem = basketItems.find(item => getPythonHomeworkTheorySelection(item));
         const mergedGoal = {
           ...createDefaultGoal(GOAL_TYPE_TASK),
           ...(existingGoal || {}),
@@ -4951,6 +4953,10 @@ const ScheduleSection = ({
           origin: 'new',
           carryover: null,
           continuationOfHomeworkId: '',
+          ...(!getPythonHomeworkTheorySelection(existingGoal) && theoryItem ? {
+            pythonTheorySubsectionId:theoryItem.pythonTheorySubsectionId,
+            pythonTheoryType:theoryItem.pythonTheoryType,
+          } : {}),
         };
         if (matchingGoalIndex >= 0) {
           carryoverGoals[matchingGoalIndex] = mergedGoal;

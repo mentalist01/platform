@@ -38,7 +38,7 @@ export function HomeworkReminderCard({ reminder, teacherId = '', count = 1, busy
   </aside>;
 }
 
-export default function TeacherHomeworkReminders({ userId, onOpen, students, onStudentUpdated, paused = false, noteContext = {} }) {
+export default function TeacherHomeworkReminders({ userId, onOpen, students, onStudentUpdated, paused = false, noteContext = {}, lessonSignal }) {
   const [reminders, setReminders] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -46,6 +46,8 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
   const [suggestion, setSuggestion] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [activeReview, setActiveReview] = useState(null);
+  const [liveReviews, setLiveReviews] = useState([]);
+  const refreshRef = useRef(null);
   const seen = useRef(new Set());
   const autoReviewSnoozedUntil = useRef(0);
   const alive = useRef(false);
@@ -58,6 +60,7 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
     setActiveReview(null);
     autoReviewSnoozedUntil.current = 0;
     setReviews([]);
+    setLiveReviews([]);
     try {seen.current = new Set(JSON.parse(localStorage.getItem(`lesson-reviews-seen:${userId}`) || '[]'));}
     catch {seen.current = new Set();}
     const refresh = async () => {
@@ -67,27 +70,34 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
         const payload = await homeworkReminders();
         if (!cancelled) setReminders(payload.reminders || []);
         const recent = await recentLessonReviews();
-        if (!cancelled) setReviews(recent.lessons || []);
+        if (!cancelled) {setReviews(recent.lessons || []);setLiveReviews(recent.activeLessons || []);}
       } catch { /* A temporary outage must not invent missing homework. */ }
       finally { inFlight = false; }
     };
     void refresh();
+    refreshRef.current = refresh;
     const timer = window.setInterval(refresh, 30_000);
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
     return () => {
       cancelled = true; alive.current = false;
+      refreshRef.current = null;
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('focus', refresh);
     };
   }, [userId]);
+  useEffect(() => {void refreshRef.current?.();}, [lessonSignal]);
   useEffect(() => {
-    if (!paused && !activeReview && autoReviewSnoozedUntil.current <= Date.now()) setActiveReview(reviews.find(review => !seen.current.has(review.id)) || null);
-  }, [paused, reviews, activeReview]);
+    const unseen = review => !seen.current.has(`${review.phase || 'after'}:${review.id}`) && !(review.phase !== 'before' && seen.current.has(review.id));
+    const starting = liveReviews.find(unseen);
+    if (starting && activeReview?.id !== starting.id) {setActiveReview(starting);return;}
+    if (activeReview?.phase === 'before' && !liveReviews.some(review => review.id === activeReview.id)) {setActiveReview(null);return;}
+    if (!paused && !activeReview && autoReviewSnoozedUntil.current <= Date.now()) setActiveReview(reviews.find(unseen) || null);
+  }, [paused, reviews, liveReviews, activeReview]);
   const closeReview = () => {
     if (!activeReview) return;
-    seen.current.add(activeReview.id);
+    seen.current.add(`${activeReview.phase || 'after'}:${activeReview.id}`);
     try {localStorage.setItem(`lesson-reviews-seen:${userId}`, JSON.stringify([...seen.current].slice(-100)));} catch { /* The dialog remains usable when browser storage is full. */ }
     setActiveReview(null);
   };
@@ -130,7 +140,7 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
   };
   return <><TeacherHomeworkNotes teacherId={userId} students={students} groups={noteContext.groups} activeStudentId={noteContext.studentId} activeGroupId={noteContext.groupId} visible={paused} />
     <TeacherParentReportReminder userId={userId} students={students} onStudentUpdated={onStudentUpdated} paused={paused || Boolean(activeReview)} showEntry={!reminder} />
-    {activeReview && !paused && <TeacherLessonReviewDialog lesson={activeReview} teacherId={userId} onClose={closeReview} onAssign={request => {
+    {activeReview && (activeReview.phase === 'before' || !paused) && <TeacherLessonReviewDialog key={`${activeReview.phase}:${activeReview.id}`} lesson={activeReview} teacherId={userId} onClose={closeReview} onAssign={request => {
       autoReviewSnoozedUntil.current = Date.now() + 10 * 60_000;
       setSnoozed(current => ({...current,[request.id]:autoReviewSnoozedUntil.current}));
       onOpen?.(request);

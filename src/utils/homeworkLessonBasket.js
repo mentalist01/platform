@@ -1,3 +1,5 @@
+import {getPythonHomeworkTheorySelection, getPythonHomeworkTheoryDetails} from './pythonTheoryHomework.js';
+
 export const HOMEWORK_LESSON_BASKET_VERSION = 1;
 
 const HOMEWORK_LESSON_BASKET_STORAGE_PREFIX = 'ege_homework_lesson_basket_v1';
@@ -45,6 +47,7 @@ export const normalizeHomeworkLessonBasketItem = (value, { now = new Date() } = 
     questionNumber,
     taskTitle: normalizeText(value.taskTitle, 500),
     addedAt: normalizeTimestamp(value.addedAt) || timestamp,
+    ...(getPythonHomeworkTheorySelection(value) ? {pythonTheorySubsectionId:value.pythonTheorySubsectionId,pythonTheoryType:value.pythonTheoryType} : {}),
   };
 };
 
@@ -63,7 +66,12 @@ const normalizeBasketItems = (values) => {
   (Array.isArray(values) ? values : []).forEach((value) => {
     const item = normalizeHomeworkLessonBasketItem(value);
     const key = getHomeworkLessonBasketItemKey(item);
-    if (!item || !key || seen.has(key)) return;
+    if (!item || !key) return;
+    if (seen.has(key)) {
+      const existing = result.find(entry => getHomeworkLessonBasketItemKey(entry) === key);
+      if (!getPythonHomeworkTheorySelection(existing) && getPythonHomeworkTheorySelection(item)) Object.assign(existing, {pythonTheorySubsectionId:item.pythonTheorySubsectionId,pythonTheoryType:item.pythonTheoryType});
+      return;
+    }
     seen.add(key);
     result.push(item);
   });
@@ -144,7 +152,15 @@ export const resolveHomeworkLessonBasketTargets = (items, testsDb) => normalizeB
   const index = item.questionId
     ? questions.findIndex(question => String(question?.id ?? '') === item.questionId)
     : item.questionNumber - 1;
-  return questions[index] ? [{...item, questionNumber:index + 1, questionId:String(questions[index].id ?? '')}] : [];
+  if (!questions[index]) return [];
+  const theory = getPythonHomeworkTheorySelection(item);
+  if (theory && !getPythonHomeworkTheoryDetails(testsDb[String(item.taskNumber)],item,item.levelId)?.available) {
+    const resolved = {...item,questionNumber:index + 1,questionId:String(questions[index].id ?? ''),theoryUnavailable:true};
+    delete resolved.pythonTheorySubsectionId;
+    delete resolved.pythonTheoryType;
+    return [resolved];
+  }
+  return [{...item, questionNumber:index + 1, questionId:String(questions[index].id ?? '')}];
 });
 
 export const consumeAssignedHomeworkLessonBasket = (value, studentId, goals) => {
