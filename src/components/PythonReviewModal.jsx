@@ -462,7 +462,7 @@ const PythonReviewModal = ({
     });
 
     const trapTheoryFocus = (event) => {
-      if (event.target?.closest?.('.python-explanation-dialog')) return;
+      if (event.target?.closest?.('.python-explanation-dialog, .lesson-end-notice')) return;
       if (event.key !== 'Tab') return;
       const focusableElements = getFocusableElements();
       if (!focusableElements.length) {

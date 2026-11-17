@@ -15,16 +15,32 @@ export default function useDesktopRecording({ user, active, studentId, learningL
     setSettings(null); setCheckedAt(0); jobRef.current = null; setJobId('');
     let cancelled = false;
     const refreshGate = createLessonRefreshGate();
-    const poll = () => refreshGate(async () => {
+    const poll = (options) => refreshGate(async () => {
       try {
         const value = await api.desktopRecording();
         if (!cancelled) { setSettings(value); setCheckedAt(Date.now()); }
       } catch {
         // The next poll can recover when the server responds again.
       }
-    });
-    void poll(); const timer = setInterval(poll, 5000);
-    return () => { cancelled = true; clearInterval(timer); };
+    }, options);
+    const refreshVisibleTab = () => {
+      if (document.visibilityState === 'visible') void poll({ urgent: true });
+    };
+    const refreshOnActivation = user.role === 'teacher' && window.teacherDesktop?.isDesktop;
+    if (refreshOnActivation) {
+      window.addEventListener('focus', refreshVisibleTab);
+      document.addEventListener('visibilitychange', refreshVisibleTab);
+    }
+    void poll();
+    const timer = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      if (refreshOnActivation) {
+        window.removeEventListener('focus', refreshVisibleTab);
+        document.removeEventListener('visibilitychange', refreshVisibleTab);
+      }
+    };
   }, [user.id, user.role]);
   const enabled = settings?.enabled === true;
   const endPrompt=settings?.devices?.some(device=>device.online&&device.endControlVersion===1)===true;

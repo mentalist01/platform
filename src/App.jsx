@@ -3462,7 +3462,8 @@ export const CollabSection = ({
       .filter(Boolean)
   )), [participantIds]);
   const isGroupLesson = Boolean(learningLessonId && learningGroupId);
-  const groupNotesTarget = isGroupLesson || Boolean(pythonExplanation && learningGroupId);
+  const isGroupPythonExplanation = Boolean(pythonExplanation && learningGroupId);
+  const groupNotesTarget = isGroupLesson || isGroupPythonExplanation;
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
   const isSandbox = Boolean(sandbox && typeof sandbox === 'object');
   const sandboxId = isSandbox
@@ -3470,7 +3471,7 @@ export const CollabSection = ({
     : '';
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
   const groupParticipantRoster = useMemo(() => {
-    if (!isGroupLesson) return [];
+    if (!groupNotesTarget) return [];
     const studentsById = new Map(
       (Array.isArray(students) ? students : [])
         .map((student) => [String(student?.id || '').trim(), student])
@@ -3484,7 +3485,7 @@ export const CollabSection = ({
         name: String(student?.name || ownFallback || 'Ученик').trim() || 'Ученик',
       };
     });
-  }, [isGroupLesson, learningParticipantIds, students, userId, userName]);
+  }, [groupNotesTarget, learningParticipantIds, students, userId, userName]);
   const [activeGroupParticipantId, setActiveGroupParticipantId] = useState(GROUP_SHARED_CODE_ID);
   const focusStudentId = isTeacher
     ? (isGroupLesson ? (activeGroupParticipantId === GROUP_SHARED_CODE_ID ? '' : activeGroupParticipantId) : activeStudentId)
@@ -3551,6 +3552,8 @@ export const CollabSection = ({
     : '';
   const collabReadOnly = sandboxReadOnly || Boolean(isGroupLesson && readOnly);
   const sharedGroupCode = isGroupLesson && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
+  const privateCodeSummonStudentId = isGroupLesson && !isGroupPythonExplanation && !sharedGroupCode
+    ? effectiveGroupParticipantId : '';
   const codeTabsReadOnly = collabReadOnly || Boolean(studentCodeFocus) || (sharedGroupCode && !isTeacher);
   const sandboxReadOnlyCodeState = isSandbox && sandboxReadOnly
     ? (sandbox?.code && typeof sandbox.code === 'object' ? sandbox.code : sandbox)
@@ -11145,9 +11148,9 @@ export const CollabSection = ({
             onSelect={selectCodePage} roomId={roomId} role={role} userId={userId}
             onSummonCode={followSummonedCode}
             summonSolutionId={isTeacher?activeSolutionId:undefined}
-            summonStudentId={isGroupLesson&&effectiveGroupParticipantId!==GROUP_SHARED_CODE_ID?effectiveGroupParticipantId:''}
-            summonTargetIds={isGroupLesson?(effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?learningParticipantIds:[effectiveGroupParticipantId]):[effectiveStudentId]}
-            summonParticipants={isGroupLesson?orderedGroupParticipants:[]}
+            summonStudentId={privateCodeSummonStudentId}
+            summonTargetIds={privateCodeSummonStudentId ? [privateCodeSummonStudentId] : groupNotesTarget ? learningParticipantIds : [effectiveStudentId]}
+            summonParticipants={orderedGroupParticipants}
             lockedPageId={studentCodeFocus ? pinnedCode?.pageId || '' : null}
             protectedPageId={isTeacher && codeFocus.focus?.room === roomId ? codeFocus.focus?.pageId : null}
             disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted} readOnly={collabReadOnly} dark={isCollabDarkUi}

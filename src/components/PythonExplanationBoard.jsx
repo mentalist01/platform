@@ -20,6 +20,7 @@ export default function PythonExplanationBoard({ board, Canvas, Workspace, conte
     const returnFocus = document.activeElement;
     const focusFrame = requestAnimationFrame(() => dialog.current?.querySelector('button')?.focus({ preventScroll: true }));
     const handleKey = event => {
+      if (event.target?.closest?.('.lesson-end-notice')) return;
       if (event.key === 'Escape') {
         if (document.fullscreenElement || dialog.current?.querySelector('.modal-backdrop')) return;
         event.preventDefault(); event.stopImmediatePropagation(); closeBoard();
