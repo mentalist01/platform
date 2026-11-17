@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { availabilitySlots, AVAILABILITY_WEEKDAYS, addCalendarDays, moscowDay, weekdayIndex } from '../src/utils/groupAvailability.js';
 import { busySlots, groupAvailabilityBusyEntries } from './groupAvailability.js';
+import { withTeacherCalendarLock } from './calendarMutations.js';
 
 export const placementConfig = durationMinutes => ({ durationMinutes: Number(durationMinutes), startMinute: 0, endMinute: 1380,
   days: [0, 1, 2, 3, 4, 5, 6], startDate: addCalendarDays(moscowDay(), 1), weeks: 8, timezone: 'Europe/Moscow' });
@@ -107,6 +108,21 @@ export function registerGroupPlacement(app, deps) {
       choices: Object.fromEntries(Object.entries(record.slots).filter(([id,slot]) => allowed.has(id) && slot.choice !== 'no').map(([id,slot]) => [id,slot.choice])),
       updatedAt: Math.max(...Object.values(record.slots).map(slot => slot.updatedAt)) } : null };
   };
+  const personalSnapshot = async (student, duration) => {
+    const current = snapshot(student, duration);
+    const entries = await getEntries(student.teacherId, addCalendarDays(current.config.startDate, current.config.weeks * 7));
+    const fresh = access({ role: 'student', id: student.id }, student.id);
+    if (fresh.teacherId !== student.teacherId) fail('Преподаватель изменился. Обновите анкету.', 409);
+    const groupIds = new Set(groups().filter(group => group.teacherId === fresh.teacherId
+      && !group.deletedAt && group.status !== 'completed' && group.workspaceKind !== 'trial').map(group => group.id));
+    // Only authoritative group identities reserve hours here. Individual
+    // lessons, trial bookings and unrelated calendar events stay selectable.
+    const occupied = entries.filter(entry => groupIds.has(entry.groupId) && !entry.learningGroupMatchAmbiguous
+      && (!entry.teacherId || entry.teacherId === fresh.teacherId));
+    const blocked = Object.fromEntries(Object.keys(busySlots(current.config, occupied)).map(id => [id, true]));
+    return { ...current, blocked, answer: current.answer ? { ...current.answer,
+      choices: Object.fromEntries(Object.entries(current.answer.choices).filter(([id]) => !blocked[id])) } : null };
+  };
   const route = fn => async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     try { res.json(await fn(req)); }
@@ -129,7 +145,7 @@ export function registerGroupPlacement(app, deps) {
   }));
   app.get('/api/student-availability', route(req => {
     if (req.auth?.role !== 'student') fail('Нет доступа', 403);
-    return snapshot(access(req.auth, req.auth.id), req.query.durationMinutes || 60);
+    return personalSnapshot(access(req.auth, req.auth.id), req.query.durationMinutes || 60);
   }));
   app.get('/api/student-availability/prompt', route(req => {
     if (req.auth?.role !== 'student') fail('Нет доступа', 403);
@@ -143,19 +159,24 @@ export function registerGroupPlacement(app, deps) {
     deps.notify?.(student);
     return { seekingGroup };
   }));
-  app.post('/api/student-availability/answer', route(req => {
+  app.post('/api/student-availability/answer', route(async req => {
     if (req.auth?.role !== 'student') fail('Только ученик может изменить свои отметки', 403);
     const student = access(req.auth, req.auth.id);
-    const current = snapshot(student, req.body?.durationMinutes || 60);
+    return withTeacherCalendarLock(student.teacherId, async () => {
+    const current = await personalSnapshot(student, req.body?.durationMinutes || 60);
     if (req.body?.revision !== current.revision) fail('Отметки изменились в другой вкладке или группе. Обновите анкету перед сохранением.', 409);
     const choices = req.body?.choices;
     if (!choices || typeof choices !== 'object' || Array.isArray(choices)) fail('Проверьте выбранное время');
     const allowed = new Set(availabilitySlots(current.config).map(slot => slot.id));
     if (Object.entries(choices).some(([id,choice]) => !allowed.has(id) || !['yes','maybe'].includes(choice))) fail('Проверьте выбранное время');
+    if (Object.keys(choices).some(id => current.blocked[id])) fail('Это время уже занято групповым занятием. Обновите анкету и выберите другие часы.', 409);
     store.remember({ teacherId: student.teacherId, studentId: student.id, config: current.config,
-      answer: { choices, updatedAt: Math.max(Date.now(), (current.answer?.updatedAt || 0) + 1) }, sourceRoundId: 'personal' });
+      answer: { choices, updatedAt: Math.max(Date.now(), (current.answer?.updatedAt || 0) + 1) }, blocked: current.blocked, sourceRoundId: 'personal' });
     deps.notify?.(student);
-    return snapshot(student, current.config.durationMinutes);
+    const saved = snapshot(student, current.config.durationMinutes);
+    return { ...saved, blocked: current.blocked, answer: saved.answer ? { ...saved.answer,
+      choices: Object.fromEntries(Object.entries(saved.answer.choices).filter(([id]) => !current.blocked[id])) } : null };
+    });
   }));
   app.get('/api/students/:studentId/group-placement', route(async req => {
     const student = access(req.auth, req.params.studentId, true);

@@ -75,16 +75,17 @@ async function fixture(t) {
   const store=createStudentAvailabilityStore(path.join(root,'student-availability.json'));
   const students={new:{id:'new',teacherId:'teacher',name:'Новый',schedule:'individual'},other:{id:'other',teacherId:'foreign',name:'Secret'}};
   const groups=[group('exact',[schedule(0,'10:00'),schedule(2,'10:00')]),{...group('foreign'),teacherId:'foreign'}];
-  const polls={}; let entriesCalls=0;
+  const polls={}; let entriesCalls=0, entries=[], calendarError=false;
   const app=express(); app.use(express.json()); app.use((req,res,next)=>{const value=req.headers.authorization?.split(':'); if(value)req.auth={role:value[0],id:value[1]};next();});
-  registerGroupPlacement(app,{store,students:id=>Object.values(students).filter(student=>student.teacherId===id),getStudent:id=>students[id],groups:()=>groups,polls:()=>polls,getEntries:async()=>{entriesCalls++;return [];}});
+  registerGroupPlacement(app,{store,students:id=>Object.values(students).filter(student=>student.teacherId===id),getStudent:id=>students[id],groups:()=>groups,polls:()=>polls,getEntries:async()=>{entriesCalls++;if(calendarError)throw Error('Calendar unavailable');return entries;}});
   const server=app.listen(0,'127.0.0.1'); await new Promise(resolve=>server.once('listening',resolve));
   t.after(async()=>{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});});
   const request=async(route,auth='student:new',body,status=200)=>{
     const response=await fetch(`http://127.0.0.1:${server.address().port}${route}`,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(auth?{Authorization:auth}:{})},...(body?{body:JSON.stringify(body)}:{})});
     const data=await response.json();assert.equal(response.status,status,JSON.stringify(data));return data;
   };
-  return {store,students,groups,polls,request,entriesCalls:()=>entriesCalls};
+  return {store,students,groups,polls,request,entriesCalls:()=>entriesCalls,
+    setEntries:value=>{entries=value;},setCalendarError:value=>{calendarError=value;}};
 }
 
 test('a pupil without a group fills a durable private questionnaire, while remaining individual; the teacher sees recommendations', async t=>{
@@ -184,11 +185,68 @@ test('teacher placement roster reports pending, answered and cleared availabilit
   await f.request('/api/students/new/group-placement/settings', 'teacher:teacher', { seekingGroup: true });
   const initial = await f.request('/api/student-availability');
   const saved = await f.request('/api/student-availability/answer', 'student:new', { durationMinutes: 60, revision: initial.revision, choices: { '0-600': 'yes', '2-600': 'maybe' } });
+  const calendarReads = f.entriesCalls();
   list = await f.request('/api/teacher-group-placement', 'teacher:teacher');
   assert.equal(list.students[0].answerState, 'answered'); assert.equal(list.students[0].slotCount, 2);
   assert.deepEqual(list.students[0].durations, [60]); assert.equal(list.students[0].seekingGroup, true);
   await f.request('/api/student-availability/answer', 'student:new', { durationMinutes: 60, revision: saved.revision, choices: {} });
   assert.equal((await f.request('/api/teacher-group-placement', 'teacher:teacher')).students[0].answerState, 'empty');
   assert.ok(!(await f.request('/api/teacher-group-placement', 'teacher:foreign')).students.some(row => row.studentId === 'new'));
-  assert.equal(f.entriesCalls(), 0);
+  assert.ok(f.entriesCalls() > calendarReads, 'pupil writes recheck group reservations');
+});
+
+test('personal hours exclude only overlapping lessons of current own groups, including partial overlaps', async t => {
+  const f = await fixture(t);
+  f.groups.push({ ...group('finished'), status: 'completed' }, { ...group('deleted'), deletedAt: '2026-01-01' },
+    { ...group('trial'), workspaceKind: 'trial' });
+  f.setEntries([
+    { ...schedule(0, '10:00'), groupId: 'exact', teacherId: 'teacher', privateNote: 'Never expose this' },
+    { ...schedule(1, '10:00'), studentId: 'individual', teacherId: 'teacher' },
+    { ...schedule(2, '10:00'), groupId: 'foreign', teacherId: 'foreign' },
+    { ...schedule(3, '10:00'), groupId: 'finished' },
+    { ...schedule(4, '10:00'), groupId: 'deleted' },
+    { ...schedule(5, '10:00'), groupId: 'trial' },
+    { ...schedule(6, '10:00'), groupId: 'exact', status: 'cancelled' },
+    { ...schedule(1, '14:00'), groupId: 'exact', learningGroupMatchAmbiguous: true },
+    { ...schedule(1, '16:00'), groupId: 'exact', teacherId: 'foreign' },
+    { ...schedule(2, '16:00'), title: 'exact', teacherId: 'teacher' },
+  ]);
+  const form = await f.request('/api/student-availability');
+  assert.deepEqual(form.blocked, { '0-570': true, '0-600': true, '0-630': true });
+  assert.equal(JSON.stringify(form).includes('Never expose this'), false);
+  assert.equal(JSON.stringify(form).includes('exact'), false);
+  const choices = { '0-540': 'yes', '0-660': 'yes', '1-600': 'maybe', '2-600': 'yes', '6-600': 'yes' };
+  const saved = await f.request('/api/student-availability/answer', 'student:new', { revision: form.revision, choices });
+  assert.deepEqual(saved.answer.choices, choices);
+  const longer = await f.request('/api/student-availability?durationMinutes=90');
+  assert.equal(longer.blocked['0-540'], true, 'longer lessons cannot overlap even at their end');
+  assert.equal(longer.blocked['0-660'], undefined, 'touching the end is allowed');
+});
+
+test('a newly scheduled group rejects a stale selection and hidden old preferences survive saves', async t => {
+  const f = await fixture(t);
+  const first = await f.request('/api/student-availability');
+  await f.request('/api/student-availability/answer', 'student:new', { revision: first.revision, choices: { '0-600': 'yes' } });
+  const before = f.store.record({ teacherId: 'teacher', studentId: 'new', durationMinutes: 60 });
+  const stale = await f.request('/api/student-availability');
+  f.setEntries([{ ...schedule(0, '10:00'), groupId: 'exact' }]);
+  await f.request('/api/student-availability/answer', 'student:new', { revision: stale.revision, choices: { '0-600': 'yes' } }, 409);
+  assert.deepEqual(f.store.record({ teacherId: 'teacher', studentId: 'new', durationMinutes: 60 }), before);
+  const fresh = await f.request('/api/student-availability');
+  assert.deepEqual(fresh.answer.choices, {});
+  const saved = await f.request('/api/student-availability/answer', 'student:new', { revision: fresh.revision, choices: { '1-600': 'maybe' } });
+  assert.deepEqual(saved.answer.choices, { '1-600': 'maybe' });
+  f.setEntries([]);
+  assert.deepEqual((await f.request('/api/student-availability')).answer.choices, { '0-600': 'yes', '1-600': 'maybe' });
+});
+
+test('calendar failure prevents offering or saving unverified group hours without losing preferences', async t => {
+  const f = await fixture(t);
+  const initial = await f.request('/api/student-availability');
+  const before = f.store.record({ teacherId: 'teacher', studentId: 'new', durationMinutes: 60 });
+  f.setCalendarError(true);
+  await f.request('/api/student-availability', 'student:new', undefined, 503);
+  await f.request('/api/student-availability/answer', 'student:new', { revision: initial.revision, choices: { '0-600': 'yes' } }, 503);
+  assert.deepEqual(f.store.record({ teacherId: 'teacher', studentId: 'new', durationMinutes: 60 }), before);
+  assert.equal((await f.request('/api/teacher-group-placement', 'teacher:teacher')).students[0].answerState, 'pending');
 });

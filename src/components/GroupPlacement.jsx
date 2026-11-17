@@ -38,14 +38,14 @@ export function PersonalGroupAvailability({ transport = api, individual = true }
     return () => { window.removeEventListener('pointerup', stop); window.removeEventListener('pointercancel', stop); window.removeEventListener('beforeunload', warn); };
   }, []);
   const mark = (id, value) => {
-    if (busy) return;
+    if (busy || data?.blocked?.[id]) return;
     setDraft(previous => { const next = { ...previous }; if (value === 'erase') delete next[id]; else next[id] = value; return next; });
     setDirty(true); dirtyRef.current = true; setNotice('');
   };
   const startPaint = (event, slot) => {
     if (event.pointerType === 'touch') { touchTap.current = slot.id; return; }
     touchTap.current = null;
-    if (event.button !== 0 || busy) return;
+    if (event.button !== 0 || busy || data?.blocked?.[slot.id]) return;
     event.preventDefault(); painting.current = draft[slot.id] === brush ? 'erase' : brush;
     painted.current = new Set([slot.id]); mark(slot.id, painting.current);
   };
@@ -75,11 +75,11 @@ export function PersonalGroupAvailability({ transport = api, individual = true }
         <div className="ga-brushes" aria-label="Как отметить свободное время">{[['yes','Удобно'],['maybe','Могу подстроиться'],['erase','Убрать отметку']].map(([value,label]) => <button type="button" key={value} disabled={busy} className={`ga-brush-${value} ${brush === value ? 'selected' : ''}`} aria-pressed={brush === value} onClick={() => setBrush(value)}>{value === 'yes' ? <Check size={16} /> : value === 'maybe' ? <Heart size={16} /> : <X size={16} />}{label}</button>)}</div>
         <div className="ga-savebar ga-selection-bar"><div><strong>Выбрано вариантов: {Object.keys(draft).length}</strong><small>{dirty ? 'Есть несохранённые изменения' : data.answer ? `Сохранено ${dateLabel(data.answer.updatedAt)}` : 'Выберите время и сохраните анкету'}</small></div><button type="button" className="ga-primary" disabled={busy || !dirty && !!data.answer} onClick={save}><Check size={18} />{busy ? 'Сохраняем…' : 'Сохранить свободное время'}</button></div>
         <label className="placement-early"><input type="checkbox" checked={early} onChange={event => setEarly(event.target.checked)} />Показать часы до 08:00</label>
-        <p className="ga-hint">Все часы указаны по Москве (UTC+3). На компьютере можно провести по карточкам, чтобы отметить несколько вариантов. Отметки видны вам и вашему преподавателю.</p>
+        <p className="ga-hint">Выбирайте любые удобные часы, включая время индивидуальных занятий преподавателя. Время уже назначенных групповых занятий недоступно. Все часы указаны по Москве (UTC+3). На компьютере можно провести по карточкам, чтобы отметить несколько вариантов. Отметки видны вам и вашему преподавателю.</p>
         <nav className="ga-mobile-days" aria-label="День недели">{AVAILABILITY_DAYS.map((name,i) => <button type="button" key={i} className={day === i ? 'selected' : ''} onClick={() => setDay(i)}>{name}</button>)}</nav>
-        <div className="ga-week-options" style={{ '--ga-days': 7 }}>{AVAILABILITY_DAYS.map((name,i) => <section key={i} className={`ga-day-options ${day === i ? 'ga-mobile-active' : ''}`} aria-label={AVAILABILITY_DAY_NAMES[i]}><div className="ga-options-day"><strong>{name}</strong></div><div className="ga-options-list">{slots.filter(slot => slot.day === i).map(slot => <button type="button" key={slot.id} disabled={busy} className={`ga-time-option placement-slot ${draft[slot.id] || ''}`} aria-label={`${AVAILABILITY_DAY_NAMES[i]}, ${slot.time}–${slot.end}: ${draft[slot.id] === 'yes' ? 'удобно' : draft[slot.id] === 'maybe' ? 'могу подстроиться' : 'не выбрано'}`} aria-pressed={!!draft[slot.id]}
+        <div className="ga-week-options" style={{ '--ga-days': 7 }}>{AVAILABILITY_DAYS.map((name,i) => <section key={i} className={`ga-day-options ${day === i ? 'ga-mobile-active' : ''}`} aria-label={AVAILABILITY_DAY_NAMES[i]}><div className="ga-options-day"><strong>{name}</strong></div><div className="ga-options-list">{slots.filter(slot => slot.day === i).map(slot => <button type="button" key={slot.id} disabled={busy || !!data.blocked?.[slot.id]} className={`ga-time-option placement-slot ${data.blocked?.[slot.id] ? 'placement-slot-blocked' : draft[slot.id] || ''}`} aria-label={`${AVAILABILITY_DAY_NAMES[i]}, ${slot.time}–${slot.end}: ${data.blocked?.[slot.id] ? 'занято групповым занятием' : draft[slot.id] === 'yes' ? 'удобно' : draft[slot.id] === 'maybe' ? 'могу подстроиться' : 'не выбрано'}`} aria-pressed={!data.blocked?.[slot.id] && !!draft[slot.id]}
           onPointerDown={event => startPaint(event,slot)} onPointerEnter={() => { if (painting.current && !painted.current.has(slot.id)) { painted.current.add(slot.id); mark(slot.id,painting.current); } }}
-          onClick={event => { if (event.detail === 0 || touchTap.current === slot.id || event.nativeEvent.pointerType === 'touch') mark(slot.id, draft[slot.id] === brush ? 'erase' : brush); touchTap.current = null; }}><strong>{slot.time}–{slot.end}</strong><small>{draft[slot.id] === 'yes' ? 'Удобно' : draft[slot.id] === 'maybe' ? 'Могу подстроиться' : 'Можно выбрать'}</small></button>)}</div></section>)}</div>
+          onClick={event => { if (event.detail === 0 || touchTap.current === slot.id || event.nativeEvent.pointerType === 'touch') mark(slot.id, draft[slot.id] === brush ? 'erase' : brush); touchTap.current = null; }}><strong>{slot.time}–{slot.end}</strong><small>{data.blocked?.[slot.id] ? 'Занятие группы' : draft[slot.id] === 'yes' ? 'Удобно' : draft[slot.id] === 'maybe' ? 'Могу подстроиться' : 'Можно выбрать'}</small></button>)}</div></section>)}</div>
       </>}
     </div>
   </section>;

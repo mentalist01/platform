@@ -19,6 +19,10 @@ test('new pupils can choose group hours immediately while existing pupils keep t
       assert.equal((await f.request('/api/students/'+pupil.id+'/group-placement',teacher)).seekingGroup,true);
       const form=await f.request('/api/student-availability',token);
       assert.equal(form.answer,null);
+      assert.equal(form.blocked['2-1200'],true,'Wednesday group lesson is unavailable');
+      assert.equal(form.blocked['4-1170'],true,'an overlapping Friday start is unavailable');
+      assert.equal(form.blocked['4-1260'],undefined,'a lesson can start after the group ends');
+      await f.request('/api/student-availability/answer',token,{revision:form.revision,choices:{'2-1200':'yes'}},'POST',409);
       await f.request('/api/student-availability/answer',token,{durationMinutes:60,revision:form.revision,choices:{'0-600':'yes','2-600':'maybe'}});
       const saved=await f.request('/api/student-availability',token);
       assert.deepEqual(saved.answer.choices,{'0-600':'yes','2-600':'maybe'});

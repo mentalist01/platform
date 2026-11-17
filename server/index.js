@@ -26143,7 +26143,15 @@ registerGroupPlacement(app, {
   groups: readLearningGroupsDb,
   preparationRoster: teacherId => getGroupPreparationRoster(teacherId),
   polls: () => availabilityStore.all(),
-  getEntries: (teacherId, throughDay) => getFreshLessonCalendarEntries(teacherId, false, throughDay),
+  getEntries: async (teacherId, throughDay) => {
+    const entries = await getFreshLessonCalendarEntries(teacherId, false, throughDay);
+    const recordedGroups = new Set(readResolvedGroupLessonSessions().map(lesson => lesson.groupId));
+    const marks = Object.freeze(normalizeTeacherCalendarMarks(readTeacherCalendarMarksDb()[teacherId]));
+    const scheduled = readLearningGroupsDb().filter(group => group.teacherId === teacherId && !group.deletedAt
+      && group.status !== 'completed' && !recordedGroups.has(group.id) && !entries.some(entry => entry.groupId === group.id))
+      .flatMap(group => (group.schedule || []).map(entry => ({ ...entry, teacherId, groupId: group.id })));
+    return [...entries, ...scheduled.map(entry => annotateTeacherCalendarCancellation(teacherId, entry, marks))];
+  },
   notify: student => notifyScheduleSyncUpdate({ scope: 'student-availability', action: 'answered', teacherId: student.teacherId, studentId: student.id }),
 });
 
