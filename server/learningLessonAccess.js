@@ -360,7 +360,8 @@ export const hasActiveLearningGroupWorkspace = (studentIdValue, teacherIdValue, 
     // The shared room replaces the personal board/code only after the group
     // has actually started. Forming and ready groups do not interrupt the
     // student's current individual workspace.
-    normalizeText(group?.status, 40).toLowerCase() === 'active'
+    group?.workspaceKind !== 'trial'
+    && normalizeText(group?.status, 40).toLowerCase() === 'active'
     && normalizeText(group?.teacherId) === teacherId
     && (Array.isArray(group?.members) ? group.members : []).some((member) => (
       normalizeText(typeof member === 'string' ? member : (member?.studentId || member?.id)) === studentId
@@ -384,9 +385,11 @@ export const resolveLearningRealtimeRoomTarget = ({ roomId, sessions, students, 
       if(!base)continue;
       const privateStudentId=roomId.startsWith(base+'~student~')?roomId.slice((base+'~student~').length):'';
       if(roomId!==base&&(!privateStudentId||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/.test(privateStudentId)))continue;
-      const participantIds=[...new Set([...(group.members||[]).map(m=>typeof m==='string'?m:m.studentId||m.id),...normalizeCollection(sessions,'sessions').filter(s=>s.groupId===group.id).flatMap(s=>s.participantIdsSnapshot||s.participantIds||[])].filter(Boolean))];
+      const groupSessions=normalizeCollection(sessions,'sessions').filter(s=>s.groupId===group.id);
+      const trialSession=group.workspaceKind==='trial'?groupSessions.find(s=>s.source==='trial-booking'):null;
+      const participantIds=[...new Set([...(group.members||[]).map(m=>typeof m==='string'?m:m.studentId||m.id),...groupSessions.flatMap(s=>s.participantIdsSnapshot||s.participantIds||[])].filter(Boolean))];
       if(privateStudentId&&!participantIds.includes(privateStudentId))continue;
-      return {targetType:'group',groupNotebook:true,kind:privateStudentId?kind+'-private':kind,groupId:group.id,teacherId:group.teacherId,group,participantIds,privateStudentId,roomId};
+      return {targetType:'group',groupNotebook:true,kind:privateStudentId?kind+'-private':kind,groupId:group.id,teacherId:group.teacherId,group,participantIds,privateStudentId,roomId,trialSession};
     }
     const board=pythonGroupBoardRoom(group.id),prefix=`py-collab:${pythonGroupCodeBase(group.id)}:`;
     if(board&&roomId===board)return {targetType:'group',kind:'python-board',groupId:group.id,teacherId:group.teacherId,group,roomId};
@@ -468,8 +471,9 @@ export const authorizeLearningRealtimeRoom = ({
     return { allowed: false, reason: 'session-not-live', target };
   }
 
-  const windowState = target.targetType === 'lesson'
-    ? getLearningLessonWindowState(target.session)
+  const timedSession = target.targetType === 'lesson' ? target.session : target.trialSession;
+  const windowState = timedSession
+    ? getLearningLessonWindowState(timedSession)
     : { notStarted: false, past: false };
   // A scheduled workspace may be edited by the teacher for preparation, but
   // students get only a read-only preview before the lesson starts. Students
@@ -511,14 +515,14 @@ export const authorizeLearningRealtimeRoom = ({
     reason: allowed ? '' : 'forbidden',
     target,
     windowState,
-    readOnly: (target.targetType === 'group'&&target.group.status==='completed') || target.targetType === 'lesson' && (
+    readOnly: (target.targetType === 'group'&&target.group.status==='completed') || Boolean(timedSession && (
       windowState.past
-      || (windowState.notStarted && !['teacher', 'admin'].includes(
+      || (target.targetType === 'lesson' && windowState.notStarted && !['teacher', 'admin'].includes(
         normalizeText(auth.role, 40).toLowerCase()
       ))
-      || normalizeText(target.session?.status, 40).toLowerCase() === 'completed'
-      || normalizeText(target.session?.status, 40).toLowerCase() === 'cancelled'
-    ),
+      || normalizeText(timedSession.status, 40).toLowerCase() === 'completed'
+      || normalizeText(timedSession.status, 40).toLowerCase() === 'cancelled'
+    )),
   };
 };
 

@@ -57,7 +57,16 @@ export function useLessonPages(room,role,userId) {
       doc.getMap('pages').observe(changed);control.observe(event=>{if(provider.synced){for(const key of ['summon','summonCode','summonCodeRecipient'])if(event.keysChanged.has(key))observeLiveBoardCommand(control.get(key));}controls();});
       provider.on('sync',()=>{changed();controls();delivery.flush();});provider.on('status',()=>{setState(old=>({...old,connected:provider.wsconnected&&provider.synced}));delivery.flush();});
     }).catch(error=>{if(!abort.signal.aborted)setState(old=>({...old,error:error.message,connected:false}));});
-    return()=>{abort.abort();if(live.current?.provider===provider){live.current.delivery.dispose();live.current=null;}provider?.destroy();doc?.destroy();};
+    return()=>{
+      abort.abort();
+      const current=live.current;
+      if(current&&current.provider===provider){
+        current.delivery.dispose();
+        live.current=null;
+      }
+      provider?.destroy();
+      doc?.destroy();
+    };
   },[room,bookRoom,role,userId,select]);
   useEffect(()=>{
     if(!['queued','waiting','confirmed','sent'].includes(summonState.phase))return undefined;

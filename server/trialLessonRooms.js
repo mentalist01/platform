@@ -8,13 +8,14 @@ export const isTrialLesson = lesson => lesson?.source === 'trial-booking';
 export function trialRoomGroup(lesson, students = []) {
   if (!isTrialLesson(lesson)) return null;
   const current = new Map(students.filter(student => !student.deletedAt).map(student => [student.id, student]));
-  return normalizeLearningGroup({
+  const workspace = normalizeLearningGroup({
     id: lesson.groupId, teacherId: lesson.teacherId, name: 'Пробное занятие',
     createdAt: lesson.createdAt, startedAt: lesson.createdAt || lesson.startAt,
     members: lesson.participantIds.filter(id => current.get(id)?.teacherId === lesson.teacherId)
       .map(studentId => ({studentId, joinedAt: lesson.createdAt || lesson.startAt, status: 'active'})),
     schedule: [],
   });
+  return workspace ? { ...workspace, workspaceKind: 'trial' } : null;
 }
 
 export function trialRoomSession(booking, previous = null, nowMs = Date.now()) {

@@ -21795,6 +21795,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         .filter(Boolean)
     ));
     if (!lessonId || !groupId || participantIds.length === 0) return;
+    if (user.role === 'student' && lesson.trialBookingId) {
+      // An older request for the regular workspace must not override an opened trial.
+      studentLessonWorkspaceRequestRef.current += 1;
+    }
     const requestedSurface = String(lesson?.surface || '').trim();
     const surface = ['call', 'board', 'collab'].includes(requestedSurface)
       ? requestedSurface
@@ -26914,7 +26918,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               lessonId={activeLearningLesson?.lessonId || ''}
               groupId={activeLearningLesson?.groupId || ''}
               participantIds={activeLearningLesson?.participantIds || []}
-              readOnly={activeLearningLesson?.groupId ? activeLearningLesson.groupStatus==='completed' : false}
+              readOnly={activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed'}
               theme={theme}
               withStudentId={withStudentId}
               tasks={tasksWithTitles}
@@ -27028,7 +27032,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               lessonId={activeLearningLesson?.lessonId || ''}
               groupId={activeLearningLesson?.groupId || ''}
               participantIds={activeLearningLesson?.participantIds || []}
-              readOnly={activeLearningLesson?.groupId ? activeLearningLesson.groupStatus==='completed' : false}
+              readOnly={activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed'}
               tasks={tasksWithTitles}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}

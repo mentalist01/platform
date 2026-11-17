@@ -25403,6 +25403,9 @@ const closeLearningLessonCollabConnections = (lesson) => {
   if (!roomNames) return 0;
   let closedConnections = 0;
   const bases = [roomNames.boardDocName, roomNames.collabDocName];
+  if (isTrialLesson(lesson)) {
+    bases.push(groupNotebookBoard(lesson.groupId), groupNotebookCode(lesson.groupId));
+  }
   const docNames = new Set(bases);
   for (const name of getLoadedCollabDocs()?.keys() || []) {
     const room = String(name).split('/').pop();
