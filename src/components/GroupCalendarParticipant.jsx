@@ -1,24 +1,16 @@
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 
-export default function GroupCalendarParticipant({member, senders, cancelled, busy, canMarkAbsence, canChangeParticipation, onPayment, onAbsence, onParticipation, paymentPanel}) {
+export default function GroupCalendarParticipant({member, senders, cancelled, busy, canMarkAbsence, onPayment, onAbsence, paymentPanel}) {
   const status = String(member.status || 'pending');
   const paid = status === 'paid', trial = status === 'trial', absent = member.absenceWaived === true;
   const unavailable = cancelled || status === 'cancelled';
   const statusLabel = unavailable ? 'Отменено' : absent ? 'Не был · без оплаты' : trial ? 'Пробное'
-    : paid ? 'Оплатил(а)' : status === 'not-required' ? (canChangeParticipation ? 'Не придёт · без оплаты' : 'Не участвует по расписанию')
+    : paid ? 'Оплатил(а)' : status === 'not-required' ? 'Не участвует по расписанию'
       : status === 'unpaid' ? 'Не оплатил(а)' : 'Ожидаем оплату';
   return <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
     <div className="min-w-0 flex-1">
       <span className="block truncate text-xs font-semibold text-slate-800">{member.studentName || 'Ученик'}</span>
       <CalendarStudentPayer studentId={member.studentId} senders={senders} compact />
-      {!unavailable && canChangeParticipation && <button type="button" onClick={() => onParticipation(member)}
-        disabled={busy || paid || trial}
-        title={paid ? 'Занятие уже оплачено. Сначала отдельно согласуйте отмену или перенос оплаты.'
-          : member.participationRequired === false ? 'Вернуть участие только в этом занятии'
-            : 'Не придёт: исключить только это занятие и не начислять за него оплату'}
-        className="mt-1 rounded-md px-1 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50">
-        {member.participationRequired === false ? 'Вернуть участие' : 'Не придёт'}
-      </button>}
       {!unavailable && canMarkAbsence && <button type="button" onClick={() => onAbsence(member)}
         disabled={busy || (!absent && (paid || trial))}
         title={absent ? 'Отменить отметку пропуска этого занятия' : paid ? 'Сначала отмените оплату, затем отметьте пропуск'
