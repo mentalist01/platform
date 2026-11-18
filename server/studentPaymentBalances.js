@@ -278,7 +278,56 @@ export function settleBalanceLesson(account, occurrence, { source = 'balance', r
   return { alreadyPaid: false, receivedAmount };
 }
 
-export function reconcileBalanceAccount(account, occurrences, now, { removedKeys = [], allocate = true } = {}) {
+// A recreated individual Google event can lose its original occurrence ID.
+// Match only one-to-one, and never take a target involved in an explicit move.
+function inferSameDayMoves(account, occurrences, replacements, since) {
+  if (!since) return new Map();
+  const claimed = new Set([...replacements.values()].flat().map(o => o.markKey));
+  const isIndividualGoogle = o => o.external && !o.groupId && o.eventId?.startsWith('google-ical-')
+    && Number.isFinite(o.durationMinutes) && o.durationMinutes > 0;
+  const signature = o => `${o.dayKey}:${o.durationMinutes}:${o.cents}`;
+  const targets = new Map();
+  const sources = new Map();
+  for (const occurrence of occurrences) {
+    if (!isIndividualGoogle(occurrence) || occurrence.dayKey < since) continue;
+    const key = signature(occurrence);
+    if (!targets.has(key)) targets.set(key, []);
+    targets.get(key).push(occurrence);
+  }
+  for (const [key, candidates] of replacements) {
+    const allocation = account.allocations[key];
+    if (candidates.length || !isIndividualGoogle(allocation) || allocation.dayKey < since) continue;
+    const match = signature(allocation);
+    if (!sources.has(match)) sources.set(match, []);
+    sources.get(match).push(allocation);
+  }
+  const inferred = new Map();
+  for (const [match, allocations] of sources) {
+    const [source] = allocations;
+    const candidates = targets.get(match) || [];
+    const [target] = candidates;
+    if (allocations.length !== 1 || source.imported || candidates.length !== 1 || claimed.has(target.markKey)
+      || !target.eligible || target.autoEligible === false || account.allocations[target.markKey] || account.blocked[target.markKey]) continue;
+    inferred.set(source.markKey, target);
+  }
+  return inferred;
+}
+
+function moveBalanceAllocation(account, allocation, target, now) {
+  // Pin implicit FIFO slices before changing the order of paid lessons.
+  const { allocationFunds } = fundingState(account);
+  for (const paid of Object.values(account.allocations)) {
+    if (!paid.funds) paid.funds = allocationFunds.get(paid.markKey);
+  }
+  delete account.allocations[allocation.markKey];
+  account.allocations[target.markKey] = { ...target, cents: allocation.cents, funds: allocation.funds, paidAt: allocation.paidAt };
+  journal(account, 'move', allocation.cents, {
+    markKey: allocation.markKey, targetMarkKey: target.markKey, dayKey: target.dayKey, time: target.time,
+    note: 'Оплата перенесена на единственное подходящее занятие в тот же день',
+  }, now);
+}
+
+export function reconcileBalanceAccount(account, occurrences, now, { removedKeys = [], allocate = true, sameDayMoveSince = '' } = {}) {
   const byKey = new Map(occurrences.map(o => [o.markKey, o]));
   const moves = new Map();
   for (const occurrence of occurrences) {
@@ -288,6 +337,12 @@ export function reconcileBalanceAccount(account, occurrences, now, { removedKeys
     }
   }
   const removed = new Set(removedKeys);
+  const replacementsByKey = new Map();
+  for (const [key, allocation] of Object.entries(account.allocations)) {
+    if (removed.has(key) || byKey.has(key)) continue;
+    replacementsByKey.set(key, moves.get(key) || occurrences.filter(o => allocation.identity && o.identity === allocation.identity));
+  }
+  const inferredMoves = inferSameDayMoves(account, occurrences, replacementsByKey, sameDayMoveSince);
   const issues = [];
   for (const [key, allocation] of Object.entries(account.allocations)) {
     const occurrence = byKey.get(key);
@@ -299,7 +354,7 @@ export function reconcileBalanceAccount(account, occurrences, now, { removedKeys
       allocation.identity = occurrence.identity || allocation.identity;
       continue;
     }
-    const replacements = moves.get(key) || occurrences.filter(o => allocation.identity && o.identity === allocation.identity);
+    const replacements = replacementsByKey.get(key);
     if (replacements.length === 1) {
       const target = replacements[0];
       releaseBalanceAllocation(account, key, now, { reason: `Перенос занятия на ${target.dayKey}` });
@@ -307,6 +362,8 @@ export function reconcileBalanceAccount(account, occurrences, now, { removedKeys
         reserveBalanceAllocation(account, { ...target, cents: allocation.cents }, now);
       }
       journal(account, 'move', allocation.cents, { markKey: key, targetMarkKey: target.markKey, dayKey: target.dayKey, time: target.time, note: 'Подтверждённый перенос Google Calendar' }, now);
+    } else if (inferredMoves.has(key)) {
+      moveBalanceAllocation(account, allocation, inferredMoves.get(key), now);
     } else {
       issues.push({ markKey: key, dayKey: allocation.dayKey, time: allocation.time, amount: allocation.cents / 100, reason: 'Оплаченное занятие отсутствует в календаре; отмена не подтверждена' });
     }
