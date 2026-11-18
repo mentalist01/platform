@@ -147,7 +147,6 @@ export const createPyodideWorker = () => {
       let debugTraceTruncated = false;
       let turtleScene = null;
       let needsInput = false;
-      let resetRuntime = false;
 
       const appendStdout = (value) => {
         const safe = toText(value);
@@ -216,7 +215,6 @@ export const createPyodideWorker = () => {
         'class _CollabInputNeeded(Exception):',
         '    pass',
         '__collab_needs_input = False',
-        '__collab_memory_error = False',
         '_original_input = builtins.input',
         'def _collab_input(prompt=""):',
         '    global __collab_needs_input',
@@ -284,8 +282,7 @@ export const createPyodideWorker = () => {
         'except SystemExit as _exit:',
         '    if _exit.code is not None and _exit.code != 0:',
         '        print(f"SystemExit: {_exit.code}", file=sys.stderr)',
-        'except BaseException as _caught_error:',
-        '    __collab_memory_error = isinstance(_caught_error, MemoryError)',
+        'except BaseException:',
         '    traceback.print_exc()',
         '    if _debug_mode:',
         '        _exc_type, _exc_value, _tb = sys.exc_info()',
@@ -312,13 +309,6 @@ export const createPyodideWorker = () => {
         '    sys.settrace(None)',
         '    builtins.print = builtins.__collab_print_original',
         '    builtins.input = _original_input',
-        '    _globals.clear()',
-        '    del _globals',
-        '    try:',
-        '        import gc as _collab_gc',
-        '        _collab_gc.collect()',
-        '    except Exception:',
-        '        pass',
         'try:',
         '    __turtle_scene_json = _turtle_export_scene_json()',
         'except Exception:',
@@ -329,11 +319,6 @@ export const createPyodideWorker = () => {
       ].join('\\n');
       try {
         await pyodide.runPythonAsync(wrapped);
-        try {
-          const memory = pyodide.globals.get('__collab_memory_error');
-          resetRuntime = Boolean(memory && typeof memory.toJs === 'function' ? memory.toJs() : memory);
-          memory?.destroy?.();
-        } catch { /* Runtime failures below also replace the worker. */ }
         try {
           const waiting = pyodide.globals.get('__collab_needs_input');
           needsInput = Boolean(waiting && typeof waiting.toJs === 'function' ? waiting.toJs() : waiting);
@@ -400,7 +385,6 @@ export const createPyodideWorker = () => {
         } catch { /* no-op */ }
       } catch (err) {
         // A runtime failure must not erase output already sent by the program.
-        resetRuntime = true;
         appendStderr(err && err.message ? err.message : String(err));
       } finally {
         try {
@@ -408,7 +392,6 @@ export const createPyodideWorker = () => {
           pyodide.globals.delete('__collab_debug_events_json');
           pyodide.globals.delete('__collab_debug_truncated');
           pyodide.globals.delete('__collab_needs_input');
-          pyodide.globals.delete('__collab_memory_error');
           pyodide.globals.delete('__turtle_scene_json');
         } catch { /* no-op */ }
         try {
@@ -423,7 +406,6 @@ export const createPyodideWorker = () => {
         error,
         turtleScene,
         needsInput,
-        resetRuntime,
         debug: useDebugMode
           ? {
             trace: Array.isArray(debugTrace) ? debugTrace : [],
@@ -474,66 +456,17 @@ export const createPyodideWorker = () => {
           error: result.error,
           turtleScene: result.turtleScene,
           needsInput: result.needsInput,
-          resetRuntime: result.resetRuntime,
         });
       } catch (err) {
         const message = err && err.message ? err.message : String(err);
-        self.postMessage({ id, type: 'result', output: '', error: message, resetRuntime: true });
+        self.postMessage({ id, type: 'result', output: '', error: message });
       }
     };
   `;
 
   const blob = new Blob([workerSource], { type: 'text/javascript' });
-  // Keep one public event target across runtime replacements. The failed run
-  // still reports its original result once; only the next request uses a fresh
-  // WASM heap. Serializing requests also keeps queued autotests recoverable.
-  const target = new EventTarget();
-  let worker = null, active = null, closed = false;
-  const queue = [];
-  for (const type of ['message', 'error', 'messageerror']) {
-    target['on' + type] = null;
-    target.addEventListener(type, event => target['on' + type]?.call(target, event));
-  }
-  const start = () => {
-    const url = URL.createObjectURL(blob);
-    let current;
-    try { current = new Worker(url); }
-    finally { URL.revokeObjectURL(url); }
-    worker = current;
-    current.onmessage = event => {
-      if (worker !== current || closed) return;
-      const data = event.data;
-      const complete = data?.id === active?.id && ['result', 'ready', 'warmup-error'].includes(data?.type);
-      if (complete) {
-        active = null;
-        if (data.resetRuntime === true) { current.terminate(); worker = null; }
-      }
-      target.dispatchEvent(new MessageEvent('message', {data}));
-      if (complete) pump();
-    };
-    for (const type of ['error', 'messageerror']) current['on' + type] = event => {
-      if (worker !== current || closed) return;
-      const forwarded = new Event(type);
-      if (type === 'error') Object.defineProperty(forwarded, 'message', {value: event.message || 'Python runtime failed'});
-      target.dispatchEvent(forwarded);
-    };
-    return current;
-  };
-  const pump = () => {
-    if (closed || active || !queue.length) return;
-    const next = queue.shift();
-    active = next.message;
-    (worker || start()).postMessage(next.message, ...next.transfer);
-  };
-  target.postMessage = (message, ...transfer) => {
-    if (closed) return;
-    queue.push({message, transfer});
-    pump();
-  };
-  target.terminate = () => {
-    closed = true;queue.length = 0;active = null;
-    worker?.terminate();worker = null;
-  };
-  start();
-  return target;
+  const url = URL.createObjectURL(blob);
+  const worker = new Worker(url);
+  URL.revokeObjectURL(url);
+  return worker;
 };
