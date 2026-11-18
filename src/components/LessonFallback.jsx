@@ -24,14 +24,9 @@ export default function LessonFallback({ user }) {
       try {
         const health = await fetch(resolveApiUrl('/api/availability'), { cache: 'no-store', signal: controller.signal });
         if (!health.ok || !(await health.json()).available) throw Error('unavailable');
-        clearTimeout(timeout);
         if (stopped) return;
         failures = 0; setUnavailable(false); setMinimized(false);
         if (Date.now() - loadedAt > 60_000) {
-          // A slow/failed refresh of reserve links does not mean the platform
-          // is down: the independent health probe has already succeeded.
-          const linksTimeout = setTimeout(() => controller.abort(), 5000);
-          try {
           const response = await fetch(resolveApiUrl('/api/lesson-fallback'), { credentials: 'include', cache: 'no-store',
             headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}, signal: controller.signal });
           if (stopped) return;
@@ -41,8 +36,6 @@ export default function LessonFallback({ user }) {
             if (stopped) return;
             saveLessonFallback(localStorage, owner, list); setLinks(list); loadedAt = Date.now();
           }
-          } catch { /* Keep cached reserve links and the successful health result. */ }
-          finally { clearTimeout(linksTimeout); }
         }
       } catch {
         if (!stopped && ++failures >= 2) {
