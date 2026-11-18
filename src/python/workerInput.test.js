@@ -19,7 +19,7 @@ let workerSource;
 vm.runInNewContext(`${factory}\ncreatePyodideWorker();`, {
   PYODIDE_INDEX_URL: 'https://platform.test/vendor/pyodide/0.29.4/', PYODIDE_FALLBACK_URL: 'https://cdn.example.test/0.29.4/', PYODIDE_STREAM_CHUNK_CHARS: 2048,
   PYODIDE_TURTLE_SCENE_JSON_LIMIT: 4194304, PYODIDE_TURTLE_SCENE_PRIMITIVE_LIMIT: 20000,
-  HEADLESS_TURTLE_SOURCE: '', COLLAB_DEBUG_TRACE_LIMIT: 1500,
+  EventTarget, Event, MessageEvent, HEADLESS_TURTLE_SOURCE: '', COLLAB_DEBUG_TRACE_LIMIT: 1500,
   Blob: class { constructor(parts) { workerSource = parts.join(''); } },
   URL: { createObjectURL: () => '', revokeObjectURL() {} }, Worker: class {},
 });
@@ -38,6 +38,10 @@ const run = async (source, input, options = {}) => {
       const scriptPath = path.join(tempRoot, 'run.py');
       // Pyodide uses LF on every host, including Windows.
       fs.writeFileSync(scriptPath, `import sys, json, builtins, _sitebuiltins\nbuiltins.exit = _sitebuiltins.Quitter('exit', '')\nbuiltins.quit = _sitebuiltins.Quitter('quit', '')\nsys.stdout.reconfigure(newline='\\n')\nsys.stderr.reconfigure(newline='\\n')\n${wrapped}\nwith open(${JSON.stringify(metadataPath)}, 'w', encoding='utf-8') as _metadata_file:\n    json.dump({k: v for k, v in globals().copy().items() if k.startswith('__collab_') or k in ('__output', '__error')}, _metadata_file)\n`);
+      // The real WASM interpreter stays alive after each request. Finish this
+      // helper only after metadata and streams are flushed, without CPython's
+      // process teardown turning a caught exec(KeyboardInterrupt) into SIGINT.
+      fs.appendFileSync(scriptPath, '\nimport os\nsys.stdout.flush()\nsys.stderr.flush()\nos._exit(0)\n');
       const result = spawnSync(process.env.PYTHON_EXECUTABLE || 'python', ['-I', '-S', '-B', scriptPath], {
         windowsHide: true, timeout: 10000, encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       });
@@ -143,4 +147,18 @@ test('a runtime failure after stdout does not erase the streamed output', async 
   const result = await run('print("saved")', '', { runtimeFailure: true });
   assert.equal(result.output, 'saved\n');
   assert.match(result.error, /WASM runtime failure/);
+});
+
+test('a real Python memory error requests a fresh runtime without dropping preceding output', async () => {
+  const result = await run('print("before")\nraise MemoryError("large allocation")', '');
+  assert.equal(result.output, 'before\n');
+  assert.match(result.error, /MemoryError: large allocation/);
+  assert.equal(result.resetRuntime, true);
+  assert.equal((await run('print("MemoryError")', '')).resetRuntime, false);
+  assert.equal((await run('raise ValueError("MemoryError")', '')).resetRuntime, false);
+});
+
+test('the Q(5) lesson example still prints 8 after cached recursion', async () => {
+  const result = await run('from functools import lru_cache\n@lru_cache(None)\ndef Q(n):\n    if n==0 or n==1:\n        return 1\n    return Q(n-1)+Q(n-2)\nfor n in range(500):\n    Q(n)\nprint(Q(5))', '');
+  assert.equal(result.output, '8\n');assert.equal(result.error, '');assert.equal(result.resetRuntime, false);
 });
