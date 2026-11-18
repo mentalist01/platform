@@ -12,7 +12,7 @@ function worker(load){
   vm.runInNewContext(factory+'\ncreatePyodideWorker();',{
     PYODIDE_INDEX_URL:local,PYODIDE_FALLBACK_URL:fallback,PYODIDE_STREAM_CHUNK_CHARS:2048,
     PYODIDE_TURTLE_SCENE_JSON_LIMIT:4194304,PYODIDE_TURTLE_SCENE_PRIMITIVE_LIMIT:20000,
-    HEADLESS_TURTLE_SOURCE:'',COLLAB_DEBUG_TRACE_LIMIT:2500,
+    EventTarget, Event, MessageEvent, HEADLESS_TURTLE_SOURCE:'',COLLAB_DEBUG_TRACE_LIMIT:2500,
     Blob:class{constructor(parts){generated=parts.join('');}},URL:{createObjectURL:()=>'',revokeObjectURL(){}},Worker:class{},
   });
   const self={loadPyodide:async options=>load(options.indexURL),postMessage:x=>messages.push(x)};
