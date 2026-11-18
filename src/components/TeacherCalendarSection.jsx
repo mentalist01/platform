@@ -4,6 +4,7 @@ import { LessonAlarmSettings } from './LessonAlarmControls';
 import {StudentStudyBadge} from './StudentStudyProgress.jsx';
 import CalendarStudentPayer from './CalendarStudentPayer.jsx';
 import GroupCalendarParticipant from './GroupCalendarParticipant.jsx';
+import { groupParticipationApi } from '../services/groupParticipationApi.js';
 import GroupPreparationRoster, { GroupPreparationCount } from './GroupPreparationRoster.jsx';
 import { getLearningGroupCalendarParticipants } from '../utils/groupCalendarParticipants.js';
 import StudentPlacementNote from './StudentPlacementNote.jsx';
@@ -2902,6 +2903,32 @@ const TeacherCalendarSection = ({
     } finally { setLessonPanelFinanceBusy(''); }
   }, [eventDetails, eventDetailsCancelled, lessonPanelFinanceBusy, loadTeacherCalendar, studentNameById]);
 
+  const handleGroupMemberParticipationToggle = useCallback(async (member) => {
+    if (!eventDetails?.groupId || !eventDetails?.lessonId || !member.studentId
+      || eventDetailsCancelled || eventDetailsStatusLabel !== 'Урок' || lessonPanelFinanceBusy) return;
+    const source = eventDetails, assigned = member.participationRequired === false;
+    setLessonPanelFinanceBusy(`group-participation:${member.studentId}`);
+    setLessonPanelError(''); setLessonPanelSuccess('');
+    try {
+      await groupParticipationApi.saveLearningLessonParticipation(source.groupId, source.lessonId,
+        {studentId:member.studentId, assigned});
+      const patch = entry => {
+        if (entry?.groupId !== source.groupId || entry?.lessonId !== source.lessonId) return entry;
+        return {...entry, memberPaymentStatuses:getLearningGroupCalendarParticipants(entry, studentNameById).map(item => (
+          item.studentId === member.studentId ? {...item, participationRequired:assigned} : item
+        ))};
+      };
+      calendarSnapshotGuard.current.invalidate();
+      setEntries(previous => previous.map(patch));
+      setEventDetails(patch);
+      setLessonPanelSuccess(assigned ? `${member.studentName}: участие в этом занятии возвращено.`
+        : `${member.studentName}: не придёт. Оплата за это занятие не начисляется.`);
+      void loadTeacherCalendar({silent:true});
+    } catch (failure) {
+      setLessonPanelError(failure.message || 'Не удалось изменить участие в занятии.');
+    } finally { setLessonPanelFinanceBusy(''); }
+  }, [eventDetails, eventDetailsCancelled, eventDetailsStatusLabel, lessonPanelFinanceBusy, loadTeacherCalendar, studentNameById]);
+
   const handleEventDetailsCancellationToggle = useCallback(async () => {
     if (
       !eventDetails
@@ -5498,6 +5525,8 @@ const TeacherCalendarSection = ({
                             senders={eventDetailsPaymentSenders} cancelled={eventDetailsCancelled}
                             busy={Boolean(lessonPanelFinanceBusy) || eventQuickActionBusy}
                             canMarkAbsence={Boolean(eventDetails.lessonId) && eventDetailsStatusLabel !== 'Урок'}
+                            canChangeParticipation={Boolean(eventDetails.lessonId) && eventDetailsStatusLabel === 'Урок'}
+                            onParticipation={handleGroupMemberParticipationToggle}
                             onPayment={handleGroupMemberPaymentToggle} onAbsence={handleGroupMemberAbsenceToggle}
                             paymentPanel={lessonPaymentRequest?.id===eventDetails.id&&lessonPaymentRequest.studentId===member.studentId
                               &&lessonPaymentRequest.dayKey===eventDetailsDayKey&&<React.Suspense fallback={<p className="text-xs text-slate-500">Загружаем оплату…</p>}>
