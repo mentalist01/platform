@@ -157,6 +157,27 @@ test('teacher confirms that matching equal amount is a separate payment', () => 
   assert.equal(availableCents(a), 800000);
 });
 
+test('bank pushes compare manual payments within exactly 24 hours, not three days', () => {
+  const a = account();
+  receipt(a, 'manual:daily-window', 900, { senderName: 'Ольга В' });
+  const before = structuredClone(a);
+  for (const direction of [-1, 1]) {
+    for (const [distance, expected] of [[0, 1], [86_399_999, 1], [86_400_000, 1], [86_400_001, 0], [2 * 86_400_000, 0], [3 * 86_400_000, 0]]) {
+      const at = new Date(Date.parse(now) + direction * distance).toISOString();
+      assert.equal(possibleManualReceipts(a, { amount: 900, at, senderName: 'Ольга В' }).length, expected,
+        `manual payment offset ${direction * distance} ms`);
+    }
+  }
+  assert.equal(possibleManualReceipts(a, { amount: 900, at: now, senderName: 'Ольга К' }).length, 0);
+  assert.equal(possibleManualReceipts(a, { amount: 2000, at: now, senderName: 'Ольга В' }).length, 0);
+  assert.deepEqual(a, before, 'checking similarity does not mutate existing receipts or pending decisions');
+  const later = new Date(Date.parse(now) + 2 * 86_400_000).toISOString();
+  assert.equal(addBalanceReceipt(a, { id: 'bank:daily-window', amount: 900, at: later, source: 'bank', aliases: ['daily-window-hash'] }, later).duplicate, false);
+  assert.equal(addBalanceReceipt(a, { id: 'bank:daily-window', amount: 900, at: later, source: 'bank' }, later).duplicate, true);
+  assert.equal(addBalanceReceipt(a, { id: 'bank:other-delivery', amount: 900, at: later, source: 'bank', aliases: ['daily-window-hash'] }, later).duplicate, true);
+  assert.equal(balanceSummary(a).received, 1800);
+});
+
 test('migration cannot invent receipts or permit overspending; corruption stops mutations', () => {
   assert.throws(() => createBalanceAccount({ now, openingByMonth: { '2026-09': 2000 }, paid: [lesson('one', '2026-09-28'), lesson('two', '2026-09-30')] }), /Сумма/);
   assert.throws(() => normalizeStudentBalances({ version: 2, accounts: {} }), /Поврежд/);
