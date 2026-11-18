@@ -3601,6 +3601,7 @@ const PAYMENT_LESSON_SEARCH_FUTURE_DAYS = 45;
 // window.  Keep a bounded horizon so a malformed recurring schedule cannot
 // make cancellation handling unbounded.
 const PAYMENT_TRANSFER_LOOKAHEAD_DAYS = 365;
+const PAYMENT_SAME_DAY_MOVE_LOOKBACK_DAYS = 7;
 const STUDENT_SCHEDULE_PAYMENT_LOOKBACK_DAYS = 90;
 const STUDENT_SCHEDULE_PAYMENT_OVERDUE_LIMIT = 16;
 const STUDENT_SCHEDULE_PAYMENT_TRACKING_START_DAY_KEY = '2026-05-01';
@@ -18228,6 +18229,8 @@ const mutateStudentBalances = async (teacherId, { enable = false, preview = fals
   if (enable && !Object.keys(wallet.accounts).length) throw balanceError('Нет учеников с согласованным поурочным учётом. Переход остановлен без изменений.', 'balance_migration_conflict');
   if (!entry.studentPaymentBalances && !enable && !preview) throw balanceError('Сначала подключите балансы в разделе «Финансы → Балансы».', 'balance_not_enabled');
   const actionResult = action ? action({ wallet, entry, marks, occurrencesByStudent, entries, now }) : null;
+  const sameDayMoveSince = preview || enable || actionResult?.skipAllocation ? ''
+    : numberToDayKey(getStudentSchedulePaymentNowInfo().todayNumber - PAYMENT_SAME_DAY_MOVE_LOOKBACK_DAYS);
   const rows = [];
   for (const student of students) {
     const account = wallet.accounts[student.id];
@@ -18237,7 +18240,7 @@ const mutateStudentBalances = async (teacherId, { enable = false, preview = fals
       continue;
     }
     const issues = calendarError ? [{ reason: calendarError }] : reconcileBalanceAccount(account, occurrencesByStudent.get(student.id) || [], now,
-      { allocate: !student.deletedAt && !actionResult?.skipAllocation });
+      { allocate: !student.deletedAt && !actionResult?.skipAllocation, sameDayMoveSince });
     rows.push({ studentId: student.id, studentName: student.nickname || student.name, deleted: Boolean(student.deletedAt),
       ...balanceSummary(account, issues) });
   }

@@ -115,6 +115,83 @@ test('one payment travels with an identifiable move at the original price', () =
   assert.equal(income(a), 2000);
 });
 
+const googleLesson = (key, date, extra = {}) => lesson(key, date, {
+  external: true, eventId: `google-ical-${key}`, identity: `calendar:${key}`, durationMinutes: 60, ...extra,
+});
+
+test('one-to-one same-day Google reschedules preserve the original receipt and do not recredit', () => {
+  const a = account();
+  const first = googleLesson('first-18', '2026-11-17');
+  const second = googleLesson('second-18', '2026-11-24');
+  receipt(a, 'bank-first', 2000);
+  reserveBalanceAllocation(a, first, now);
+  receipt(a, 'bank-second', 2000);
+  reserveBalanceAllocation(a, second, now);
+  const next = [
+    googleLesson('first-19', first.dayKey, { time: '19:00' }),
+    googleLesson('second-19', second.dayKey, { time: '19:00' }),
+    googleLesson('third', '2026-11-27'),
+  ];
+  const options = { sameDayMoveSince: '2026-11-11' };
+  assert.equal(reconcileBalanceAccount(a, next, now, options).length, 0);
+  assert.deepEqual(Object.keys(a.allocations), ['first-19', 'second-19']);
+  for (const [index, occurrence] of next.slice(0, 2).entries()) {
+    assert.deepEqual(a.allocations[occurrence.markKey].funds, [{ entryId: a.entries[1 + index * 2].id, cents: 200000 }]);
+    assert.equal(a.allocations[occurrence.markKey].paidAt, now);
+  }
+  assert.deepEqual(balanceSummary(a).received, 4000);
+  assert.equal(availableCents(a), 0);
+  assert.equal(a.entries.filter(e => e.type === 'move').length, 2);
+  const before = structuredClone(a);
+  assert.equal(reconcileBalanceAccount(a, next, now, options).length, 0);
+  assert.deepEqual(a, before);
+  normalizeStudentBalances({ version: 1, accounts: { student: a } });
+});
+
+test('same-day inference leaves ambiguous, old, blocked, paid and trial slots on review', () => {
+  const date = '2026-11-17';
+  const old = googleLesson('old', date);
+  const target = googleLesson('target', date, { time: '19:00' });
+  const cases = [
+    { next: [target, googleLesson('other', date, { time: '20:00' })] },
+    { next: [target], alreadyPaid: [googleLesson('also-missing', date, { time: '17:00' })], issues: 2 },
+    { next: [target], alreadyPaid: [target] },
+    { next: [target], block: true },
+    { next: [target], since: '2026-11-18' },
+    { next: [{ ...target, eligible: false }] },
+    { next: [{ ...target, autoEligible: false }] },
+    { next: [{ ...target, cents: 250000 }] },
+    { next: [{ ...target, groupId: 'group' }] },
+    { next: [{ ...target, durationMinutes: 90 }] },
+    { next: [{ ...target, external: false }] },
+    { next: [{ ...target, dayKey: '2026-11-18' }] },
+  ];
+  for (const { next, alreadyPaid = [], issues = 1, block, since = '2026-11-11' } of cases) {
+    const a = account();
+    receipt(a, 'bank', 2000 * (1 + alreadyPaid.length));
+    for (const occurrence of [old, ...alreadyPaid]) reserveBalanceAllocation(a, occurrence, now);
+    if (block) a.blocked[target.markKey] = now;
+    const before = structuredClone(a);
+    assert.equal(reconcileBalanceAccount(a, next, now, { sameDayMoveSince: since }).length, issues);
+    assert.deepEqual(a, before);
+  }
+});
+
+test('explicit cross-day reschedule has priority over a same-day lookalike', () => {
+  const date = '2026-11-17';
+  const a = account();
+  const old = googleLesson('old', date);
+  const earlier = googleLesson('earlier', '2026-11-16');
+  receipt(a, 'bank', 4000);
+  reserveBalanceAllocation(a, old, now);
+  reserveBalanceAllocation(a, earlier, now);
+  const target = googleLesson('target', date, { time: '19:00', moveFromKeys: [earlier.markKey] });
+  const issues = reconcileBalanceAccount(a, [target], now, { sameDayMoveSince: '2026-11-11' });
+  assert.deepEqual(issues.map(issue => issue.markKey), [old.markKey]);
+  assert.deepEqual(Object.keys(a.allocations), [old.markKey, target.markKey]);
+  assert.equal(a.entries.at(-1).markKey, earlier.markKey);
+});
+
 test('unknown disappearance locks funds; explicit cancellation releases; trial never spends', () => {
   const a = createBalanceAccount({ now, openingByMonth: { '2026-09': 2000 }, paid: [lesson('old', '2026-09-28')] });
   assert.equal(reconcileBalanceAccount(a, [lesson('new', '2026-10-07')], now).length, 1);
