@@ -169,16 +169,36 @@ export function createLessonPageCatalog({loadBook,loadCode,saveCode,releaseCode,
     }
     const rosterChanged=JSON.stringify(context.rooms)!==JSON.stringify(scope.codes);
     context.rooms=scope.codes;
-    if(!context.initialized||rosterChanged)await context.refresh();
+    if(!context.initialized||rosterChanged) {
+      // Board, code, task cards and WebSocket upgrades can arrive together.
+      // Join the same initial projection instead of queuing a complete reread
+      // of every saved code document for each incoming request.
+      const key=JSON.stringify(scope.codes);
+      if(!context.initialization||context.initialization.key!==key) {
+        const initialization={key,promise:context.refresh()};
+        context.initialization=initialization;
+        void initialization.promise.finally(()=>{if(context.initialization===initialization)context.initialization=null;}).catch(()=>{});
+      }
+      await context.initialization.promise;
+    }
     else if(scope.codeRoom) {
-      const entry=await loadCode(scope.codeRoom);
-      try {
-        if(entry.active&&!context.active.has(entry.doc)) {
-          context.book.transact(()=>importLegacyCodePages(context.book,entry.doc,scope.codeRoom),LESSON_PAGE_ORIGIN);
-          await saveBook(scope.book,context.book);
-          projectLessonPages(context.book,entry.doc,scope.book);await saveCode(scope.codeRoom,entry.doc);attachCode(context,scope.codeRoom,entry.doc);
-        }
-      }finally{if(!entry.active)releaseCode(entry.doc);}
+      if([...context.active.values()].includes(scope.codeRoom))return context.book;
+      context.attaching??=new Map();
+      if(!context.attaching.has(scope.codeRoom)) {
+        const job=(async()=>{
+          const entry=await loadCode(scope.codeRoom);
+          try {
+            if(entry.active&&!context.active.has(entry.doc)) {
+              context.book.transact(()=>importLegacyCodePages(context.book,entry.doc,scope.codeRoom),LESSON_PAGE_ORIGIN);
+              await saveBook(scope.book,context.book);
+              projectLessonPages(context.book,entry.doc,scope.book);await saveCode(scope.codeRoom,entry.doc);attachCode(context,scope.codeRoom,entry.doc);
+            }
+          }finally{if(!entry.active)releaseCode(entry.doc);}
+        })();
+        context.attaching.set(scope.codeRoom,job);
+        void job.finally(()=>{if(context.attaching.get(scope.codeRoom)===job)context.attaching.delete(scope.codeRoom);}).catch(()=>{});
+      }
+      await context.attaching.get(scope.codeRoom);
     }
     return context.book;
   }
