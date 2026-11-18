@@ -24,7 +24,7 @@ The review dialog offers a new receipt or a link to an existing equal-amount rec
 
 `GET /api/payment-notifications/:id/review` is read-only and returns a preview token. `POST` to the same path requires strict JSON with `confirmed`, the preview token, and mode `new` or `link`. Only the owning teacher may act. Amount and pupil are resolved from the saved SMS, never the submitted fields. Receipt plus SMS resolution are persisted together in the wallet ledger; repeated or concurrent submissions reuse that resolution. A lost notification-status write can be repaired without crediting again.
 
-New SMS receipts are manual receipts. The existing delayed bank-push check routes a matching push within three days to manual confirmation. Linking that bank notification to a reviewed SMS receipt marks it as a duplicate in notification totals. This is a similarity safeguard, not a bank transaction ID or unlimited proof of economic identity.
+New SMS receipts are manual receipts. The delayed bank-push check routes a matching push within 24 hours of the manual receipt's received timestamp to manual confirmation. The explicit SMS linking dialog retains its three-day search window. Existing pending notifications are not reprocessed when the automatic window changes. Linking that bank notification to a reviewed SMS receipt marks it as a duplicate in notification totals. This is a similarity safeguard, not a bank transaction ID or unlimited proof of economic identity.
 
 Notification totals describe saved messages, not a bank statement. Pending SMS are not credited automatically. Reviewed SMS and explicitly linked bank pushes are counted once.
 

@@ -132,6 +132,14 @@ test('wallet API: migration, isolation, receipts, duplicates, manual review, und
       title: 'Т-Банк', text: 'Пополнение на 2000 ₽, счет RUB. Плательщик Т. Доступно 500 000 ₽', receivedAt: settle.receipt.receivedAt } });
     assert.equal(lateBank.notification.status, 'pending', 'late bank notification must be linked to the manual receipt before crediting');
     assert.equal((await ok('/api/student-payment-balances', { token })).students.find(row => row.studentId === 'self-service').received, 2000);
+    const laterPushBody = { id: 'selected-payment-two-days-later', secret, title: 'Т-Банк',
+      text: 'Пополнение на 2000 ₽, счет RUB. Плательщик Т. Доступно 504 000 ₽',
+      receivedAt: new Date(Date.parse(settle.receipt.receivedAt) + 2 * 86400000).toISOString() };
+    const laterBank = await ok('/api/payment-notifications/tbank', { body: laterPushBody });
+    assert.equal(laterBank.notification.status, 'applied', 'a new bank payment outside 24 hours must not be blocked by a manual receipt');
+    assert.equal((await ok('/api/student-payment-balances', { token })).students.find(row => row.studentId === 'self-service').received, 4000);
+    assert.equal((await ok('/api/payment-notifications/tbank', { body: laterPushBody })).notification.status, 'duplicate');
+    assert.equal((await ok('/api/student-payment-balances', { token })).students.find(row => row.studentId === 'self-service').received, 4000);
     const legacyPayment = await ok('/api/payment-notifications/tbank', { body: { id: 'legacy-after-migration', secret, title: 'Т-Банк', text: 'Пополнение на 2000 ₽, счет RUB. Legacy. Доступно 500 000 ₽', receivedAt: new Date().toISOString() } });
     assert.equal(legacyPayment.notification.status, 'applied', 'excluded student keeps legacy bank processing');
     const legacyKey = legacyPayment.notification.markKeys[0];

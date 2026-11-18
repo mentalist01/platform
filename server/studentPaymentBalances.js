@@ -171,7 +171,7 @@ export function possibleManualReceipts(account, receipt) {
   const key = value => String(value || '').toLowerCase().replace(/[^а-яёa-z0-9]/g, '');
   return account.entries.filter(entry => entry.type === 'receipt' && entry.source === 'manual'
     && !entry.bankConfirmed && entry.creditCents === cents
-    && Math.abs(Date.parse(entry.at) - at) <= 3 * 86_400_000
+    && Math.abs(Date.parse(entry.at) - at) <= 86_400_000
     && (!entry.senderName || key(entry.senderName) === key(receipt.senderName)));
 }
 
