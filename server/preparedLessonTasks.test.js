@@ -18,6 +18,28 @@ test('answer formats preserve strings and leading zeroes; numeric and unordered 
   assert.equal(preparedAnswerMatches(['42'],['42'],'manual'),false);
 });
 
+test('lesson task reads and actions never load workbook journals for card previews',async t=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-workbook-preview-')),doc=new Y.Doc();
+  t.after(()=>{doc.destroy();fs.rmSync(directory,{recursive:true,force:true});});
+  const auth={id:'t',role:'teacher'},pupil={id:'s',role:'student'};
+  const store=new PreparedLessonTasks({directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]});
+  const image=store.putAsset(auth,Buffer.from('image'),'task.png','image/png');
+  const workbook=store.putAsset(auth,Buffer.from('workbook'),'table.ods','application/octet-stream');
+  const set=await store.saveSet(auth,{name:'Таблица',taskNumber:18,tasks:[{images:[image.id],answers:['1','2']}]});
+  const view=await store.start(auth,{room:'board-t-s',setId:set.id,x:0,y:0});
+  const run=store.data.runs[view.id], card=run.cards[0];
+  run.tasks[0].attachments.push({assetId:workbook.id,name:workbook.name});
+  card.liveWorkbooks={[workbook.id]:{enabled:true,key:store.liveWorkbooks.key(run.id,card.id,workbook.id),ordinaryFallback:true}};
+  store.liveWorkbooks.read=()=>assert.fail('A card preview must not load a workbook');
+
+  const liveMetadata=view=>view.cards[0].attachments[0].live;
+  const metadata=liveMetadata(store.publicRun(run,{auth:pupil}));
+  assert.equal(metadata.enabled,true);
+  assert.equal(metadata.ordinaryFallback,true);
+  assert.equal(metadata.windowsOnly,true);
+  assert.deepEqual(liveMetadata(await store.action(auth,run.id,{action:'focus',cardId:card.id})),metadata);
+});
+
 test('legacy task17 answers migrate once with backups and preserve run identity, status, files and code',async t=>{
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-answer-migration-')),doc=new Y.Doc(),auth={id:'t',role:'teacher'};
   const deps={directory,authorize:async actor=>({allowed:true,auth:actor}),board:async()=>doc,sourceFiles:async()=>[]};

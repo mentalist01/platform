@@ -22,10 +22,11 @@ const supportsFormatting=agent=>{const v=String(agent||'').match(/IvanEgeWorkboo
 const supportsColumns=agent=>{const v=String(agent||'').match(/IvanEgeWorkbookHelper\/(\d+)\.(\d+)\.(\d+)/i);return Boolean(v&&!/macOS/i.test(agent)&&(Number(v[1])>1||Number(v[1])===1&&(Number(v[2])>5||Number(v[2])===5&&Number(v[3])>=13)));};
 const seed=(store,card,asset)=>currentWorkbookSolution(card,asset.id)||{...asset,revision:card.solutions[asset.id]?.revision||0,...(isText(asset)?{name:asset.name.replace(/\.[^.]+$/,'')+' — решение.ods',hash:liveDigest(BLANK_WORKBOOK_ODS),blank:true}:{})};
 
-export function workbookLiveView(store,run,card,assetId){
+export function workbookLiveView(card,assetId){
   const mode=card.liveWorkbooks?.[assetId];if(!mode?.enabled)return null;
-  const state=store.liveWorkbooks.read(mode.key).state;
-  return {enabled:true,initialized:Boolean(state),revision:state?.revision||0,checkpointRevision:state?.checkpointRevision||0,minimumHelper,windowsOnly:true,ordinaryFallback:mode.ordinaryFallback===true};
+  // Board responses only need the mode. The helper reads current revisions
+  // through its live state endpoint when someone opens the workbook.
+  return {enabled:true,minimumHelper,windowsOnly:true,ordinaryFallback:mode.ordinaryFallback===true};
 }
 
 export function registerWorkbookLiveRoutes(app,store,{allowExchange=()=>true,allowContent=()=>true}={}){
