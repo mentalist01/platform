@@ -227,12 +227,27 @@ test('voice channels isolate signaling, switch safely and preserve all 20 studen
 
     t.send({ type: 'join', roomId: separate });
     assert.deepEqual((await t.take('joined')).peers.map((peer) => peer.userId), ['student-2']);
-    assert.equal((await a.take('peer-left')).peerId, joinedT.selfId);
+    const movedFromGeneral = await a.take('peer-left');
+    assert.equal(movedFromGeneral.peerId, joinedT.selfId);
+    assert.equal(movedFromGeneral.silent, true);
+    assert.equal((await b.take('peer-joined')).peer.userId, 'teacher-a');
+    assert.equal(a.inbox.some(message => message.type === 'peer-joined' && message.roomId === separate), false);
     const livePresence = await waitForValue(() => a.inbox.findLast(message => message.type === 'voice-channel-presence' && message.roomId === separate && message.participants.length === 2));
     assert.deepEqual(livePresence.participants.map(peer => peer.userId).sort(), ['student-2', 'teacher-a']);
     const presence = await request(url, { token: first.token });
     assert.deepEqual(presence.channels[0].participants.map((peer) => peer.userId), ['student-1']);
     assert.deepEqual(presence.channels[1].participants.map((peer) => peer.userId).sort(), ['student-2', 'teacher-a']);
+
+    t.send({ type: 'leave', channelSwitch: true });
+    assert.equal((await b.take('peer-left')).silent, true);
+    t.send({ type: 'join', roomId: separate });
+    await t.take('joined');
+    await b.take('peer-joined');
+    t.send({ type: 'leave' });
+    assert.equal((await b.take('peer-left')).silent, undefined);
+    t.send({ type: 'join', roomId: separate });
+    await t.take('joined');
+    await b.take('peer-joined');
 
     const t2 = await open(teacher.token);
     t2.send({ type: 'join', roomId: general });

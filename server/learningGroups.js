@@ -6,6 +6,7 @@ import { normalizeLearningVoiceChannels, normalizeVoiceChannelNames } from './le
 import { normalizeParticipationPlans, participationOccurrence } from '../src/utils/groupParticipation.js';
 import { getPythonHomeworkTheorySelection } from '../src/utils/pythonTheoryHomework.js';
 import { getLearningAssignmentState } from '../src/utils/learningAssignmentState.js';
+import { normalizeGroupLessonPractice } from './groupLessonPractice.js';
 
 const GROUP_STATUSES = new Set(['forming', 'ready', 'active', 'completed']);
 const MEMBER_STATUSES = new Set(['active', 'removed']);
@@ -504,6 +505,8 @@ export const normalizeLearningLessonSession = (value) => {
   if (!id || !groupId || !teacherId || !startAt) return null;
   const participantIds = normalizeStringIds(value.participantIds || value.participantIdsSnapshot, Infinity);
   const status = LESSON_STATUSES.has(value.status) ? value.status : 'scheduled';
+  const practice = normalizeGroupLessonPractice(value.practice);
+  if (practice && (status === 'completed' || status === 'cancelled')) practice.activeRoundId = '';
   return {
     id,
     groupId,
@@ -528,6 +531,7 @@ export const normalizeLearningLessonSession = (value) => {
     roomId: `lesson:${id}`,
     rtcRoomId: `rtc:lesson:${id}`,
     voiceGatheredAt: normalizeIsoTimestamp(value.voiceGatheredAt),
+    ...(practice ? {practice} : {}),
     boardDocName: `board-lesson-${id}`,
     collabDocName: `collab-lesson-${id}`,
     createdAt: normalizeIsoTimestamp(value.createdAt),

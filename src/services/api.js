@@ -1342,6 +1342,10 @@ export const api = {
       method: 'PUT', body: {studentId, absent},
     })
   ),
+  getLearningLessonPractice: (groupId, lessonId) =>
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'practice')),
+  changeLearningLessonPractice: (groupId, lessonId, body) =>
+    requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'practice'), {method:'POST',body}),
   getLearningVoiceChannels: async (groupId, lessonId) => (
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'voice-channels'))
   ),

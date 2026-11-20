@@ -1,4 +1,5 @@
 import {parseBoardPageRoom} from '../src/utils/boardPages.js';
+import {canAccessPracticeRoom,findPracticeRoom,parsePracticeWorkspaceRoom} from '../src/utils/groupPractice.js';
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
 import {pythonExplanationBoardRoom,pythonExplanationCodeRoom} from '../src/utils/pythonExplanationBoard.js';
 import {pythonGroupBoardRoom,pythonGroupCodeBase} from '../src/utils/pythonGroupWorkspace.js';
@@ -379,6 +380,14 @@ export const canAccessPythonGroup = (auth,group,students) => {
     &&(group.members||[]).some(m=>(typeof m==='string'?m:m.studentId||m.id)===auth.id&&isActiveLearningGroupMember(m));
 };
 export const resolveLearningRealtimeRoomTarget = ({ roomId, sessions, students, groups } = {}) => {
+  const practiceTarget = parsePracticeWorkspaceRoom(roomId);
+  if (practiceTarget) {
+    const session = normalizeCollection(sessions, 'sessions').find(entry => entry.id === practiceTarget.lessonId);
+    const work = findPracticeRoom(session?.practice, practiceTarget.roomId);
+    if (!work) return null;
+    return {targetType:'lesson',kind:practiceTarget.kind,session,sessionId:session.id,roomId,
+      practiceRoom:work.room,practiceReadOnly:work.round.id!==session.practice.activeRoundId};
+  }
   for(const group of normalizeCollection(groups,'groups')) {
     const boardBase=groupNotebookBoard(group.id),codeBase=groupNotebookCode(group.id);
     for(const [base,kind] of [[boardBase,'board'],[codeBase,'collab']]) {
@@ -509,13 +518,14 @@ export const authorizeLearningRealtimeRoom = ({
     || role === 'admin'
     || role === 'teacher'
     || (role === 'student' && authId === normalizeText(target.privateStudentId));
-  const allowed = baseAllowed && privateRoomAllowed;
+  const allowed = baseAllowed && privateRoomAllowed
+    && (!target.practiceRoom || canAccessPracticeRoom(auth, target.practiceRoom));
   return {
     allowed,
     reason: allowed ? '' : 'forbidden',
     target,
     windowState,
-    readOnly: (target.targetType === 'group'&&target.group.status==='completed') || Boolean(timedSession && (
+    readOnly: Boolean(target.practiceReadOnly) || (target.targetType === 'group'&&target.group.status==='completed') || Boolean(timedSession && (
       windowState.past
       || (target.targetType === 'lesson' && windowState.notStarted && !['teacher', 'admin'].includes(
         normalizeText(auth.role, 40).toLowerCase()

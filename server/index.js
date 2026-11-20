@@ -85,7 +85,7 @@ import { LearningSubscriptionStore, registerLearningSubscriptionRoutes, subscrip
 import { registerGroupParticipation } from './groupParticipation.js';
 import {isGroupHomeworkTrackAllowed, groupHomeworkRecipients} from '../src/utils/groupHomeworkTracks.js';
 import { isGroupLessonAssigned, isGroupLessonAbsenceWaived, participationOccurrence, requiredGroupLessonParticipants } from '../src/utils/groupParticipation.js';
-import { boardPageBookRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
+import { boardPageBookRoom, boardPageRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
 import {matchLessonRecording} from '../src/utils/studentLessonRecordings.js';
@@ -314,6 +314,8 @@ import {registerPreparedSetExchangeRoutes} from './preparedSetExchange.js';
 import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
 import {registerGroupStudyProgressRoutes} from './groupStudyProgress.js';
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
+import {canAccessPracticeRoom, getActivePracticeRound, isPracticePageId, parsePracticeWorkspaceRoom, practiceVoiceChannelId, practiceWorkspaceRoom} from '../src/utils/groupPractice.js';
+import {practiceForViewer, setPracticeRoomStatus, startPracticeRound, validatePracticeAssignments} from './groupLessonPractice.js';
 import {isTrialLesson, trialRoomId, trialRoomGroup, trialRoomSession, trialRoomPayload} from './trialLessonRooms.js';
 import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
 import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
@@ -22280,6 +22282,19 @@ const handleUploadRequest = (req, res) => {
   let boardAssetGroup = null;
   const boardAsset = boardAssetGrants.find((entry) => {
     const lessonId = String(entry?.lessonId || '').trim();
+    if (entry.practiceRoomId) {
+      if (!LEARNING_GROUPS_ENABLED) return false;
+      const group = getLearningGroupById(entry.groupId);
+      if (!group || group.teacherId !== entry.teacherId) return false;
+      const access = authorizeLearningRealtimeRoom({
+        auth:req.auth,roomId:practiceWorkspaceRoom(lessonId,entry.practiceRoomId),
+        sessions:readLearningLessonSessionsDb(),groups:[group],attendanceRecords:readLearningAttendanceDb(),
+      });
+      if (!access.allowed || access.target.session?.groupId !== group.id
+        || getLearningSubscriptionRoomError(req.auth,{...access,readOnly:true})) return false;
+      boardAssetGroup = group;
+      return true;
+    }
     const notebookGroup=entry.groupId&&LEARNING_GROUPS_ENABLED?getLearningGroupById(entry.groupId):null;
     if(notebookGroup&&entry.teacherId===notebookGroup.teacherId&&canAccessPythonGroup(req.auth,notebookGroup)
       &&(readJsonObjectFileStrict(path.join(dataDir,'group-notebook-assets.json'))[notebookGroup.id]||[]).includes(entry.id)){boardAssetGroup=notebookGroup;return true;}
@@ -24966,8 +24981,9 @@ const serializeLearningLessonForAuth = (lesson, auth = null, groupValue = null) 
   const telemostUrlOverride = canUseTelemost ? normalizeTelemostUrl(lesson?.telemostUrl) : '';
   const groupTelemostUrl = canUseTelemost ? normalizeTelemostUrl(group?.telemostUrl) : '';
   const recording = getLessonReplaySummary(buildLearningGroupLessonReplayKey(lesson.id));
+  const {practice: _practice, ...publicLesson} = lesson;
   return {
-    ...lesson,
+    ...publicLesson,
     requiredParticipantIds: requiredGroupLessonParticipants(group,lesson),
     ...(isStudentRole(auth) ? {absenceWaivers:lesson.absenceWaivers?.[auth.id]
       ? {[auth.id]:lesson.absenceWaivers[auth.id]} : {}} : {}),
@@ -25416,6 +25432,9 @@ const closeLearningLessonCollabConnections = (lesson) => {
   }
   docNames.forEach((docName) => {
     const entry = getLoadedCollabDocEntry(docName);
+    const room = String(docName).split('/').pop();
+    const practiceRoom = parsePracticeWorkspaceRoom(parseBoardPageRoom(room)?.baseRoomId || room);
+    if (practiceRoom?.kind === 'board' && entry?.doc) flushBoardDocSnapshot(entry.key,entry.doc);
     const connections = entry?.doc?.conns instanceof Map
       ? Array.from(entry.doc.conns.keys())
       : [];
@@ -26764,6 +26783,91 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId/code-presence', handleL
   return res.json(groupCodePresence({ docs: yWsUtils.docs, lesson, students: readStudentsDb(), groupNotebook:true }));
 }));
 
+const practiceSlotOpen = (lesson, group) => group.status !== 'completed'
+  && LEARNING_LESSON_LIVE_STATUSES.includes(lesson.status)
+  && Date.parse(lesson.startAt) <= Date.now() && learningLessonAutoCloseMs(lesson) > Date.now();
+
+const sendPracticeVoiceMoves = (lesson, round, gather = false) => {
+  if (!LEARNING_GROUP_RTC_ENABLED) return;
+  const channelByStudent = new Map(round.rooms.flatMap(room =>
+    room.studentIds.map(id => [id, practiceVoiceChannelId(room.id)])));
+  rtcClientsBySocket.forEach(client => {
+    const current = parseRtcRoomId(client.roomId);
+    if (client.listenOnly || current?.sessionId !== lesson.id) return;
+    const channelId = gather ? 'general'
+      : (isStudentRole(client.auth) ? channelByStudent.get(client.auth.id) : '');
+    if (!channelId || (current.channelId || 'general') === channelId) return;
+    leaveRtcRoom(client, {silent:true});
+    sendRtcPayload(client.ws, {type:'channel-move', channelId, mode:gather ? 'general' : 'practice'});
+  });
+};
+
+const sendPractice = (req, res, lesson, group) => {
+  res.set('Cache-Control','no-store');
+  const active = practiceSlotOpen(lesson,group)
+    && !getLearningSubscriptionRoomError(req.auth,{target:{session:lesson},readOnly:false});
+  return res.json({
+    ...practiceForViewer(lesson.practice,req.auth,active,readStudentsDb()),
+    canManage:canManageLearningGroup(req.auth,group) && active,
+  });
+};
+
+app.get('/api/learning-groups/:groupId/lessons/:lessonId/practice', handleLearningRoute((req,res) => {
+  const group = ensureLearningGroupReadAccess(req,res,req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req,res,group,req.params.lessonId);
+  if (!lesson) return;
+  return sendPractice(req,res,lesson,group);
+}));
+
+app.post('/api/learning-groups/:groupId/lessons/:lessonId/practice', handleLearningRoute((req,res) => {
+  const group = ensureLearningGroupReadAccess(req,res,req.params.groupId);
+  if (!group) return;
+  const lesson = ensureLearningLessonAccess(req,res,group,req.params.lessonId);
+  if (!lesson) return;
+  if (!practiceSlotOpen(lesson,group) || isTrialLesson(lesson)) {
+    failLearningRequest('Практику можно провести во время группового урока','practice_not_live',409);
+  }
+  if (getLearningSubscriptionRoomError(req.auth,{target:{session:lesson},readOnly:false})) return forbid(res);
+  const {action, assignments, pageId, roomId, status, viewport} = req.body || {};
+  if (action !== 'status' && !canManageLearningGroup(req.auth,group)) return forbid(res);
+  const activeRound = getActivePracticeRound(lesson.practice);
+  let practice;
+  if (action === 'start') {
+    if (activeRound) failLearningRequest('Сначала заверши текущую практику','practice_already_started',409);
+    const activeIds = new Set(getActiveLearningGroupMembers(group).map(member => member.studentId));
+    const roster = lesson.participantIds.filter(id => activeIds.has(id));
+    if (!validatePracticeAssignments(assignments,roster)) {
+      failLearningRequest('Выбери участников урока. В комнате может быть до двух учеников','invalid_practice_assignments');
+    }
+    if (!isPracticePageId(pageId)) failLearningRequest('Выбери страницу общей доски с заданием','invalid_practice_page');
+    const docName = boardPageRoom(groupNotebookBoard(group.id),pageId);
+    if (!isKnownBoardPage({docName,target:{boardPageId:pageId==='main'?'':pageId}})) {
+      failLearningRequest('Выбери страницу общей доски с заданием','invalid_practice_page');
+    }
+    practice = startPracticeRound(lesson.practice,pageId,assignments,viewport);
+  } else if (action === 'finish') {
+    if (!activeRound) return sendPractice(req,res,lesson,group);
+    practice = {...lesson.practice,activeRoundId:''};
+  } else if (action === 'status') {
+    practice = setPracticeRoomStatus(lesson.practice,roomId,status,req.auth);
+    if (!practice) return forbid(res);
+  } else {
+    failLearningRequest('Неизвестное действие','invalid_practice_action');
+  }
+  const updated = {...lesson,practice};
+  writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(),updated));
+  if (action === 'start') sendPracticeVoiceMoves(updated,getActivePracticeRound(practice));
+  if (action === 'finish') {
+    const promptRoom = boardPageRoom(groupNotebookBoard(group.id),activeRound.pageId);
+    const prompt = getLoadedCollabDocEntry(promptRoom);
+    if (prompt?.doc) flushBoardDocSnapshot(prompt.key,prompt.doc);
+    sendPracticeVoiceMoves(updated,activeRound,true);
+    closeLearningLessonCollabConnections(updated);
+  }
+  return sendPractice(req,res,updated,group);
+}));
+
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handleLearningRoute((req, res) => {
   const group = ensureLearningGroupReadAccess(req, res, req.params.groupId);
   if (!group) return;
@@ -26782,7 +26886,8 @@ app.get('/api/learning-groups/:groupId/lessons/:lessonId/voice-channels', handle
       overrunGraceMs: LEARNING_LESSON_OVERRUN_GRACE_MS,
     }),
     gatherRequestedAt: lesson.voiceGatheredAt || '',
-    channels: channels.map((channel) => ({
+    channels: channels.filter(channel => !channel.practiceRoom || canAccessPracticeRoom(req.auth, channel.practiceRoom))
+      .map(({practiceRoom: _practiceRoom, ...channel}) => ({
       ...channel,
       participants: Array.from(rtcRooms.get(channel.roomId)?.values() || []).filter((client) => !client.listenOnly).map((client) => ({
         userId: client.auth.id,
@@ -26858,7 +26963,7 @@ const moveLearningVoiceParticipants = (mode) => handleLearningRoute((req, res) =
     if (client.roomId === target.roomId) return;
     // End old signaling membership before asking the browser to stop its media
     // and reconnect. Peers in the previous room receive peer-left immediately.
-    leaveRtcRoom(client);
+    leaveRtcRoom(client, {silent:true});
     sendRtcPayload(client.ws, { type: 'channel-move', channelId: target.id, mode });
     moved.push(client.auth.id);
   });
@@ -42879,6 +42984,16 @@ const handleBoardAssetUpload = (kind) => async (req, res, next) => {
     let learningGroup = null;
     let student = null;
     const requestedRoom=String(req.body?.roomId||'');
+    const practiceRoom = parsePracticeWorkspaceRoom(parseBoardPageRoom(requestedRoom)?.baseRoomId || requestedRoom);
+    const practiceRoomId = practiceRoom?.roomId || '';
+    if (practiceRoom) {
+      if (!LEARNING_GROUPS_ENABLED || practiceRoom.kind !== 'board' || practiceRoom.lessonId !== requestedLessonId) return forbid(res);
+      const access = authorizeLearningCollabUpgrade({
+        requestUrl:'/collab/'+encodeURIComponent(requestedRoom),auth:req.auth,
+        sessions:readLearningLessonSessionsDb(),groups:readLearningGroupsDb(),attendanceRecords:readLearningAttendanceDb(),
+      });
+      if (!access.allowed || access.readOnly || !isKnownBoardPage(access) || getLearningSubscriptionRoomError(req.auth,access)) return forbid(res);
+    }
     const pythonGroupAccess=!requestedLessonId&&requestedRoom&&LEARNING_GROUPS_ENABLED?authorizeLearningCollabUpgrade({requestUrl:`/collab/${encodeURIComponent(requestedRoom)}`,auth:req.auth,groups:readLearningGroupsDb()}):null;
     if(pythonGroupAccess?.target?.targetType==='group'&&['python-board','board','board-private'].includes(pythonGroupAccess.target.kind)){
       if(!pythonGroupAccess.allowed||pythonGroupAccess.readOnly||!isKnownBoardPage(pythonGroupAccess))return forbid(res);
@@ -42934,6 +43049,7 @@ const handleBoardAssetUpload = (kind) => async (req, res, next) => {
     let entries = readBoardAssetsDb();
     let entry = entries.find((item) => (
       item.hash === hash
+      && (item.practiceRoomId || '') === practiceRoomId
       && (isFile ? item.kind === 'file' && item.name === name : item.kind !== 'file')
       && (learningGroup
         ? (learningLesson?item.lessonId === learningLesson.id:(!item.lessonId&&item.groupId===learningGroup.id))
@@ -42946,7 +43062,7 @@ const handleBoardAssetUpload = (kind) => async (req, res, next) => {
         const sameScope = learningGroup
           ? (learningLesson?item.lessonId === learningLesson.id:(!item.lessonId&&item.groupId===learningGroup.id))
           : (!item.lessonId && !item.groupId && item.studentId === student.id);
-        if (!sameScope || countedStorageNames.has(item.storageName)) return sum;
+        if (!sameScope || (item.practiceRoomId || '') !== practiceRoomId || countedStorageNames.has(item.storageName)) return sum;
         countedStorageNames.add(item.storageName);
         return sum + Math.max(0, Number(item.sizeBytes) || 0);
       }, 0);
@@ -42968,6 +43084,7 @@ const handleBoardAssetUpload = (kind) => async (req, res, next) => {
         studentId: learningGroup ? '' : student.id,
         teacherId: normalizeTeacherId(learningGroup?.teacherId || student?.teacherId),
         ...(learningGroup ? {groupId:learningGroup.id,...(learningLesson?{lessonId:learningLesson.id}:{})} : {}),
+        ...(practiceRoomId ? {practiceRoomId} : {}),
         storageName,
         mimeType,
         ...(isFile ? { kind: 'file', name } : {}),
@@ -45033,8 +45150,10 @@ const getRtcRoomAccessError = (auth, roomMeta) => {
       if (isStudentRole(auth) && !getActiveLearningGroupMembers(group).some(member => member.studentId === auth.id)) {
         return 'Недостаточно прав для этой комнаты';
       }
-      if (!getLearningVoiceChannels(group, lesson).some((channel) => channel.roomId === roomMeta.roomId)) {
-        return 'Голосовой канал не найден';
+      const voiceChannel = getLearningVoiceChannels(group, lesson).find(channel => channel.roomId === roomMeta.roomId);
+      if (!voiceChannel) return 'Голосовой канал не найден';
+      if (voiceChannel.practiceRoom && (!practiceSlotOpen(lesson,group) || !canAccessPracticeRoom(auth,voiceChannel.practiceRoom))) {
+        return 'Недостаточно прав для этой комнаты';
       }
     }
     return '';
@@ -45425,7 +45544,7 @@ const broadcastRtcCodeSync = (roomId, payload, excludeClientId = '') => {
   });
 };
 
-const leaveRtcRoom = (client) => {
+const leaveRtcRoom = (client, { silent = false } = {}) => {
   if (!client || !client.roomId) return;
   const roomId = client.roomId;
   const clientId = client.clientId;
@@ -45463,6 +45582,7 @@ const leaveRtcRoom = (client) => {
     type: wasListenOnly ? 'listener-left' : 'peer-left',
     roomId,
     peerId: client.clientId,
+    ...(silent ? {silent:true} : {}),
   }, client.clientId);
   broadcastRtcPresenceUpdate(roomId);
 };
@@ -45538,12 +45658,13 @@ const joinRtcRoom = (client, roomMeta) => {
     rtcClientsBySocket.forEach((other) => {
       if (other === client || other.auth.id !== client.auth.id || other.auth.role !== client.auth.role) return;
       if (parseRtcRoomId(other.roomId)?.sessionId !== roomMeta.sessionId) return;
-      leaveRtcRoom(other);
+      leaveRtcRoom(other, {silent:other.roomId!==roomId});
       sendRtcPayload(other.ws, { type: 'session-ended', error: 'Вы вошли в голосовой канал в другой вкладке.' });
     });
   }
   if (client.roomId && client.roomId !== roomId) {
-    leaveRtcRoom(client);
+    const previousRoom = parseRtcRoomId(client.roomId);
+    leaveRtcRoom(client, {silent:roomMeta.targetType==='lesson' && previousRoom?.sessionId===roomMeta.sessionId});
   }
   client.listenOnly = isGroupLibraryListener(client.auth, roomMeta);
 
@@ -45775,7 +45896,7 @@ const handleRtcMessage = (client, rawData, isBinary) => {
   if (type === 'leave') {
     // Use the authenticated socket's actual room, not a client-supplied target.
     const departingRoom = parseRtcRoomId(client.roomId);
-    leaveRtcRoom(client);
+    leaveRtcRoom(client, {silent:departingRoom?.targetType==='lesson' && payload.channelSwitch===true});
     if (payload?.endRecording === true && client.auth.role === 'teacher' && departingRoom?.targetType === 'lesson') {
       if (!hasGroupRecordingTeacher(client.auth.id, departingRoom.sessionId)) desktopRecordings.stopGroupCall(client.auth.id, departingRoom.sessionId);
     }
@@ -45972,7 +46093,7 @@ server.on('upgrade', (request, socket, head) => {
       rejectUpgrade(socket, 401, 'Unauthorized');
       return;
     }
-    const access = authorizeLearningCollabUpgrade({
+    const authorize = () => authorizeLearningCollabUpgrade({
       requestUrl: request.url,
       auth: session.user,
       sessions: LEARNING_GROUPS_ENABLED ? readLearningLessonSessionsDb() : [],
@@ -45980,6 +46101,7 @@ server.on('upgrade', (request, socket, head) => {
       attendanceRecords: LEARNING_GROUPS_ENABLED ? readLearningAttendanceDb() : [],
       students: readStudentsDb(),
     });
+    const access = authorize();
     if (!access.allowed || getLearningSubscriptionRoomError(session.user, access)) {
       const statusCode = access.reason === 'unknown-room' ? 404 : 403;
       rejectUpgrade(socket, statusCode, access.reason || 'Forbidden');
@@ -45998,6 +46120,14 @@ server.on('upgrade', (request, socket, head) => {
       if(scope)await lessonPageCatalog.ensure(scope);
       if (socket.destroyed) return;
       if (!getAuthSession(token)) { rejectUpgrade(socket, 401, 'Unauthorized'); return; }
+      if (access.target?.practiceRoom) {
+        const currentAccess = authorize();
+        if (!currentAccess.allowed || getLearningSubscriptionRoomError(session.user,currentAccess)) {
+          rejectUpgrade(socket,403,'Forbidden');
+          return;
+        }
+        request.learningCollabAccess = currentAccess;
+      }
       collabWss.handleUpgrade(request, socket, head, (ws) => {
         trackAuthConnection(token, ws, () => ws.terminate());
         collabWss.emit('connection', ws, request);

@@ -28,7 +28,7 @@ function PagedBoardWorkspace(props) {
   const {Canvas,...canvasProps}=props;
   const {role,userId,userName,teacherId,lessonId,groupId,activeStudentId,readOnly}=canvasProps;
   const teacher=role==='teacher' || role==='admin';
-  const group=Boolean(groupId && (lessonId || canvasProps.studyPreview));
+  const group=Boolean(!canvasProps.practicePromptRoom && groupId && (lessonId || canvasProps.studyPreview));
   const studySubjectId=group?groupStudySubject(groupId):activeStudentId;
   const base=canvasProps.workspaceRoomId || (group ? groupNotebookBoard(groupId) : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null));
   const bookRoom=boardPageBookRoom(base);

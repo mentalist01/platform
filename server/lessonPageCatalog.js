@@ -1,4 +1,5 @@
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
+import {practiceWorkspaceRoom} from '../src/utils/groupPractice.js';
 import {pythonExplanationBoardRoom,pythonExplanationCodeRoom} from '../src/utils/pythonExplanationBoard.js';
 import {pythonGroupBoardRoom} from '../src/utils/pythonGroupWorkspace.js';
 import {createHash, randomUUID} from 'node:crypto';
@@ -22,6 +23,10 @@ export function lessonPageRooms(target) {
   }
   if(!target||!['board','board-private','collab','collab-private'].includes(target.kind))return null;
   const codeRoom=target.kind.startsWith('collab')?target.roomId:'';
+  if(target.practiceRoom) {
+    const {sessionId,practiceRoom:{id}}=target;
+    return {book:practiceWorkspaceRoom(sessionId,id)+'~pages',codes:[practiceWorkspaceRoom(sessionId,id,'code')],codeRoom};
+  }
   if(target.targetType==='student')return {book:`board-${target.teacherId}-${target.studentId}~pages`,codes:[`collab-${target.teacherId}-${target.studentId}`],codeRoom};
   if(target.groupNotebook)return {book:groupNotebookBoard(target.groupId)+'~pages',codes:[groupNotebookCode(target.groupId),...target.participantIds.map(id=>groupNotebookCode(target.groupId,id))],codeRoom};
   const lesson=target.session;

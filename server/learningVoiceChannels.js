@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { buildLessonRtcRoomId } from '../src/utils/rtcRooms.js';
+import { getActivePracticeRound, practiceVoiceChannelId } from '../src/utils/groupPractice.js';
 
 export const MAX_CUSTOM_VOICE_CHANNELS = 12;
 
@@ -51,6 +52,9 @@ export const getLearningVoiceChannels = (group, lesson, students = []) => {
       };
     }),
     ...normalizeLearningVoiceChannels(group?.voiceChannels).map((channel) => ({ ...channel, kind: 'custom' })),
+    ...(getActivePracticeRound(lesson?.practice)?.rooms || []).map(room => ({
+      id: practiceVoiceChannelId(room.id), name: room.name, kind: 'practice', practiceRoom: room,
+    })),
   ];
   const names = normalizeVoiceChannelNames(group?.voiceChannelNames);
   return channels.map((channel) => ({

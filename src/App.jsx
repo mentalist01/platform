@@ -27,14 +27,16 @@ import {preparedRuntimeCardForCode,preparedRuntimeFiles} from './utils/preparedR
 import {PYODIDE_INDEX_URL,PYODIDE_FALLBACK_URL} from './python/pyodideRuntime.js';
 import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
-import {lessonBookForCodeRoom,lessonCodePageId,lessonBoardPageId} from './utils/lessonPageSelection.js';
+import {lessonBookForCodeRoom,lessonCodePageId,lessonBoardPageId,writeScopedLessonPageSelection} from './utils/lessonPageSelection.js';
+import {practiceWorkspaceRoom} from './utils/groupPractice.js';
+import {boardPageBookRoom,boardPageRoom} from './utils/boardPages.js';
 import {summonedCodeSelection} from './utils/lessonSummonCode.js';
 import SummonAudiencePicker from './components/SummonAudiencePicker.jsx';
 import { normalizeBoardFileFields, drawBoardFileCard } from './utils/boardFile.js';
 import { subscribeScheduleSync } from './services/scheduleSync';
 import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
 import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
-import {groupNotebookCode} from './utils/groupNotebook.js';
+import {groupNotebookBoard,groupNotebookCode} from './utils/groupNotebook.js';
 import { GROUP_SHARED_CODE_ID, groupCodeTabs } from './utils/groupCodeRooms.js';
 import useGroupCodePresence from './hooks/useGroupCodePresence.js';
 import { hasHomeworkResources } from './utils/homeworkResourcePresence.js';
@@ -291,6 +293,7 @@ const StudentAvailabilityPrompt = React.lazy(() => import('./components/StudentA
 const StudentHomeworkResources = React.lazy(() => import('./components/StudentHomeworkResources.jsx'));
 const loadGroupTelemostSection = () => import('./components/GroupTelemostSection');
 const GroupVoiceChannels = React.lazy(() => import('./components/GroupVoiceChannels'));
+const GroupLessonPractice = React.lazy(() => import('./components/GroupLessonPractice'));
 const GroupLessonFinishButton = React.lazy(() => import('./components/GroupLessonFinishButton.jsx'));
 const loadTeacherCalendarSection = () => import('./components/TeacherCalendarSection');
 const loadTeacherFinanceSection = () => import('./components/TeacherFinanceSection');
@@ -3452,6 +3455,9 @@ export const CollabSection = ({
   sandbox = null,
   onSandboxStateChange = null,
   pythonExplanation = false,
+  workspaceRoomId = '',
+  practicePromptRoom = '',
+  practicePromptViewport,
 }) => {
   const isTeacher = role === 'teacher';
   const learningLessonId = String(lessonId || '').trim();
@@ -3551,8 +3557,8 @@ export const CollabSection = ({
       : groupParticipantRoster.find((participant) => participant.id === effectiveGroupParticipantId)?.name || 'Ученик')
     : '';
   const collabReadOnly = sandboxReadOnly || Boolean(isGroupLesson && readOnly);
-  const sharedGroupCode = isGroupLesson && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
-  const privateCodeSummonStudentId = isGroupLesson && !isGroupPythonExplanation && !sharedGroupCode
+  const sharedGroupCode = isGroupLesson && !workspaceRoomId && effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
+  const privateCodeSummonStudentId = isGroupLesson && !workspaceRoomId && !isGroupPythonExplanation && !sharedGroupCode
     ? effectiveGroupParticipantId : '';
   const codeTabsReadOnly = collabReadOnly || Boolean(studentCodeFocus) || (sharedGroupCode && !isTeacher);
   const sandboxReadOnlyCodeState = isSandbox && sandboxReadOnly
@@ -3694,12 +3700,12 @@ export const CollabSection = ({
     ? window.matchMedia('(max-width: 767px)').matches
     : false;
   const effectiveStudentId = isTeacher ? activeStudentId : userId;
-  const canSaveToNotesTarget = groupNotesTarget
+  const canSaveToNotesTarget = !workspaceRoomId && (groupNotesTarget
     ? Boolean(isTeacher && learningParticipantIds.length > 0)
-    : Boolean(effectiveStudentId && !studentCodeFocus);
-  const liveRoomId = pythonExplanation ? pythonExplanationCodeRoom(teacherId,effectiveStudentId,learningGroupId) : isGroupLesson
+    : Boolean(effectiveStudentId && !studentCodeFocus));
+  const liveRoomId = workspaceRoomId || (pythonExplanation ? pythonExplanationCodeRoom(teacherId,effectiveStudentId,learningGroupId) : isGroupLesson
     ? groupNotebookCode(learningGroupId,effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?'':effectiveGroupParticipantId)
-    : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null);
+    : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null));
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
   const preparedBook = isSandbox ? '' : lessonBookForCodeRoom(roomId);
   const [selectedCodePage] = useLessonPageSelection(preparedBook,role,userId,'main','code');
@@ -10287,7 +10293,9 @@ export const CollabSection = ({
                 >
                   {collabBoardFullscreenButton}
                   <BoardSection
-                    workspaceRoomId={pythonExplanation ? (learningGroupId ? pythonGroupBoardRoom(learningGroupId) : pythonExplanationBoardRoom(teacherId,effectiveStudentId)) : undefined}
+                    workspaceRoomId={workspaceRoomId ? workspaceRoomId.replace(/^collab-/, 'board-') : (pythonExplanation ? (learningGroupId ? pythonGroupBoardRoom(learningGroupId) : pythonExplanationBoardRoom(teacherId,effectiveStudentId)) : undefined)}
+                    practicePromptRoom={practicePromptRoom}
+                    practicePromptViewport={practicePromptViewport}
                     embedded
                     hideStudentPicker
                     showEmbeddedSummonButton={isTeacher}
@@ -11171,7 +11179,7 @@ export const CollabSection = ({
             onDelete={deleteCodeSolution}
             onReorder={reorderCodeSolutionTabs}
             canReorder={isTeacher && !collabReadOnly}
-            participants={isGroupLesson ? groupCodeTabs(orderedGroupParticipants, role, userId) : []}
+            participants={isGroupLesson && !workspaceRoomId ? groupCodeTabs(orderedGroupParticipants, role, userId) : []}
             activeParticipantId={effectiveGroupParticipantId}
             participantPresence={groupCodePresence}
             onSelectParticipant={(participantId) => {
@@ -11332,13 +11340,15 @@ const createLessonReplayBoardPayload = (items, previousState, forceSnapshot = fa
 
 const BoardSection = (props) => (
   <React.Suspense fallback={<div role="status">Загружаем доску…</div>}>
-    <BoardPagesWorkspace {...props} Canvas={BoardCanvasSection} key={props.lessonId || props.groupId || `${props.teacherId}:${props.role==='teacher'?props.activeStudentId:props.userId}`}/>
+    <BoardPagesWorkspace {...props} Canvas={BoardCanvasSection} key={props.workspaceRoomId || props.lessonId || props.groupId || `${props.teacherId}:${props.role==='teacher'?props.activeStudentId:props.userId}`}/>
   </React.Suspense>
 );
 
 export const BoardCanvasSection = ({
   pages = null,
   workspaceRoomId = '',
+  practicePromptRoom = '',
+  practicePromptViewport,
   role,
   userId,
   userName,
@@ -11378,9 +11388,9 @@ export const BoardCanvasSection = ({
     ? pages.boardStudentId : '';
   const isSharedGroupBoard = isGroupLesson && !boardStudentId;
   const effectiveStudentId = boardStudentId || (isTeacher ? activeStudentId : userId);
-  const canSaveToNotesTarget = isGroupLesson
+  const canSaveToNotesTarget = !practicePromptRoom && (isGroupLesson
     ? Boolean(isTeacher && learningParticipantIds.length > 0)
-    : Boolean(effectiveStudentId);
+    : Boolean(effectiveStudentId));
   const sandboxSessionId = String(sandbox?.id || '').trim();
   const isSandbox = Boolean(sandboxSessionId);
   const sandboxReadOnly = Boolean(isSandbox && sandbox?.readOnly);
@@ -11526,6 +11536,9 @@ export const BoardCanvasSection = ({
   const preparedFlightRef = useRef(null);
   const toolRef = useRef(tool);
   const boardItemsRef = useRef([]);
+  const practicePromptItemsRef = useRef([]);
+  const [practicePromptReady,setPracticePromptReady] = useState(!practicePromptRoom);
+  const practicePromptRenderIndex = useMemo(() => createBoardRenderIndex(getItemBounds), []);
   const boardEstimatedBytesRef = useRef(0);
   const boardImageUsageRef = useRef(new Map());
   const boardSceneRef = useRef(null);
@@ -12304,8 +12317,8 @@ export const BoardCanvasSection = ({
       viewportHydratedRef.current = true;
       return;
     }
-    setZoom(1);
-    setOffset({x:0,y:0});
+    setZoom(practicePromptViewport?.zoom ? Math.min(BOARD_MAX_ZOOM,Math.max(BOARD_MIN_ZOOM,practicePromptViewport.zoom)) : 1);
+    setOffset(practicePromptViewport?.offset || {x:0,y:0});
     try {
       const raw = window.localStorage.getItem(boardViewportStorageKey);
       if (raw) {
@@ -12331,6 +12344,7 @@ export const BoardCanvasSection = ({
   }, [
     boardViewportStorageKey,
     isSandbox,
+    practicePromptViewport,
     sandboxReadOnlyViewportSignature,
     sandboxSessionId,
   ]);
@@ -14683,7 +14697,8 @@ export const BoardCanvasSection = ({
       resetBoardScene();
       return null;
     }
-    const items = boardItemsRef.current;
+    const items = practicePromptItemsRef.current.length
+      ? [...practicePromptItemsRef.current,...boardItemsRef.current] : boardItemsRef.current;
     const contentBounds = getBoardContentBounds(items);
     if (!contentBounds) {
       resetBoardScene();
@@ -14867,7 +14882,7 @@ export const BoardCanvasSection = ({
     ctx.clearRect(0, 0, pixelWidth, pixelHeight);
     ctx.fillStyle = BOARD_BACKGROUND_COLOR;
     ctx.fillRect(0, 0, pixelWidth, pixelHeight);
-    if (!items.length) {
+    if (!items.length && !practicePromptItemsRef.current.length) {
       ctx.restore();
       renderPreparedInk();
       return;
@@ -14884,8 +14899,14 @@ export const BoardCanvasSection = ({
     );
     const resizePreview = imageResizePreviewRef.current;
     const padding = 32 / currentZoom;
-    const visible = visibleBoardIndexes({minX:currentOffset.x-padding,minY:currentOffset.y-padding,maxX:currentOffset.x+boardSizeRef.current.width/currentZoom+padding,maxY:currentOffset.y+boardSizeRef.current.height/currentZoom+padding});
-    for (const index of visible) {
+    const viewport = {minX:currentOffset.x-padding,minY:currentOffset.y-padding,maxX:currentOffset.x+boardSizeRef.current.width/currentZoom+padding,maxY:currentOffset.y+boardSizeRef.current.height/currentZoom+padding};
+    const promptItems = practicePromptItemsRef.current;
+    if (promptItems.length) {
+      for (const index of practicePromptRenderIndex.indexes(promptItems,viewport)) {
+        drawBoardItemToScene(ctx,promptItems[index]);
+      }
+    }
+    for (const index of visibleBoardIndexes(viewport)) {
       const item = items[index];
       drawBoardItemToScene(
         ctx,
@@ -14894,7 +14915,40 @@ export const BoardCanvasSection = ({
     }
     ctx.restore();
     renderPreparedInk();
-  }, [drawBoardItemToScene,renderPreparedInk,visibleBoardIndexes]);
+  }, [drawBoardItemToScene,practicePromptRenderIndex,renderPreparedInk,visibleBoardIndexes]);
+
+  useEffect(() => {
+    if (!practicePromptRoom || !wsUrl) return undefined;
+    let disposed = false;
+    let teardown;
+    void loadYjsRuntime().then(({Y,WebsocketProvider}) => {
+      if (disposed) return;
+      const doc = new Y.Doc();
+      const provider = new WebsocketProvider(wsUrl,practicePromptRoom,doc,{params:wsParams,disableBc:true,connect:false});
+      provider.awareness.setLocalState(null);
+      const items = doc.getArray('items');
+      const renderPrompt = () => {
+        if (disposed || !provider.synced) return;
+        practicePromptItemsRef.current = items.toArray().map(item => normalizeBoardStoredItem(item)).filter(Boolean);
+        setPracticePromptReady(true);
+        scheduleBoardRenderRef.current?.();
+        scheduleBoardSceneRender();
+      };
+      items.observe(renderPrompt);
+      provider.on('sync',renderPrompt);
+      provider.connect();
+      teardown = () => {
+        items.unobserve(renderPrompt);
+        provider.destroy();
+        doc.destroy();
+      };
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      teardown?.();
+      practicePromptItemsRef.current = [];
+    };
+  }, [practicePromptRoom,scheduleBoardSceneRender,wsParams,wsUrl]);
 
   useEffect(() => {
     if (typeof onMemorySnapshotRenderer !== 'function') return undefined;
@@ -17106,7 +17160,7 @@ export const BoardCanvasSection = ({
     );
   };
   const showBottomSummonButton = !isSandbox && isTeacher && pages?.summon && (!embedded || isFullscreen || showEmbeddedSummonButton);
-  const showBoardLoading = Boolean(!isSandbox && roomId && status === 'connecting');
+  const showBoardLoading = Boolean(!isSandbox && roomId && (status === 'connecting' || (practicePromptRoom && !practicePromptReady)));
 
   const saveModal = saveModalOpen && !isSandbox ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
@@ -17242,7 +17296,7 @@ export const BoardCanvasSection = ({
   ) : null;
   const boardCardContent = (
     <>
-      {!trialPresentation && isGroupLesson && !isSandbox && !pages?.studyPreview && (
+      {!trialPresentation && isGroupLesson && !practicePromptRoom && !isSandbox && !pages?.studyPreview && (
         <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto py-1" role="tablist" aria-label="Доски группы">
           {['', ...(isTeacher ? learningParticipantIds : [String(userId)])].map((studentId) => {
             const student = (Array.isArray(students) ? students : []).find((entry) => entry.id === studentId);
@@ -17297,7 +17351,7 @@ export const BoardCanvasSection = ({
         }`}
       >
         {pages?.header}
-        {isTeacher && !boardReadOnly && !isSandbox && !pages?.studyPreview && roomId && !trialPresentation && (
+        {isTeacher && !practicePromptRoom && !boardReadOnly && !isSandbox && !pages?.studyPreview && roomId && !trialPresentation && (
           <button
             type="button"
             className="board-trial-presentation-start"
@@ -17642,7 +17696,7 @@ export const BoardCanvasSection = ({
           onContextMenu={(e) => e.preventDefault()}
         />
         <canvas ref={preparedInkRef} className="prepared-ink-layer absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>
-        <BoardFileDownloads items={boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
+        <BoardFileDownloads items={practicePromptRoom ? [...practicePromptItemsRef.current,...boardItemsRef.current] : boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
         {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onCursor={scheduleCursorUpdate} interactiveDoc={docRef.current} boardTool={tool} onVisualChange={handlePreparedBoardVisualChange} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
@@ -18930,6 +18984,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'teacher' ? storedActiveStudentId : null
   ));
   const [activeLearningLesson, setActiveLearningLesson] = useState(null);
+  const [practiceWorkspace, setPracticeWorkspace] = useState(null);
   const [studentGroupAccess, setStudentGroupAccess] = useState({ userId: '', hasGroups: false, loaded: false });
   const [studentAvailabilityState, setStudentAvailabilityState] = useState({ userId: '', prompt: null });
   const { hasGroups: studentHasGroups, seekingGroup: studentSeekingGroup } = getStudentGroupNavigationAccess(user.id, studentGroupAccess, studentAvailabilityState);
@@ -21764,6 +21819,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     captureGoalFlySource(resolvedView);
     setView(resolvedView);
   }, [allowedViewsKey, captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
+  const practiceLessonId = activeLearningLesson?.lessonId;
+  const practiceGroupId = activeLearningLesson?.groupId;
+  const currentPractice = practiceWorkspace?.lessonId === practiceLessonId ? practiceWorkspace : null;
+  const practiceBoardRoom = currentPractice?.roomId ? practiceWorkspaceRoom(practiceLessonId,currentPractice.roomId) : '';
+  const practiceCodeRoom = currentPractice?.roomId ? practiceWorkspaceRoom(practiceLessonId,currentPractice.roomId,'code') : '';
+  const practicePromptRoom = practiceBoardRoom
+    ? boardPageRoom(groupNotebookBoard(practiceGroupId),currentPractice.pageId)
+    : '';
+  const showPracticePanel = practiceLessonId && practiceGroupId && !activeLearningLesson?.trialBookingId
+    && !studentLessonWorkspaceBlocked && ['board','collab','call'].includes(view)
+    && (user.role === 'teacher' || user.role === 'student');
+  const openPracticeWorkspace = useCallback((target, surface) => {
+    if (!practiceLessonId) return;
+    if (!target.roomId && target.pageId) writeScopedLessonPageSelection({
+      book:boardPageBookRoom(groupNotebookBoard(practiceGroupId)), role:user.role, userId:user.id,
+    },target.pageId);
+    setPracticeWorkspace({...target,lessonId:practiceLessonId});
+    navigateToView(surface);
+  }, [navigateToView,practiceGroupId,practiceLessonId,user.id,user.role]);
+
   const prefetchNavigationView = useCallback((nextView) => {
     const normalizedView = String(nextView || '').trim();
     const resolvedView = ((user.role === 'student' || user.role === 'teacher') && normalizedView === 'lesson')
@@ -26909,8 +26984,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               </button>
             </Card>
           )}
+          <div className={showPracticePanel ? `group-practice-layout ${user.role === 'teacher' ? 'group-practice-layout--teacher' : ''}` : 'contents'} data-theme={theme}>
+          {showPracticePanel && (
+            <React.Suspense fallback={null}>
+              <GroupLessonPractice key={practiceLessonId} lesson={activeLearningLesson} user={user}
+                students={currentStudentsWithNicknames} selectedRoomId={currentPractice?.roomId}
+                onOpen={openPracticeWorkspace} />
+            </React.Suspense>
+          )}
+          <div className={showPracticePanel ? 'group-practice-layout__surface' : 'contents'}>
           {view === 'collab' && !studentLessonWorkspaceBlocked && (
             <CollabSection
+              key={practiceCodeRoom || 'lesson-code'}
+              workspaceRoomId={practiceCodeRoom}
+              practicePromptRoom={practicePromptRoom}
+              practicePromptViewport={currentPractice?.viewport}
               role={user.role}
               userId={user.id}
               userName={user.name}
@@ -26918,7 +27006,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               lessonId={activeLearningLesson?.lessonId || ''}
               groupId={activeLearningLesson?.groupId || ''}
               participantIds={activeLearningLesson?.participantIds || []}
-              readOnly={activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed'}
+              readOnly={Boolean(currentPractice?.readOnly) || (activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed')}
               theme={theme}
               withStudentId={withStudentId}
               tasks={tasksWithTitles}
@@ -27015,7 +27103,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onTelemostLessonStart={applyTelemostLessonReplay}
             />
           )}
-          {user.role === 'student' && !studentLessonWorkspaceBlocked && (
+          {user.role === 'student' && !studentLessonWorkspaceBlocked && !practiceBoardRoom && (
             <React.Suspense fallback={null}>
               <BoardSummonListener teacherId={user.teacherId} userId={user.id}
                 groupId={activeLearningLesson?.groupId || ''}
@@ -27025,6 +27113,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           )}
           {view === 'board' && !studentLessonWorkspaceBlocked && (
             <BoardSection
+              workspaceRoomId={practiceBoardRoom}
+              practicePromptRoom={practicePromptRoom}
+              practicePromptViewport={currentPractice?.viewport}
               role={user.role}
               userId={user.id}
               userName={user.name}
@@ -27032,7 +27123,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               lessonId={activeLearningLesson?.lessonId || ''}
               groupId={activeLearningLesson?.groupId || ''}
               participantIds={activeLearningLesson?.participantIds || []}
-              readOnly={activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed'}
+              readOnly={Boolean(currentPractice?.readOnly) || (activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed')}
               tasks={tasksWithTitles}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}
@@ -27046,6 +27137,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 : (callSessionStatus === 'connected' || isTelemostLessonReplayActive))}
             />
           )}
+          </div>
+          </div>
           {view === 'study-plan' && user.role === 'teacher' && (
             <React.Suspense fallback={<div className="surface-panel rounded-2xl p-6">Открываем план подготовки…</div>}>
               <EgeStudyPlan key={user.id} teacherId={user.id} students={currentStudentsWithNicknames} groups={lessonTargetGroups} groupsLoading={lessonTargetGroupsLoading} onGroupsChanged={refreshLessonTargetGroups}

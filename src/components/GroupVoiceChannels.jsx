@@ -22,6 +22,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const [renaming, setRenaming] = useState(false);
   const [moving, setMoving] = useState('');
   const micPreferenceRef = useRef(true);
+  const switchChannelRef = useRef(null);
   const [notice, setNotice] = useState('');
   const refreshRef = useRef(null);
   const presenceRevisionRef = useRef(0);
@@ -123,6 +124,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const join = (channelId) => {
     if (!snapshot?.canJoin) return;
     if (selectedId === channelId && callStatus !== 'idle') return;
+    if (selectedId && selectedId !== channelId) switchChannelRef.current?.();
     setActionError('');
     setSelectedId(channelId);
     setConnectionKey((key) => key + 1);
@@ -169,7 +171,8 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     setSelectedId(channelId);
     setConnectionKey(key => key + 1);
     setCallStatus('connecting');
-    setNotice(mode === 'general' ? 'Преподаватель собрал группу в общем канале.' : 'Преподаватель перевёл вас в ваш канал.');
+    setNotice(mode === 'general' ? 'Преподаватель собрал группу в общем канале.'
+      : mode === 'practice' ? 'Преподаватель распределил вас на практику.' : 'Преподаватель перевёл вас в ваш канал.');
     void refreshRef.current?.();
   }, []);
   const moveAll = async (mode) => {
@@ -248,7 +251,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
             {isTeacher && canConnect && (
               <>
                 <button type="button" className="group-voice__gather" onClick={() => moveAll('individual')} disabled={Boolean(moving)}>
-                  <Users size={17} /> {moving === 'individual' ? 'Переключаем…' : 'Распределить по каналам'}
+                  <Users size={17} /> {moving === 'individual' ? 'Переключаем…' : 'По личным голосовым каналам'}
                 </button>
                 <button type="button" className="group-voice__gather" onClick={() => moveAll('general')} disabled={Boolean(moving)}>
                   <Megaphone size={17} /> {moving === 'general' ? 'Собираем…' : 'Собрать в общий'}
@@ -275,7 +278,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 <h3>Выберите голосовой канал</h3>
                 <p>Соберитесь в общем канале для разбора или перейдите в отдельный для работы с преподавателем.</p>
                 {callStatus === 'connecting' ? <p role="status"><Loader2 size={18} className="animate-spin" /> Подключаемся: {selected?.name}…</p>
-                  : <button type="button" disabled={!canConnect} onClick={() => join('general')}>Войти в общий канал</button>}
+                  : <button type="button" disabled={!canConnect} onClick={() => join(!isTeacher ? (channels.find(channel => channel.kind === 'practice')?.id || 'general') : 'general')}>{!isTeacher && channels.some(channel => channel.kind === 'practice') ? 'Войти в свой канал' : 'Войти в общий канал'}</button>}
                 <small>Микрофон включится после подключения. Камера — по желанию.</small>
               </div>
             )}
@@ -291,7 +294,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 autoStartToken={1} onStatusChange={onCallStatusChange} onChannelPresence={onChannelPresence}
                 onRecordingEnd={leave}
                 onDesktopShare={setDesktopShareTrack}
-                initialMicEnabled={micPreferenceRef.current} onMicStateChange={rememberMic} onChannelMove={onChannelMove}
+                initialMicEnabled={micPreferenceRef.current} onMicStateChange={rememberMic} onChannelMove={onChannelMove} switchChannelRef={switchChannelRef}
                 uiMode={visible ? 'full' : 'collapsed'} onRequestOpenCall={onOpenCall}
               />
             )}

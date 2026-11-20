@@ -62,6 +62,35 @@ const legacyStudents = [
   { id: 'student-b', teacherId: 'teacher-a' },
 ];
 
+test('practice board, catalog and code are limited to assigned partners and the lesson teacher', () => {
+  const roomId = '560eb08b-3ae3-4375-b6cb-42af45195942';
+  const roundId = '938de681-48a7-49c4-9831-38f1579d4f03';
+  const lesson = {
+    ...session, startAt:new Date(Date.now()-60_000).toISOString(), status:'active',
+    practice:{ activeRoundId:roundId, rounds:[{
+      id:roundId, pageId:'main', rooms:[{id:roomId,studentIds:['student-a','student-b']}],
+    }] },
+  };
+  const authorize = (kind, auth, value = lesson) => authorizeLearningCollabUpgrade({
+    requestUrl:'/collab/'+encodeURIComponent(kind),auth,sessions:[value],groups:[group],
+  });
+  const student = (id) => ({id,role:'student',teacherId:'teacher-a'});
+  const teacher = {id:'teacher-a',role:'teacher'};
+  const board = `board-lesson-${lesson.id}~practice~${roomId}`;
+  const code = `collab-lesson-${lesson.id}~practice~${roomId}`;
+  for (const room of [board,board+'~pages',code]) {
+    assert.equal(authorize(room,student('student-a')).allowed,true);
+    assert.equal(authorize(room,student('student-b')).allowed,true);
+    assert.equal(authorize(room,teacher).allowed,true);
+    assert.equal(authorize(room,student('student-c')).allowed,false);
+    assert.equal(authorize(room,{id:'teacher-b',role:'teacher'}).allowed,false);
+  }
+  assert.equal(authorize(board,student('student-a')).readOnly,false);
+  const archived = {...lesson,practice:{...lesson.practice,activeRoundId:''}};
+  assert.equal(authorize(board,student('student-a'),archived).readOnly,true);
+  assert.equal(authorize(code,teacher,archived).readOnly,true);
+});
+
 test('builds one stable set of transport room names from a lesson session id', () => {
   assert.deepEqual(buildLearningLessonRoomNames(session.id), {
     sessionId: session.id,

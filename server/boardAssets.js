@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import path from 'path';
 import { normalizeBoardFileName } from '../src/utils/boardFile.js';
+import { isPracticeWorkId } from '../src/utils/groupPractice.js';
 
 const MIME_EXTENSION = Object.freeze({
   'image/png': '.png',
@@ -70,6 +71,8 @@ export const normalizeBoardAssetEntry = (value) => {
   const teacherId = String(value.teacherId || '').trim();
   const groupId = String(value.groupId || value.learningGroupId || '').trim();
   const lessonId = String(value.lessonId || value.learningLessonId || value.sessionId || '').trim();
+  const practiceRoomId = value.practiceRoomId || '';
+  if (practiceRoomId && (!lessonId || !isPracticeWorkId(practiceRoomId))) return null;
   const storageName = path.basename(String(value.storageName || '').trim());
   const mimeType = String(value.mimeType || '').trim().toLowerCase();
   const hash = String(value.hash || '').trim().toLowerCase();
@@ -91,6 +94,7 @@ export const normalizeBoardAssetEntry = (value) => {
     sizeBytes,
     createdAt,
     ...(groupId ? { groupId, ...(lessonId?{lessonId}:{}) } : {}),
+    ...(practiceRoomId ? {practiceRoomId} : {}),
   };
 };
 

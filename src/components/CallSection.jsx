@@ -1316,6 +1316,7 @@ const CallSection = ({
   onStatusChange,
   onRecordingEnd,
   onChannelMove,
+  switchChannelRef,
   onChannelPresence,
   onMicStateChange,
   initialMicEnabled = true,
@@ -1919,7 +1920,7 @@ const CallSection = ({
   }, []);
   useEffect(() => {
     const previousStatus = previousStatusRef.current;
-    if (previousStatus !== status && !listenOnly) {
+    if (previousStatus !== status && !listenOnly && !isGroupLesson) {
       if (previousStatus !== 'connected' && status === 'connected') {
         void playAlertSound('connected');
       } else if (previousStatus === 'connected' && status === 'idle') {
@@ -1927,7 +1928,7 @@ const CallSection = ({
       }
     }
     previousStatusRef.current = status;
-  }, [playAlertSound, status, listenOnly]);
+  }, [playAlertSound, status, listenOnly, isGroupLesson]);
 
   const clearWsReconnectTimer = useCallback(() => {
     if (!wsReconnectTimerRef.current) return;
@@ -4269,9 +4270,10 @@ const CallSection = ({
     }
 
     if (type === 'peer-joined' || type === 'listener-joined') {
+      if (!activeRoomRef.current || payload.roomId !== activeRoomRef.current) return;
       const peerId = typeof payload?.peer?.id === 'string' ? payload.peer.id.trim() : '';
       if (!peerId || peerId === selfClientIdRef.current) return;
-      if (type === 'peer-joined' && !payload.peer?.listenOnly) void playAlertSound('peerJoined');
+      if (type === 'peer-joined' && !listenOnly && !payload.peer?.listenOnly) void playAlertSound('peerJoined');
       createPeerState(peerId, payload.peer);
       sendLocalMediaStateToPeer(peerId);
       const localHasActiveVideo = Boolean(
@@ -4289,8 +4291,11 @@ const CallSection = ({
     }
 
     if (type === 'peer-left' || type === 'listener-left') {
-      if (type === 'peer-left' && !peerMetaRef.current.get(payload?.peerId)?.listenOnly) void playAlertSound('peerLeft');
-      removePeer(payload?.peerId);
+      if (!activeRoomRef.current || payload.roomId !== activeRoomRef.current) return;
+      if (type === 'peer-left' && !listenOnly && !payload.silent && !peerMetaRef.current.get(payload.peerId)?.listenOnly) {
+        void playAlertSound('peerLeft');
+      }
+      removePeer(payload.peerId);
       return;
     }
 
@@ -4314,7 +4319,7 @@ const CallSection = ({
 
   const recordingEndRef = useRef(onRecordingEnd);
   useEffect(() => { recordingEndRef.current = onRecordingEnd; }, [onRecordingEnd]);
-  const stopCall = useCallback(({ endRecording = false } = {}) => {
+  const stopCall = useCallback(({ endRecording = false, channelSwitch = false } = {}) => {
     if (endRecording) recordingEndRef.current?.();
     callAttemptRef.current += 1;
     clearCallResume();
@@ -4332,7 +4337,7 @@ const CallSection = ({
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN && activeRoomRef.current) {
       try {
-        ws.send(JSON.stringify({ type: 'leave', roomId: activeRoomRef.current, endRecording }));
+        ws.send(JSON.stringify({ type:'leave', roomId:activeRoomRef.current, endRecording, channelSwitch }));
       } catch {}
     }
     if (ws) {
@@ -4350,6 +4355,13 @@ const CallSection = ({
     stopCameraTrack(false);
     stopMicTrack(false);
   }, [applyStatus, clearJoinAckTimer, closeAllPeers, resetWsReconnectState, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+
+  useEffect(() => {
+    if (!switchChannelRef) return undefined;
+    const switchChannel = () => stopCall({channelSwitch:true});
+    switchChannelRef.current = switchChannel;
+    return () => { if (switchChannelRef.current === switchChannel) switchChannelRef.current = null; };
+  }, [stopCall,switchChannelRef]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
