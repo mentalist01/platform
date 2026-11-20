@@ -525,6 +525,10 @@ export const requestLearningGroupJson = async (path, options = {}) => {
 
 export const api = {
   getAchievements: studentId => requestLearningGroupJson(`/api/student-achievements${studentId ? `?studentId=${encodeURIComponent(studentId)}` : ''}`),
+  startParallelIndividualLessons: (studentIds, requestId) => requestLearningGroupJson('/api/parallel-individual-lessons', {
+    method:'POST', body:{studentIds, requestId},
+  }),
+  finishParallelIndividualLessons: id => requestLearningGroupJson(`/api/parallel-individual-lessons/${encodeURIComponent(id)}`, {method:'DELETE'}),
   claimAchievementNotifications: () => requestLearningGroupJson('/api/student-achievements/claim', { method: 'POST', body: {} }),
   getTeacherCalendarEdits: teacherId => requestLearningGroupJson(`/api/teacher-calendar/edits?teacherId=${encodeURIComponent(teacherId || '')}`),
   getTrialSlots: teacherId => requestLearningGroupJson(`/api/trial-slots?teacherId=${encodeURIComponent(teacherId || '')}`),

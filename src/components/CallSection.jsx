@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, Camera, CameraOff, CheckCircle2, ExternalLink, ImagePlus, Loader2, Maximize2, MessageSquare, Mic, MicOff, Minimize2, MonitorUp, MonitorX, Move, Phone, PhoneOff, Save, SendHorizontal, Settings, Signal, Trash2, Users, Video, Volume2, X } from 'lucide-react';
 import { api, withStoredAuthToken } from '../services/api';
@@ -1335,6 +1335,8 @@ const CallSection = ({
   onMeetingEnded,
   onMeetingNotice,
   onMeetingLeft,
+  parallelSessionId = '',
+  parallelRoom = null,
 }) => {
   const isTeacher = role === 'teacher';
   const { preferences: mediaPreferences, devices: mediaDevices, selectDevice, requestMedia, refreshDevices, setSmallCameraPreview } = useCallMediaDevices(role, userId);
@@ -1508,7 +1510,56 @@ const CallSection = ({
   const startCallRef = useRef(null);
   const remoteAudioPlayersRef=useRef(new Map()),audioHealthRef=useRef({});
   const audioRecoveryBudgetRef=useRef(createAudioRecoveryBudget()),recoverPeerRef=useRef(null),audioDiagnosticTimesRef=useRef(new Map());
-  const registerRemoteAudio=useCallback((id,player)=>{if(player)remoteAudioPlayersRef.current.set(id,player);else remoteAudioPlayersRef.current.delete(id);},[]);
+  const parallelMicWanted = useRef(true);
+  const registerRemoteAudio=useCallback((id,player)=>{
+    if (player) remoteAudioPlayersRef.current.set(id,player);
+    else remoteAudioPlayersRef.current.delete(id);
+  },[]);
+  const applyParallelMedia = useCallback(() => {
+    if (!parallelRoom) return;
+    const active = parallelRoom.active;
+    for (const track of [localRawAudioTrackRef.current,localAudioTrackRef.current]) {
+      if (track) track.enabled = active && parallelMicWanted.current;
+    }
+    for (const track of [localCameraTrackRef.current,localScreenTrackRef.current,localScreenAudioTrackRef.current,localMixedAudioTrackRef.current]) {
+      if (track) track.enabled = active;
+    }
+  }, [parallelRoom]);
+  useLayoutEffect(() => {
+    if (!parallelRoom) return;
+    parallelRoom.applyMedia = applyParallelMedia;
+    parallelRoom.readCall = () => {
+      const mic = localAudioTrackRef.current;
+      const localCamera = localCameraTrackRef.current;
+      const remoteAudio = [], remoteCameras = [];
+      let remoteScreen;
+      remoteStreamsRef.current.forEach((stream,id) => {
+        remoteAudio.push(...stream.getAudioTracks());
+        const screenId = peerMetaRef.current.get(id)?.screenTrackId;
+        stream.getVideoTracks().forEach(track => {
+          if (track.id === screenId) remoteScreen = track;
+          else remoteCameras.push(track);
+        });
+      });
+      return {
+        hasStudent: statusRef.current === 'connected' && [...peersRef.current.entries()].some(([id,{pc}]) =>
+          peerMetaRef.current.get(id)?.role === 'student'
+          && (pc.connectionState === 'connected' || ['connected','completed'].includes(pc.iceConnectionState))),
+        audio: [mic,...remoteAudio].filter(Boolean),
+        screen: remoteScreen,
+        localCamera,
+        cameras: [localCamera,...remoteCameras].filter(Boolean),
+      };
+    };
+    applyParallelMedia();
+    return () => {
+      delete parallelRoom.applyMedia;
+      delete parallelRoom.readCall;
+    };
+  }, [parallelRoom,applyParallelMedia]);
+  useEffect(() => {
+    if (parallelRoom) parallelRoom.onSpeakingChange(Object.values(speakingByPeer).some(Boolean));
+  }, [parallelRoom,speakingByPeer]);
   const recordAudioDiagnostic=useCallback((peerId,event)=>{
     const ws=wsRef.current,roomId=activeRoomRef.current;if(!roomId||!ws||ws.readyState!==WebSocket.OPEN)return;
     const key=peerId+':'+event.event+':'+(event.reason||''),now=Date.now();
@@ -2471,9 +2522,9 @@ const CallSection = ({
     wsHadErrorRef.current = false;
     applyStatus('connecting');
     setSocketStatus('connected');
-    sendWs({ type: 'join', roomId });
+    sendWs({ type: 'join', roomId, parallelSessionId });
     startJoinAckTimer(ws);
-  }, [applyStatus, clearJoinAckTimer, sendWs, startJoinAckTimer]);
+  }, [applyStatus, clearJoinAckTimer, parallelSessionId, sendWs, startJoinAckTimer]);
 
   const mapPresenceParticipants = useCallback((participants) => {
     const list = Array.isArray(participants) ? participants : [];
@@ -2710,6 +2761,7 @@ const CallSection = ({
       }
     };
     const audioTrack = getPreferredOutgoingAudioTrack();
+    applyParallelMedia();
     replaceLocalStreamAudioTrack(audioTrack);
     const screenTrack = localScreenTrackRef.current;
     const cameraTrack = localCameraTrackRef.current;
@@ -2767,7 +2819,7 @@ const CallSection = ({
 
     syncVideoSender('screenSender', liveScreenTrack);
     syncVideoSender('cameraSender', liveCameraTrack);
-  }, [getPreferredOutgoingAudioTrack, replaceLocalStreamAudioTrack, tuneAudioSender, tuneVideoSender, listenOnly]);
+  }, [applyParallelMedia,getPreferredOutgoingAudioTrack, replaceLocalStreamAudioTrack, tuneAudioSender, tuneVideoSender, listenOnly]);
 
   const syncLocalTracksToAllPeers = useCallback(() => {
     peersRef.current.forEach((peerState) => {
@@ -3551,12 +3603,13 @@ const CallSection = ({
 
   const ensureMicTrack = useCallback(async () => {
     if (listenOnly) throw new Error('В режиме слушателя микрофон выключен');
+    parallelMicWanted.current = true;
     const existing = localAudioTrackRef.current;
     if (existing && existing.readyState === 'live') {
-      existing.enabled = true;
+      existing.enabled = !parallelRoom || parallelRoom.active;
       const rawTrack = localRawAudioTrackRef.current;
       if (rawTrack && rawTrack.readyState === 'live') {
-        rawTrack.enabled = true;
+        rawTrack.enabled = existing.enabled;
       }
       setMicEnabled(true);
       if (!localMicAnalyserNodeRef.current || !localMicAudioContextRef.current) {
@@ -3612,8 +3665,8 @@ const CallSection = ({
 
     localRawAudioTrackRef.current = rawTrack;
     const outputTrack = createLocalProcessedMicTrack(rawTrack);
-    outputTrack.enabled = true;
-    rawTrack.enabled = true;
+    outputTrack.enabled = !parallelRoom || parallelRoom.active;
+    rawTrack.enabled = outputTrack.enabled;
 
     const handleRawMicEnded = () => {
       if (localRawAudioTrackRef.current !== rawTrack) return;
@@ -3646,7 +3699,7 @@ const CallSection = ({
       if (!localStreamRef.current.getAudioTracks().some((track) => track.id === rawTrack.id)) {
         localStreamRef.current.addTrack(rawTrack);
       }
-      setMicEnabled(Boolean(rawTrack.enabled));
+      setMicEnabled(parallelRoom ? parallelMicWanted.current : Boolean(rawTrack.enabled));
       disposeLocalMicProcessing();
       restartLocalSelfSpeakingObserver(rawTrack);
       syncLocalTracksToAllPeers();
@@ -3667,7 +3720,7 @@ const CallSection = ({
     setMicEnabled(true);
     syncLocalTracksToAllPeers();
     return outputTrack;
-  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, restartLocalSelfSpeakingObserver, syncLocalTracksToAllPeers, listenOnly, requestMedia]);
+  }, [createLocalProcessedMicTrack, disposeLocalMicProcessing, restartLocalSelfSpeakingObserver, syncLocalTracksToAllPeers, listenOnly, parallelRoom, requestMedia]);
 
   const ensureCameraTrack = useCallback(async () => {
     if (listenOnly) throw new Error('В режиме слушателя камера выключена');
@@ -4199,7 +4252,7 @@ const CallSection = ({
       const isJoinPhaseError = type === 'session-ended' || type === 'channel-move' || !activeRoomRef.current;
       if (isJoinPhaseError) {
         callAttemptRef.current += 1;
-        clearCallResume();
+        if (!parallelSessionId) clearCallResume();
         callJoinedRef.current = false;
         manualCloseRef.current = true;
         resetWsReconnectState();
@@ -4276,7 +4329,7 @@ const CallSection = ({
       if (!activeRoomRef.current || payload.roomId !== activeRoomRef.current) return;
       const peerId = typeof payload?.peer?.id === 'string' ? payload.peer.id.trim() : '';
       if (!peerId || peerId === selfClientIdRef.current) return;
-      if (type === 'peer-joined' && !listenOnly && !payload.peer?.listenOnly) void playAlertSound('peerJoined');
+      if (type === 'peer-joined' && !listenOnly && !payload.peer?.listenOnly && (!parallelRoom || parallelRoom.active)) void playAlertSound('peerJoined');
       createPeerState(peerId, payload.peer);
       sendLocalMediaStateToPeer(peerId);
       const localHasActiveVideo = Boolean(
@@ -4295,7 +4348,8 @@ const CallSection = ({
 
     if (type === 'peer-left' || type === 'listener-left') {
       if (!activeRoomRef.current || payload.roomId !== activeRoomRef.current) return;
-      if (type === 'peer-left' && !listenOnly && !payload.silent && !peerMetaRef.current.get(payload.peerId)?.listenOnly) {
+      if (type === 'peer-left' && !listenOnly && !payload.silent && !peerMetaRef.current.get(payload.peerId)?.listenOnly
+        && (!parallelRoom || parallelRoom.active)) {
         void playAlertSound('peerLeft');
       }
       removePeer(payload.peerId);
@@ -4318,14 +4372,14 @@ const CallSection = ({
         console.error('[call] signal handling failed:', signalError);
       });
     }
-  }, [isGroupLesson, meetingId, onMeetingEnded, onMeetingNotice, onChannelMove, onChannelPresence, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers, listenOnly, sendWs]);
+  }, [isGroupLesson, meetingId, onMeetingEnded, onMeetingNotice, onChannelMove, onChannelPresence, parallelRoom, parallelSessionId, applyStatus, clearJoinAckTimer, closeAllPeers, createPeerState, handleSignalPayload, playAlertSound, removePeer, resetWsReconnectState, schedulePeerNegotiation, sendLocalMediaStateToPeer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, syncRemotePeers, listenOnly, sendWs]);
 
   const recordingEndRef = useRef(onRecordingEnd);
   useEffect(() => { recordingEndRef.current = onRecordingEnd; }, [onRecordingEnd]);
   const stopCall = useCallback(({ endRecording = false, channelSwitch = false } = {}) => {
     if (endRecording) recordingEndRef.current?.();
     callAttemptRef.current += 1;
-    clearCallResume();
+    if (!parallelSessionId) clearCallResume();
     callJoinedRef.current = false;
     manualCloseRef.current = true;
     wsHadErrorRef.current = false;
@@ -4357,7 +4411,7 @@ const CallSection = ({
     stopScreenTrack(false);
     stopCameraTrack(false);
     stopMicTrack(false);
-  }, [applyStatus, clearJoinAckTimer, closeAllPeers, resetWsReconnectState, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
+  }, [applyStatus, clearJoinAckTimer, closeAllPeers, parallelSessionId, resetWsReconnectState, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack]);
 
   useEffect(() => {
     if (!switchChannelRef) return undefined;
@@ -4367,11 +4421,11 @@ const CallSection = ({
   }, [stopCall,switchChannelRef]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
+    if (parallelRoom || typeof window === 'undefined') return undefined;
     const handleExternalCallOpen = () => stopCall();
     window.addEventListener('telemost-external-open', handleExternalCallOpen);
     return () => window.removeEventListener('telemost-external-open', handleExternalCallOpen);
-  }, [stopCall]);
+  }, [parallelRoom, stopCall]);
 
   const persistTeacherTelemostUrl = useCallback(async (rawValue) => {
     if (isGroupLesson || !isTeacher || !effectiveStudentId || telemostSaving) return;
@@ -4525,7 +4579,7 @@ const CallSection = ({
       wsHadErrorRef.current = false;
       applyStatus('connecting');
       setSocketStatus('connected');
-      const joinSent = sendWs({ type: 'join', roomId });
+      const joinSent = sendWs({ type: 'join', roomId, parallelSessionId });
       if (!joinSent) {
         wsHadErrorRef.current = true;
         setError('Не удалось отправить запрос на подключение.');
@@ -4556,7 +4610,7 @@ const CallSection = ({
       const shouldPreserveMutedMic = Boolean(
         options?.resumeMicEnabled === false
         || (localAudioTrackRef.current?.readyState === 'live'
-          && !localAudioTrackRef.current.enabled)
+          && !(parallelRoom ? parallelMicWanted.current : localAudioTrackRef.current.enabled))
       );
       // Guests may listen without granting microphone access. Turning on the
       // microphone in the preparation screen still requests it explicitly.
@@ -4567,6 +4621,7 @@ const CallSection = ({
         return;
       }
       if (shouldPreserveMutedMic) {
+        parallelMicWanted.current = false;
         if (localAudioTrackRef.current?.readyState === 'live') {
           localAudioTrackRef.current.enabled = false;
         }
@@ -4596,7 +4651,7 @@ const CallSection = ({
         if (wsRef.current !== ws) return;
         setSocketStatus('connected');
         lastWsPongAtRef.current = Date.now();
-        const joinSent = sendWs({ type: 'join', roomId });
+        const joinSent = sendWs({ type: 'join', roomId, parallelSessionId });
         if (!joinSent) {
           wsHadErrorRef.current = true;
           setError('Не удалось отправить запрос на подключение.');
@@ -4688,7 +4743,7 @@ const CallSection = ({
         setError(connectErrorText);
       }
     }
-  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, isGroupLesson, isTeacher, meetingId, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, listenOnly]);
+  }, [applyStatus, clearJoinAckTimer, clearWsReconnectTimer, closeAllPeers, ensureMicTrack, handleWsMessage, isGroupLesson, isTeacher, meetingId, parallelRoom, parallelSessionId, primeAlertSounds, resetIceTransportPolicy, resetWsReconnectState, roomId, rtcIceConfig.configError, rtcIceConfig.hasTurn, rtcIceConfig.hasTurnAuth, rtcPeerConnectionCtor, rtcWsUrl, scheduleWsReconnect, sendWs, startJoinAckTimer, stopCameraTrack, stopConnectionStatsPolling, stopMicTrack, stopScreenTrack, listenOnly]);
 
   useEffect(() => {
     startCallRef.current = startCall;
@@ -4730,7 +4785,7 @@ const CallSection = ({
   }, [isHiddenUi, onReloadCallConsumed, reloadCall, roomId]);
 
   useEffect(() => {
-    if (meetingId || !callJoinedRef.current || !['connected', 'connecting'].includes(status)) return undefined;
+    if (parallelSessionId || meetingId || !callJoinedRef.current || !['connected', 'connecting'].includes(status)) return undefined;
     const save = () => {
       if (manualCloseRef.current || !callJoinedRef.current) return;
       saveCallResume({
@@ -4742,7 +4797,7 @@ const CallSection = ({
     const timer = setInterval(save, 10_000);
     window.addEventListener('pagehide', save);
     return () => { clearInterval(timer); window.removeEventListener('pagehide', save); };
-  }, [effectiveStudentId, effectiveTeacherId, meetingId, micEnabled, role, roomId, rtcRoom.lessonId, status, userId]);
+  }, [effectiveStudentId, effectiveTeacherId, meetingId, micEnabled, parallelSessionId, role, roomId, rtcRoom.lessonId, status, userId]);
 
   useEffect(() => {
     const token = Number(autoStartToken) || 0;
@@ -4758,7 +4813,7 @@ const CallSection = ({
 
     const callStarter = startCallRef.current;
     if (typeof callStarter !== 'function') return;
-    if (meetingId) {
+    if (meetingId || parallelSessionId) {
       // Defer to survive StrictMode mount cleanup without losing the join.
       const timer = setTimeout(() => {
         if (handledAutoStartTokenRef.current === token || statusRef.current !== 'idle') return;
@@ -4769,7 +4824,7 @@ const CallSection = ({
     }
     handledAutoStartTokenRef.current = token;
     callStarter({ resumeMicEnabled: initialMicEnabled });
-  }, [initialMicEnabled, autoStartToken, effectiveStudentId, isGroupLesson, isHiddenUi, meetingId, roomId, status]);
+  }, [initialMicEnabled, autoStartToken, effectiveStudentId, isGroupLesson, isHiddenUi, meetingId, parallelSessionId, roomId, status]);
 
   useEffect(() => {
     const hasOnlyPendingPeerConnections = status === 'connected'
@@ -4820,11 +4875,12 @@ const CallSection = ({
         await ensureMicTrack();
         renegotiatePeers();
       } else {
-        const nextMicEnabled = !track.enabled;
-        track.enabled = nextMicEnabled;
+        const nextMicEnabled = !(parallelRoom ? parallelMicWanted.current : track.enabled);
+        parallelMicWanted.current = nextMicEnabled;
+        track.enabled = nextMicEnabled && (!parallelRoom || parallelRoom.active);
         const rawTrack = localRawAudioTrackRef.current;
         if (rawTrack && rawTrack.readyState === 'live') {
-          rawTrack.enabled = nextMicEnabled;
+          rawTrack.enabled = track.enabled;
         }
         setMicEnabled(nextMicEnabled);
         void playAlertSound(nextMicEnabled ? 'micUnmuted' : 'micMuted');
@@ -4835,7 +4891,7 @@ const CallSection = ({
     } finally {
       setMicBusy(false);
     }
-  }, [ensureMicTrack, micBusy, playAlertSound, renegotiatePeers, syncLocalTracksToAllPeers, listenOnly]);
+  }, [ensureMicTrack, micBusy, parallelRoom, playAlertSound, renegotiatePeers, syncLocalTracksToAllPeers, listenOnly]);
 
   const toggleCamera = useCallback(async () => {
     if (cameraBusy || listenOnly) return;
@@ -5031,7 +5087,8 @@ const CallSection = ({
       try {
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: videoConstraints,
-          audio: true,
+          audio: !parallelRoom,
+          ...(parallelRoom ? {selfBrowserSurface: 'exclude', monitorTypeSurfaces: 'exclude', surfaceSwitching: 'exclude'} : {}),
         });
       } catch (displayMediaError) {
         const errorName = typeof displayMediaError?.name === 'string' ? displayMediaError.name : '';
@@ -5040,7 +5097,7 @@ const CallSection = ({
           || errorName === 'NotSupportedError'
           || errorName === 'OverconstrainedError'
         );
-        if (!canRetryWithoutAudio) throw displayMediaError;
+        if (parallelRoom || !canRetryWithoutAudio) throw displayMediaError;
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: videoConstraints,
           audio: false,
@@ -5100,6 +5157,7 @@ const CallSection = ({
     disposeLocalMixedAudioProcessing,
     listenOnly,
     isGroupLesson,
+    parallelRoom,
     playAlertSound,
     renegotiatePeers,
     screenBusy,
@@ -6067,7 +6125,7 @@ const CallSection = ({
         {selectedStudent?.lessonVenue === 'telemost' ? <Video size={16} /> : <Phone size={16} />}
         {studentLessonVenue(selectedStudent).label}
       </p>}
-      {effectiveStudentId && (
+      {!parallelRoom && effectiveStudentId && (
         <details className="call-telemost-editor call-workspace-disclosure">
           <summary><Video size={16} /> {isTeacher && selectedStudent?.lessonVenue === 'telemost' ? 'Звонок в Телемосте' : 'Резервный Телемост'} <span>{telemostUrl ? 'Настроен' : 'Настроить'}</span></summary>
           <div className="call-telemost-editor__head">

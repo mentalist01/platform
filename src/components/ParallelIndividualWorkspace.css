@@ -1,0 +1,47 @@
+.parallel-lessons {
+  --parallel-ink: light-dark(#31264c,#f2ecff);
+  --parallel-muted: light-dark(#6d5b86,#c9bcdd);
+  --parallel-border: light-dark(#ddd4ef,#514568);
+  --parallel-surface: light-dark(#fff,#29223a);
+  --parallel-tint: light-dark(#f3edff,#453367);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  color: var(--parallel-ink);
+}
+.parallel-lessons[hidden] { display: none; }
+.parallel-lesson-toolbar,.parallel-lesson-students,.parallel-lesson-files li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.parallel-lesson-toolbar,.parallel-lesson-files li { justify-content: space-between; }
+.parallel-lesson-toolbar h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: 700; }
+.parallel-lesson-toolbar button,.parallel-lesson-files button,.parallel-lesson-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  border: 1px solid var(--parallel-border);
+  border-radius: 9px;
+  padding: 5px 10px;
+  background: var(--parallel-surface);
+  color: inherit;
+  font-size: 13px;
+}
+.parallel-lesson-students button { align-items: flex-start; flex-direction: column; gap: 1px; }
+.parallel-lesson-students button[aria-pressed=true] { background: var(--parallel-tint); border-color: #8c60d8; }
+.parallel-lesson-students small { color: var(--parallel-muted); font-size: 11px; }
+.parallel-lesson-start { justify-self: start; background: var(--parallel-tint); font-weight: 650; }
+.parallel-lessons button:disabled { opacity: .6; }
+.parallel-lesson-workspace { position: relative; min-width: 0; }
+.parallel-lesson-surface { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.parallel-lesson-surface.is-visible { position: relative; visibility: visible; pointer-events: auto; }
+.parallel-lesson-setup { display: grid; gap: 11px; padding: 13px; border: 1px solid var(--parallel-border); border-radius: 12px; background: var(--parallel-surface); }
+.parallel-lesson-pick { display: flex; flex-wrap: wrap; gap: 6px 14px; min-width: 0; margin: 0; }
+.parallel-lesson-pick label { display: flex; align-items: center; gap: 6px; min-height: 32px; }
+.parallel-lesson-pick legend { color: var(--parallel-muted); font-size: 12px; font-weight: 650; }
+.parallel-lesson-error { color: light-dark(#8b2340,#ffb2c3); }
+.parallel-lesson-files { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }

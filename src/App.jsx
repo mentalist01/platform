@@ -313,6 +313,7 @@ const BoardSummonListener = React.lazy(() => import('./components/BoardSummonLis
 const loadBoardPagesWorkspace = () => import('./components/BoardPagesWorkspace.jsx');
 const BoardPagesWorkspace = React.lazy(loadBoardPagesWorkspace);
 const CallSection = React.lazy(loadCallSection);
+const ParallelIndividualWorkspace = React.lazy(() => import('./components/ParallelIndividualWorkspace'));
 const Editor = React.lazy(loadEditor);
 const FinalReviewSection = React.lazy(loadFinalReviewSection);
 const HomeworkQuickStart = React.lazy(loadHomeworkQuickStart);
@@ -3462,6 +3463,7 @@ export const CollabSection = ({
   practiceWork = null,
   practiceActionsRef,
   unifiedGroupBoard = false,
+  parallelRoom = null,
 }) => {
   const isTeacher = role === 'teacher';
   const learningLessonId = String(lessonId || '').trim();
@@ -3620,6 +3622,18 @@ export const CollabSection = ({
   const [editorViewportVersion, setEditorViewportVersion] = useState(0);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const editorRef = useRef(null);
+  useLayoutEffect(() => {
+    if (!parallelRoom) return;
+    parallelRoom.readCode = () => {
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      if (!model) return null;
+      const firstLine = editor.getVisibleRanges()[0]?.startLineNumber || 1;
+      const lines = model.getLinesContent().slice(firstLine - 1,firstLine + 24);
+      return {firstLine,lines};
+    };
+    return () => { delete parallelRoom.readCode; };
+  }, [parallelRoom]);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const taskOptions = Array.isArray(tasks) && tasks.length ? tasks : MOCK_TASKS;
   const [savePythonTaskCatalog, setSavePythonTaskCatalog] = useState(() => normalizePythonTaskCatalog(PYTHON_TASKS, PYTHON_TASKS));
@@ -7524,6 +7538,7 @@ export const CollabSection = ({
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handleRunHotkey = (event) => {
+      if (parallelRoom && (!parallelRoom.active || parallelRoom.surface !== 'collab')) return;
       const isPlainF5 = (event.key === 'F5' || event.code === 'F5')
         && !event.ctrlKey
         && !event.metaKey
@@ -7541,7 +7556,7 @@ export const CollabSection = ({
     };
     window.addEventListener('keydown', handleRunHotkey, true);
     return () => window.removeEventListener('keydown', handleRunHotkey, true);
-  }, [collabDocumentReady, collabReadOnly, runLoading]);
+  }, [collabDocumentReady, collabReadOnly, runLoading, parallelRoom]);
 
   const handleStopRun = () => {
     if (collabReadOnly || !runLoading) return;
@@ -7603,6 +7618,7 @@ export const CollabSection = ({
       return false;
     };
     const handleKeyDown = (event) => {
+      if (parallelRoom && (!parallelRoom.active || parallelRoom.surface !== 'collab')) return;
       if (!runLoading && !practiceRunRef.current) return;
       if (!event.ctrlKey && !event.metaKey) return;
       const key = String(event.key || '').toLowerCase();
@@ -7619,7 +7635,7 @@ export const CollabSection = ({
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [runLoading, runOutput, localName]);
+  }, [runLoading, runOutput, localName, parallelRoom]);
 
   useEffect(() => {
     if (!debugActive) return undefined;
@@ -7631,6 +7647,7 @@ export const CollabSection = ({
       return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
     };
     const handleDebugHotkeys = (event) => {
+      if (parallelRoom && (!parallelRoom.active || parallelRoom.surface !== 'collab')) return;
       if (collabReadOnly) return;
       if (isEditableTarget(event.target)) return;
       if (event.key === 'F10') {
@@ -7663,6 +7680,7 @@ export const CollabSection = ({
     handleDebugStepBack,
     handleStopDebug,
     collabReadOnly,
+    parallelRoom,
   ]);
 
   const handleClearRun = () => {
@@ -11559,6 +11577,7 @@ export const BoardCanvasSection = ({
   readOnly = false,
   sandbox = null,
   onSandboxItemsChange = null,
+  parallelRoom = null,
 }) => {
   const isTeacher = role === 'teacher';
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
@@ -11667,6 +11686,11 @@ export const BoardCanvasSection = ({
 
   const preparedInkRef=useRef(null),preparedInkCache=useRef({}),preparedInkActionsRef=useRef(null);
   const canvasRef = useRef(null);
+  useLayoutEffect(() => {
+    if (!parallelRoom) return;
+    parallelRoom.readBoard = () => canvasRef.current;
+    return () => { delete parallelRoom.readBoard; };
+  }, [parallelRoom]);
   const overlayRef = useRef(null);
   const containerRef = useRef(null);
   const boardRootRef = useRef(null);
@@ -12879,6 +12903,7 @@ export const BoardCanvasSection = ({
       return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
     };
     const handleKeyDown = (event) => {
+      if (parallelRoom && (!parallelRoom.active || parallelRoom.surface !== 'board')) return;
       if (event.code === 'Space') setIsSpaceDown(true);
       if (sandboxReadOnlyRef.current) return;
       const key = String(event.key || '').toLowerCase();
@@ -12915,7 +12940,7 @@ export const BoardCanvasSection = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [handleDeleteSelection]);
+  }, [handleDeleteSelection,parallelRoom]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -15923,6 +15948,7 @@ export const BoardCanvasSection = ({
 
   useEffect(() => {
     const handlePaste = async (event) => {
+      if (parallelRoom && (!parallelRoom.active || parallelRoom.surface !== 'board')) return;
       if (sandboxReadOnlyRef.current || !roomId || !yItemsRef.current) return;
       if (!shouldHandleBoardImagePaste(event)) return;
       const boardTaskPayload = readBoardTaskFromPasteEvent(event);
@@ -16213,7 +16239,7 @@ export const BoardCanvasSection = ({
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [effectiveStudentId, isGroupLesson, isSandbox, learningLessonId, roomId, userId, ensureBoardCanAddItems]);
+  }, [effectiveStudentId, isGroupLesson, isSandbox, learningLessonId, roomId, userId, ensureBoardCanAddItems,parallelRoom]);
 
   const schedulePreviewUpdate = () => {
     if (!awarenessRef.current) return;
@@ -19228,6 +19254,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [lessonTargetGroupsLoading, setLessonTargetGroupsLoading] = useState(false);
   const [lessonTargetSelectionLoading, setLessonTargetSelectionLoading] = useState(false);
   const [lessonTargetError, setLessonTargetError] = useState('');
+  const [parallelWorkspaceOpen, setParallelWorkspaceOpen] = useState(false);
   const lessonTargetSelectionRequestRef = useRef(0);
   const studentLessonWorkspaceRequestRef = useRef(0);
   const refreshLessonTargetGroups = useCallback(async () => {
@@ -26499,7 +26526,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {user.role === 'teacher' && <div data-homework-notes-dock="fallback" className="teacher-homework-notes-dock teacher-homework-notes-dock--fallback" />}
-          {user.role === 'teacher' && lessonQuickNavIds.includes(view) && (
+          {user.role === 'teacher' && !parallelWorkspaceOpen && lessonQuickNavIds.includes(view) && (
             <div className="mb-2 rounded-2xl border border-violet-200/80 bg-white/95 px-3 py-2.5 shadow-sm">
               <div className="grid gap-2 lg:grid-cols-[auto_minmax(180px,420px)_auto] lg:items-center">
                 <label
@@ -26533,6 +26560,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 />
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <div data-homework-notes-dock="lesson" className="teacher-homework-notes-dock" />
+                  {!activeLearningLesson && <button type="button"
+                    disabled={isCallSessionActive || isAnyTelemostLessonReplayActive}
+                    onClick={() => setParallelWorkspaceOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 px-2.5 py-1.5 text-xs font-semibold text-violet-700 disabled:opacity-50">
+                    <Users size={15} aria-hidden="true" /> Параллельные уроки
+                  </button>}
                   {activeLearningLesson && <React.Suspense fallback={null}><GroupLessonFinishButton
                     key={activeLearningLesson.lessonId} lesson={activeLearningLesson} role={user.role}
                     beforeFinish={prepareLearningGroupFinish} onFinished={handleLearningGroupFinished}
@@ -27257,7 +27290,26 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onOpen={openPracticeWorkspace} theme={theme} />
             </React.Suspense>
           )}
-          {view === 'collab' && !studentLessonWorkspaceBlocked && (
+          {user.role === 'teacher' && parallelWorkspaceOpen && (
+            <ParallelIndividualWorkspace teacherId={user.id} students={individualLessonTargetStudents}
+              initialStudentId={activeStudentId} view={view} visible={lessonQuickNavIds.includes(view)}
+              onClose={() => setParallelWorkspaceOpen(false)} setReloadBlocked={setClientBuildReloadBlocked}
+              renderCall={({room,sessionId,onStatusChange}) => <CallSection
+                role="teacher" userId={user.id} userName={user.name} userAvatarDataUrl={user.avatarDataUrl} teacherId={user.id}
+                students={currentStudentsWithNicknames} activeStudentId={room.id} hideStudentPicker
+                uiMode="full" fitToContainer theme={theme} autoStartToken={1} initialMicEnabled
+                parallelSessionId={sessionId} parallelRoom={room} onStatusChange={onStatusChange} />}
+              renderBoard={({room}) => <BoardSection
+                role="teacher" userId={user.id} userName={user.name} teacherId={user.id} tasks={tasksWithTitles}
+                students={currentStudentsWithNicknames} activeStudentId={room.id} hideStudentPicker theme={theme}
+                parallelRoom={room} />}
+              renderCode={({room}) => <CollabSection
+                role="teacher" userId={user.id} userName={user.name} teacherId={user.id} tasks={tasksWithTitles}
+                students={currentStudentsWithNicknames} activeStudentId={room.id} hideStudentPicker theme={theme}
+                withStudentId={withStudentId} parallelRoom={room} />}
+            />
+          )}
+          {view === 'collab' && !studentLessonWorkspaceBlocked && !parallelWorkspaceOpen && (
             <CollabSection
               key={practiceCodeRoom || 'lesson-code'}
               workspaceRoomId={practiceCodeRoom}
@@ -27287,7 +27339,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 : (callSessionStatus === 'connected' || isTelemostLessonReplayActive))}
             />
           )}
-          {isCallViewAvailable && activeLearningLesson && activeLearningLesson.callProvider !== 'telemost' && (
+          {isCallViewAvailable && !parallelWorkspaceOpen && activeLearningLesson && activeLearningLesson.callProvider !== 'telemost' && (
             <GroupVoiceChannels
               key={activeLearningLesson.lessonId}
               lesson={activeLearningLesson}
@@ -27303,7 +27355,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onBack={handleLeaveLearningGroupLesson}
             />
           )}
-          {isCallViewAvailable && activeLearningLesson?.callProvider === 'telemost' && view === 'call' && (
+          {isCallViewAvailable && !parallelWorkspaceOpen && activeLearningLesson?.callProvider === 'telemost' && view === 'call' && (
             <GroupTelemostSection
               role={user.role}
               groupName={activeLearningLesson.groupName}
@@ -27322,7 +27374,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onBack={handleLeaveLearningGroupLesson}
             />
           )}
-          {isCallViewAvailable && !activeLearningLesson && !studentLessonWorkspaceBlocked && (
+          {isCallViewAvailable && !parallelWorkspaceOpen && !activeLearningLesson && !studentLessonWorkspaceBlocked && (
             <CallSection
               role={user.role}
               userId={user.id}
@@ -27353,7 +27405,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onRequestOpenCall={() => navigateToView('call')}
             />
           )}
-          {user.role === 'teacher' && (
+          {user.role === 'teacher' && !parallelWorkspaceOpen && (
             <TeacherLessonStartPrompt
               teacherId={user.id}
               students={currentStudentsWithNicknames}
@@ -27380,7 +27432,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 onOpenWorkspace={navigateToView} />
             </React.Suspense>
           )}
-          {view === 'board' && !studentLessonWorkspaceBlocked && (
+          {view === 'board' && !studentLessonWorkspaceBlocked && !parallelWorkspaceOpen && (
             <BoardSection
               unifiedGroupBoard={unifiedGroupBoard}
               practiceWork={currentPractice}

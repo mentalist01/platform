@@ -88,6 +88,7 @@ import { isGroupLessonAssigned, isGroupLessonAbsenceWaived, participationOccurre
 import { boardPageBookRoom, boardPageRoom, boardPagesList, parseBoardPageRoom } from '../src/utils/boardPages.js';
 import multer from 'multer';
 import { createDesktopRecordingStore, registerDesktopDeviceRoutes, registerDesktopRecordingRoutes } from './desktopRecording.js';
+import { createParallelIndividualLessons } from './parallelIndividualLessons.js';
 import {matchLessonRecording} from '../src/utils/studentLessonRecordings.js';
 import { refreshedRecordingOccurrence } from './recordingSchedule.js';
 import { currentScheduledSuccessor, isAdjacentRecordingSuccessor } from './recordingRollover.js';
@@ -478,6 +479,7 @@ try {
 
 const app = express();
 const rtcClientsBySocket = new Map();
+const parallelIndividualLessons = createParallelIndividualLessons();
 app.set('trust proxy', 'loopback');
 app.disable('x-powered-by');
 const PORT = process.env.PORT || 5175;
@@ -23051,7 +23053,7 @@ const refreshDesktopRecordingSchedule = async teacherId => {
     for(const job of desktopRecordings.pendingEnds(teacherId)){
       await finishControlledLesson(job);desktopRecordings.endHandled(job.id);
     }
-    if (!desktopRecordings.enabled(teacherId)) return;
+    if (!desktopRecordings.enabled(teacherId) || hasParallelTeacherCall(teacherId)) return;
     const nowMs = Date.now();
     const all = desktopRecordings.libraryJobs(teacherId);
     if (all.some(job => job.desired === 'record' && job.cutoffAt > nowMs)) return;
@@ -23398,6 +23400,10 @@ registerDesktopRecordingRoutes(app, desktopRecordings, {
   refreshSchedule: refreshDesktopRecordingSchedule,
   teacherFor: (auth) => findStudentById(isParentRole(auth) ? auth.studentId : auth.id)?.teacherId,
   resolveLesson: async (req, res) => {
+    if (hasParallelTeacherCall(req.auth.id)) {
+      res.status(409).json({error:'Записи параллельных уроков сохраняются в браузере.'});
+      return null;
+    }
     let occurrence; let cutoffAt; let audioMode = 'telemost';
     if (req.body?.learningLessonId) {
       const context = ensureLearningGroupReplayAccess(req, res, req.body.learningLessonId);
@@ -45649,6 +45655,7 @@ const leaveRtcRoom = (client, { silent = false } = {}) => {
   const room = rtcRooms.get(roomId);
   applyLearningRtcAttendance(client, roomId, 'leave');
   client.roomId = '';
+  client.parallelSessionId = '';
   client.listenOnly = false;
   client.isScreenSharing = false;
   client.isCameraEnabled = false;
@@ -45717,19 +45724,67 @@ const observeHomeworkRtcLesson = async (roomMeta) => {
   }
 };
 
-const joinRtcRoom = (client, roomMeta) => {
+const teacherConnectedCalls = teacherId => Array.from(rtcClientsBySocket.values()).filter(client =>
+  client.auth?.role === 'teacher' && client.auth.id === teacherId && client.roomId);
+
+const hasParallelTeacherCall = teacherId => teacherConnectedCalls(teacherId).some(client => client.parallelSessionId);
+
+app.post('/api/parallel-individual-lessons', (req, res) => {
+  if (req.auth.role !== 'teacher') return forbid(res);
+  const requestId = String(req.body?.requestId || '');
+  const values = req.body?.studentIds;
+  if (!/^[a-zA-Z0-9-]{16,100}$/.test(requestId) || !Array.isArray(values)
+    || values.some(value => typeof value !== 'string')) {
+    return res.status(400).json({error:'Проверь список учеников.'});
+  }
+  const studentIds = [...new Set(values)];
+  if (studentIds.length < 2) return res.status(400).json({error:'Выбери хотя бы двух учеников.'});
+  const ownStudents = new Set(readStudentsDb().filter(student =>
+    student.teacherId === req.auth.id && isActiveStudent(student)).map(student => student.id));
+  if (studentIds.some(id => !ownStudents.has(id))) return forbid(res);
+  const calls = teacherConnectedCalls(req.auth.id);
+  if (calls.some(client => !client.parallelSessionId) || desktopRecordings.activeLessonKeys(req.auth.id).size) {
+    return res.status(409).json({error:'Сначала заверши текущий звонок и его запись.'});
+  }
+  const previous = parallelIndividualLessons.get(req.auth.id);
+  if (!calls.length && previous && previous.requestId !== requestId) parallelIndividualLessons.finish(req.auth.id,previous.id);
+  const session = parallelIndividualLessons.start(req.auth.id,requestId,studentIds);
+  if (!session) return res.status(409).json({error:'Параллельные уроки уже открыты в другом окне.'});
+  res.set('Cache-Control','no-store');
+  return res.json({id:session.id,studentIds:session.studentIds});
+});
+
+app.delete('/api/parallel-individual-lessons/:id', (req, res) => {
+  if (req.auth.role !== 'teacher') return forbid(res);
+  if (parallelIndividualLessons.finish(req.auth.id,req.params.id)) {
+    for (const client of teacherConnectedCalls(req.auth.id)) {
+      if (client.parallelSessionId !== req.params.id) continue;
+      leaveRtcRoom(client,{silent:true});
+      sendRtcPayload(client.ws,{type:'session-ended',error:'Параллельное занятие завершено.'});
+    }
+  }
+  return res.json({ok:true});
+});
+
+const joinRtcRoom = (client, roomMeta, parallelSessionId = '') => {
   if (!client || !roomMeta) return;
   const { roomId } = roomMeta;
   if (client.auth.role === 'teacher' && ['student', 'lesson'].includes(roomMeta.targetType)) {
     // Joining a different lesson is authoritative even if a stale old tab still
     // reports its session as active. Channel changes within one lesson keep capture.
-    desktopRecordings.transitionPlatformCall(client.auth.id, { studentId: roomMeta.studentId, lessonId: roomMeta.sessionId });
+    if (!parallelSessionId) desktopRecordings.transitionPlatformCall(client.auth.id, { studentId: roomMeta.studentId, lessonId: roomMeta.sessionId });
     rtcClientsBySocket.forEach(other => {
       if (other === client || other.auth.role !== 'teacher' || other.auth.id !== client.auth.id) return;
       const previous = parseRtcRoomId(other.roomId);
       if (!previous || !['student', 'lesson'].includes(previous.targetType)) return;
       const sameLesson = roomMeta.targetType === 'lesson' ? previous.sessionId === roomMeta.sessionId
         : previous.targetType === 'student' && previous.studentId === roomMeta.studentId;
+      if (!sameLesson && parallelSessionId && parallelSessionId === other.parallelSessionId) return;
+      if (sameLesson && parallelSessionId && parallelSessionId === other.parallelSessionId) {
+        leaveRtcRoom(other,{silent:true});
+        sendRtcPayload(other.ws,{type:'session-ended',error:'Эта комната открыта в другом окне.'});
+        return;
+      }
       if (sameLesson) return;
       leaveRtcRoom(other);
       sendRtcPayload(other.ws, { type: 'session-ended', error: 'Вы вошли в другой урок. Предыдущая запись завершена.' });
@@ -45763,6 +45818,7 @@ const joinRtcRoom = (client, roomMeta) => {
     const previousRoom = parseRtcRoomId(client.roomId);
     leaveRtcRoom(client, {silent:roomMeta.targetType==='lesson' && previousRoom?.sessionId===roomMeta.sessionId});
   }
+  client.parallelSessionId = parallelSessionId;
   client.listenOnly = isGroupLibraryListener(client.auth, roomMeta);
 
   let room = rtcRooms.get(roomId);
@@ -45985,8 +46041,23 @@ const handleRtcMessage = (client, rawData, isBinary) => {
       sendRtcPayload(client.ws, { type: 'error', error: accessError });
       return;
     }
+    const parallelSessionId = String(payload.parallelSessionId || '');
+    if (parallelSessionId && (client.auth.role !== 'teacher' || roomMeta.targetType !== 'student'
+      || !parallelIndividualLessons.allows(client.auth.id,parallelSessionId,roomMeta.studentId))) {
+      sendRtcPayload(client.ws,{type:'error',error:'Параллельная комната недоступна.'});
+      return;
+    }
+    if (parallelSessionId && teacherConnectedCalls(client.auth.id).some(other => other.parallelSessionId !== parallelSessionId)) {
+      sendRtcPayload(client.ws,{type:'error',error:'В другом окне уже открыт звонок.'});
+      return;
+    }
+    if (!parallelSessionId && client.auth.role === 'teacher' && roomMeta.targetType !== 'meeting'
+      && hasParallelTeacherCall(client.auth.id)) {
+      sendRtcPayload(client.ws,{type:'error',error:'Сначала заверши параллельные уроки.'});
+      return;
+    }
     leaveRtcPresenceWatch(client);
-    joinRtcRoom(client, roomMeta);
+    joinRtcRoom(client, roomMeta, parallelSessionId);
     return;
   }
 
