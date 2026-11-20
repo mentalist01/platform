@@ -237,6 +237,7 @@ import {
 } from './utils/collabSolutions';
 const CollabSolutionTabs = React.lazy(() => import('./components/CollabSolutionTabs'));
 const CollabCodePages = React.lazy(() => import('./components/CollabCodePages'));
+const SavedGroupCode = React.lazy(() => import('./components/SavedGroupCode.jsx'));
 import CollabRunError from './components/CollabRunError';
 import GroupAnswerChat from './components/GroupAnswerChat';
 import './components/CollabWorkspaceLayout.css';
@@ -3456,7 +3457,7 @@ export const CollabSection = ({
   sandbox = null,
   onSandboxStateChange = null,
   pythonExplanation = false,
-  workspaceRoomId = '',
+  workspaceRoomId: assignedWorkspaceRoomId = '',
   practiceWork = null,
   practiceActionsRef,
   unifiedGroupBoard = false,
@@ -3470,6 +3471,10 @@ export const CollabSection = ({
       .filter(Boolean)
   )), [participantIds]);
   const isGroupLesson = Boolean(learningLessonId && learningGroupId);
+  const unifiedStudentCode = unifiedGroupBoard && role === 'student';
+  const groupBook = unifiedGroupBoard ? boardPageBookRoom(groupNotebookBoard(learningGroupId)) : '';
+  const [groupBoardPage] = useLessonPageSelection(groupBook,role,userId);
+  const workspaceRoomId = !unifiedGroupBoard || practiceWork?.pageId === groupBoardPage ? assignedWorkspaceRoomId : '';
   const isGroupPythonExplanation = Boolean(pythonExplanation && learningGroupId);
   const groupNotesTarget = isGroupLesson || isGroupPythonExplanation;
   const isDarkTheme = normalizeTheme(theme) === THEME_DARK;
@@ -3499,7 +3504,7 @@ export const CollabSection = ({
     ? (isGroupLesson ? (activeGroupParticipantId === GROUP_SHARED_CODE_ID ? '' : activeGroupParticipantId) : activeStudentId)
     : role === 'student' ? userId : '';
   const codeFocus = useLessonCodeFocus(isSandbox || pythonExplanation ? '' : focusStudentId);
-  const studentCodeFocus = role === 'student' ? codeFocus.focus : null;
+  const studentCodeFocus = role === 'student' && !(unifiedStudentCode && workspaceRoomId) ? codeFocus.focus : null;
   const studentCodeFocusRef = useRef(null);
   studentCodeFocusRef.current = studentCodeFocus;
   const [codeFocusBusy, setCodeFocusBusy] = useState(false);
@@ -3550,11 +3555,11 @@ export const CollabSection = ({
   const effectiveGroupParticipantId = isGroupLesson
     ? (studentCodeFocus?.groupId === learningGroupId
       ? (studentCodeFocus.room === groupNotebookCode(learningGroupId) ? GROUP_SHARED_CODE_ID : userId)
-      : (activeGroupParticipantId || GROUP_SHARED_CODE_ID))
+      : unifiedGroupBoard ? GROUP_SHARED_CODE_ID : (activeGroupParticipantId || GROUP_SHARED_CODE_ID))
     : '';
   const groupCodePresence = useGroupCodePresence({ enabled: isGroupLesson && !workspaceRoomId && isTeacher && !readOnly,
     groupId: learningGroupId, lessonId: learningLessonId });
-  const activeGroupParticipantName = isGroupLesson && !workspaceRoomId
+  const activeGroupParticipantName = unifiedGroupBoard && workspaceRoomId ? DEFAULT_SOLUTION_NAME : isGroupLesson && !workspaceRoomId
     ? (effectiveGroupParticipantId === GROUP_SHARED_CODE_ID ? 'Общий код'
       : groupParticipantRoster.find((participant) => participant.id === effectiveGroupParticipantId)?.name || 'Ученик')
     : '';
@@ -3709,16 +3714,20 @@ export const CollabSection = ({
     ? groupNotebookCode(learningGroupId,effectiveGroupParticipantId===GROUP_SHARED_CODE_ID?'':effectiveGroupParticipantId)
     : (effectiveStudentId && teacherId ? `collab-${teacherId}-${effectiveStudentId}` : null));
   const roomId = isSandbox ? `sandbox-${sandboxId}` : liveRoomId;
-  const preparedBook = isSandbox ? '' : lessonBookForCodeRoom(roomId);
-  const [selectedCodePage] = useLessonPageSelection(preparedBook,role,userId,'main','code');
+  const preparedBook = isSandbox ? '' : groupBook || lessonBookForCodeRoom(roomId);
+  const [selectedCodePage] = useLessonPageSelection(preparedBook,role,userId,'main',unifiedStudentCode?'board':'code');
   const pinnedCode = studentCodeFocus?.room === roomId ? studentCodeFocus : null;
-  const preparedPage = pinnedCode ? lessonBoardPageId(pinnedCode.pageId) : selectedCodePage;
+  const practiceCode = Boolean(unifiedGroupBoard && workspaceRoomId);
+  const preparedPage = practiceCode ? practiceWork.pageId : pinnedCode ? lessonBoardPageId(pinnedCode.pageId) : selectedCodePage;
+  const preparedCodePageId = practiceCode ? DEFAULT_COLLAB_CODE_PAGE_ID : lessonCodePageId(preparedPage);
   const preparedRoom = !pythonExplanation && preparedBook ? preparedBook.slice(0,-6)+(preparedPage==='main'?'':`~page~${preparedPage}`) : null;
   const preparedContext = usePreparedLesson(preparedRoom);
   const preparedActive = preparedContext.run?.mode === 'prepared';
-  const onPreparedCodePage = activeCodePageId === lessonCodePageId(preparedPage);
+  const onPreparedCodePage = activeCodePageId === preparedCodePageId;
   const preparedCodeCard = preparedRuntimeCardForCode(preparedContext.run, preparedContext.selectedId, activeSolutionId, onPreparedCodePage);
-  const canFollowPreparedCode = !isGroupLesson || effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
+  const canFollowPreparedCode = !isGroupLesson || practiceCode || effectiveGroupParticipantId === GROUP_SHARED_CODE_ID;
+  const currentPreparedPageRef = useRef(preparedCodePageId);
+  currentPreparedPageRef.current = preparedCodePageId;
   const preparedCodeSelectionRef = useRef('');
   const collabDocumentReady = Boolean(
     roomId && (isSandbox || (documentSynced && (role !== 'student' || codeFocus.ready)
@@ -7241,7 +7250,7 @@ export const CollabSection = ({
       const runningCodeId = activeSolutionIdRef.current;
       const runningCodePage = collabDocRef.current ? getCollabSolutionPageId(collabDocRef.current, runningCodeId) : activeCodePageId;
       const runtimeCard = preparedRuntimeCardForCode(
-        preparedContext.run, preparedContext.selectedId, runningCodeId, runningCodePage === lessonCodePageId(preparedPage)
+        preparedContext.run, preparedContext.selectedId, runningCodeId, runningCodePage === preparedCodePageId
       );
       runtimeFilesPayload = await resolveSelectedRuntimeFiles(runtimeCard?.attachments);
     } catch (err) {
@@ -7921,7 +7930,7 @@ export const CollabSection = ({
           pageSelectionsRef.current = new Map(Object.entries(saved?.byPage || {}));
           const focus = studentCodeFocusRef.current;
           selectSolutionRef.current?.(focus?.room === roomId
-            ? focus.solutionId : resolveCollabPageSelection(doc, saved).solutionId);
+            ? focus.solutionId : resolveCollabPageSelection(doc, unifiedStudentCode ? {...saved,pageId:currentPreparedPageRef.current} : saved).solutionId);
         } catch { /* Room data remains usable when local preferences are unavailable. */ }
       }
       setDocumentSynced(true);
@@ -8273,6 +8282,7 @@ export const CollabSection = ({
     localColor,
     clearDebugSession,
     editorMountVersion,
+    unifiedStudentCode,
     stopCollabOutputSelectionTracking,
     stopCollabTestFileSelectionTracking,
     scheduleLessonReplayCodeSnapshot,
@@ -9281,6 +9291,7 @@ export const CollabSection = ({
     // A summon never bypasses the teacher's existing restriction on code tabs.
     if (studentCodeFocus && (studentCodeFocus.room!==selected.room||studentCodeFocus.solutionId!==selected.solutionId)) return false;
     if (isGroupLesson && selected.room!==roomId) {
+      if (unifiedGroupBoard) return false;
       setActiveGroupParticipantId(command.studentId || GROUP_SHARED_CODE_ID);
       return false;
     }
@@ -11153,10 +11164,10 @@ export const CollabSection = ({
         {preparedCodeCard&&preparedCodeCard.attachments.some(file=>file.runtime!==false)&&<div className="prepared-runtime-strip" aria-label="Подключение файлов задачи"><button type="button" onClick={()=>{setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE);setTaskFilesPanelOpen(true);}} title="Открыть входные файлы">Файлы задачи: {preparedCodeCard.attachments.filter(file=>file.runtime!==false).map(file=>file.runtimeName||file.name).join(', ')}</button></div>}
         {boardCodeAuxPopover}
 
-        {!isSandbox && roomId && (
-          <React.Suspense fallback={<div role="status" className="collab-solutions__notice">Загружаем страницы кода…</div>}>
+        {!isSandbox && roomId && !practiceCode && (
+          <React.Suspense fallback={unifiedStudentCode ? null : <div role="status" className="collab-solutions__notice">Загружаем страницы кода…</div>}>
           <CollabCodePages key={`pages:${roomId}`} pages={codePages} activeId={activeCodePageId}
-            onSelect={selectCodePage} roomId={roomId} role={role} userId={userId}
+            onSelect={selectCodePage} roomId={roomId} role={role} userId={userId} followBoard={unifiedStudentCode}
             onSummonCode={followSummonedCode}
             summonSolutionId={isTeacher && !workspaceRoomId ? activeSolutionId : undefined}
             summonStudentId={privateCodeSummonStudentId}
@@ -11182,7 +11193,7 @@ export const CollabSection = ({
             onDelete={deleteCodeSolution}
             onReorder={reorderCodeSolutionTabs}
             canReorder={isTeacher && !collabReadOnly}
-            participants={isGroupLesson && !workspaceRoomId ? groupCodeTabs(orderedGroupParticipants, role, userId) : []}
+            participants={isGroupLesson && !workspaceRoomId && !unifiedGroupBoard ? groupCodeTabs(orderedGroupParticipants, role, userId) : []}
             activeParticipantId={effectiveGroupParticipantId}
             sharedTasks={isGroupLesson && !workspaceRoomId && !sharedGroupCode && !studentCodeFocus && preparedActive
               ? preparedContext.run.cards.filter(card => card.kind !== 'theory').map(card => ({
@@ -11222,6 +11233,10 @@ export const CollabSection = ({
             peers={remoteParticipants}
           />
           </React.Suspense>
+        )}
+        {unifiedStudentCode && sharedGroupCode && !studentCodeFocus && collabDocumentReady && onPreparedCodePage && (
+          <React.Suspense fallback={null}><SavedGroupCode key={`${learningGroupId}:${preparedPage}:${activeSolutionId}`}
+            groupId={learningGroupId} pageId={preparedPage} solutionId={activeSolutionId} dark={isCollabDarkUi}/></React.Suspense>
         )}
         {deletedSolution && (
           <div className="collab-solutions__notice" role="status">
@@ -27117,6 +27132,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               students={currentStudentsWithNicknames}
               theme={theme}
               visible={view === 'call'}
+              unifiedPractice={unifiedGroupBoard}
               requestedChannel={practiceVoiceRequest?.lessonId === activeLearningLesson.lessonId ? practiceVoiceRequest : null}
               onConnectedChannelChange={user.role === 'student' ? setGroupVoiceConnection : undefined}
               onChannelSelected={user.role === 'teacher' ? syncWorkspaceFromVoice : undefined}

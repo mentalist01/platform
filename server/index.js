@@ -315,7 +315,9 @@ import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
 import {registerGroupStudyProgressRoutes} from './groupStudyProgress.js';
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
 import {canAccessPracticeRoom, getActivePracticeRound, isPracticePageId, parsePracticeWorkspaceRoom, practiceVoiceChannelId, practiceWorkspaceRoom} from '../src/utils/groupPractice.js';
-import {groupPracticeBoardObstacles, practiceForViewer, savedGroupBoardRooms, setPracticeRoomStatus, startPracticeRound, validatePracticeAssignments} from './groupLessonPractice.js';
+import {groupPracticeBoardObstacles, practiceForViewer, savedGroupBoardRooms, savedGroupPracticeRooms, setPracticeRoomStatus, startPracticeRound, validatePracticeAssignments} from './groupLessonPractice.js';
+import {projectGroupPracticeCode,savedLegacyGroupCode,savedPracticeCode} from './groupPracticeCode.js';
+import {lessonCodePageId} from '../src/utils/lessonPageSelection.js';
 import {isTrialLesson, trialRoomId, trialRoomGroup, trialRoomSession, trialRoomPayload} from './trialLessonRooms.js';
 import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
 import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
@@ -381,7 +383,7 @@ import {
   resolveGoogleCalendarLearningGroupMatch,
 } from './googleCalendarLearningGroups.js';
 import { installReadOnlyYWebsocketMessageFilter } from './collabReadOnly.js';
-import { COLLAB_SOLUTIONS_DELETED_KEY, COLLAB_SOLUTIONS_MAP_KEY, getCollabSolutionPageId, normalizeCollabCodeDocument } from '../src/utils/collabSolutions.js';
+import { COLLAB_SOLUTIONS_DELETED_KEY, COLLAB_SOLUTIONS_MAP_KEY, getCollabSolutionPageId, listCollabCodePages, normalizeCollabCodeDocument } from '../src/utils/collabSolutions.js';
 import { groupCodePresence } from './groupCodePresence.js';
 import { findStudentCodeLocation, isSavedLessonCode, LESSON_CODE_FOCUS_MS } from './lessonCodeFocus.js';
 import {
@@ -1954,6 +1956,15 @@ const readBoardLayerItems = (room) => {
   } finally {
     snapshot.destroy();
   }
+};
+const readCodeLayer = async (room, read) => {
+  const docName = `collab/${room}`;
+  const loaded = getLoadedCollabDocEntry(docName)?.doc;
+  if (loaded) { await collabDocReadyPromises.get(loaded); return read(loaded); }
+  if (!rawCollabPersistence) return null;
+  const snapshot = await rawCollabPersistence.getYDoc(docName);
+  try { return read(snapshot); }
+  finally { snapshot.destroy(); }
 };
 const flushLoadedBoardDocSnapshots = () => {
   const loadedDocs = getLoadedCollabDocs();
@@ -26861,6 +26872,40 @@ app.get('/api/learning-groups/:groupId/board-work', handleLearningRoute((req,res
   return res.json({items});
 }));
 
+app.get('/api/learning-groups/:groupId/code-work', handleLearningRoute(async(req,res) => {
+  const group=ensureLearningGroupReadAccess(req,res,req.params.groupId);
+  if(!group)return;
+  if(!isStudentRole(req.auth))return forbid(res);
+  const {pageId,solutionId}=req.query;
+  if(!isPracticePageId(pageId)||typeof solutionId!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(solutionId)) {
+    failLearningRequest('Выбери вкладку общего кода','invalid_practice_code');
+  }
+  const offset=Math.max(0,Math.min(10_000,Math.floor(Number(req.query.offset)||0)));
+  const attendance=readLearningAttendanceDb();
+  const lessons=readLearningLessonSessionsDb().filter(lesson=>lesson.groupId===group.id && lesson.practice
+    && canAccessLearningLessonSessionRecord(req.auth,lesson,{group,groups:[group],attendanceRecords:attendance})
+    && !getLearningSubscriptionRoomError(req.auth,{target:{session:lesson},readOnly:true}));
+  const rooms=savedGroupPracticeRooms(lessons,{studentId:req.auth.id,pageId,isLive:lesson=>practiceSlotOpen(lesson,group)})
+    .sort((a,b)=>String(b.round.startedAt).localeCompare(String(a.round.startedAt)));
+  const sharedMainId=await readCodeLayer(groupNotebookCode(group.id),doc=>
+    listCollabCodePages(doc).find(page=>page.id===lessonCodePageId(pageId))?.mainSolutionId)
+    || (pageId==='main'?'main':`lesson-page-${pageId}`);
+  const versions=[];
+  let index=offset;
+  for(;index<rooms.length && versions.length<8;index++){
+    const {lesson,round,room}=rooms[index];
+    const codeRoom=practiceWorkspaceRoom(lesson.id,room.id,'code');
+    const entries=await readCodeLayer(codeRoom,doc=>savedPracticeCode(doc,solutionId,sharedMainId));
+    if(entries?.length)versions.push({id:room.id,date:round.startedAt||lesson.startAt,entries});
+  }
+  if(index>=rooms.length && offset<=rooms.length){
+    const legacy=await readCodeLayer(groupNotebookCode(group.id,req.auth.id),doc=>savedLegacyGroupCode(doc,pageId,solutionId,sharedMainId));
+    if(legacy?.length)versions.push({id:'legacy',entries:legacy});
+  }
+  res.set('Cache-Control','private, no-store');
+  return res.json({versions,nextOffset:index<rooms.length?index:null});
+}));
+
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/practice', handleLearningRoute((req,res) => {
   const group = ensureLearningGroupReadAccess(req,res,req.params.groupId);
   if (!group) return;
@@ -46178,8 +46223,23 @@ server.on('upgrade', (request, socket, head) => {
           rejectUpgrade(socket,403,'Forbidden');
           return;
         }
-        request.learningCollabAccess = currentAccess;
+        if (currentAccess.target.kind === 'collab' && !currentAccess.readOnly) {
+          const {session,practiceRoom}=currentAccess.target;
+          const pageId=getActivePracticeRound(session.practice)?.pageId;
+          if (pageId) {
+            const roomName=practiceWorkspaceRoom(session.id,practiceRoom.id,'code');
+            const targetDoc=yWsUtils.getYDoc(`collab/${roomName}`);
+            await readCodeLayer(groupNotebookCode(session.groupId),sharedDoc=>projectGroupPracticeCode(targetDoc,sharedDoc,pageId));
+          }
+        }
+        // The practice can end while the saved code loads.
+        const finalAccess=authorize();
+        if (!finalAccess.allowed || getLearningSubscriptionRoomError(session.user,finalAccess)) {
+          rejectUpgrade(socket,403,'Forbidden');return;
+        }
+        request.learningCollabAccess = finalAccess;
       }
+      if (socket.destroyed) return;
       collabWss.handleUpgrade(request, socket, head, (ws) => {
         trackAuthConnection(token, ws, () => ws.terminate());
         collabWss.emit('connection', ws, request);

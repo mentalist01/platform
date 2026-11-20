@@ -17,8 +17,8 @@ const suggestedName = pages => {
 };
 
 export default function CollabCodePages({ pages:codePages, activeId, onSelect, roomId,role,userId,
-  onSummonCode, summonSolutionId, summonStudentId='', summonTargetIds=[], summonParticipants=[], disabled = false, readOnly = false, dark = false, peers = [], lockedPageId = null, protectedPageId = null }) {
-  const common=useLessonPages(roomId,role,userId);
+  onSummonCode, summonSolutionId, summonStudentId='', summonTargetIds=[], summonParticipants=[], disabled = false, readOnly = false, dark = false, peers = [], lockedPageId = null, protectedPageId = null, followBoard = false }) {
+  const common=useLessonPages(roomId,role,userId,followBoard);
   const [recipientId,setRecipientId]=useState('');
   const canChooseRecipient=!summonStudentId&&summonParticipants.length>0;
   const selectedRecipient=canChooseRecipient?recipientId:'';
@@ -38,7 +38,7 @@ export default function CollabCodePages({ pages:codePages, activeId, onSelect, r
     if(onSummonCode?.(command)){appliedSummon.current=command.id;common.acknowledgeCode(command);}
   },[common.navigation,disabled,role,onSummonCode]);
   useEffect(()=>{
-    if(disabled||lockedPageId!==null||!pages.length){previousActive.current=null;return;}
+    if(disabled||lockedPageId!==null||!pages.length){previousActive.current=null;requested.current=null;return;}
     if(applyingSummon.current){
       if(activeId!==applyingSummon.current)return;
       applyingSummon.current=null;previousActive.current=null;requested.current=null;
@@ -47,11 +47,11 @@ export default function CollabCodePages({ pages:codePages, activeId, onSelect, r
     if(previousActive.current&&previousActive.current!==activeId){
       previousActive.current=activeId;
       if(requested.current===activeId)requested.current=null;
-      else if(pages.some(p=>p.id===activeId)){selectShared(lessonBoardPageId(activeId));return;}
+      else if(!followBoard&&pages.some(p=>p.id===activeId)){selectShared(lessonBoardPageId(activeId));return;}
     }
     previousActive.current=activeId;
     if(selected!==activeId&&codePages.some(p=>p.id===selected)&&requested.current!==selected){requested.current=selected;onSelect(selected);}
-  },[activeId,disabled,pages,codePages,sharedSelected,selectShared,onSelect,lockedPageId]);
+  },[activeId,disabled,pages,codePages,sharedSelected,selectShared,onSelect,lockedPageId,followBoard]);
   const create=async name=>{const result=await common.change({action:'create',name,parentId:parentId?lessonBoardPageId(parentId):''});common.select(result.id);};
   const rename=(id,name)=>common.change({action:'update',id:lessonBoardPageId(id),name,parentId:parentId?lessonBoardPageId(parentId):''});
   const remove=async id=>{const page=pages.find(p=>p.id===id);await common.change({action:'delete',id:lessonBoardPageId(id)});setDeletedPage(page);};
@@ -79,6 +79,7 @@ export default function CollabCodePages({ pages:codePages, activeId, onSelect, r
     } catch (cause) { setError(cause.message || 'Не удалось изменить страницу'); }
     finally { setBusy(false); }
   };
+  if (followBoard) return null;
   if (!current) return <div role={common.error?'alert':'status'}>{common.error||'Подключаем страницы занятия…'}</div>;
   return <div className={`collab-code-pages${dark ? ' collab-code-pages--dark' : ''}`}>
     <div className="collab-code-pages__bar">

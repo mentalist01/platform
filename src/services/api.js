@@ -1346,6 +1346,10 @@ export const api = {
     const query = new URLSearchParams({pageId,...(roomId ? {roomId} : {})});
     return requestLearningGroupJson(getLearningGroupApiPath(groupId,'board-work')+'?'+query);
   },
+  getLearningGroupCodeWork: (groupId, pageId, solutionId, offset) => {
+    const query=new URLSearchParams({pageId,solutionId,offset:String(offset)});
+    return requestLearningGroupJson(getLearningGroupApiPath(groupId,'code-work')+'?'+query);
+  },
   getLearningLessonPractice: (groupId, lessonId) =>
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'practice')),
   changeLearningLessonPractice: (groupId, lessonId, body) =>

@@ -93,6 +93,11 @@ export function groupPracticeBoardObstacles(lessons, {groupId,pageId,readItems})
 // Archived layers are returned once as a snapshot. Only the current writing
 // layer uses a live connection, even when a page contains work from many lessons.
 export function savedGroupBoardRooms(lessons, {studentId,pageId,roomId,isLive}) {
+  const rooms = savedGroupPracticeRooms(lessons,{studentId,pageId,roomId,isLive});
+  return rooms ? [...new Set(rooms.map(({lesson,room})=>practiceWorkspaceRoom(lesson.id,room.id)).filter(Boolean))] : null;
+}
+
+export function savedGroupPracticeRooms(lessons, {studentId,pageId,roomId,isLive}) {
   const candidates = lessons.slice().sort((a,b) => Date.parse(a.startAt)-Date.parse(b.startAt))
     .flatMap(lesson => (lesson.practice?.rounds || []).filter(round => round.pageId === pageId)
       .flatMap(round => round.rooms.filter(room => room.studentIds.includes(studentId))
@@ -101,13 +106,8 @@ export function savedGroupBoardRooms(lessons, {studentId,pageId,roomId,isLive}) 
   if (roomId && !target) return null;
   const comparable = room => !target || (target.room.studentIds.length === room.studentIds.length
     && target.room.studentIds.every(id => room.studentIds.includes(id)));
-  const seen = new Set();
-  for (const {lesson,round,room} of candidates) {
-    if (room.id === roomId || !comparable(room) || (round.id === lesson.practice.activeRoundId && isLive(lesson))) continue;
-    const key = practiceWorkspaceRoom(lesson.id,room.id);
-    if (key) seen.add(key);
-  }
-  return [...seen];
+  return candidates.filter(({lesson,round,room})=>room.id!==roomId && comparable(room)
+    && (round.id!==lesson.practice.activeRoundId || !isLive(lesson)));
 }
 
 export function practiceForViewer(practice, auth, active, students = []) {

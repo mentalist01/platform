@@ -11,9 +11,9 @@ import {rememberSummonedCode,lessonSummonCodeRoom,normalizeSummonCode} from '../
 import {createBoardSummonDelivery} from '../utils/boardSummonDelivery.js';
 import {boardCommandNow} from '../utils/boardCommandClock.js';
 import {summonRecipientIds} from '../utils/summonRecipients.js';
-export function useLessonPages(room,role,userId) {
+export function useLessonPages(room,role,userId,followBoard=false) {
   const bookRoom=lessonBookForCodeRoom(room);
-  const [selected,select]=useLessonPageSelection(bookRoom,role,userId,'main','code');
+  const [selected,select]=useLessonPageSelection(bookRoom,role,userId,'main',followBoard?'board':'code');
   const [state,setState]=useState({pages:[],connected:false,canEdit:false,error:''});
   const [navigation,setNavigation]=useState(null);
   const [summonState,setSummonState]=useState({phase:'idle'});

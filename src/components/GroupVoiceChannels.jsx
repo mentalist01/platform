@@ -6,7 +6,7 @@ import useDesktopRecording from '../hooks/useDesktopRecording';
 import useRecorderShare from '../hooks/useRecorderShare';
 import './GroupVoiceChannels.css';
 
-export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onConnectedChannelChange, onChannelSelected, onOpenCall, onBack }) {
+export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onConnectedChannelChange, onChannelSelected, onOpenCall, onBack, unifiedPractice = false }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -279,9 +279,9 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
             </div>
             {isTeacher && canConnect && (
               <>
-                <button type="button" className="group-voice__gather" onClick={() => moveAll('individual')} disabled={Boolean(moving)}>
+                {!unifiedPractice && <button type="button" className="group-voice__gather" onClick={() => moveAll('individual')} disabled={Boolean(moving)}>
                   <Users size={17} /> {moving === 'individual' ? 'Переключаем…' : 'По личным голосовым каналам'}
-                </button>
+                </button>}
                 <button type="button" className="group-voice__gather" onClick={() => moveAll('general')} disabled={Boolean(moving)}>
                   <Megaphone size={17} /> {moving === 'general' ? 'Собираем…' : 'Собрать в общий'}
                 </button>

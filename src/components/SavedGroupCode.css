@@ -1,0 +1,9 @@
+.saved-group-code{flex:0 0 auto;padding:4px 8px;color:#574577;background:#f7f3fe;border-bottom:1px solid #e8e1f5;font-size:12px}
+.saved-group-code[data-theme=dark]{color:#dbccfc;background:#1c1930;border-color:#403452;color-scheme:dark}
+.saved-group-code summary{display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-weight:650;list-style:none;width:fit-content}
+.saved-group-code summary::after{content:'▾';font-size:12px}
+.saved-group-code[open] summary::after{content:'▴'}
+.saved-group-code__panel{display:grid;gap:6px;padding:4px 6px;max-height:35vh;overflow:auto}
+.saved-group-code__tools{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.saved-group-code select,.saved-group-code button{display:inline-flex;align-items:center;gap:5px;width:fit-content;padding:4px 8px;border:1px solid currentColor;border-radius:7px;font-size:11px}
+.saved-group-code pre{margin:0;padding:8px;background:#8a77b016;border-radius:8px;overflow:auto;max-height:21vh;font-size:12px;tab-size:4}
