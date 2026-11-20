@@ -24,7 +24,8 @@ import BoardMinimap from './components/BoardMinimap.jsx';
 import { BoardFileUpload, BoardFileDownloads } from './components/BoardFiles.jsx';
 import PreparedLessonBoard from './components/PreparedLessonBoard.jsx';
 import {preparedRuntimeCardForCode,preparedRuntimeFiles} from './utils/preparedRuntimeFiles.js';
-import {asPythonComments,useGroupPracticeComments,useGroupPracticeSolutions,useSharedCodePreview} from './hooks/useGroupPracticeComments.js';
+import {asPythonComments,useGroupPracticeComments,useGroupPracticeSolutions,usePythonCommentZone,useSharedCodePreview} from './hooks/useGroupPracticeComments.js';
+import {useGroupPracticeDrafts} from './hooks/useGroupPracticeDrafts.js';
 import {PYODIDE_INDEX_URL,PYODIDE_FALLBACK_URL} from './python/pyodideRuntime.js';
 import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
@@ -3734,7 +3735,7 @@ export const CollabSection = ({
     roomId && (isSandbox || (documentSynced && (role !== 'student' || codeFocus.ready)
       && (!studentCodeFocus || (pinnedCode && activeSolutionId === pinnedCode.solutionId))))
   );
-  const practiceSolutions = useGroupPracticeSolutions({
+  const practiceVersion = useGroupPracticeSolutions({
     groupId: unifiedStudentCode && sharedGroupCode && !studentCodeFocus && collabDocumentReady && onPreparedCodePage
       && !practiceWork?.roomId
       ? learningGroupId : '',
@@ -3742,23 +3743,36 @@ export const CollabSection = ({
     solutionId: activeSolutionId,
     userId,
   });
+  const practiceDrafts = useGroupPracticeDrafts(
+    unifiedStudentCode && sharedGroupCode && !studentCodeFocus ? groupNotebookCode(learningGroupId, userId) : '',
+  );
+  const practiceDraftScope = JSON.stringify([preparedPage, activeSolutionId, practiceVersion?.id]);
+  const practiceSolutions = useMemo(() => practiceVersion?.entries.map((entry, index) => {
+    const draftKey = practiceDraftScope + ':' + index;
+    const text = practiceDrafts?.entries.get(draftKey);
+    return {...entry, draftKey, text: typeof text === 'string' ? text : entry.text};
+  }), [practiceVersion, practiceDraftScope, practiceDrafts]);
   const teacherInCodeTab = remoteParticipants.some(participant =>
     participant.teachingLessonId === learningLessonId && participant.solutionId === activeSolutionId);
   const reviewingPracticeCode = Boolean(practiceSolutions?.length && !teacherInCodeTab && !compareSolutionId);
-  const practiceRunScope = JSON.stringify([roomId, preparedPage, activeSolutionId]);
+  const practiceRunScope = JSON.stringify([roomId, practiceDraftScope]);
   const [practiceRun, setPracticeRun] = useState(null);
   const [practiceRunChoice, setPracticeRunChoice] = useState(null);
   const [practiceStdin, setPracticeStdin] = useState(null);
   const practiceRunRef = useRef(null);
   const practiceRunIndex = practiceRunChoice?.scope === practiceRunScope ? practiceRunChoice.index : 0;
   const practiceRunSolution = practiceSolutions?.[practiceRunIndex] || practiceSolutions?.[0];
-  const currentPracticeRun = practiceRun?.scope === practiceRunScope && practiceRun.solution === practiceRunSolution ? practiceRun : null;
+  const currentPracticeRun = practiceRun?.scope === practiceRunScope && practiceRun.draftKey === practiceRunSolution?.draftKey ? practiceRun : null;
   const practiceRunLoading = practiceRun?.status === 'running';
   const practiceInput = practiceStdin?.scope === practiceRunScope ? practiceStdin.input : '';
   const codeExecutionDisabled = collabReadOnly || runLoading || practiceRunLoading || !collabDocumentReady || Boolean(compareSolutionId);
   const codeDebuggingDisabled = reviewingPracticeCode || codeExecutionDisabled;
   useGroupPracticeComments(editorRef, editorMountVersion, teacherInCodeTab && !compareSolutionId ? practiceSolutions : null);
   const reviewSharedCode = useSharedCodePreview(editorRef, editorMountVersion, reviewingPracticeCode);
+  const practiceEditorRef = useRef(null);
+  const [practiceEditorMount, setPracticeEditorMount] = useState(0);
+  const practiceComments = reviewingPracticeCode && reviewSharedCode.trim() ? '# Общий код\n' + asPythonComments(reviewSharedCode) : '';
+  usePythonCommentZone(practiceEditorRef, practiceEditorMount, practiceComments, true);
   const toggleCodeFocus = async () => {
     if (!focusStudentId || codeFocusBusy || !codeFocus.ready) return;
     setCodeFocusBusy(true);
@@ -7195,10 +7209,9 @@ export const CollabSection = ({
     return { code: fullCode, mode: 'all' };
   };
 
-  const runPracticeSolution = async (input = practiceInput) => {
-    if (!practiceRunSolution || runLoading || localRunBusyRef.current || practiceRunRef.current) return;
-    const source = practiceRunSolution.text;
-    const context = {scope: practiceRunScope, solution: practiceRunSolution, input};
+  const runPracticeSolution = async (input = practiceInput, source = practiceEditorRef.current?.getValue() ?? practiceRunSolution?.text) => {
+    if (source == null || !practiceRunSolution || runLoading || localRunBusyRef.current || practiceRunRef.current) return;
+    const context = {scope: practiceRunScope, draftKey: practiceRunSolution.draftKey, source, input};
     setOutputPanelOpen(true);
     if (!source.trim()) {
       setPracticeRun({...context, status: 'done', output: '', error: 'Код пустой.'});
@@ -7499,7 +7512,7 @@ export const CollabSection = ({
       const value = new FormData(event.currentTarget).get('value');
       const input = currentPracticeRun.input;
       event.currentTarget.reset();
-      void runPracticeSolution(input + (input && !input.endsWith('\n') ? '\n' : '') + String(value ?? '') + '\n');
+      void runPracticeSolution(input + (input && !input.endsWith('\n') ? '\n' : '') + String(value ?? '') + '\n', currentPracticeRun.source);
       return;
     }
     if (!pendingConsoleInput || runLoading) return;
@@ -9629,17 +9642,28 @@ export const CollabSection = ({
         ))}
         </div>
         {reviewingPracticeCode && (
-          <div className="collab-practice-review" role="region" aria-label="Решение задачи" tabIndex={0}
-            style={{fontSize: editorFontSize}}>
-            {reviewSharedCode.trim() && (
-              <pre className="collab-practice-comments">{'# Общий код\n' + asPythonComments(reviewSharedCode)}</pre>
-            )}
-            {practiceSolutions.map((solution, index) => (
-              <pre key={index} className="collab-practice-review__solution">
-                {practiceSolutions.length > 1 ? '# ' + solution.name + '\n' : ''}
-                {solution.text || '# Пустое решение'}
-              </pre>
-            ))}
+          <div className="collab-practice-review absolute inset-0" role="region" aria-label="Решение задачи">
+            <Editor
+              key={practiceRunSolution.draftKey}
+              height="100%"
+              language="python"
+              theme={resolveMonacoColorTheme(theme)}
+              beforeMount={ensureMonacoColorTheme}
+              value={practiceRunSolution.text}
+              onChange={(text) => {
+                if (!collabReadOnly && typeof text === 'string') practiceDrafts?.setDraft(practiceRunSolution.draftKey, text);
+              }}
+              onMount={(editor) => {
+                practiceEditorRef.current = editor;
+                editor.onDidDispose(() => {
+                  if (practiceEditorRef.current === editor) practiceEditorRef.current = null;
+                });
+                setPracticeEditorMount(version => version + 1);
+              }}
+              options={{...editorOptions, readOnly: editorOptions.readOnly || !practiceDrafts, ariaLabel: 'Личный код'}}
+              loading={editorLoadingState}
+            />
+            {!practiceDrafts && !collabReadOnly && <div className="collab-code-loading-overlay" role="status">Подключаем личный код…</div>}
           </div>
         )}
       </div>
@@ -11146,7 +11170,7 @@ export const CollabSection = ({
 
           {reviewingPracticeCode && practiceSolutions.length > 1 && (
             <select className="collab-practice-run-variant rounded-lg border border-violet-200 px-2 py-1 text-xs"
-              aria-label="Решение для запуска" value={practiceRunIndex} disabled={practiceRunLoading}
+              aria-label="Личное решение" value={practiceRunIndex} disabled={practiceRunLoading}
               onChange={(event) => setPracticeRunChoice({scope: practiceRunScope, index: Number(event.target.value)})}>
               {practiceSolutions.map((solution, index) => <option key={index} value={index}>{solution.name}</option>)}
             </select>
