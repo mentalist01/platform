@@ -26787,8 +26787,18 @@ const practiceSlotOpen = (lesson, group) => group.status !== 'completed'
   && LEARNING_LESSON_LIVE_STATUSES.includes(lesson.status)
   && Date.parse(lesson.startAt) <= Date.now() && learningLessonAutoCloseMs(lesson) > Date.now();
 
+const finishLearningLessonPractice = (lesson, group, round) => {
+  const updated = {...lesson,practice:{...lesson.practice,activeRoundId:''}};
+  writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(),updated));
+  const promptRoom = boardPageRoom(groupNotebookBoard(group.id),round.pageId);
+  const prompt = getLoadedCollabDocEntry(promptRoom);
+  if (prompt?.doc) flushBoardDocSnapshot(prompt.key,prompt.doc);
+  return updated;
+};
+
 const sendPracticeVoiceMoves = (lesson, round, gather = false) => {
-  if (!LEARNING_GROUP_RTC_ENABLED) return;
+  if (!LEARNING_GROUP_RTC_ENABLED) return 0;
+  const movedStudents = new Set();
   const channelByStudent = new Map(round.rooms.flatMap(room =>
     room.studentIds.map(id => [id, practiceVoiceChannelId(room.id)])));
   rtcClientsBySocket.forEach(client => {
@@ -26799,7 +26809,9 @@ const sendPracticeVoiceMoves = (lesson, round, gather = false) => {
     if (!channelId || (current.channelId || 'general') === channelId) return;
     leaveRtcRoom(client, {silent:true});
     sendRtcPayload(client.ws, {type:'channel-move', channelId, mode:gather ? 'general' : 'practice'});
+    if (isStudentRole(client.auth)) movedStudents.add(client.auth.id);
   });
+  return movedStudents.size;
 };
 
 const sendPractice = (req, res, lesson, group) => {
@@ -26878,7 +26890,10 @@ app.post('/api/learning-groups/:groupId/lessons/:lessonId/practice', handleLearn
     practice = startPracticeRound(lesson.practice,pageId,assignments,viewport);
   } else if (action === 'finish') {
     if (!activeRound) return sendPractice(req,res,lesson,group);
-    practice = {...lesson.practice,activeRoundId:''};
+    const updated = finishLearningLessonPractice(lesson,group,activeRound);
+    sendPracticeVoiceMoves(updated,activeRound,true);
+    closeLearningLessonCollabConnections(updated);
+    return sendPractice(req,res,updated,group);
   } else if (action === 'status') {
     practice = setPracticeRoomStatus(lesson.practice,roomId,status,req.auth);
     if (!practice) return forbid(res);
@@ -26888,13 +26903,6 @@ app.post('/api/learning-groups/:groupId/lessons/:lessonId/practice', handleLearn
   const updated = {...lesson,practice};
   writeLearningLessonSessionsDb(replaceLearningStoreEntry(readLearningLessonSessionsDb(),updated));
   if (action === 'start') sendPracticeVoiceMoves(updated,getActivePracticeRound(practice));
-  if (action === 'finish') {
-    const promptRoom = boardPageRoom(groupNotebookBoard(group.id),activeRound.pageId);
-    const prompt = getLoadedCollabDocEntry(promptRoom);
-    if (prompt?.doc) flushBoardDocSnapshot(prompt.key,prompt.doc);
-    sendPracticeVoiceMoves(updated,activeRound,true);
-    closeLearningLessonCollabConnections(updated);
-  }
   return sendPractice(req,res,updated,group);
 }));
 
@@ -26983,6 +26991,13 @@ const moveLearningVoiceParticipants = (mode) => handleLearningRoute((req, res) =
   if (!lesson) return;
   const joinError = getRtcRoomAccessError(req.auth, parseRtcRoomId(lesson.rtcRoomId));
   if (joinError) failLearningRequest(joinError, 'lesson_not_live', 409);
+  const round = getActivePracticeRound(lesson.practice);
+  if (mode === 'general' && round) {
+    const updated = finishLearningLessonPractice(lesson, group, round);
+    const movedCount = sendPracticeVoiceMoves(updated, round, true);
+    closeLearningLessonCollabConnections(updated);
+    return res.json({ movedCount, mode, practiceFinished: true });
+  }
   const channels = getLearningVoiceChannels(group, lesson);
   const moved = [];
   // Only participants already in voice are moved. No absent user's mic is opened.

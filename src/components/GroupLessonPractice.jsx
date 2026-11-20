@@ -20,7 +20,7 @@ const readPrompt = (lesson, user) => {
   }
 };
 
-export default function GroupLessonPractice({ lesson, user, students, selectedRoomId, onOpen, theme }) {
+export default function GroupLessonPractice({ lesson, user, students, selectedRoomId, voiceChannelId, onOpen, theme }) {
   const { groupId, lessonId } = lesson;
   const teacher = user.role === 'teacher' || user.role === 'admin';
   const [practice, setPractice] = useState(null);
@@ -104,7 +104,7 @@ export default function GroupLessonPractice({ lesson, user, students, selectedRo
   };
 
   if (!practice) return null;
-  const ownRoom = !teacher && active?.rooms[0];
+  const ownRoom = !teacher && voiceChannelId !== 'general' && active?.rooms.find(room => room.id === selectedRoomId);
   if (teacher ? !practice.canManage && !active : !ownRoom) return null;
   return (
     <section className="group-practice" data-theme={theme} aria-label="Режим работы на уроке">

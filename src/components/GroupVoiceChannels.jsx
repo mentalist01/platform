@@ -6,7 +6,7 @@ import useDesktopRecording from '../hooks/useDesktopRecording';
 import useRecorderShare from '../hooks/useRecorderShare';
 import './GroupVoiceChannels.css';
 
-export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onOpenCall, onBack }) {
+export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onChannelSelection, onOpenCall, onBack }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -33,6 +33,10 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const recorder = useDesktopRecording({ user, learningLessonId: lessonId, audioMode: 'platform',
     active: recordingRequested && snapshot?.canJoin === true && snapshot?.lessonStatus === 'active' });
   useRecorderShare({ enabled: recorder.enabled && isTeacher, jobId: recorder.jobId, track: desktopShareTrack });
+
+  useEffect(() => {
+    onChannelSelection?.({ lessonId, channelId: selectedId });
+  }, [lessonId, onChannelSelection, selectedId]);
 
   useEffect(() => {
     let active = true;
@@ -189,7 +193,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     setActionError('');
     try {
       const result = await (mode === 'general' ? api.gatherLearningVoiceChannels : api.distributeLearningVoiceChannels)(groupId, lessonId);
-      if (mode === 'general') join('general');
+      if (mode === 'general' && (!result.practiceFinished || callStatus !== 'connected')) join('general');
       setNotice(`Переключаем учеников: ${result.movedCount}. ${mode === 'general' ? 'Собираемся в общем канале.' : 'Каждый переходит в свой канал.'}`);
       await refreshRef.current?.();
     } catch (error) {
