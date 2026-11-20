@@ -2,7 +2,8 @@ import {useCallback,useEffect,useRef,useState} from 'react';
 import {PanelLeft,Plus,ChevronLeft,ChevronRight,ChevronDown,X,Pencil,Users,Trash2,Check} from 'lucide-react';
 import {loadYjsRuntime} from '../utils/collaborationRuntime.js';
 import {getCollabWsUrl} from '../utils/runtimeUrls.js';
-import {getStoredAuthToken} from '../services/api.js';
+import {api,getStoredAuthToken} from '../services/api.js';
+import {practiceWorkspaceRoom} from '../utils/groupPractice.js';
 import {MAX_BOARD_PAGES,boardPageBookRoom,boardPageRoom,boardPagesList,boardPageSummonTarget,boardPageInitialState,boardPageAfterChange} from '../utils/boardPages.js';
 import './BoardPagesWorkspace.css';
 import {StudentStudyBoardControl} from './StudentStudyProgress.jsx';
@@ -28,7 +29,8 @@ function PagedBoardWorkspace(props) {
   const {Canvas,...canvasProps}=props;
   const {role,userId,userName,teacherId,lessonId,groupId,activeStudentId,readOnly}=canvasProps;
   const teacher=role==='teacher' || role==='admin';
-  const group=Boolean(!canvasProps.practicePromptRoom && groupId && (lessonId || canvasProps.studyPreview));
+  const group=Boolean(groupId && (lessonId || canvasProps.studyPreview));
+  const {unifiedGroupBoard,practiceWork}=canvasProps;
   const studySubjectId=group?groupStudySubject(groupId):activeStudentId;
   const base=canvasProps.workspaceRoomId || (group ? groupNotebookBoard(groupId) : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null));
   const bookRoom=boardPageBookRoom(base);
@@ -43,7 +45,22 @@ function PagedBoardWorkspace(props) {
   const pageId=canvasProps.studyPreview?previewPageId:sharedPageId,setPageId=canvasProps.studyPreview?setPreviewPageId:setSharedPageId;
   const {visiblePages,toggleParent}=useCollapsedLessonPages(pages,pageId,bookRoom);
   const [studentId,setStudentId]=useState('');
-  const boardStudentId=group && (teacher ? (canvasProps.participantIds || []).includes(studentId) : studentId===userId) ? studentId : '';
+  const boardStudentId=group && !unifiedGroupBoard && (teacher ? (canvasProps.participantIds || []).includes(studentId) : studentId===userId) ? studentId : '';
+  const pageRoom=boardPageRoom(base,pageId,boardStudentId);
+  const editingRoom=practiceWork?.pageId===pageId ? practiceWorkspaceRoom(lessonId,practiceWork.roomId) : '';
+  const privateWork=Boolean(practiceWork?.roomId);
+  const workRoomId=editingRoom ? practiceWork.roomId : '';
+  const workRequest=unifiedGroupBoard && role==='student' ? JSON.stringify([groupId,pageId,workRoomId]) : '';
+  const [savedWork,setSavedWork]=useState(null);
+  useEffect(()=>{
+    if (!workRequest) return undefined;
+    let current=true;
+    api.getLearningGroupBoardWork(groupId,pageId,workRoomId).then(({items})=>{
+      if(current)setSavedWork({key:workRequest,items});
+    }).catch(()=>{});
+    return()=>{current=false;};
+  },[groupId,pageId,workRequest,workRoomId]);
+  const savedWorkItems=savedWork?.key===workRequest ? savedWork.items : null;
   const [open,setOpen]=useState(false),[connected,setConnected]=useState(false),[peers,setPeers]=useState([]);
   const [parentId,setParentId]=useState('');
   const [editing,setEditing]=useState(''),[title,setTitle]=useState(''),[error,setError]=useState(''),[navigation,setNavigation]=useState(null);
@@ -57,9 +74,9 @@ function PagedBoardWorkspace(props) {
   const [pageActionBusy,setPageActionBusy]=useState(false),[deletedPage,setDeletedPage]=useState(null);
   const knownPages=useRef(initialPage.pages);
   const runtime=useRef(null),lastCommand=useRef(''),local=useRef({pageId,studentId}),summonDelivery=useRef(null),lastApplied=useRef('');
-  useEffect(()=>{local.current={pageId,studentId:boardStudentId};},[pageId,boardStudentId]);
-  const publish=useCallback(()=>runtime.current?.provider.awareness.setLocalStateField('boardPage',{
-    userId,name:userName || (teacher?'Учитель':'Ученик'),role:teacher?'teacher':'student',...local.current,summonApplied:lastApplied.current,
+  useEffect(()=>{local.current={pageId,studentId:boardStudentId,privateWork};},[pageId,boardStudentId,privateWork]);
+  const publish=useCallback(()=>runtime.current?.provider.awareness.setLocalStateField('boardPage',local.current.privateWork?null:{
+    userId,name:userName || (teacher?'Учитель':'Ученик'),role:teacher?'teacher':'student',pageId:local.current.pageId,studentId:local.current.studentId,summonApplied:lastApplied.current,
   }),[userId,userName,teacher]);
   useEffect(()=>{
     if (!bookRoom) return undefined;
@@ -87,7 +104,7 @@ function PagedBoardWorkspace(props) {
         controls();
       };
       const controls=()=>{
-        if(teacher)return;
+        if(teacher || local.current.privateWork)return;
         const target=['summon','summonBoardRecipient'].map(key=>control.get(key)).filter(Boolean).sort((a,b)=>b.ts-a.ts)
           .map(command=>boardPageSummonTarget(command,userId,boardPagesList(map))).find(Boolean);
         if(!target||target.id===lastCommand.current||target.scope==='code')return;
@@ -110,10 +127,10 @@ function PagedBoardWorkspace(props) {
     void start().catch(e=>{if(!disposed)setError(e.message || 'Не удалось подключить страницы');});
     return()=>{disposed=true;cleanup?.();};
   },[bookRoom,storageKey,teacher,userId,publish,setPageId,group,retry,canvasProps.studyPreview]);
-  useEffect(()=>{publish();try{if(!canvasProps.studyPreview && storageKey && runtime.current?.provider.synced)window.localStorage.setItem(storageKey,pageId);}catch{/* Storage is optional. */}},[pageId,boardStudentId,storageKey,publish,canvasProps.studyPreview]);
+  useEffect(()=>{publish();try{if(!canvasProps.studyPreview && storageKey && runtime.current?.provider.synced)window.localStorage.setItem(storageKey,pageId);}catch{/* Storage is optional. */}},[pageId,boardStudentId,privateWork,storageKey,publish,canvasProps.studyPreview]);
   const onPageChange=canvasProps.onPageChange;
   useEffect(()=>{if(connected&&pages.some(page=>page.id===pageId))onPageChange?.(pageId);},[connected,pages,pageId,onPageChange]);
-  useEffect(()=>{summonDelivery.current?.cancel();},[pageId,boardStudentId]);
+  useEffect(()=>{summonDelivery.current?.cancel();if(privateWork){setNavigation(null);setNotice('');}},[pageId,boardStudentId,privateWork]);
   useEffect(()=>{if(!notice)return undefined;const timer=setTimeout(()=>setNotice(''),3500);return()=>clearTimeout(timer);},[notice]);
   useEffect(()=>{
     if(!['queued','waiting','confirmed','sent'].includes(summonState.phase))return undefined;
@@ -138,12 +155,12 @@ function PagedBoardWorkspace(props) {
     if(!deleting)return;const removed=deleting;
     if(await changePage({action:'delete',id:removed.id})){summonDelivery.current?.cancel();setNavigation(null);setDeletedPage(removed);setNotice('Страница с доской и кодом убрана');setDeleting(null);}
   };
-  const summon=useCallback(viewport=>{if(!teacher || readOnly)return;
+  const summon=useCallback(viewport=>{if(!teacher || readOnly || privateWork)return;
     const recipientId=group&&!boardStudentId?summonRecipientId:'';
     const targetIds=summonRecipientIds(group?(boardStudentId?[boardStudentId]:(canvasProps.participantIds || [])):[activeStudentId],recipientId);
     if(!targetIds?.length)return;
     summonDelivery.current?.request({id:id(),pageId,studentId:boardStudentId,scope:'board',...(recipientId?{recipientIds:targetIds}:{}),...viewport},targetIds);
-  },[teacher,readOnly,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId,summonRecipientId]);
+  },[teacher,readOnly,privateWork,pageId,boardStudentId,group,canvasProps.participantIds,activeStudentId,summonRecipientId]);
   const acknowledgeNavigation=useCallback(command=>{
     if(teacher || !command?.id || command.id!==lastCommand.current
       || command.pageId!==pageId || command.studentId!==boardStudentId)return false;
@@ -155,7 +172,7 @@ function PagedBoardWorkspace(props) {
   const summonEveryone=group&&!boardStudentId&&!summonRecipientId;
   const summonMessage={queued:'Восстанавливаем связь — призыв отправится автоматически',waiting:summonEveryone?'Призыв отправлен — ждём перемещения учеников':'Призыв отправлен — ждём перемещения ученика',sent:'Призыв отправлен',confirmed:summonEveryone?'Ученики перемещены к вам':'Ученик перемещён к вам',expired:'Связь не восстановилась. Повторите призыв после подключения',unconfirmed:summonEveryone?'Не удалось проверить перемещение всех учеников. Проверьте, открыты ли у них доски и есть ли связь':'Нет ответа от доски ученика. Если страница давно открыта, обновите её и повторите призыв'}[summonState.phase];
   const displayPages=lessonPageTree(pages),page=pages.find(p=>p.id===pageId)||pages[0],index=displayPages.findIndex(p=>p.id===pageId);
-  const uniquePeers=Array.from(new Map(peers.map(p=>[p.userId,p])).values());
+  const uniquePeers=privateWork?[]:Array.from(new Map(peers.map(p=>[p.userId,p])).values());
   const label=p=>`${p.name || 'Участник'} — ${pages.find(page=>page.id===p.pageId)?.title || 'Страница'}${group ? (p.studentId?' · личная доска':' · общая доска') : ''}`;
   const together=p=>p.pageId===pageId && (!group || String(p.studentId || '')===boardStudentId);
   const peerStatus=p=>together(p)?'С вами':(p.pageId===pageId?'Другая доска':`Стр. ${pages.findIndex(page=>page.id===p.pageId)+1 || '—'}`);
@@ -165,7 +182,7 @@ function PagedBoardWorkspace(props) {
     <button type="button" onClick={toggle} className={`board-pages-current ${open?'is-active':''}`} aria-label={`Выбор страницы: ${page.title}`} aria-expanded={open} title={page.title}>
       <PanelLeft size={16}/><span className="board-pages-current__title">{page.title}</span><span className="board-pages-current__count">{index+1}/{pages.length}</span><ChevronDown size={14}/>
     </button>
-    {teacher&&!readOnly&&!canvasProps.workspaceRoomId&&studySubjectId&&(!group||!boardStudentId)&&<StudentStudyBoardControl teacherId={teacherId} studentId={studySubjectId} pageId={pageId} room={boardPageRoom(base,pageId)} onSelectPage={choose}/>}
+    {teacher&&!readOnly&&!privateWork&&!canvasProps.workspaceRoomId&&studySubjectId&&(!group||!boardStudentId)&&<StudentStudyBoardControl teacherId={teacherId} studentId={studySubjectId} pageId={pageId} room={boardPageRoom(base,pageId)} onSelectPage={choose}/>}
     <div className="board-prepared-slot"/>
     {uniquePeers.length>0 && <details className="board-pages-peers"><summary aria-label="Участники на страницах" title={uniquePeers.map(label).join('\n')}>
       <span className="board-pages-avatars" aria-hidden="true">{uniquePeers.slice(0,3).map(peer=><span className={`board-pages-avatar ${together(peer)?'is-together':''}`} key={peer.userId}>{initials(peer)}</span>)}</span>
@@ -189,5 +206,8 @@ function PagedBoardWorkspace(props) {
     <footer><button type="button" disabled={index<=0} onClick={()=>choose(displayPages[index-1].id)} aria-label="Предыдущая страница"><ChevronLeft size={18}/></button><span>{index+1} / {pages.length}</span><button type="button" disabled={index>=pages.length-1} onClick={()=>choose(displayPages[index+1].id)} aria-label="Следующая страница"><ChevronRight size={18}/></button></footer>
   </aside> : null;
   if(group&&!catalogReady)return <div className="flex min-h-60 flex-col items-center justify-center gap-3 rounded-2xl border border-violet-100 bg-white p-6 text-center" role="status"><PanelLeft size={24} className="text-violet-600"/><strong>{error?'Не удалось открыть тетрадь группы':'Открываем страницы группы…'}</strong>{error?<><p role="alert" className="text-sm text-rose-700">{error}</p><button type="button" className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white" onClick={()=>{setError('');setRetry(n=>n+1);}}>Повторить подключение</button></>:<p className="text-sm text-slate-500">Загружаем сохранённые страницы и записи на доске.</p>}</div>;
-  return <Canvas {...canvasProps} pages={{studyPreview:canvasProps.studyPreview,liveRoomId:boardPageRoom(base,pageId,boardStudentId),pageId,boardStudentId,selectPage:choose,selectWindow:next=>{summonDelivery.current?.cancel();setStudentId(next);setNavigation(null);},summon,canSummon:teacher && !readOnly && channelReady && Boolean(selectedSummonIds?.length),summonAudience:group&&!boardStudentId?{disabled:readOnly||!channelReady,participants:summonParticipants,value:summonRecipientId,onChange:next=>{summonDelivery.current?.cancel();setSummonRecipientId(next);}}:null,navigation,summonNotice:!teacher && Boolean(notice),acknowledgeNavigation,header,panel,clipboard:props=><BoardSelectionClipboard {...props} key={base}/>}}/>;
+  return <Canvas {...canvasProps} key={editingRoom || 'group-board'} readOnly={readOnly || Boolean(practiceWork?.roomId && !editingRoom)}
+    practicePromptRoom={editingRoom ? pageRoom : ''} practicePromptViewport={editingRoom ? practiceWork.viewport : undefined}
+    savedWorkItems={savedWorkItems}
+    pages={{studyPreview:canvasProps.studyPreview,liveRoomId:editingRoom || pageRoom,pageId,boardStudentId,selectPage:choose,selectWindow:next=>{summonDelivery.current?.cancel();setStudentId(next);setNavigation(null);},summon,canSummon:teacher && !readOnly && !privateWork && channelReady && Boolean(selectedSummonIds?.length),summonAudience:group&&!boardStudentId&&!privateWork?{disabled:readOnly||!channelReady,participants:summonParticipants,value:summonRecipientId,onChange:next=>{summonDelivery.current?.cancel();setSummonRecipientId(next);}}:null,navigation,summonNotice:!teacher && Boolean(notice),acknowledgeNavigation,header,panel,clipboard:props=><BoardSelectionClipboard {...props} key={base}/>}}/>;
 }
