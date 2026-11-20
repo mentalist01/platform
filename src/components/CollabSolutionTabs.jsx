@@ -38,6 +38,8 @@ export default function CollabSolutionTabs({
   followingName = '',
   onPresent,
   compareId = null,
+  codeVersionControl,
+  showComparison = true,
   disabled = false,
   readOnly = false,
   dark = false,
@@ -451,7 +453,8 @@ export default function CollabSolutionTabs({
               <Layers3 size={16} /><span>Несколько вкладок</span>
             </button>
           )}
-          <button
+          {codeVersionControl}
+          {showComparison && <button
             type="button"
             className={`collab-solutions__button${comparing || choosingComparison ? ' is-active' : ''}`}
             onClick={() => {
@@ -469,7 +472,7 @@ export default function CollabSolutionTabs({
           >
             <Columns2 size={15} />
             <span>Сравнить</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -563,7 +566,7 @@ export default function CollabSolutionTabs({
         </form>
       )}
 
-      {!focusLock && (comparing || choosingComparison) && (
+      {showComparison && !focusLock && (comparing || choosingComparison) && (
         <div className="collab-solutions__comparison">
           <span className="collab-solutions__comparison-label">«{activeSolution?.name || 'Текущий вариант'}» сравнить с</span>
           <select

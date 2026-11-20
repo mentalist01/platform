@@ -507,7 +507,7 @@ const getLearningGroupApiPath = (groupId = '', ...segments) => {
 
 export const requestLearningGroupJson = async (path, options = {}) => {
   const method = String(options?.method || 'GET').toUpperCase();
-  const init = { method };
+  const init = { method, signal:options.signal };
   if (Object.prototype.hasOwnProperty.call(options, 'body')) {
     init.headers = { 'Content-Type': 'application/json' };
     init.body = JSON.stringify(options.body ?? {});
@@ -1346,9 +1346,9 @@ export const api = {
     const query = new URLSearchParams({pageId,...(roomId ? {roomId} : {})});
     return requestLearningGroupJson(getLearningGroupApiPath(groupId,'board-work')+'?'+query);
   },
-  getLearningGroupCodeWork: (groupId, pageId, solutionId, offset) => {
+  getLearningGroupCodeWork: (groupId, pageId, solutionId, offset, signal) => {
     const query=new URLSearchParams({pageId,solutionId,offset:String(offset)});
-    return requestLearningGroupJson(getLearningGroupApiPath(groupId,'code-work')+'?'+query);
+    return requestLearningGroupJson(getLearningGroupApiPath(groupId,'code-work')+'?'+query,{signal});
   },
   getLearningLessonPractice: (groupId, lessonId) =>
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'practice')),

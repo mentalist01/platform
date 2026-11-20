@@ -27,6 +27,7 @@ import {preparedRuntimeCardForCode,preparedRuntimeFiles} from './utils/preparedR
 import {PYODIDE_INDEX_URL,PYODIDE_FALLBACK_URL} from './python/pyodideRuntime.js';
 import {usePreparedLesson} from './hooks/usePreparedLesson.js';
 import {useLessonPageSelection} from './hooks/useLessonPageSelection.js';
+import {useGroupCodeVersions} from './hooks/useGroupCodeVersions.js';
 import {lessonBookForCodeRoom,lessonCodePageId,lessonBoardPageId,writeScopedLessonPageSelection} from './utils/lessonPageSelection.js';
 import {practiceVoiceChannelId,practiceWorkspaceRoom} from './utils/groupPractice.js';
 import {boardPageBookRoom} from './utils/boardPages.js';
@@ -237,7 +238,7 @@ import {
 } from './utils/collabSolutions';
 const CollabSolutionTabs = React.lazy(() => import('./components/CollabSolutionTabs'));
 const CollabCodePages = React.lazy(() => import('./components/CollabCodePages'));
-const SavedGroupCode = React.lazy(() => import('./components/SavedGroupCode.jsx'));
+
 import CollabRunError from './components/CollabRunError';
 import GroupAnswerChat from './components/GroupAnswerChat';
 import './components/CollabWorkspaceLayout.css';
@@ -3734,6 +3735,13 @@ export const CollabSection = ({
     roomId && (isSandbox || (documentSynced && (role !== 'student' || codeFocus.ready)
       && (!studentCodeFocus || (pinnedCode && activeSolutionId === pinnedCode.solutionId))))
   );
+  const codeVersions=useGroupCodeVersions(
+    unifiedStudentCode && sharedGroupCode && !studentCodeFocus && collabDocumentReady && onPreparedCodePage
+      ? learningGroupId : '',preparedPage,activeSolutionId,
+  );
+  const practiceVersion=codeVersions.active;
+  const showingPracticeVersion=Boolean(practiceVersion);
+  const showingSharedEditor=!showingPracticeVersion;
   const toggleCodeFocus = async () => {
     if (!focusStudentId || codeFocusBusy || !codeFocus.ready) return;
     setCodeFocusBusy(true);
@@ -7171,7 +7179,7 @@ export const CollabSection = ({
   };
 
   const handleRunCode = async (mode = 'all', debug = false, resume = null) => {
-    if (collabReadOnly || !collabDocumentReady || !editorRef.current || compareSolutionId || activeSolutionDeleted) return;
+    if (!showingSharedEditor || collabReadOnly || !collabDocumentReady || !editorRef.current || compareSolutionId || activeSolutionDeleted) return;
     outputPanelDismissedRunTokenRef.current = null;
     setOutputPanelOpen(true);
     const requestedDebug = Boolean(debug);
@@ -9422,6 +9430,7 @@ export const CollabSection = ({
             Выберите ученика, чтобы открыть совместный документ.
           </div>
         )}
+        <div className={`absolute inset-0${showingSharedEditor ? '' : ' invisible'}`} inert={!showingSharedEditor}>
         <Editor
           height="100%"
           language="python"
@@ -9529,6 +9538,12 @@ export const CollabSection = ({
             </span>
           </button>
         ))}
+        </div>
+        {practiceVersion && <div className="absolute inset-0" aria-label="Решение с практики">
+          <Editor key={practiceVersion.key} height="100%" language="python" value={practiceVersion.text}
+            theme={resolveMonacoColorTheme(theme)} beforeMount={ensureMonacoColorTheme}
+            options={{...editorOptions,readOnly:true,ariaLabel:'Решение с практики',renderValidationDecorations:'off'}}/>
+        </div>}
       </div>
     </div>
   );
@@ -10883,7 +10898,7 @@ export const CollabSection = ({
         )}
 
         <div className="collab-code-glass-layer">
-        <div className={`collab-code-command-row collab-code-command-row--modern ${isTeacher && !useBoardGlassCodePanel ? 'collab-code-command-row--teacher' : 'collab-code-command-row--student'} ${isCollabDarkUi ? 'collab-code-command-row--dark' : 'collab-code-command-row--light'} ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
+        {showingSharedEditor && <div className={`collab-code-command-row collab-code-command-row--modern ${isTeacher && !useBoardGlassCodePanel ? 'collab-code-command-row--teacher' : 'collab-code-command-row--student'} ${isCollabDarkUi ? 'collab-code-command-row--dark' : 'collab-code-command-row--light'} ${isCollabFullscreen || isDesktopCollabCompact ? (isCollabFullscreen ? 'mt-0 flex flex-wrap items-center gap-1.5' : 'mt-0.5 flex flex-wrap items-center gap-1.5') : ''}`}>
           <div className={`collab-code-toolbar max-w-full flex flex-wrap items-center rounded-xl border ${
             isCollabFullscreen
               ? 'min-w-0 flex-1 rounded-xl px-0.5 py-px sm:px-1 sm:py-0.5'
@@ -11160,10 +11175,10 @@ export const CollabSection = ({
               )}
             </>
           )}
-        </div>
+        </div>}
 
-        {preparedCodeCard&&preparedCodeCard.attachments.some(file=>file.runtime!==false)&&<div className="prepared-runtime-strip" aria-label="Подключение файлов задачи"><button type="button" onClick={()=>{setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE);setTaskFilesPanelOpen(true);}} title="Открыть входные файлы">Файлы задачи: {preparedCodeCard.attachments.filter(file=>file.runtime!==false).map(file=>file.runtimeName||file.name).join(', ')}</button></div>}
-        {boardCodeAuxPopover}
+        {showingSharedEditor&&preparedCodeCard&&preparedCodeCard.attachments.some(file=>file.runtime!==false)&&<div className="prepared-runtime-strip" aria-label="Подключение файлов задачи"><button type="button" onClick={()=>{setCollabAuxPanelMode(COLLAB_AUX_PANEL_MODE_TEST_FILE);setTaskFilesPanelOpen(true);}} title="Открыть входные файлы">Файлы задачи: {preparedCodeCard.attachments.filter(file=>file.runtime!==false).map(file=>file.runtimeName||file.name).join(', ')}</button></div>}
+        {showingSharedEditor && boardCodeAuxPopover}
 
         {!isSandbox && roomId && !practiceCode && (
           <React.Suspense fallback={unifiedStudentCode ? null : <div role="status" className="collab-solutions__notice">Загружаем страницы кода…</div>}>
@@ -11228,16 +11243,28 @@ export const CollabSection = ({
             followingName={presentation.following?.name || ''}
             onPresent={presentation.toggle}
             compareId={compareSolutionId}
+            codeVersionControl={codeVersions.entries.length > 0 ? <>
+              {practiceVersion && (codeVersions.entries.length > 1 || codeVersions.hasEarlier) &&
+                <select className="collab-solutions__version" aria-label="Версия решения" value={practiceVersion.key}
+                  onChange={event=>event.target.value==='earlier' ? codeVersions.loadEarlier() : codeVersions.select(event.target.value)}>
+                  {codeVersions.entries.map((entry,index)=><option key={entry.key} value={entry.key}>{index===0?'Последнее решение':entry.label}</option>)}
+                  {codeVersions.hasEarlier&&<option value="earlier" disabled={codeVersions.loadingEarlier}>{codeVersions.loadingEarlier?'Загружаем…':'Ещё решения…'}</option>}
+                </select>}
+              <button type="button" className="collab-solutions__button collab-solutions__version-toggle"
+                disabled={runLoading} title={showingPracticeVersion ? 'Вернуться к общему коду' : 'Открыть своё решение с практики для просмотра'}
+                onClick={()=>{
+                  setCompareSolutionId(null);
+                  codeVersions.select(showingPracticeVersion ? '' : codeVersions.entries[0].key);
+                }}>{showingPracticeVersion ? 'Общий код' : 'Моё решение'}</button>
+            </> : codeVersions.error ? <button type="button" className="collab-solutions__button"
+              aria-label="Повторить загрузку решения" title="Повторить загрузку решения" onClick={codeVersions.retry}><RefreshCcw size={15}/></button> : null}
+            showComparison={showingSharedEditor}
             disabled={!collabDocumentReady || solutionActionsBusy || activeSolutionDeleted}
             readOnly={codeTabsReadOnly}
             dark={isCollabDarkUi}
             peers={remoteParticipants}
           />
           </React.Suspense>
-        )}
-        {unifiedStudentCode && sharedGroupCode && !studentCodeFocus && collabDocumentReady && onPreparedCodePage && (
-          <React.Suspense fallback={null}><SavedGroupCode key={`${learningGroupId}:${preparedPage}:${activeSolutionId}`}
-            groupId={learningGroupId} pageId={preparedPage} solutionId={activeSolutionId} dark={isCollabDarkUi}/></React.Suspense>
         )}
         {deletedSolution && (
           <div className="collab-solutions__notice" role="status">
@@ -11265,7 +11292,7 @@ export const CollabSection = ({
                 <div className="collab-code-output-stack__editor min-h-0">
                   {editorPane}
                 </div>
-                {stackedOutputPane}
+                {showingSharedEditor && stackedOutputPane}
                 {useBoardGlassCodePanel && (
                   <div className="collab-editor-statusbar" aria-label="Состояние редактора">
                     <div className="collab-editor-statusbar__group">
@@ -11296,7 +11323,7 @@ export const CollabSection = ({
             <div className={isCollabFullscreen ? 'mt-2' : 'mt-4'}>
               {editorPane}
             </div>
-            <div className={`grid grid-cols-1 lg:grid-cols-3 ${isCollabFullscreen ? 'mt-2 gap-2.5' : 'mt-4 gap-3'}`}>
+            {showingSharedEditor && <div className={`grid grid-cols-1 lg:grid-cols-3 ${isCollabFullscreen ? 'mt-2 gap-2.5' : 'mt-4 gap-3'}`}>
               <div>
                 {inputPane}
               </div>
@@ -11304,7 +11331,7 @@ export const CollabSection = ({
                 {resultConsole}
                 {debugPane}
               </div>
-            </div>
+            </div>}
           </>
         )}
         </div>
@@ -11314,9 +11341,9 @@ export const CollabSection = ({
           ? collabTurtleWindow
           : createPortal(collabTurtleWindow, fullscreenPortalTarget)
       )}
-      {isCollabFullscreen
+      {showingSharedEditor && (isCollabFullscreen
         ? saveModal
-        : (typeof document !== 'undefined' ? createPortal(saveModal, fullscreenPortalTarget) : null)}
+        : (typeof document !== 'undefined' ? createPortal(saveModal, fullscreenPortalTarget) : null))}
     </div>
   );
 };
