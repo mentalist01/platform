@@ -17404,7 +17404,9 @@ export const BoardCanvasSection = ({
         )}
         {pages?.clipboard?.({
           refs: { items: boardItemsRef, selected: selectedIdsRef, doc: docRef, yItems: yItemsRef, undo: undoManagerRef, origin: localOriginRef, actions: boardClipboardActionsRef },
-          target: { roomId, userId, studentId: effectiveStudentId, lessonId: learningLessonId, readOnly: boardReadOnly, sandbox: isSandbox },
+          target: { roomId, userId, studentId: effectiveStudentId, lessonId: learningLessonId, readOnly: boardReadOnly, sandbox: isSandbox,
+            canPastePreparedTask: isTeacher && !isSandbox && !workspaceRoomId && !practicePromptRoom
+              && !pages?.studyPreview && (!isGroupLesson || isSharedGroupBoard) && status === 'connected' },
           view: { ids: selectedIds, imageId: selectedImageId, box: selectionBox, zoom, offset, width: boardSize.width, height: boardSize.height, tool, revision: boardRevision, dragging: selectionDragRef.current.active },
           box: setSelectionBox, redraw: () => { renderBoard(); renderOverlay(); },
           allowed: shouldHandleBoardImagePaste, point: getBoardPastePoint, capacity: ensureBoardCanAddItems, error: setPasteError,
@@ -17741,7 +17743,7 @@ export const BoardCanvasSection = ({
         {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onCursor={scheduleCursorUpdate} interactiveDoc={practicePromptRoom ? practicePromptDocRef.current : docRef.current} boardTool={tool} onVisualChange={handlePreparedBoardVisualChange} room={practicePromptRoom || liveRoomId} role={role} userId={userId} dark={isDarkTheme}
           readOnly={Boolean(practicePromptRoom)||boardReadOnly||status!=='connected'} conditionOnly={Boolean(practicePromptRoom)} items={practicePromptRoom ? promptItemsRef : boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
-          focus={focusPreparedCard} trialPresentation={trialPresentation}/>}
+          focus={focusPreparedCard} trialPresentation={trialPresentation} onCopyTask={anchorId => boardClipboardActionsRef.current?.copyPrepared(anchorId)}/>}
         <div
           className={`board-task-controls-layer ${sandboxReadOnly ? 'pointer-events-none' : ''}`}
           aria-label={boardReadOnly ? 'Завершённые задания на доске' : 'Интерактивные задания на доске'}

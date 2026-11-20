@@ -87,3 +87,14 @@ test('same-tab buffer remains usable when local storage is full', () => {
   assert.ok(readBoardFragment(marker, 'teacher', { storage: store, now: 3001 }));
   assert.ok(readBoardFragment(null, 'teacher', { storage: store, now: 3001 }));
 });
+
+test('a prepared card clipboard entry retains only its authorized source reference', () => {
+  const owner='teacher',store=storage();
+  const preparedTask={room:'board-group-first~page~page-2',anchorId:'prepared-280ad522-cb3f-41d4-80b8-0f9c9b4a0c0c'};
+  const content={version:1,preparedTask:{...preparedTask,answers:['secret'],code:'private'}};
+  const marker=saveBoardFragment(content,owner,{storage:store});
+  assert.deepEqual(readBoardFragment(marker,owner,{storage:store}),{version:1,preparedTask});
+  assert.equal(readBoardFragment(marker,'other',{storage:store}),null);
+  assert.equal(normalizeBoardFragment({...content,preparedTask:{...preparedTask,room:'https://example.test'}}),null);
+  assert.throws(()=>cloneBoardFragment(content,{x:0,y:0},owner),/Некорректный фрагмент/);
+});

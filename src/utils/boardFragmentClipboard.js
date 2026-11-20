@@ -87,7 +87,14 @@ export const fragmentBounds = items => {
 };
 
 export const normalizeBoardFragment = value => {
-  if (!value || value.version !== 1 || !Array.isArray(value.items) || !value.items.length || value.items.length > 2500) return null;
+  if (value?.version !== 1) return null;
+  if (value.preparedTask) {
+    const { room, anchorId } = value.preparedTask;
+    if (typeof room !== 'string' || room.length > 760 || !/^board-[\w.~:-]+$/.test(room)
+      || typeof anchorId !== 'string' || !/^prepared-[a-f0-9-]{36}$/.test(anchorId)) return null;
+    return { version: 1, preparedTask: { room, anchorId } };
+  }
+  if (!Array.isArray(value.items) || !value.items.length || value.items.length > 2500) return null;
   try { if (JSON.stringify(value).length > MAX_BYTES) return null; } catch { return null; }
   let items; try { items = value.items.map(normalizeItem); } catch { return null; }
   if (items.some(item => !item) || !fragmentBounds(items)) return null;
@@ -96,7 +103,7 @@ export const normalizeBoardFragment = value => {
 
 export const cloneBoardFragment = (value, targetPoint, userId, makeId = () => crypto.randomUUID()) => {
   const payload = normalizeBoardFragment(value), destination = point(targetPoint);
-  if (!payload || !destination) throw new Error('Некорректный фрагмент доски');
+  if (!payload?.items || !destination) throw new Error('Некорректный фрагмент доски');
   const bounds = fragmentBounds(payload.items);
   const dx = destination.x - bounds.x - bounds.width / 2, dy = destination.y - bounds.y - bounds.height / 2;
   const translate = p => ({ ...p, x: p.x + dx, y: p.y + dy });

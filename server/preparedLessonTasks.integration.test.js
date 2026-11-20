@@ -247,3 +247,94 @@ test('group participants check independent questions separately through HTTP and
     const persisted=JSON.parse(fs.readFileSync(path.join(f.data,'prepared-lesson-tasks','runs',run.id+'.json'),'utf8'));assert.equal(persisted.tasks[0].answerMode,'independent');assert.deepEqual(persisted.cards[0].fieldResults,['correct','correct','correct']);
   }finally{await f.stop();}
 });
+
+test('pasted prepared card shares task materials and starts an independent attempt across group boards', {timeout:60000}, async () => {
+  const fixture=await createGroupHomeworkFixture(undefined,(write,data)=>{
+    const students=JSON.parse(fs.readFileSync(path.join(data,'students.json'),'utf8'));
+    write('students',[...students,{...students[0],id:'student-d',name:'Денис',code:'student-d-code'}]);
+  });
+  const {request,base,tokens,groupId}=fixture;
+  const teacher=tokens['teacher-a'],originalStudent=tokens['student-a'];
+  const route='/api/lesson-task-runs/paste-card';
+  const asRun=(room,token=teacher)=>request('/api/lesson-task-run?room='+encodeURIComponent(room),token);
+  const action=(run,card,token,input)=>request('/api/lesson-task-runs/'+run.id+'/action',token,{cardId:card.id,...input});
+  const download=(url,token)=>fetch(base+url,{headers:{Authorization:'Bearer '+token}});
+  const upload=async(route,name,bytes,fields={})=>{
+    const form=new FormData();form.append('file',new Blob([bytes]),name);
+    for(const [key,value] of Object.entries(fields))form.append(key,value);
+    const response=await fetch(base+route,{method:'POST',headers:{Authorization:'Bearer '+teacher},body:form});
+    assert.equal(response.status,route==='/api/files'?200:201);
+    return response.json();
+  };
+  try {
+    const pupil=(await request('/api/login',null,{code:'student-d-code'})).token;
+    const other=(await request('/api/learning-groups',teacher,{name:'Другая группа',studentIds:['student-d']},'POST',201)).group;
+    await request('/api/learning-groups/'+other.id+'/start',teacher,{});
+    const originalRoom='board-group-'+groupId,room='board-group-'+other.id;
+    const image=await upload('/api/lesson-task-images','condition.png',
+      await sharp({create:{width:600,height:200,channels:4,background:'white'}}).png().toBuffer());
+    const file=await upload('/api/files','source.xlsx',Buffer.from('condition file'),{studentId:'student-a',taskNumber:'3',category:'class'});
+    const set=await request('/api/lesson-task-sets',teacher,{name:'Условия',taskNumber:3,tasks:[
+      {title:'Копируемая карточка',images:[image.id],answers:['16'],format:'number',attachments:[{sourceFileId:file.id}]},
+      {title:'Ещё не открыто',images:[image.id],answers:['9']},
+    ]},'POST',201);
+    const original=(await request('/api/lesson-task-runs',teacher,{room:originalRoom,setId:set.id,x:0,y:0},'POST',201)).run;
+    const card=original.cards[0],sourceAction={action:'answer',revision:0,answers:['16']};
+    await action(original,card,originalStudent,sourceAction);
+    await action(original,card,originalStudent,{action:'check',revision:1});
+    await action(original,card,teacher,{action:'claim-code',leaseKey:'copy-test'});
+    await action(original,card,teacher,{action:'code',leaseKey:'copy-test',revision:0,code:'print("original only")'});
+    const solutionForm=new FormData();
+    for(const [key,value] of Object.entries({cardId:card.id,assetId:card.attachments[0].assetId,revision:'0'}))solutionForm.append(key,value);
+    solutionForm.append('file',new Blob(['original solution']),'solution.xlsx');
+    const solutionResponse=await fetch(base+'/api/lesson-task-runs/'+original.id+'/solution',{method:'POST',headers:{Authorization:'Bearer '+teacher},body:solutionForm});
+    assert.equal(solutionResponse.status,200);
+    const {solution}=await solutionResponse.json();
+
+    const input={room,source:{room:originalRoom,anchorId:card.anchorId},pasteId:crypto.randomUUID(),x:330,y:220};
+    await request(route,pupil,input,'POST',403);
+    await request(route,tokens['teacher-b'],input,'POST',403);
+    await request(route,teacher,{...input,source:{...input.source,anchorId:'prepared-'+crypto.randomUUID()}},'POST',404);
+    const copies=await Promise.all([request(route,teacher,input,'POST',201),request(route,teacher,input,'POST',201)]);
+    assert.equal(copies[0].cardId,copies[1].cardId,'Retried paste inserts one card');
+    const {run}=await asRun(room,pupil),copy=run.cards[0],attachment=copy.attachments[0];
+    assert.equal(run.cards.length,1);
+    assert.equal(copy.id,copies[0].cardId);
+    for(const key of ['id','taskId','anchorId','codeId'])assert.notEqual(copy[key],card[key]);
+    assert.equal(copy.title,card.title);
+    assert.equal(copy.status,'active');
+    assert.deepEqual(copy.answers,['']);
+    assert.equal(copy.answerRevision,0);
+    assert.equal(copy.codeRevision,0);
+    assert.equal(copy.images[0].id,image.id);
+    assert.equal(copy.images[0].url.endsWith('?run='+run.id),true);
+    assert.equal((await download(copy.images[0].url,pupil)).status,200);
+    assert.equal(attachment.solution,null);
+    assert.equal(attachment.writer,null);
+    assert.equal(await (await download(attachment.url,pupil)).text(),'condition file');
+    assert.equal((await download(card.attachments[0].url,pupil)).status,403);
+    assert.equal((await download(solution.url,pupil)).status,403);
+    const code='/api/lesson-task-runs/'+run.id+'/cards/'+copy.id+'/code';
+    assert.deepEqual(await request(code,pupil),{text:'',input:'',output:'',revision:0,lease:null});
+    assert.equal((await action(run,copy,pupil,{action:'answer',revision:0,answers:['16.0']})).run.cards[0].status,'active');
+    assert.equal((await action(run,copy,pupil,{action:'check',revision:1})).run.cards[0].status,'solved');
+    assert.deepEqual((await asRun(originalRoom,originalStudent)).run.cards[0].answers,['16']);
+
+    const inserted=(await request(route,teacher,{...input,room:originalRoom,pasteId:crypto.randomUUID()},'POST',201)).run;
+    const placed=inserted.cards[1];
+    assert.equal(placed.status,'active');
+    assert.equal(inserted.teacherCardId,placed.id);
+    assert.equal(inserted.total,3);
+    const {run:advanced}=await action(inserted,placed,teacher,{action:'skip',expectedCount:2,fromCardId:placed.id});
+    assert.equal(advanced.cards[2].title,'Ещё не открыто');
+    assert.equal(advanced.cards[0].id,card.id);
+    assert.equal(advanced.cards[0].status,'solved');
+    const afterRemoval=await action(advanced,card,teacher,{action:'remove-set',setId:set.id});
+    assert.deepEqual(afterRemoval.run.cards.map(entry=>entry.id),[placed.id]);
+    assert.equal((await asRun(room,pupil)).run.cards[0].status,'solved');
+    assert.equal(await (await download(attachment.url,pupil)).text(),'condition file');
+  } finally {
+    await fixture.stop();
+    fs.rmSync(fixture.root,{recursive:true,force:true});
+  }
+});

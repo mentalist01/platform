@@ -8,6 +8,8 @@ import { useBoardAlignment } from './BoardAlignmentGuides.jsx';
 import { fitBoardFragmentToViewport } from '../utils/boardSelectionResize.js';
 import { selectionMovePreview } from '../utils/boardAlignment.js';
 import { BOARD_FILE_MAX_BYTES } from '../utils/boardFile.js';
+import { preparedRequest } from '../services/preparedLessonTasks.js';
+import { isPreparedTaskAnchor } from '../utils/preparedInk.js';
 
 const editable = target => target?.isContentEditable || Boolean(target?.closest?.('input,textarea,select,[contenteditable="true"]'));
 export default function BoardSelectionClipboard(props) {
@@ -17,14 +19,24 @@ export default function BoardSelectionClipboard(props) {
   const { refs, target, view } = props;
   const resize = useBoardSelectionResize(props), alignment = useBoardAlignment(props);
 
-  const copy = event => {
+  const copy = (event, cardAnchorId) => {
     const c = latest.current;
     if (c.target.readOnly || (event && (editable(event.target) || !c.allowed(event)))) return;
-    const ids = c.refs.selected.current.length ? c.refs.selected.current : [c.view.imageId];
+    const ids = cardAnchorId ? [cardAnchorId] : c.refs.selected.current.length ? c.refs.selected.current : [c.view.imageId];
     const items = c.refs.items.current.filter(item => ids.includes(item.id));
     if (!items.length) return;
+    const task = items.find(isPreparedTaskAnchor);
+    if (task && (!c.target.canPastePreparedTask || items.length !== 1)) {
+      if (items.length !== 1) setNotice('Выделите одну карточку, чтобы скопировать задание.');
+      return;
+    }
+    if (task && document.querySelector(`.prepared-card--theory[data-anchor-id="${task.id}"]`)) {
+      setNotice('Выберите карточку с заданием.');
+      return;
+    }
     try {
-      const marker = saveBoardFragment({ version: 1, items }, c.target.userId);
+      const fragment = task ? { preparedTask: { room: c.target.roomId, anchorId: task.id } } : { items };
+      const marker = saveBoardFragment({ version: 1, ...fragment }, c.target.userId);
       if (event?.clipboardData) {
         event.clipboardData.setData('text/plain', marker); event.preventDefault();
       } else {
@@ -32,7 +44,7 @@ export default function BoardSelectionClipboard(props) {
           if (mounted.current) setNotice('Нажмите Ctrl+C, затем вставьте фрагмент через Ctrl+V.');
         });
       }
-      setNotice('Выделение скопировано');
+      setNotice(task ? 'Задание скопировано. Вставьте его на доску.' : 'Выделение скопировано');
     } catch (error) { setNotice(error.message || 'Не удалось скопировать выделение'); }
   };
 
@@ -40,8 +52,16 @@ export default function BoardSelectionClipboard(props) {
     const c = latest.current, doc = c.refs.doc.current, yItems = c.refs.yItems.current;
     if (!payload || c.target.readOnly || !doc || !yItems || busyRef.current) return;
     const destination = c.point();
-    busyRef.current = true; setNotice('Вставляем фрагмент…'); c.error('');
+    busyRef.current = true; setNotice(payload.preparedTask ? 'Вставляем задание…' : 'Вставляем фрагмент…'); c.error('');
     try {
+      if (payload.preparedTask) {
+        if (!c.target.canPastePreparedTask) throw new Error('Вставьте задание на доску урока в режиме преподавателя.');
+        await preparedRequest('/api/lesson-task-runs/paste-card', {
+          room: c.target.roomId, source: payload.preparedTask, pasteId: crypto.randomUUID(), ...destination,
+        });
+        if (mounted.current && latest.current.target.roomId === c.target.roomId) setNotice('Вставлена новая карточка задания');
+        return;
+      }
       const entries = fitBoardFragmentToViewport(cloneBoardFragment(payload, destination, c.target.userId), c.view);
       const initial = c.capacity(entries); if (!initial.ok) throw new Error(initial.error);
       const uploads = new Map();
@@ -89,7 +109,11 @@ export default function BoardSelectionClipboard(props) {
       c.refs.undo.current?.stopCapturing();
       c.select(placed.map(item => item.id), fragmentBounds(placed), placed.length === 1 && placed[0].type === 'image' ? placed[0].id : null);
       setNotice('Фрагмент вставлен');
-    } catch (error) { if (mounted.current) { setNotice(''); c.error(error.message || 'Не удалось вставить фрагмент'); } }
+    } catch (error) {
+      if (mounted.current && latest.current.target.roomId === c.target.roomId) {
+        setNotice(''); c.error(error.message || 'Не удалось вставить фрагмент');
+      }
+    }
     finally { busyRef.current = false; }
   };
 
@@ -112,7 +136,7 @@ export default function BoardSelectionClipboard(props) {
     };
   }, []);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 3500); return () => clearTimeout(timer); }, [notice]);
-  refs.actions.current = { copy, paste, snap: alignment.snap, place: entry => alignment.place([entry])[0],
+  refs.actions.current = { copy, copyPrepared: anchorId => copy(undefined, anchorId), paste, snap: alignment.snap, place: entry => alignment.place([entry])[0],
     moveImage: (id,x,y,free) => { const item=latest.current.refs.items.current.find(item=>item.id===id); if(!item)return{x,y}; const delta=alignment.snap({box:{...item,x,y},ids:[id],free}); return{x:x+delta.dx,y:y+delta.dy}; },
     preview: (item, drag, pending, imageDrag) => resize.preview(item) || selectionMovePreview(item,drag,pending,imageDrag) };
 
