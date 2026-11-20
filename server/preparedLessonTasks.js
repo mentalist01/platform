@@ -79,8 +79,9 @@ export {preparedTheoryPoint,preparedNextPoint} from '../src/utils/preparedTheory
 // Secrets and future conditions live here, never in the collaborative scene.
 // Every mutation is serialized per store; persisted state precedes notification.
 export class PreparedLessonTasks {
-  constructor({directory,authorize,board,code,sourceFiles,saveNotes,achievementContext,onAchievement,onCodeAdvance,now=()=>Date.now()}) {
+  constructor({directory,authorize,board,placementObstacles,code,sourceFiles,saveNotes,achievementContext,onAchievement,onCodeAdvance,now=()=>Date.now()}) {
     this.directory=directory;this.authorize=authorize;this.board=board;this.code=code;this.sourceFiles=sourceFiles;this.saveNotes=saveNotes;this.achievementContext=achievementContext;this.onAchievement=onAchievement;this.onCodeAdvance=onCodeAdvance;this.now=now;
+    this.placementObstacles=placementObstacles;
     fs.mkdirSync(directory,{recursive:true});this.assetsDir=path.join(directory,'assets');fs.mkdirSync(this.assetsDir,{recursive:true});
     this.file=path.join(directory,'state.json');
     this.data=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):{version:1,sets:{},assets:{},runs:{},active:{},sessions:{}};
@@ -353,7 +354,10 @@ export class PreparedLessonTasks {
     const {geometry,recipe}=this.cardPlacement(run,index,existing,visible);
     const {width,height,scale:spawnScale}=geometry;
     const worldSize={width:width*spawnScale,height:height*spawnScale};
-    const boardItems=[...all,...previews];
+    // Private solutions occupy space on the same page. Only their geometry is
+    // used here, and it never becomes part of the shared board document.
+    const obstacles = !pointOverride && run.cards.length ? this.placementObstacles?.(run) || [] : [];
+    const boardItems=[...all,...previews,...obstacles];
     if(!recipe.lastId&&run.cards.length&&!pointOverride){
       recipe.lastId='prepared-start';
       boardItems.push({id:recipe.lastId,...run.start,width:isPreparedTheory(task)?worldSize.width:640,height:0});

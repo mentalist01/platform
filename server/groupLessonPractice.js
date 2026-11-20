@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { boardItemBounds } from '../src/utils/boardRenderIndex.js';
 import {
   MAX_PRACTICE_ROOMS, canAccessPracticeRoom, getActivePracticeRound, isPracticePageId, isPracticeWorkId, normalizePracticeViewport, practiceWorkspaceRoom,
 } from '../src/utils/groupPractice.js';
@@ -61,6 +62,32 @@ export function setPracticeRoomStatus(practice, roomId, status, auth) {
   return { ...practice, rounds: practice.rounds.map(entry => entry.id === round.id
     ? { ...entry, rooms: entry.rooms.map(item => item.id === roomId ? { ...item, status } : item) }
     : entry) };
+}
+
+export function groupPracticeBoardObstacles(lessons, {groupId,pageId,readItems}) {
+  const rooms = new Set();
+  for (const lesson of lessons) {
+    if (lesson.deletedAt || lesson.groupId !== groupId) continue;
+    for (const round of lesson.practice?.rounds || []) {
+      if (round.pageId !== pageId) continue;
+      for (const room of round.rooms) {
+        const key = practiceWorkspaceRoom(lesson.id,room.id);
+        if (key) rooms.add(key);
+      }
+    }
+  }
+  const boxes = [];
+  for (const room of rooms) {
+    for (const item of readItems(room)) {
+      const bounds = boardItemBounds(item);
+      if (!bounds || !Object.values(bounds).every(Number.isFinite)) continue;
+      const strokeWidth = Number(item.strokeWidth ?? (['stroke','line','arrow'].includes(item.type) ? item.width : 0));
+      const padding = Number.isFinite(strokeWidth) ? Math.max(2,strokeWidth) : 2;
+      boxes.push({ x:bounds.minX-padding, y:bounds.minY-padding,
+        width:bounds.maxX-bounds.minX+2*padding, height:bounds.maxY-bounds.minY+2*padding });
+    }
+  }
+  return boxes;
 }
 
 // Archived layers are returned once as a snapshot. Only the current writing

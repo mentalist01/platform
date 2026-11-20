@@ -315,7 +315,7 @@ import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
 import {registerGroupStudyProgressRoutes} from './groupStudyProgress.js';
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
 import {canAccessPracticeRoom, getActivePracticeRound, isPracticePageId, parsePracticeWorkspaceRoom, practiceVoiceChannelId, practiceWorkspaceRoom} from '../src/utils/groupPractice.js';
-import {practiceForViewer, savedGroupBoardRooms, setPracticeRoomStatus, startPracticeRound, validatePracticeAssignments} from './groupLessonPractice.js';
+import {groupPracticeBoardObstacles, practiceForViewer, savedGroupBoardRooms, setPracticeRoomStatus, startPracticeRound, validatePracticeAssignments} from './groupLessonPractice.js';
 import {isTrialLesson, trialRoomId, trialRoomGroup, trialRoomSession, trialRoomPayload} from './trialLessonRooms.js';
 import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
 import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
@@ -1944,6 +1944,16 @@ const getLoadedCollabDocEntry = (docName) => {
     return { loadedDocs, key, doc: loadedDocs.get(key) };
   }
   return null;
+};
+const readBoardLayerItems = (room) => {
+  const loaded = getLoadedCollabDocEntry(room)?.doc;
+  if (loaded) return loaded.getArray('items').toJSON();
+  const snapshot = new Y.Doc();
+  try {
+    return loadBoardDocSnapshot(room,snapshot) ? snapshot.getArray('items').toJSON() : [];
+  } finally {
+    snapshot.destroy();
+  }
 };
 const flushLoadedBoardDocSnapshots = () => {
   const loadedDocs = getLoadedCollabDocs();
@@ -21933,6 +21943,12 @@ const preparedLessonTasks = new PreparedLessonTasks({
       participantIds:access.target.participantIds||access.target.session?.participantIdsSnapshot||access.target.session?.participantIds||[]};
   },
   board:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
+  placementObstacles:({room,groupId})=>{
+    if (!groupId) return [];
+    const pageId = parseBoardPageRoom(room)?.pageId || 'main';
+    if (room !== boardPageRoom(groupNotebookBoard(groupId),pageId)) return [];
+    return groupPracticeBoardObstacles(readLearningLessonSessionsDb(),{groupId,pageId,readItems:readBoardLayerItems});
+  },
   code:async room=>{const doc=yWsUtils.getYDoc(`collab/${room}`);await collabDocReadyPromises.get(doc);return doc;},
   onCodeAdvance:advanceLessonCodeFocus,
   achievementContext:async(run,auth,access)=>run.homework?{participants:[],lessonId:''}:lessonAchievementContext(run,auth,{target:access.target,students:readStudentsDb(),sessions:LEARNING_GROUPS_ENABLED?readLearningLessonSessionsDb():[],connections:[...collabWss.clients].map(ws=>({auth:ws.learningCollabAuth,target:ws.learningCollabTarget,readOnly:ws.learningCollabReadOnly,open:ws.readyState===1}))}),
@@ -26840,16 +26856,7 @@ app.get('/api/learning-groups/:groupId/board-work', handleLearningRoute((req,res
   });
   if (!rooms) return forbid(res);
   if (!roomId) rooms.unshift(boardPageRoom(groupNotebookBoard(group.id),pageId,req.auth.id));
-  const items = rooms.flatMap(room => {
-    const loaded = getLoadedCollabDocEntry(room)?.doc;
-    if (loaded) return loaded.getArray('items').toJSON();
-    const snapshot = new Y.Doc();
-    try {
-      return loadBoardDocSnapshot(room,snapshot) ? snapshot.getArray('items').toJSON() : [];
-    } finally {
-      snapshot.destroy();
-    }
-  });
+  const items = rooms.flatMap(readBoardLayerItems);
   res.set('Cache-Control','private, no-store');
   return res.json({items});
 }));

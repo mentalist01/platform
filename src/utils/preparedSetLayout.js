@@ -75,10 +75,10 @@ export function placePreparedCard(items, recipe, size) {
   if (sheet) return preparedTheorySheetPoint(items, sheet, size, legacyDisplay, sheetCount);
   if (blockIds.length) {
     const block = items.filter(item => blockIds.includes(item.id)).reduce((box, item) => preparedTheoryFrame(box, item) || item, null);
-    if (block) return preparedNextPoint(items, block);
+    if (block) return preparedNextPoint(items, block, Math.max(680,block.width,size.width));
   }
   const last = lastId && items.find(item => item.id === lastId);
-  return last ? preparedNextPoint(items, last, theory ? Math.max(last.width, size.width) : undefined) : start;
+  return last ? preparedNextPoint(items, last, Math.max(theory ? 0 : 680,last.width,size.width)) : start;
 }
 
 export function preparedFocusReference(recipe) {

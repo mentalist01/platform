@@ -14873,12 +14873,17 @@ export const BoardCanvasSection = ({
     const surface=containerRef.current;if(!surface)return;
     const origin=canvasRef.current.getBoundingClientRect(),box=element=>{const b=element.getBoundingClientRect();return {x:b.left-origin.left,y:b.top-origin.top,width:b.width,height:b.height};};
     const regions=Array.from(surface.querySelectorAll('.prepared-card')).map(card=>({anchorId:card.dataset.anchorId,card:box(card),body:box(card.querySelector('.prepared-card-body'))}));
+    const liveItems=boardItemsRef.current;
     const prompt=regions.length ? practicePromptItems : null;
-    const items=prompt ? [...prompt,...historyItems,...boardItemsRef.current] : boardItemsRef.current;
+    const history=regions.length && historyItems.length ? historyItems : null;
+    const items=prompt ? [...prompt,...historyItems,...liveItems] : history ? [...liveItems,...history] : liveItems;
     const query=prompt ? viewport=>[
       ...practicePromptRenderIndex.indexes(prompt,viewport),
       ...historyRenderIndex.indexes(historyItems,viewport).map(index=>prompt.length+index),
       ...visibleBoardIndexes(viewport).map(index=>prompt.length+historyItems.length+index),
+    ] : history ? viewport=>[
+      ...visibleBoardIndexes(viewport),
+      ...historyRenderIndex.indexes(history,viewport).map(index=>liveItems.length+index),
     ] : visibleBoardIndexes;
     paintPreparedInk(preparedInkCache.current,{canvas:preparedInkRef.current,overlay:overlayRef.current,reference:canvasRef.current,width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:zoomRef.current,offset:offsetRef.current,regions,items,preview:preparedInkActionsRef.current.preview,draw:preparedInkActionsRef.current.draw,createCanvas:()=>document.createElement('canvas'),query});
   },[historyItems,historyRenderIndex,practicePromptItems,practicePromptRenderIndex,visibleBoardIndexes]);

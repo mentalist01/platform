@@ -4,8 +4,101 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import sharp from 'sharp';
+import * as Y from 'yjs';
+import {WebsocketProvider} from 'y-websocket';
+import WebSocket from 'ws';
 import {BLANK_WORKBOOK_ODS} from './blankWorkbook.js';
 import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
+import {practiceWorkspaceRoom} from '../src/utils/groupPractice.js';
+
+test('the next group task clears saved private ink on the current page', {timeout:60000}, async () => {
+  const fixture = await createGroupHomeworkFixture();
+  const {base,groupId,request,tokens} = fixture;
+  const teacher = tokens['teacher-a'];
+  const pupil = tokens['student-a'];
+  const partner = tokens['student-b'];
+  const root = `/api/learning-groups/${groupId}`;
+  const documents = [];
+  const openBoard = (room, token) => {
+    const doc = new Y.Doc();
+    const provider = new WebsocketProvider(base.replace('http','ws')+'/collab',room,doc,{
+      WebSocketPolyfill:WebSocket,params:{_auth:token},disableBc:true,
+    });
+    documents.push({doc,provider});
+    return new Promise((resolve,reject) => {
+      const timeout = setTimeout(() => reject(Error('Board did not sync')),5000);
+      provider.on('sync',synced => {
+        if (!synced) return;
+        clearTimeout(timeout);
+        resolve(doc.getArray('items'));
+      });
+    });
+  };
+  try {
+    const form = new FormData();
+    form.append('file',new Blob([await sharp({create:{width:600,height:200,channels:4,background:'white'}}).png().toBuffer()]),'condition.png');
+    const upload = await fetch(base+'/api/lesson-task-images',{method:'POST',headers:{Authorization:`Bearer ${teacher}`},body:form});
+    assert.equal(upload.status,201);
+    const image = await upload.json();
+    const set = await request('/api/lesson-task-sets',teacher,{
+      name:'Задачи для пар',taskNumber:4,
+      tasks:['Первое','Второе'].map(title=>({title,images:[image.id],answers:['42']})),
+    },'POST',201);
+    const room = `board-group-${groupId}`;
+    const {run} = await request('/api/lesson-task-runs',teacher,{room,setId:set.id,x:100,y:100},'POST',201);
+    const action = `/api/lesson-task-runs/${run.id}/action`;
+    const first = run.cards[0];
+    const {lesson} = await request(root+'/lessons',teacher,{
+      startAt:new Date(Date.now()-60000).toISOString(),durationMinutes:60,topic:'Задачи для пар',
+    },'POST',201);
+    const roundRoute = root+'/lessons/'+lesson.id+'/practice';
+    const active = await request(roundRoute,teacher,{action:'start',pageId:'main',assignments:[['student-a'],['student-b']]});
+    const [roomA,roomB] = active.rounds.find(round=>round.id===active.activeRoundId).rooms;
+    const [common,privateA,privateB] = await Promise.all([
+      openBoard(room,teacher),
+      openBoard(practiceWorkspaceRoom(lesson.id,roomA.id),pupil),
+      openBoard(practiceWorkspaceRoom(lesson.id,roomB.id),partner),
+    ]);
+    const anchor = common.toArray().find(item=>item.id===first.anchorId);
+    assert.ok(anchor);
+    const baseY = anchor.y+anchor.height;
+    const stroke = (id,length) => ({id,type:'stroke',color:'#000000',width:12,
+      points:[{x:anchor.x+20,y:baseY+10},{x:anchor.x+110,y:baseY+length}]});
+    const solutionA = stroke('private-short',180);
+    const solutionB = stroke('private-long',440);
+    const teacherA = await openBoard(practiceWorkspaceRoom(lesson.id,roomA.id),teacher);
+    const teacherB = await openBoard(practiceWorkspaceRoom(lesson.id,roomB.id),teacher);
+    const added = (items,id) => new Promise((resolve,reject) => {
+      const timeout = setTimeout(()=>{items.unobserve(check);reject(Error('Private ink did not sync'));},5000);
+      const check = () => {
+        if (!items.toArray().some(item=>item.id===id)) return;
+        clearTimeout(timeout);
+        items.unobserve(check);
+        resolve();
+      };
+      items.observe(check);
+    });
+    const synchronized = Promise.all([added(teacherA,solutionA.id),added(teacherB,solutionB.id)]);
+    privateA.push([solutionA]);
+    privateB.push([solutionB]);
+    await synchronized;
+    await request(roundRoute,teacher,{action:'finish'});
+    const work = root+'/board-work?pageId=main';
+    assert.deepEqual((await request(work,pupil)).items.map(item=>item.id),[solutionA.id]);
+    assert.deepEqual((await request(work,partner)).items.map(item=>item.id),[solutionB.id]);
+    await request(action,pupil,{action:'answer',cardId:first.id,answerSchema:first.answerSchema,patches:[{index:0,value:'42'}]});
+    await request(action,pupil,{action:'check',cardId:first.id,answerSchema:first.answerSchema});
+    const {run:advanced} = await request(action,teacher,{action:'next',expectedCount:1,fromCardId:first.id});
+    assert.equal(advanced.cards.length,2);
+    const persisted = JSON.parse(fs.readFileSync(path.join(fixture.data,'prepared-lesson-tasks','runs',run.id+'.json'),'utf8'));
+    assert.ok(persisted.cards[1].y>solutionB.points[1].y+solutionB.width);
+    assert.equal(common.toArray().some(item=>item.id===solutionA.id||item.id===solutionB.id),false);
+  } finally {
+    for (const {provider,doc} of documents) {provider.destroy();doc.destroy();}
+    await fixture.stop();
+    fs.rmSync(fixture.root,{recursive:true,force:true});
+  }
+});
 
 test('authenticated library and group run; teacher saves the group workbook; pupils only download its source and latest saved solution', {timeout:90000}, async()=>{
   const fixture=await createGroupHomeworkFixture();
