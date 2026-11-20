@@ -6,7 +6,7 @@ import useDesktopRecording from '../hooks/useDesktopRecording';
 import useRecorderShare from '../hooks/useRecorderShare';
 import './GroupVoiceChannels.css';
 
-export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onConnectedChannelChange, onOpenCall, onBack }) {
+export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onConnectedChannelChange, onChannelSelected, onOpenCall, onBack }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -193,7 +193,10 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     setActionError('');
     try {
       const result = await (mode === 'general' ? api.gatherLearningVoiceChannels : api.distributeLearningVoiceChannels)(groupId, lessonId);
-      if (mode === 'general' && (!result.practiceFinished || callStatus !== 'connected')) join('general');
+      if (mode === 'general') {
+        onChannelSelected?.({ id:'general', kind:'general' });
+        if (!result.practiceFinished || callStatus !== 'connected') join('general');
+      }
       setNotice(`Переключаем учеников: ${result.movedCount}. ${mode === 'general' ? 'Собираемся в общем канале.' : 'Каждый переходит в свой канал.'}`);
       await refreshRef.current?.();
     } catch (error) {
@@ -206,6 +209,11 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const channels = snapshot?.channels || [];
   const selected = channels.find((channel) => channel.id === selectedId);
   const canConnect = snapshot?.canJoin;
+  const chooseChannel = (channel) => {
+    if (!canConnect || !channel) return;
+    onChannelSelected?.(channel);
+    join(channel.id);
+  };
   const ownWorkChannel = !isTeacher && channels.find(channel => channel.kind === 'practice');
   const visibleChannels = isTeacher ? channels : channels.filter(channel =>
     channel.kind === 'general' || channel.id === selected?.id
@@ -244,7 +252,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 return (
                   <div className={`group-voice__channel ${active ? 'is-active' : ''}`} key={channel.id}>
                     <div className="group-voice__channel-row">
-                    <button className="group-voice__join" type="button" disabled={!canConnect} onClick={() => join(channel.id)} aria-pressed={active} aria-label={`Войти в канал ${channel.name}`}>
+                    <button className="group-voice__join" type="button" disabled={!canConnect} onClick={() => chooseChannel(channel)} aria-pressed={active} aria-label={`Войти в канал ${channel.name}`}>
                       <Mic size={18} />
                       <span>
                         <strong>{channel.name}</strong>
@@ -294,7 +302,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                     <Headphones size={32} aria-hidden="true" />
                     <h3>Подключитесь к уроку</h3>
                     {canConnect && <>
-                      <button type="button" onClick={() => join(ownWorkChannel?.id || 'general')}>{ownWorkChannel ? 'Войти в свой канал' : 'Войти в общий канал'}</button>
+                      <button type="button" onClick={() => chooseChannel(ownWorkChannel || channels.find(channel => channel.kind === 'general'))}>{ownWorkChannel ? 'Войти в свой канал' : 'Войти в общий канал'}</button>
                       <small>Микрофон включится после подключения</small>
                     </>}
                   </>

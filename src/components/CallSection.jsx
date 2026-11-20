@@ -4190,6 +4190,9 @@ const CallSection = ({
       const movingMicEnabled = Boolean(localAudioTrackRef.current?.enabled);
       if (type === 'session-ended') manualCloseRef.current = true;
       const errorText = typeof payload?.error === 'string' ? payload.error.trim() : '';
+      // A delayed offer can arrive just after its recipient changed channels.
+      // The server has already sent peer-left for that participant.
+      if (type === 'error' && isGroupLesson && activeRoomRef.current && errorText === 'Собеседник недоступен') return;
       const normalizedError = errorText || 'Сигнальный сервер вернул ошибку.';
       setError(isChannelMove ? '' : normalizedError);
 
@@ -6913,7 +6916,7 @@ const CallSection = ({
                   })}
                 </div>
                 {voiceCallParticipants.length <= 1 && (
-                  <p className={waitingTextClass}>{meetingId ? 'Ждём остальных участников' : `Ждём ${remoteParticipantName} в звонке`}</p>
+                  <p className={waitingTextClass}>{isGroupLesson ? 'Ждём участников канала' : meetingId ? 'Ждём остальных участников' : `Ждём ${remoteParticipantName} в звонке`}</p>
                 )}
               </section>
             )}

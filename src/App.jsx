@@ -11451,7 +11451,7 @@ export const BoardCanvasSection = ({
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectionBox, setSelectionBox] = useState(null);
   const summonNotice = pages?.summonNotice;
-  const [, setBoardSynced] = useState(false);
+  const [boardSynced, setBoardSynced] = useState(false);
   const [isBrushPaletteOpen, setIsBrushPaletteOpen] = useState(false);
   const [isShapePaletteOpen, setIsShapePaletteOpen] = useState(false);
   const [shapeKind, setShapeKind] = useState('rectangle');
@@ -11541,6 +11541,8 @@ export const BoardCanvasSection = ({
   const toolRef = useRef(tool);
   const boardItemsRef = useRef([]);
   const [practicePromptItems,setPracticePromptItems] = useState(null);
+  const practicePromptDocRef = useRef(null);
+  const promptItemsRef = useMemo(() => ({ current: practicePromptItems || [] }), [practicePromptItems]);
   const historyItems = useMemo(() => (Array.isArray(savedWorkItems) ? savedWorkItems.map(normalizeBoardStoredItem).filter(Boolean) : []),[savedWorkItems]);
   const practicePromptRenderIndex = useMemo(() => createBoardRenderIndex(getItemBounds), []);
   const historyRenderIndex = useMemo(() => createBoardRenderIndex(getItemBounds), []);
@@ -11552,7 +11554,9 @@ export const BoardCanvasSection = ({
   const boardSceneDirtyRef = useRef(true);
   useEffect(() => { minimapOpenRef.current = isMinimapOpen; }, [isMinimapOpen]);
   const boardRenderRafRef = useRef(null);
+  const boardPainterRef = useRef(null);
   const sceneRenderRafRef = useRef(null);
+  const scenePaintersRef = useRef(null);
   const pendingSceneRenderRef = useRef(null);
   const scheduleBoardRenderRef = useRef(null);
   const scheduleMinimapRenderRef = useRef(null);
@@ -12477,7 +12481,7 @@ export const BoardCanvasSection = ({
     }
   }, [shareMyCursor, roomId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     boardSizeRef.current = boardSize;
   }, [boardSize]);
 
@@ -14821,6 +14825,10 @@ export const BoardCanvasSection = ({
     scheduleMinimapRenderRef.current?.(0);
   }, [drawBoardItemToScene, renderBoardSceneFull, sceneContainsItem]);
 
+  useLayoutEffect(() => {
+    scenePaintersRef.current = { append: renderBoardSceneAppend, full: renderBoardSceneFull };
+  }, [renderBoardSceneAppend, renderBoardSceneFull]);
+
   const scheduleBoardSceneRender = useCallback((renderPlan = { mode: 'full' }) => {
     if (typeof window === 'undefined') return;
     if (!minimapOpenRef.current) { boardSceneDirtyRef.current = true; return; }
@@ -14848,12 +14856,12 @@ export const BoardCanvasSection = ({
       if (!nextPlan || nextPlan.mode === 'none') return;
       if (!minimapOpenRef.current) { boardSceneDirtyRef.current = true; return; }
       if (nextPlan.mode === 'append' && !boardSceneDirtyRef.current) {
-        renderBoardSceneAppend(nextPlan.items);
+        scenePaintersRef.current?.append(nextPlan.items);
         return;
       }
-      renderBoardSceneFull();
+      scenePaintersRef.current?.full();
     });
-  }, [renderBoardSceneAppend, renderBoardSceneFull]);
+  }, []);
 
   useEffect(() => {
     if (isMinimapOpen && boardSceneDirtyRef.current) scheduleBoardSceneRender();
@@ -14865,8 +14873,15 @@ export const BoardCanvasSection = ({
     const surface=containerRef.current;if(!surface)return;
     const origin=canvasRef.current.getBoundingClientRect(),box=element=>{const b=element.getBoundingClientRect();return {x:b.left-origin.left,y:b.top-origin.top,width:b.width,height:b.height};};
     const regions=Array.from(surface.querySelectorAll('.prepared-card')).map(card=>({anchorId:card.dataset.anchorId,card:box(card),body:box(card.querySelector('.prepared-card-body'))}));
-    paintPreparedInk(preparedInkCache.current,{canvas:preparedInkRef.current,overlay:overlayRef.current,reference:canvasRef.current,width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:zoomRef.current,offset:offsetRef.current,regions,items:boardItemsRef.current,preview:preparedInkActionsRef.current.preview,draw:preparedInkActionsRef.current.draw,createCanvas:()=>document.createElement('canvas'),query:visibleBoardIndexes});
-  },[visibleBoardIndexes]);
+    const prompt=regions.length ? practicePromptItems : null;
+    const items=prompt ? [...prompt,...historyItems,...boardItemsRef.current] : boardItemsRef.current;
+    const query=prompt ? viewport=>[
+      ...practicePromptRenderIndex.indexes(prompt,viewport),
+      ...historyRenderIndex.indexes(historyItems,viewport).map(index=>prompt.length+index),
+      ...visibleBoardIndexes(viewport).map(index=>prompt.length+historyItems.length+index),
+    ] : visibleBoardIndexes;
+    paintPreparedInk(preparedInkCache.current,{canvas:preparedInkRef.current,overlay:overlayRef.current,reference:canvasRef.current,width:boardSizeRef.current.width,height:boardSizeRef.current.height,zoom:zoomRef.current,offset:offsetRef.current,regions,items,preview:preparedInkActionsRef.current.preview,draw:preparedInkActionsRef.current.draw,createCanvas:()=>document.createElement('canvas'),query});
+  },[historyItems,historyRenderIndex,practicePromptItems,practicePromptRenderIndex,visibleBoardIndexes]);
   const renderBoard = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -14937,6 +14952,7 @@ export const BoardCanvasSection = ({
     void loadYjsRuntime().then(({Y,WebsocketProvider}) => {
       if (disposed) return;
       const doc = new Y.Doc();
+      practicePromptDocRef.current = doc;
       const provider = new WebsocketProvider(wsUrl,practicePromptRoom,doc,{params:wsParams,disableBc:true,connect:false});
       provider.awareness.setLocalState(null);
       const items = doc.getArray('items');
@@ -14948,6 +14964,7 @@ export const BoardCanvasSection = ({
       provider.on('sync',renderPrompt);
       provider.connect();
       teardown = () => {
+        practicePromptDocRef.current = null;
         items.unobserve(renderPrompt);
         provider.destroy();
         doc.destroy();
@@ -15249,14 +15266,18 @@ export const BoardCanvasSection = ({
     renderOverlay();
   }, [zoom, offset, remotePreviews, tabletPreview, tool, color, penWidth, shapeKind, displaySelectedImage, selectionBox]);
 
+  useLayoutEffect(() => {
+    boardPainterRef.current = renderBoard;
+  }, [renderBoard]);
+
   const scheduleBoardRender = useCallback(() => {
     if (typeof window === 'undefined') return;
     if (boardRenderRafRef.current) return;
     boardRenderRafRef.current = window.requestAnimationFrame(() => {
       boardRenderRafRef.current = null;
-      renderBoard();
+      boardPainterRef.current?.();
     });
-  }, [renderBoard]);
+  }, []);
 
   useEffect(() => {
     scheduleBoardRenderRef.current = scheduleBoardRender;
@@ -17174,7 +17195,8 @@ export const BoardCanvasSection = ({
     );
   };
   const showBottomSummonButton = !isSandbox && isTeacher && pages?.summon && (!embedded || isFullscreen || showEmbeddedSummonButton);
-  const showBoardLoading = Boolean(!isSandbox && roomId && (status === 'connecting' || (practicePromptRoom && !practicePromptItems)));
+  const showBoardLoading = Boolean(!isSandbox && roomId
+    && (status === 'connecting' || (practicePromptRoom && (!boardSynced || !practicePromptItems))));
 
   const saveModal = saveModalOpen && !isSandbox ? (
     <div className="fixed inset-0 bg-black/60 z-50 modal-backdrop flex items-center justify-center p-4">
@@ -17711,8 +17733,8 @@ export const BoardCanvasSection = ({
         />
         <canvas ref={preparedInkRef} className="prepared-ink-layer absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true"/>
         <BoardFileDownloads items={unifiedGroupBoard ? [...(practicePromptItems || []),...historyItems,...boardItemsRef.current] : boardItemsRef.current} offset={offset} zoom={zoom} preview={getSelectionDragPreviewItem}/>
-        {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onCursor={scheduleCursorUpdate} interactiveDoc={docRef.current} boardTool={tool} onVisualChange={handlePreparedBoardVisualChange} room={liveRoomId} role={role} userId={userId} dark={isDarkTheme}
-          readOnly={boardReadOnly||status!=='connected'} items={boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
+        {!isSandbox&&!workspaceRoomId&&(!isGroupLesson||isSharedGroupBoard)&&<PreparedLessonBoard onCursor={scheduleCursorUpdate} interactiveDoc={practicePromptRoom ? practicePromptDocRef.current : docRef.current} boardTool={tool} onVisualChange={handlePreparedBoardVisualChange} room={practicePromptRoom || liveRoomId} role={role} userId={userId} dark={isDarkTheme}
+          readOnly={Boolean(practicePromptRoom)||boardReadOnly||status!=='connected'} conditionOnly={Boolean(practicePromptRoom)} items={practicePromptRoom ? promptItemsRef : boardItemsRef} revision={boardRevision} preview={getSelectionDragPreviewItem} studyPreview={pages?.studyPreview}
           zoom={zoom} offset={offset} surface={containerRef} selectPage={pages?.selectPage}
           focus={focusPreparedCard} trialPresentation={trialPresentation}/>}
         <div
@@ -19000,6 +19022,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [activeLearningLesson, setActiveLearningLesson] = useState(null);
   const [practiceWorkspace, setPracticeWorkspace] = useState(null);
   const [practiceVoiceRequest, setPracticeVoiceRequest] = useState(null);
+  const [teacherVoiceWorkspace, setTeacherVoiceWorkspace] = useState(null);
   const [groupVoiceConnection, setGroupVoiceConnection] = useState(null);
   const [boardPracticeActions, setBoardPracticeActions] = useState(null);
   const [studentGroupAccess, setStudentGroupAccess] = useState({ userId: '', hasGroups: false, loaded: false });
@@ -21846,6 +21869,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const practiceLessonId = activeLearningLesson?.lessonId;
   const practiceGroupId = activeLearningLesson?.groupId;
   const currentPractice = practiceWorkspace?.lessonId === practiceLessonId ? practiceWorkspace : null;
+  const teacherVoiceChannelId = teacherVoiceWorkspace?.lessonId === practiceLessonId ? teacherVoiceWorkspace?.channelId : '';
+  const practiceWorkspacePending = Boolean(teacherVoiceChannelId);
   const practiceCodeRoom = currentPractice?.roomId ? practiceWorkspaceRoom(practiceLessonId,currentPractice.roomId,'code') : '';
   const unifiedGroupBoard = Boolean(practiceLessonId && practiceGroupId && !activeLearningLesson?.trialBookingId);
   const showPracticePanel = unifiedGroupBoard && !studentLessonWorkspaceBlocked
@@ -21856,6 +21881,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       book:boardPageBookRoom(groupNotebookBoard(practiceGroupId)), role:user.role, userId:user.id,
     },target.pageId);
     setPracticeWorkspace(target.roomId ? {...target,lessonId:practiceLessonId} : null);
+    setTeacherVoiceWorkspace(null);
     if (visit && target.roomId) {
       setPracticeVoiceRequest({lessonId:practiceLessonId,channelId:practiceVoiceChannelId(target.roomId)});
     } else if (!target.roomId) {
@@ -21863,6 +21889,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     }
     if (view === 'call' && visit) navigateToView('board');
   }, [navigateToView,practiceGroupId,practiceLessonId,user.id,user.role,view]);
+  const syncWorkspaceFromVoice = useCallback((channel) => {
+    if (!unifiedGroupBoard) return;
+    if (channel.kind === 'general') openPracticeWorkspace({});
+    if (channel.kind === 'practice') {
+      setPracticeVoiceRequest(null);
+      setTeacherVoiceWorkspace({ lessonId:practiceLessonId, channelId:channel.id });
+    }
+  }, [openPracticeWorkspace, practiceLessonId, unifiedGroupBoard]);
 
   const prefetchNavigationView = useCallback((nextView) => {
     const normalizedView = String(nextView || '').trim();
@@ -27017,6 +27051,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <GroupLessonPractice key={practiceLessonId} lesson={activeLearningLesson} user={user}
                 students={currentStudentsWithNicknames} selectedRoomId={currentPractice?.roomId}
                 voiceChannelId={view !== 'call' && groupVoiceConnection?.lessonId === practiceLessonId ? groupVoiceConnection.channelId : ''}
+                teacherVoiceChannelId={teacherVoiceChannelId}
                 studentActionsTarget={boardPracticeActions}
                 onOpen={openPracticeWorkspace} theme={theme} />
             </React.Suspense>
@@ -27035,7 +27070,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               lessonId={activeLearningLesson?.lessonId || ''}
               groupId={activeLearningLesson?.groupId || ''}
               participantIds={activeLearningLesson?.participantIds || []}
-              readOnly={Boolean(currentPractice?.readOnly) || (activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed')}
+              readOnly={practiceWorkspacePending || Boolean(currentPractice?.readOnly) || (activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed')}
               theme={theme}
               withStudentId={withStudentId}
               tasks={tasksWithTitles}
@@ -27061,6 +27096,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               visible={view === 'call'}
               requestedChannel={practiceVoiceRequest?.lessonId === activeLearningLesson.lessonId ? practiceVoiceRequest : null}
               onConnectedChannelChange={user.role === 'student' ? setGroupVoiceConnection : undefined}
+              onChannelSelected={user.role === 'teacher' ? syncWorkspaceFromVoice : undefined}
               onOpenCall={() => navigateToView('call')}
               onBack={handleLeaveLearningGroupLesson}
             />
@@ -27154,7 +27190,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               lessonId={activeLearningLesson?.lessonId || ''}
               groupId={activeLearningLesson?.groupId || ''}
               participantIds={activeLearningLesson?.participantIds || []}
-              readOnly={Boolean(currentPractice?.readOnly) || (activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed')}
+              readOnly={practiceWorkspacePending || Boolean(currentPractice?.readOnly) || (activeLearningLesson?.trialBookingId ? activeLearningLesson.readOnly : activeLearningLesson?.groupStatus === 'completed')}
               tasks={tasksWithTitles}
               students={currentStudentsWithNicknames}
               activeStudentId={activeStudentId}

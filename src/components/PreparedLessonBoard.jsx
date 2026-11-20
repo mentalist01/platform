@@ -5,6 +5,7 @@ import {usePreparedLesson} from '../hooks/usePreparedLesson.js';
 import {usePreparedAnswerInput} from '../hooks/usePreparedAnswerInput.js';
 import {preparedRequest} from '../services/preparedLessonTasks.js';
 import PreparedConditionImage from './PreparedConditionImage.jsx';
+import FileDownloadLink from './FileDownloadLink.jsx';
 import PreparedAnswerStatus from './PreparedAnswerStatus.jsx';
 import PreparedFileHandoff from './PreparedFileHandoff.jsx';
 import PreparedSolveCelebration from './PreparedSolveCelebration.jsx';
@@ -29,6 +30,27 @@ import './PreparedGameAnswers.css';
 import PreparedCardMaterials from './PreparedCardMaterials.jsx';
 import PreparedReferencePromotion from './PreparedReferencePromotion.jsx';
 import PreparedReferenceReplacement from './PreparedReferenceReplacement.jsx';
+
+function PreparedTaskImages({card}) {
+  return <div className="prepared-card-body">{card.images.map((asset,index)=>(
+    <PreparedConditionImage key={asset.id} asset={asset} alt={`Условие задачи ${card.index+1}, изображение ${index+1}`} />
+  ))}</div>;
+}
+
+function PracticeConditionCard({card,run,style}) {
+  const pinned=Number.isFinite(card.conditionTop);
+  const position=pinned ? {...style,transform:`${style.transform} translateY(${card.conditionTop}px)`} : style;
+  return <article data-anchor-id={card.anchorId} className={`prepared-card prepared-card--compact${pinned?' prepared-card--anchored':''}`} style={position} aria-label={`Условие задачи ${card.index+1}`}>
+    <div className={`prepared-card-controls${pinned?' is-pinned':''}`}>
+      <header><strong className="prepared-task-name">{preparedTaskTitle(card)}</strong><span>ЕГЭ №{card.answerGroups?'19–21':card.taskNumber||run.taskNumber}</span>
+        {card.attachments.length>0 && <div className="prepared-condition-files">{card.attachments.map(asset=>(
+          <FileDownloadLink key={asset.assetId} href={asset.url} download={asset.name}>{asset.name}</FileDownloadLink>
+        ))}</div>}
+      </header>
+    </div>
+    <PreparedTaskImages card={card} />
+  </article>;
+}
 
 export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure,showReferenceAnswers,worldAnchor,trialPresentation}){
   const element=useRef(null);
@@ -86,15 +108,15 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
     </div>
     {context.celebrationCardId===card.id&&<PreparedSolveCelebration group={Boolean(run.groupId)}/>}
     </div>
-    <div className="prepared-card-body">{card.images.map((asset,i)=><PreparedConditionImage key={asset.id} asset={asset} alt={`Условие задачи ${card.index+1}, изображение ${i+1}`}/>)}</div>
+    <PreparedTaskImages card={card} />
   </article>;
 }
 
-export default function PreparedLessonBoard({room,role,userId,dark,readOnly,items,revision,preview,studyPreview=false,zoom,offset,surface,focus,selectPage,onVisualChange,interactiveDoc,boardTool,onCursor,trialPresentation=false}){
+export default function PreparedLessonBoard({room,role,userId,dark,readOnly,conditionOnly=false,items,revision,preview,studyPreview=false,zoom,offset,surface,focus,selectPage,onVisualChange,interactiveDoc,boardTool,onCursor,trialPresentation=false}){
   const live=usePreparedLesson(room);
   const [localSelection,setLocalSelection]=useState(null);
   const selectLocal=useCallback(id=>{setLocalSelection({room,id});return true;},[room]);
-  const context=studyPreview?{...live,select:selectLocal,selectedId:localSelection?.room===room?localSelection.id:live.selectedId}:live,{run}=context;const [headerSlot,setHeaderSlot]=useState(null);const heights=useRef(new Map()),layoutTimer=useRef(null);const [pending,setPending]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
+  const context=studyPreview||conditionOnly?{...live,select:selectLocal,selectedId:localSelection?.room===room?localSelection.id:live.selectedId}:live,{run}=context;const [headerSlot,setHeaderSlot]=useState(null);const heights=useRef(new Map()),layoutTimer=useRef(null);const [pending,setPending]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),6000);return()=>clearTimeout(timer);},[notice]);
   const [referencePreferences,setReferencePreferences]=useState({});
   const referenceKey=`prepared-reference-visibility:${role}:${userId}`;
@@ -115,7 +137,7 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   const latest=useRef({items,revision,selected,run,focus:focusCard}),focused=useRef(''),followedTheory=useRef(0);latest.current={items,revision,selected,run,focus:focusCard};
   useEffect(()=>{setHeaderSlot(surface.current?.querySelector('.board-prepared-slot')||null);focused.current='';followedTheory.current=0;soloZoom.current=null;},[room,surface]);
   const layoutAction=context.action;
-  useEffect(()=>{onVisualChange?.();return()=>onVisualChange?.();},[room,run?.version,onVisualChange]);
+  useEffect(()=>{onVisualChange?.();return()=>onVisualChange?.();},[room,run?.version,onVisualChange,items]);
   const measured=useCallback((id,height,conditionTop)=>{
     onVisualChange?.();heights.current.set(id,{height,conditionTop});clearTimeout(layoutTimer.current);
     layoutTimer.current=setTimeout(()=>{
@@ -131,7 +153,7 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   useEffect(()=>()=>clearTimeout(layoutTimer.current),[]);
   const pick=(card)=>{if(context.select(card.id)===false)return;const anchor=items.current.find(i=>i.id===card.anchorId);if(anchor){focusCard(anchor,{},card);focused.current=card.id;}if(run.canManage&&!readOnly)void context.action(run.id,{action:'focus',cardId:card.id}).catch(e=>setError(e.message));};
   const selectedId=selected?.id,selectTask=context.select,runAction=context.action,theoryFollowRevision=context.theoryFollowRevision||0;
-  useEffect(()=>{const current=latest.current;if(!current.selected)return;const anchor=current.items.current.find(item=>item.id===current.selected.anchorId);if(!anchor){if(focused.current!==selectedId)return;const fallback=current.run?.cards.filter(card=>current.items.current.some(item=>item.id===card.anchorId)).at(-1);if(fallback&&fallback.id!==selectedId&&selectTask(fallback.id)!==false){if(current.run.canManage&&!readOnly)void runAction(current.run.id,{action:'focus',cardId:fallback.id}).catch(()=>{});}return;}if(focused.current===selectedId&&followedTheory.current===theoryFollowRevision)return;current.focus(anchor,{initial:!focused.current,animate:theoryFollowRevision>0&&followedTheory.current!==theoryFollowRevision});focused.current=selectedId;followedTheory.current=theoryFollowRevision;},[selectedId,revision,run?.version,selectTask,runAction,readOnly,theoryFollowRevision]);
+  useEffect(()=>{const current=latest.current;if(!current.selected)return;const anchor=current.items.current.find(item=>item.id===current.selected.anchorId);if(!anchor){if(focused.current!==selectedId)return;const fallback=current.run?.cards.filter(card=>current.items.current.some(item=>item.id===card.anchorId)).at(-1);if(fallback&&fallback.id!==selectedId&&selectTask(fallback.id)!==false){if(current.run.canManage&&!readOnly)void runAction(current.run.id,{action:'focus',cardId:fallback.id}).catch(()=>{});}return;}if(focused.current===selectedId&&followedTheory.current===theoryFollowRevision)return;current.focus(anchor,{initial:!focused.current,animate:theoryFollowRevision>0&&followedTheory.current!==theoryFollowRevision});focused.current=selectedId;followedTheory.current=theoryFollowRevision;},[selectedId,revision,items,run?.version,selectTask,runAction,readOnly,theoryFollowRevision]);
   useEffect(()=>{if(!pending)return;const cancel=e=>{if(e.key==='Escape')setPending(null);};window.addEventListener('keydown',cancel);return()=>window.removeEventListener('keydown',cancel);},[pending]);
   const execute=async fn=>{if(busy)return;setBusy(true);setError('');try{await fn();}catch(e){setError(e.message);}finally{setBusy(false);}};
   const place=event=>{event.preventDefault();event.stopPropagation();if(!pending||busy)return;const rect=surface.current.getBoundingClientRect(),position={x:(event.clientX-rect.left)/zoom+offset.x,y:(event.clientY-rect.top)/zoom+offset.y};void execute(async()=>{if(pending.newPage){const result=await requestLessonPages(room,{action:'create',name:pending.set.name.slice(0,80)});const target=room.split('~page~')[0]+`~page~${result.id}`;await preparedRequest('/api/lesson-task-runs',{room:target,setId:pending.set.id,deferFirstCard:true,...position});selectPage?.(result.id);}else await context.start({setId:pending.set.id,deferFirstCard:true,...position});setPending(null);});};
@@ -169,10 +191,18 @@ export default function PreparedLessonBoard({room,role,userId,dark,readOnly,item
   </div>;
   return <div className="prepared-board-layer prepared-board-layer--canvas">
     {headerSlot?createPortal(controls,headerSlot):<div className="prepared-toolbar-fallback">{controls}</div>}
-    {run&&run.cards.map(card=>{const stored=items.current.find(item=>item.id===card.anchorId);if(!stored)return null;const anchor=preview(stored),sx=zoom*anchor.width/card.width,Component=card.kind==='theory'?PreparedTheoryCard:PreparedTaskCard;return <Component key={card.id} interactiveDoc={interactiveDoc} boardTool={boardTool} onCursor={onCursor} card={card} run={run} context={context} auth={{id:userId,role}} readOnly={readOnly||!ready||run.readOnly} showReferenceAnswers={!trialPresentation&&showReferenceAnswers} trialPresentation={trialPresentation} present={present} dark={dark} onNavigate={navigateResult} worldAnchor={anchor} onMeasure={measured} style={{left:(anchor.x-offset.x)*zoom,top:(anchor.y-offset.y)*zoom,width:card.width,transform:`scale(${sx})`}}/>;})}
+    {run&&run.cards.map(card=>{
+      const stored=items.current.find(item=>item.id===card.anchorId);
+      if(!stored)return null;
+      const anchor=preview(stored);
+      const style={left:(anchor.x-offset.x)*zoom,top:(anchor.y-offset.y)*zoom,width:card.width,transform:`scale(${zoom*anchor.width/card.width})`};
+      if(conditionOnly&&card.kind!=='theory')return <PracticeConditionCard key={card.id} card={card} run={run} style={style}/>;
+      const Component=card.kind==='theory'?PreparedTheoryCard:PreparedTaskCard;
+      return <Component key={card.id} interactiveDoc={interactiveDoc} boardTool={boardTool} onCursor={onCursor} card={card} run={run} context={context} auth={{id:userId,role}} readOnly={readOnly||!ready||run.readOnly} showReferenceAnswers={!trialPresentation&&showReferenceAnswers} trialPresentation={trialPresentation} present={present} dark={dark} onNavigate={navigateResult} worldAnchor={anchor} onMeasure={conditionOnly?undefined:measured} style={style}/>;
+    })}
     {upcoming&&<PreparedTheoryGhost key={upcoming.fromCardId} upcoming={upcoming} items={items.current} revision={revision} zoom={zoom} offset={offset} surface={surface}/>}
-    {run&&<PreparedReferencePromotion run={run} refresh={context.refresh} disabled={readOnly||studyPreview||trialPresentation} dark={dark}/>}
-    {run&&<PreparedReferenceReplacement run={run} refresh={context.refresh} disabled={readOnly||studyPreview||trialPresentation} dark={dark}/>}
+    {run&&!conditionOnly&&<PreparedReferencePromotion run={run} refresh={context.refresh} disabled={readOnly||studyPreview||trialPresentation} dark={dark}/>}
+    {run&&!conditionOnly&&<PreparedReferenceReplacement run={run} refresh={context.refresh} disabled={readOnly||studyPreview||trialPresentation} dark={dark}/>}
     <div className={`prepared-board-feedback${dark?' prepared-dark':''}`}>
       {pending&&<div className="prepared-placement" onPointerDown={place}><span>{busy?'Сохраняем место…':`Выберите место для «${pending.set.name}», затем нажмите «Начать». Esc — отмена.`}</span></div>}
       {notice&&<div className="prepared-board-notice" role="status">{notice}<button type="button" onClick={()=>setNotice('')}>Понятно</button></div>}

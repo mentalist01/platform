@@ -21,7 +21,7 @@ const readPrompt = (lesson, user) => {
   }
 };
 
-export default function GroupLessonPractice({ lesson, user, students, selectedRoomId, voiceChannelId, studentActionsTarget, onOpen, theme }) {
+export default function GroupLessonPractice({ lesson, user, students, selectedRoomId, voiceChannelId, teacherVoiceChannelId, studentActionsTarget, onOpen, theme }) {
   const { groupId, lessonId } = lesson;
   const teacher = user.role === 'teacher' || user.role === 'admin';
   const [practice, setPractice] = useState(null);
@@ -66,6 +66,11 @@ export default function GroupLessonPractice({ lesson, user, students, selectedRo
 
   useEffect(() => {
     if (!practice) return;
+    if (teacher && teacherVoiceChannelId) {
+      const room = active?.rooms.find(entry => practiceVoiceChannelId(entry.id) === teacherVoiceChannelId);
+      if (room) onOpen({ roomId:room.id, pageId:active.pageId, viewport:active.viewport, roundId:active.id });
+      return;
+    }
     const current = teacher ? active?.rooms.find(room => room.id === selectedRoomId) : active?.rooms[0];
     const previous = lastPlacement.current;
     if (current) {
@@ -77,7 +82,7 @@ export default function GroupLessonPractice({ lesson, user, students, selectedRo
       lastPlacement.current = null;
       onOpen({ pageId: previous?.pageId });
     }
-  }, [active, onOpen, practice, selectedRoomId, teacher]);
+  }, [active, onOpen, practice, selectedRoomId, teacher, teacherVoiceChannelId]);
 
   const change = async (action, fields = {}) => {
     if (inFlight.current) return;
