@@ -207,6 +207,9 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const selected = channels.find((channel) => channel.id === selectedId);
   const canConnect = snapshot?.canJoin;
   const ownWorkChannel = !isTeacher && channels.find(channel => channel.kind === 'practice');
+  const visibleChannels = isTeacher ? channels : channels.filter(channel =>
+    channel.kind === 'general' || channel.id === selected?.id
+    || (ownWorkChannel ? channel.id === ownWorkChannel.id : channel.studentId === user.id));
   const statusLabel = callStatus === 'connected' ? 'Вы в канале' : callStatus === 'connecting' ? 'Подключение…' : 'Связь отключена';
 
   return (
@@ -230,7 +233,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
             <button type="button" className="group-voice__back" onClick={onBack}><ArrowLeft size={15} /> К мини-группе</button>
             {!snapshot && !loadError && <p className="group-voice__loading"><Loader2 size={18} className="animate-spin" /> Загружаем каналы…</p>}
             <div className="group-voice__channels">
-              {channels.map((channel) => {
+              {visibleChannels.map((channel) => {
                 const active = selectedId === channel.id && callStatus !== 'idle';
                 // Local connection status wins over a stale HTTP membership snapshot.
                 const participants = (channel.participants || []).filter(participant => participant.userId !== user.id);
@@ -280,7 +283,6 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 </form>
               </>
             )}
-            <p className="group-voice__hint">Слышны только участники выбранного канала. Все участники занятия могут переходить между каналами.</p>
           </aside>
           <main className="group-voice__main">
             {(!selected || !canConnect || callStatus !== 'connected') && (

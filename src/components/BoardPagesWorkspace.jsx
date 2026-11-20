@@ -30,7 +30,7 @@ function PagedBoardWorkspace(props) {
   const {role,userId,userName,teacherId,lessonId,groupId,activeStudentId,readOnly}=canvasProps;
   const teacher=role==='teacher' || role==='admin';
   const group=Boolean(groupId && (lessonId || canvasProps.studyPreview));
-  const {unifiedGroupBoard,practiceWork}=canvasProps;
+  const {unifiedGroupBoard,practiceWork,practiceActionsRef}=canvasProps;
   const studySubjectId=group?groupStudySubject(groupId):activeStudentId;
   const base=canvasProps.workspaceRoomId || (group ? groupNotebookBoard(groupId) : (teacherId && (teacher?activeStudentId:userId) ? `board-${teacherId}-${teacher?activeStudentId:userId}` : null));
   const bookRoom=boardPageBookRoom(base);
@@ -184,6 +184,7 @@ function PagedBoardWorkspace(props) {
     </button>
     {teacher&&!readOnly&&!privateWork&&!canvasProps.workspaceRoomId&&studySubjectId&&(!group||!boardStudentId)&&<StudentStudyBoardControl teacherId={teacherId} studentId={studySubjectId} pageId={pageId} room={boardPageRoom(base,pageId)} onSelectPage={choose}/>}
     <div className="board-prepared-slot"/>
+    {!teacher && editingRoom && practiceActionsRef && <div className="board-practice-actions" ref={practiceActionsRef} />}
     {uniquePeers.length>0 && <details className="board-pages-peers"><summary aria-label="Участники на страницах" title={uniquePeers.map(label).join('\n')}>
       <span className="board-pages-avatars" aria-hidden="true">{uniquePeers.slice(0,3).map(peer=><span className={`board-pages-avatar ${together(peer)?'is-together':''}`} key={peer.userId}>{initials(peer)}</span>)}</span>
       {uniquePeers.length===1 ? <><span className="board-pages-peer-name">{uniquePeers[0].name || 'Участник'}</span><span className={`board-pages-peer-state ${together(uniquePeers[0])?'is-together':''}`}>{peerStatus(uniquePeers[0])}</span></> : <span className="board-pages-peer-name">{samePlaceCount===uniquePeers.length?`${samePlaceCount} с вами`:`${uniquePeers.length} онлайн`}</span>}

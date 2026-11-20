@@ -12,7 +12,7 @@ const files = fs.readdirSync(path.join(directory, 'assets')).filter(file => /\.(
 const source = files.filter(file => file.endsWith('.js')).map(file => fs.readFileSync(path.join(directory, 'assets', file), 'utf8')).join('\n');
 const features = files.filter(file => /^(?:StudentGroupLibrary|AdminPanel|CallSection|TeacherSubscriptionGate|teacherPlatformPayments|groupLibrary)-/.test(file)
   || (file.endsWith('.css') && fs.readFileSync(path.join(directory, 'assets', file), 'utf8').includes('.student-group-library')));
-for (const marker of ['Группы и записи', 'Слушать занятия', 'Все записи', 'Присоединиться слушателем', '/api/student-group-library', 'recordingParts', 'listenOnly', 'Имя плательщика в Т-банке', 'Автоотметка Т-банка подключена', '/api/teacher-subscription/notifications']) {
+for (const marker of ['Группы и записи', 'Слушать занятия', 'Записи групп', 'Присоединиться слушателем', '/api/student-group-library', 'recordingParts', 'listenOnly', 'Имя плательщика в Т-банке', 'Автоотметка Т-банка подключена', '/api/teacher-subscription/notifications']) {
   assert.ok(source.includes(marker), `Missing group/payment feature: ${marker}`);
 }
 assert.ok(features.some(file => file.endsWith('.css')), 'Group library styles missing');

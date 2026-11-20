@@ -3457,6 +3457,7 @@ export const CollabSection = ({
   pythonExplanation = false,
   workspaceRoomId = '',
   practiceWork = null,
+  practiceActionsRef,
   unifiedGroupBoard = false,
 }) => {
   const isTeacher = role === 'teacher';
@@ -10296,6 +10297,7 @@ export const CollabSection = ({
                     workspaceRoomId={pythonExplanation ? (learningGroupId ? pythonGroupBoardRoom(learningGroupId) : pythonExplanationBoardRoom(teacherId,effectiveStudentId)) : undefined}
                     unifiedGroupBoard={unifiedGroupBoard}
                     practiceWork={practiceWork}
+                    practiceActionsRef={practiceActionsRef}
                     embedded
                     hideStudentPicker
                     showEmbeddedSummonButton={isTeacher}
@@ -18999,6 +19001,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [practiceWorkspace, setPracticeWorkspace] = useState(null);
   const [practiceVoiceRequest, setPracticeVoiceRequest] = useState(null);
   const [groupVoiceConnection, setGroupVoiceConnection] = useState(null);
+  const [boardPracticeActions, setBoardPracticeActions] = useState(null);
   const [studentGroupAccess, setStudentGroupAccess] = useState({ userId: '', hasGroups: false, loaded: false });
   const [studentAvailabilityState, setStudentAvailabilityState] = useState({ userId: '', prompt: null });
   const { hasGroups: studentHasGroups, seekingGroup: studentSeekingGroup } = getStudentGroupNavigationAccess(user.id, studentGroupAccess, studentAvailabilityState);
@@ -20160,6 +20163,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     setPendingOpenMockExamId(null);
   }, [user.role, user.id]);
 
+  const studentGroupView = user.role === 'student' && studentHasGroups && view === 'student-recordings';
+  const currentNavView = studentGroupView ? 'groups' : view;
+  const studentRecordings = (
+    <React.Suspense fallback={<div role="status">Открываем записи занятий…</div>}>
+      <StudentLessonRecordings key={user.id} userId={user.id} />
+    </React.Suspense>
+  );
   const nav = user.role === 'admin'
     ? [
       { id: 'admin', label: 'Админка', icon: Settings },
@@ -20189,7 +20199,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       ]
       : [
         { id: 'schedule', label: 'Домашка', icon: Calendar },
-        {id:'student-recordings',label:studentHasGroups?'Личные записи':'Записи',icon:Video},
+        ...(!studentHasGroups ? [{ id:'student-recordings', label:'Записи', icon:Video }] : []),
         ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : studentSeekingGroup ? 'Выбрать время' : 'Групповые занятия', icon: Users }] : []),
         { id: 'progress', label: 'Все задания', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
@@ -20209,7 +20219,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     user.role === 'student'
       ? [
         'schedule',
-        'student-recordings',
+        ...(!studentHasGroups ? ['student-recordings'] : []),
         ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? ['groups'] : []),
         'progress',
         ...(studentCanSeeReview ? ['review'] : []),
@@ -25820,7 +25830,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   renderBadge={renderNavBadge}
                 /> : desktopPrimaryNav.map((n, idx) => {
                   const isLessonButton = n.id === 'lesson';
-                  const isActive = isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
+                  const isActive = isLessonButton ? lessonQuickNavIds.includes(view) : currentNavView === n.id;
                   const isFeatured = Boolean(n.featured);
                   return (
                     <button
@@ -25957,7 +25967,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         <div className="desktop-nav-fab__stack">
           {desktopFabNav.map((n) => {
             const isLessonButton = n.id === 'lesson';
-            const isActive = user.role === 'teacher' ? getTeacherNavigationGroup(view) === n.id : isLessonButton ? lessonQuickNavIds.includes(view) : view === n.id;
+            const isActive = user.role === 'teacher' ? getTeacherNavigationGroup(view) === n.id : isLessonButton ? lessonQuickNavIds.includes(view) : currentNavView === n.id;
             const isFeatured = Boolean(n.featured);
             const isSecondary = user.role === 'student'
               && studentDesktopToolNav.some((item) => item.id === n.id);
@@ -26594,10 +26604,13 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             </div>
           )}
           {view === 'recording' && user.role === 'teacher' && <LessonRecordingSection recorder={desktopRecorder} />}
-          {view === 'student-recordings' && user.role === 'student' && <React.Suspense fallback={<div role="status">Открываем записи занятий…</div>}><StudentLessonRecordings key={user.id} userId={user.id}/></React.Suspense>}
+          {view === 'student-recordings' && user.role === 'student' && !studentGroupView && studentRecordings}
           {view === 'meetings' && user.role === 'teacher' && <GuestMeetingsSection user={user} theme={theme} />}
-          {view === 'groups' && ['teacher', 'student'].includes(user.role) && (
-            <StudentGroupLibrary user={user} theme={theme} startWithRecordings={!studentHasGroups && !studentSeekingGroup && studentHasLibraryAccess} openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
+          {currentNavView === 'groups' && ['teacher', 'student'].includes(user.role) && (
+            <StudentGroupLibrary key={view} user={user} theme={theme}
+              initialTab={studentGroupView ? 'personal' : !studentHasGroups && !studentSeekingGroup && studentHasLibraryAccess ? 'recordings' : 'own'}
+              personalRecordings={studentHasGroups ? studentRecordings : null}
+              openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
             <LearningGroupsSection
               role={user.role}
               userId={user.id}
@@ -27004,6 +27017,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               <GroupLessonPractice key={practiceLessonId} lesson={activeLearningLesson} user={user}
                 students={currentStudentsWithNicknames} selectedRoomId={currentPractice?.roomId}
                 voiceChannelId={view !== 'call' && groupVoiceConnection?.lessonId === practiceLessonId ? groupVoiceConnection.channelId : ''}
+                studentActionsTarget={boardPracticeActions}
                 onOpen={openPracticeWorkspace} theme={theme} />
             </React.Suspense>
           )}
@@ -27013,6 +27027,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               workspaceRoomId={practiceCodeRoom}
               unifiedGroupBoard={unifiedGroupBoard}
               practiceWork={currentPractice}
+              practiceActionsRef={user.role === 'student' ? setBoardPracticeActions : undefined}
               role={user.role}
               userId={user.id}
               userName={user.name}
@@ -27131,6 +27146,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <BoardSection
               unifiedGroupBoard={unifiedGroupBoard}
               practiceWork={currentPractice}
+              practiceActionsRef={user.role === 'student' ? setBoardPracticeActions : undefined}
               role={user.role}
               userId={user.id}
               userName={user.name}
@@ -27667,7 +27683,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {studentMobileMoreNav.map((item) => {
                       const Icon = item.icon;
-                      const isActive = view === item.id;
+                      const isActive = currentNavView === item.id;
                       return (
                         <button
                           key={`mobile-more-${item.id}`}
@@ -27705,7 +27721,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
                 const isMoreButton = n.id === 'more';
                 const isLessonButton = n.id === 'lesson';
                 const isActive = user.role === 'teacher' ? getTeacherNavigationGroup(view) === n.id : isMoreButton
-                  ? (menuOpen || studentMobileMoreNav.some((item) => item.id === view))
+                  ? (menuOpen || studentMobileMoreNav.some((item) => item.id === currentNavView))
                   : (isLessonButton ? studentLessonNavIds.includes(view) : view === n.id);
                 const isFeatured = Boolean(n.featured);
                 const Icon = n.icon;

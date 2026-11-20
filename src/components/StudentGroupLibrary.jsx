@@ -9,10 +9,15 @@ const time = value => new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Mosco
 const lessonCount = count => `${count} ${{ one: 'занятие', few: 'занятия', many: 'занятий', other: 'занятия' }[new Intl.PluralRules('ru-RU').select(count)]}`;
 const groupCount = count => `${count} ${{one:'группа',few:'группы',many:'групп',other:'группы'}[new Intl.PluralRules('ru-RU').select(count)]}`;
 const recordingCount = count => `${count} ${{one:'запись',few:'записи',many:'записей',other:'записи'}[new Intl.PluralRules('ru-RU').select(count)]}`;
-const tabs = [{ id: 'own', label: 'Мои группы', icon: Users }, { id: 'live', label: 'Слушать занятия', icon: Headphones }, { id: 'recordings', label: 'Все записи', icon: Library }];
-export default function StudentGroupLibrary({ user, theme = 'light', openOwnRequest, children, startWithRecordings = false, transport = fetchGroupLibrary }) {
+const tabs = [
+  { id: 'own', label: 'Мои группы', icon: Users },
+  { id: 'recordings', label: 'Записи групп', icon: Library },
+  { id: 'personal', label: 'Личные записи', icon: Video },
+  { id: 'live', label: 'Слушать занятия', icon: Headphones },
+];
+export default function StudentGroupLibrary({ user, theme = 'light', openOwnRequest, children, initialTab = 'own', personalRecordings, transport = fetchGroupLibrary }) {
   const student = user?.role === 'student';
-  const [tab, setTab] = useState(startWithRecordings ? 'recordings' : 'own'), [data, setData] = useState(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState(initialTab), [data, setData] = useState(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const [query, setQuery] = useState(''), [groupId, setGroupId] = useState('');
   const [watching, setWatching] = useState(null), [part, setPart] = useState(0), [listening, setListening] = useState(null);
   const dialogRef = useRef(null);
@@ -23,7 +28,7 @@ export default function StudentGroupLibrary({ user, theme = 'light', openOwnRequ
   }, [student, user?.id, transport]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (openOwnRequest) setTab('own'); }, [openOwnRequest]);
-  useEffect(() => { if (!student || tab === 'own') return; const timer = setInterval(load, 30000); return () => clearInterval(timer); }, [load, student, tab]);
+  useEffect(() => { if (!student || (tab !== 'live' && tab !== 'recordings')) return; const timer = setInterval(load, 30000); return () => clearInterval(timer); }, [load, student, tab]);
   useEffect(() => { if (data && !data.allowed) { setListening(null); setWatching(null); } }, [data]);
   useEffect(() => {
     if (!listening && !watching) return;
@@ -49,8 +54,12 @@ export default function StudentGroupLibrary({ user, theme = 'light', openOwnRequ
   if (!student) return children;
   const changeTab = value => { setTab(value); setQuery(''); setGroupId(''); };
   return <div className="student-group-library" data-theme={theme}>
-    <nav className="sgl-tabs" aria-label="Занятия и записи групп">{tabs.map(({ id, label, icon: Icon }) => <button type="button" key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}>{React.createElement(Icon,{size:18})}{label}{id === 'recordings' && data?.allowed && <span>{data.recordings.length}</span>}</button>)}</nav>
-    {tab === 'own' ? children : <>
+    <nav className="sgl-tabs" aria-label="Группы и записи">
+      {tabs.filter(({ id }) => id !== 'personal' || personalRecordings).map(({ id, label, icon: Icon }) => (
+        <button type="button" key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => changeTab(id)}>{React.createElement(Icon,{size:18})}{label}</button>
+      ))}
+    </nav>
+    {tab === 'own' ? children : tab === 'personal' ? personalRecordings : <>
       {tab === 'recordings' ? <section className="sgl-recording-hero"><span><Video size={18}/> БИБЛИОТЕКА УРОКОВ</span><h2>{selectedGroup ? selectedGroup.name : 'Записи занятий по группам'}</h2><p>{selectedGroup ? 'Начните с первого урока или вернитесь к нужной теме. Записи идут от ранних занятий к новым.' : 'Выберите группу и проходите занятия по порядку — с самого первого урока.'}</p></section> : <section className="sgl-hero"><div className="sgl-hero-copy"><span className="sgl-eyebrow"><Sparkles size={15} /> Входит в ваш групповой тариф</span>
         <h2>{tab === 'live' ? <>Учитесь вместе.<br /><em>Даже с другой группой.</em></> : <>Любая тема.<br /><em>В вашем темпе.</em></>}</h2>
         <p>{tab === 'live' ? 'Присоединяйтесь к занятиям других групп вашего преподавателя как слушатель. Смотрите разбор и слушайте объяснения.' : 'Все записи групп вашего преподавателя в одном месте. Найдите нужную тему и вернитесь к объяснению в любое время.'}</p>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Hand, Headphones, PenLine, Users, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Check, Hand, Headphones, Users, X } from 'lucide-react';
 import { api } from '../services/api.js';
 import { boardPageBookRoom, boardPageRoom } from '../utils/boardPages.js';
 import { groupNotebookBoard } from '../utils/groupNotebook.js';
@@ -20,7 +21,7 @@ const readPrompt = (lesson, user) => {
   }
 };
 
-export default function GroupLessonPractice({ lesson, user, students, selectedRoomId, voiceChannelId, onOpen, theme }) {
+export default function GroupLessonPractice({ lesson, user, students, selectedRoomId, voiceChannelId, studentActionsTarget, onOpen, theme }) {
   const { groupId, lessonId } = lesson;
   const teacher = user.role === 'teacher' || user.role === 'admin';
   const [practice, setPractice] = useState(null);
@@ -106,7 +107,29 @@ export default function GroupLessonPractice({ lesson, user, students, selectedRo
   if (!practice) return null;
   const ownRoom = !teacher && voiceChannelId && active?.rooms.find(room =>
     room.id === selectedRoomId && practiceVoiceChannelId(room.id) === voiceChannelId);
-  if (teacher ? !practice.canManage && !active : !ownRoom) return null;
+  if (!teacher) {
+    if (!ownRoom || !studentActionsTarget) return null;
+    const partner = ownRoom.students.find(student => student.id !== user.id);
+    return createPortal(
+      <section className="group-practice group-practice--board" data-theme={theme} aria-label="Режим работы на уроке">
+        {partner && <span className="group-practice__partner" title={partner.name}>Напарник <strong>{partner.name}</strong></span>}
+        <div className="group-practice__status-actions">
+          {[
+            { status:'help', label:'Нужна помощь', icon:<Hand size={16} aria-hidden="true" /> },
+            { status:'ready', label:'Готово', icon:<Check size={16} aria-hidden="true" /> },
+          ].map(({ status, label, icon }) => (
+            <button key={status} type="button" title={label} aria-label={label} aria-pressed={ownRoom.status === status} disabled={busy}
+              onClick={() => void change('status',{roomId:ownRoom.id,status:ownRoom.status === status ? 'working' : status})}>
+              {icon}<span>{label}</span>
+            </button>
+          ))}
+        </div>
+        {error && <p className="group-practice__error" role="alert">{error}</p>}
+      </section>,
+      studentActionsTarget,
+    );
+  }
+  if (!practice.canManage && !active) return null;
   return (
     <section className="group-practice" data-theme={theme} aria-label="Режим работы на уроке">
       {teacher && !active && (
@@ -162,20 +185,6 @@ export default function GroupLessonPractice({ lesson, user, students, selectedRo
             ))}
           </div>
           {practice.canManage && <button type="button" className="group-practice__primary" disabled={busy} onClick={() => void change("finish")}>Собрать всех</button>}
-        </>
-      )}
-      {ownRoom && (
-        <>
-          <span className="group-practice__current">
-            {ownRoom.studentIds.length === 2 ? <><Users size={15} aria-hidden="true" /> {ownRoom.students.map(student => student.name).join(" и ")}</>
-              : <><PenLine size={15} aria-hidden="true" /> Самостоятельная работа</>}
-          </span>
-          <div className="group-practice__status-actions">
-            <button type="button" aria-pressed={ownRoom.status === "help"} disabled={busy} onClick={() =>
-              void change("status",{roomId:ownRoom.id,status:ownRoom.status === "help" ? "working" : "help"})}><Hand size={15} /> Нужна помощь</button>
-            <button type="button" aria-pressed={ownRoom.status === "ready"} disabled={busy} onClick={() =>
-              void change("status",{roomId:ownRoom.id,status:ownRoom.status === "ready" ? "working" : "ready"})}><Check size={15} /> Готово</button>
-          </div>
         </>
       )}
       {error && <p className="group-practice__error" role="alert">{error}</p>}

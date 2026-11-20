@@ -2,6 +2,9 @@
 .board-pages-stage>.board-canvas-surface{min-width:0;flex:1;width:auto}
 .board-pages-heading{position:absolute;z-index:32;top:12px;left:12px;right:64px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;pointer-events:none;color:var(--collab-code-text,#334155);font-size:13px}
 .board-pages-heading button,.board-pages-peers{pointer-events:auto}
+.board-practice-actions{display:flex;flex:none;margin-left:auto;pointer-events:auto}
+.board-practice-actions:empty{display:none}
+.board-canvas-surface:has(.board-practice-actions){container-type:inline-size}
 .board-pages-current,.board-pages-peers summary{display:flex;align-items:center;gap:8px;height:38px;box-sizing:border-box;border:1px solid var(--collab-code-line,#e4dfef);border-radius:12px;background:var(--collab-code-panel,rgba(255,255,255,.96));box-shadow:0 3px 12px #26314f0a;color:inherit;font:inherit;backdrop-filter:blur(12px);cursor:pointer}
 .board-pages-current{padding:0 10px;max-width:min(380px,60%);min-width:0;font-weight:650;transition:border-color .15s,background .15s}
 .board-pages-current>svg:first-child{color:#8b5cf6}.board-pages-current>svg{flex:none}
