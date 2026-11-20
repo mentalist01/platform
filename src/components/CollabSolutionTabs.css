@@ -60,18 +60,6 @@
 .collab-solutions__set-divider svg { flex: 0 0 auto; }
 .collab-solutions__set-divider > span { overflow: hidden; text-overflow: ellipsis; }
 .collab-solutions__tab.is-participant { font-weight: 700; }
-.collab-solutions__version {
-  max-width: clamp(105px, 22vw, 168px);
-  min-height: 30px;
-  padding: 3px 7px;
-  border: 1px solid var(--solution-border);
-  border-radius: 8px;
-  color: var(--solution-text);
-  background: var(--solution-muted-surface);
-  font-size: 11px;
-  font-weight: 650;
-}
-.collab-solutions__version:focus-visible { outline: 2px solid var(--solution-accent); outline-offset: 2px; }
 .collab-solutions__tab.is-current-workspace:not(.is-active) { color: var(--solution-accent); border-color: var(--solution-border); }
 .collab-solutions__shared-tasks { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 4px 9px; background: var(--solution-muted-surface); border-bottom: 1px solid var(--solution-border); }
 .collab-solutions__shared-tasks > span { display: inline-flex; flex: none; align-items: center; gap: 5px; font-size: 11px; font-weight: 650; }

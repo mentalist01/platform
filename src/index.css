@@ -28758,6 +28758,47 @@ html:not([data-theme='dark']) .collab-editor-surface {
   background: #020617;
 }
 
+.collab-practice-comments-zone {
+  z-index: 1;
+}
+
+.collab-practice-comments,
+.collab-practice-review__solution {
+  margin: 0;
+  font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+  tab-size: 4;
+}
+
+.collab-practice-comments {
+  padding-block: 0.65em 0.4em;
+  color: #356649;
+}
+
+html[data-theme='dark'] .collab-practice-comments {
+  color: #99c592;
+}
+
+.collab-practice-review {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 12px 18px;
+  color: #24324b;
+  line-height: 1.58;
+}
+
+html[data-theme='dark'] .collab-practice-review {
+  color: #e2e8f0;
+}
+
+.collab-practice-review__solution + .collab-practice-review__solution {
+  margin-top: 0.75em;
+}
+
 .collab-editor-surface .monaco-editor,
 .collab-editor-surface .monaco-editor *,
 .collab-editor-surface .overflow-guard,
