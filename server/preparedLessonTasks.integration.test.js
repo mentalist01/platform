@@ -338,3 +338,61 @@ test('pasted prepared card shares task materials and starts an independent attem
     fs.rmSync(fixture.root,{recursive:true,force:true});
   }
 });
+
+test('prepared task rewards pay the chosen group pupils once and show the receipt only to the teacher', {timeout:45000}, async () => {
+  const f = await createGroupHomeworkFixture(undefined, write => write('progress', {
+    'student-a': {progress: {'4': {basic: 1}}, coinsTotal: 11},
+    'student-b': {'4': {basic: 1}},
+  }));
+  const {base, groupId, request, tokens} = f;
+  const teacher = tokens['teacher-a'];
+  const a = tokens['student-a'];
+  const b = tokens['student-b'];
+  const studentData = id => request('/api/student-data?studentId='+id, tokens[id]);
+  try {
+    const form = new FormData();
+    const pixels = await sharp({create:{width:80,height:40,channels:4,background:'white'}}).png().toBuffer();
+    form.append('file',new Blob([pixels]),'task.png');
+    const upload = await fetch(base+'/api/lesson-task-images',{method:'POST',headers:{Authorization:'Bearer '+teacher},body:form});
+    assert.equal(upload.status,201);
+    const image = await upload.json();
+    const set = await request('/api/lesson-task-sets',teacher,{
+      name:'Награда за задачу',taskNumber:4,tasks:[{title:'1',images:[image.id],answers:['42']}],
+    },'POST',201);
+    const room = 'board-group-'+groupId;
+    const {run} = await request('/api/lesson-task-runs',teacher,{room,setId:set.id,x:0,y:0},'POST',201);
+    const cardId = run.cards[0].id;
+    const action = '/api/lesson-task-runs/'+run.id+'/action';
+    const view = '/api/lesson-task-run?room='+encodeURIComponent(room);
+    const input = {action:'reward-coins',cardId,studentIds:['student-a','student-b','student-a'],amount:10};
+    assert.deepEqual(run.rewardParticipants.map(person=>person.id).sort(),['student-a','student-b']);
+    assert.equal((await request(view,a)).run.rewardParticipants,undefined);
+    const before = await Promise.all([studentData('student-a'),studentData('student-b')]);
+
+    await request(action,a,input,'POST',403);
+    await request(action,tokens['teacher-b'],input,'POST',403);
+    await request(action,teacher,{...input,studentIds:['student-a','student-c']},'POST',403);
+    await request(action,teacher,{...input,amount:1.5},'POST',400);
+    assert.equal((await studentData('student-a')).coinsTotal,before[0].coinsTotal);
+
+    const replies = await Promise.all([request(action,teacher,input),request(action,teacher,input)]);
+    for (const {run: updated} of replies) {
+      assert.deepEqual(updated.cards[0].coinRewards.map(({id,amount})=>[id,amount]).sort(),[['student-a',10],['student-b',10]]);
+      assert.equal(updated.cards[0].status,run.cards[0].status);
+    }
+    const refreshed = (await request(view,teacher)).run;
+    assert.deepEqual(refreshed.cards[0].coinRewards,replies[0].run.cards[0].coinRewards);
+    const [afterA,afterB] = await Promise.all([studentData('student-a'),studentData('student-b')]);
+    assert.equal(afterA.coinsTotal,before[0].coinsTotal+10);
+    assert.equal(afterB.coinsTotal,before[1].coinsTotal+10);
+    assert.deepEqual(afterA.progress,before[0].progress);
+    assert.deepEqual(afterB.progress,before[1].progress);
+    assert.equal(afterB.preparedTaskCoinRewards,undefined);
+    await request('/api/student-notes',teacher,{studentId:'student-b',notes:'Сохранено после начисления'},'PATCH');
+    assert.deepEqual((await request(view,teacher)).run.cards[0].coinRewards,refreshed.cards[0].coinRewards);
+    assert.equal((await request(view,b)).run.cards[0].coinRewards,undefined);
+  } finally {
+    await f.stop();
+    fs.rmSync(f.root,{recursive:true,force:true});
+  }
+});

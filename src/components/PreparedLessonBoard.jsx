@@ -7,6 +7,7 @@ import {preparedRequest} from '../services/preparedLessonTasks.js';
 import PreparedConditionImage from './PreparedConditionImage.jsx';
 import FileDownloadLink from './FileDownloadLink.jsx';
 import PreparedAnswerStatus from './PreparedAnswerStatus.jsx';
+import PreparedTaskCoinRewards from './PreparedTaskCoinRewards.jsx';
 import PreparedFileHandoff from './PreparedFileHandoff.jsx';
 import PreparedSolveCelebration from './PreparedSolveCelebration.jsx';
 import './PreparedSolveCelebration.css';
@@ -80,6 +81,7 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
   const helper=asset=>perform(async()=>{const install=getWorkbookHelperInstall();if(!install.supported)throw Error('Для этого устройства доступно скачивание файла. Помощник таблиц можно установить из раздела «Загрузки».');const launch=await preparedRequest(`/api/lesson-task-runs/${run.id}/helper`,{cardId:card.id,assetId:asset.assetId});window.location.assign(`ivan-ege://workbook/open?${new URLSearchParams({origin:getExternalApiOrigin(),ticket:launch.ticket})}`);setMessage('Помощник открывается. После Ctrl+S решение появится здесь и в конспектах.');});
   const queueHomework=()=>perform(async()=>{await flush();const root=element.current.getBoundingClientRect(),anchor=worldAnchor||{x:0,y:0,width:card.width};const images=Array.from(element.current.querySelectorAll('.prepared-card-body>img')).map((image,i)=>{const box=image.getBoundingClientRect(),ratio=anchor.width/root.width;return {id:card.images[i].id,x:anchor.x+(box.left-root.left)*ratio,y:anchor.y-controlOverflow*anchor.width/card.width+(box.top-root.top)*ratio,width:box.width*ratio,height:box.height*ratio};});await preparedRequest('/api/prepared-homework/basket',{runId:run.id,cardId:card.id,images});setHomeworkQueued(true);});
   const title=preparedTaskTitle(card),groups=preparedAnswerGroups(card),gameBlock=Boolean(card.answerGroups);
+  const rewardParticipants=readOnly?[]:run.rewardParticipants||[];
   const canEditFiles=!readOnly&&run.canEditFiles!==false&&(!run.groupId||run.canManage);
   const independent=card.answerMode==='independent',reference=run.canManage&&showReferenceAnswers?card.referenceAnswers:null;
   const blocked=readOnly||draftConflict||busy,answerLayout=preparedAnswerLayout(card);
@@ -101,6 +103,9 @@ export function PreparedTaskCard({card,run,context,auth,readOnly,style,onMeasure
         </>}
         {message&&message!=='Пока неверно. Попробуйте ещё.'&&<p role="status">{message}</p>}
       </div>
+      {(rewardParticipants.length>0||card.coinRewards?.length>0)&&<PreparedTaskCoinRewards
+        participants={rewardParticipants} rewards={card.coinRewards} disabled={busy}
+        onAward={(studentIds,amount)=>action({action:'reward-coins',studentIds,amount})}/>}
       {run.canManage&&card.status==='solved'&&card.achievementParticipants?.length>0&&<details className="prepared-solve-credit"><summary>Учёт решения · {card.achievementParticipants.length===1?'ученик':`участников: ${card.achievementParticipants.length}`}</summary><small>Совместное решение засчитано. Самостоятельность подтверждаете вы.</small>{card.achievementParticipants.map(person=><div key={person.id}><span>{person.name}</span><button type="button" disabled={busy||readOnly||person.independent} onClick={()=>void perform(()=>action({action:'confirm-independent',studentId:person.id}))}>{person.independent?<><Check size={13}/>Самостоятельно</>:'Подтвердить самостоятельность'}</button></div>)}</details>}
       <PreparedCardMaterials card={trialPresentation?{...card,referenceSolution:card.status==='solved'?card.referenceSolution:null}:card} run={run} readOnly={readOnly} busy={busy} canEditFiles={canEditFiles} refresh={context.refresh} onOpen={asset=>void helper(asset)} onExtra={asset=><div className="prepared-file-extra"><button type="button" disabled={busy} onClick={()=>{upload.current.dataset.assetId=asset.assetId;upload.current.dataset.revision=String(asset.solution?.revision||0);upload.current.click();}}><Upload size={13}/>Загрузить решение</button><PreparedFileHandoff asset={asset} disabled={busy} action={action}/></div>}/>
       {canEditFiles&&<input ref={upload} type="file" hidden onChange={event=>{const file=event.target.files?.[0];if(!file)return;const assetId=event.target.dataset.assetId,revision=event.target.dataset.revision;event.target.value='';void perform(async()=>{const form=new FormData();form.append('file',file);form.append('cardId',card.id);form.append('assetId',assetId);form.append('revision',revision);await preparedRequest(`/api/lesson-task-runs/${run.id}/solution`,form);context.refresh();setMessage('Решение сохранено на доске и в конспектах.');});}}/>}

@@ -23271,6 +23271,21 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       });
     return () => { cancelled = true; };
   }, [goalRefreshTick, stopXpGainAnimation, user.id, user.role]);
+  useEffect(() => {
+    if (user.role !== 'student') return undefined;
+    let sequence = 0;
+    const unsubscribe = subscribeScheduleSync(event => {
+      try {
+        const update = JSON.parse(event.data);
+        if (update.scope !== 'student-coins' || update.studentId !== user.id) return;
+        const request = ++sequence;
+        void api.getStudentData(user.id).then(data => {
+          if (request === sequence) setStudentCoinsTotal(normalizeCoinsTotal(data.coinsTotal));
+        }).catch(() => {});
+      } catch { /* Ignore unrelated or malformed stream messages. */ }
+    });
+    return () => { sequence++; unsubscribe(); };
+  }, [user.id, user.role]);
 
   useEffect(() => {
     setPaceForecastPopupOpen(false);

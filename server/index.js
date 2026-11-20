@@ -308,6 +308,7 @@ import {
 } from './workbookHelper.js';
 import { WorkbookPartSettings, workbookPartState, registerWorkbookPartRoutes } from './workbookParts.js';
 import { PreparedLessonTasks, registerPreparedHelperRoutes, registerPreparedTaskRoutes } from './preparedLessonTasks.js';
+import {createPreparedCoinRewards, preparedCoinRewardRoster} from './preparedCoinRewards.js';
 import {registerMockExamBoardTasks} from './mockExamBoardTasks.js';
 import {buildMockTaskBankSnapshot, resolveMockTaskBankNumber, withMockTaskBankSnapshot} from './mockExamTaskRouting.js';
 import {monthlyMockReviewAttempt} from '../src/utils/monthlyMockReviewAttempt.js';
@@ -15111,13 +15112,10 @@ const getStudentData = (studentId, progressDbOverride = null) => {
   };
 };
 
-const setStudentData = (studentId, data, progressDbOverride = null) => {
-  const db = progressDbOverride && typeof progressDbOverride === 'object' && !Array.isArray(progressDbOverride)
-    ? progressDbOverride
-    : readProgressDb();
+const studentProgressPayload = (data, previous) => {
   const suppliedAchievementRewards = normalizeAchievementRewards(data.achievementRewards);
-  const achievementRewards = mergeAchievementRewards(db[studentId]?.achievementRewards, data.achievementRewards);
-  const payload = {
+  const achievementRewards = mergeAchievementRewards(previous?.achievementRewards, data.achievementRewards);
+  return {
     progress: data.progress || {},
     notes: data.notes || '',
     notesByTask: normalizeNotesByTaskMap(data.notesByTask),
@@ -15140,8 +15138,9 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     mockTestingQueue: normalizeMockExamFollowupQueue(data.mockTestingQueue),
     randomMockSolvedByTask: normalizeRandomMockSolvedByTask(data.randomMockSolvedByTask),
     xpTotal: normalizeXpTotal(data.xpTotal) + achievementRewards.total - suppliedAchievementRewards.total,
-    ...(data.achievementRewards || db[studentId]?.achievementRewards ? { achievementRewards } : {}),
+    ...(data.achievementRewards || previous?.achievementRewards ? { achievementRewards } : {}),
     coinsTotal: normalizeCoinsTotal(data.coinsTotal),
+    ...(previous?.preparedTaskCoinRewards ? {preparedTaskCoinRewards: previous.preparedTaskCoinRewards} : {}),
     mockTimerChestsTotal: normalizeCoinsTotal(data.mockTimerChestsTotal),
     mockTimerChests: normalizeMockTimerChestQueue(data.mockTimerChests),
     coinsSpentTotal: normalizeCoinsSpentTotal(data.coinsSpentTotal),
@@ -15163,6 +15162,13 @@ const setStudentData = (studentId, data, progressDbOverride = null) => {
     avatarDataUrl: normalizeStudentAvatarDataUrl(data.avatarDataUrl),
     navSeen: normalizeStudentNavSeen(data.navSeen),
   };
+};
+
+const setStudentData = (studentId, data, progressDbOverride = null) => {
+  const db = progressDbOverride && typeof progressDbOverride === 'object' && !Array.isArray(progressDbOverride)
+    ? progressDbOverride
+    : readProgressDb();
+  const payload = studentProgressPayload(data, db[studentId]);
   db[studentId] = payload;
   writeProgressDb(db);
   return payload;
@@ -21941,7 +21947,22 @@ const sendWorkbookOperationError = (res, error) => {
 };
 
 const lessonAchievementStore = new LessonAchievementStore(path.join(dataDir,'lesson-achievements'),{write:writeFileAtomic});
+const preparedCoinRewards = createPreparedCoinRewards({
+  read: readProgressDb,
+  write: writeProgressDb,
+  roster: (run, access) => preparedCoinRewardRoster(run, access, readStudentsDb()),
+  credit: (studentId, amount, db) => {
+    const data = getStudentData(studentId, db);
+    const coinsTotal = data.coinsTotal + amount;
+    if (!Number.isSafeInteger(coinsTotal)) {
+      throw Object.assign(new Error('Слишком большое количество монет.'), {status:400});
+    }
+    return studentProgressPayload({...data, coinsTotal}, db[studentId]);
+  },
+  onGranted: (teacherId, studentId) => notifyScheduleSyncUpdate({scope:'student-coins', action:'lesson-task-reward', teacherId, studentId}),
+});
 const preparedLessonTasks = new PreparedLessonTasks({
+  coinRewards: preparedCoinRewards,
   directory:path.join(dataDir,'prepared-lesson-tasks'),
   authorize:async(auth,room,{write}={})=>{
     if(String(room).startsWith('prepared-homework-'))return preparedHomeworkStore?.access(auth,room,{write})||{allowed:false};

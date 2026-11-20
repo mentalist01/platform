@@ -1,0 +1,103 @@
+.prepared-coin-rewards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.prepared-board-layer .prepared-coin-award {
+  color: var(--pt-accent);
+  background: var(--pt-soft);
+  font-weight: 650;
+  min-height: 31px;
+}
+.prepared-coin-receipts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.prepared-coin-receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: var(--pt-green-bg);
+  color: var(--pt-green);
+  font-size: 11px;
+}
+.prepared-coin-receipt strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.prepared-coin-dialog {
+  color-scheme: light;
+  width: min(440px, calc(100% - 24px));
+  max-height: 90dvh;
+  margin: auto;
+  padding: 20px;
+  border: 1px solid light-dark(#e2d8ed, #564763);
+  border-radius: 16px;
+  background: light-dark(#fff, #292239);
+  color: light-dark(#29253d, #f3edfb);
+  font: inherit;
+  box-shadow: 0 14px 52px #1b11284d;
+}
+[data-theme=dark] .prepared-coin-dialog { color-scheme: dark; }
+.prepared-coin-dialog::backdrop { background: #1b112875; }
+.prepared-coin-dialog form { display: grid; gap: 15px; margin: 0; }
+.prepared-coin-dialog header, .prepared-coin-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.prepared-coin-dialog header h2 {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 730;
+}
+.prepared-coin-dialog header h2 svg { color: light-dark(#8652b7, #d6adfb); }
+.prepared-coin-dialog fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.prepared-coin-dialog legend { font-size: 12px; font-weight: 660; margin: 0 0 5px; }
+.prepared-coin-students { display: grid; gap: 3px; max-height: min(38dvh, 280px); overflow: auto; }
+.prepared-coin-students label {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.prepared-coin-students label:hover { background: light-dark(#f5effb, #3b2d4a); }
+.prepared-coin-students input { accent-color: #7d37d7; }
+.prepared-coin-students small { color: light-dark(#14604a, #96dec3); }
+.prepared-coin-amount { display: flex; flex-wrap: wrap; gap: 6px; }
+.prepared-coin-amount input { width: 100px; }
+.prepared-coin-dialog button, .prepared-coin-amount input {
+  border: 1px solid light-dark(#e2d8ed, #564763);
+  background: light-dark(#fff, #332842);
+  color: inherit;
+  border-radius: 8px;
+  padding: 6px 10px;
+  min-height: 33px;
+  font: inherit;
+  font-size: 13px;
+}
+.prepared-coin-dialog button[aria-pressed=true] {
+  color: light-dark(#6f38ad, #e2c3ff);
+  border-color: #9e69d7;
+  background: light-dark(#f2e8fb, #493267);
+}
+.prepared-coin-dialog button.prepared-coin-close { display: grid; place-items: center; padding: 5px; }
+.prepared-coin-dialog footer { justify-content: flex-end; }
+.prepared-coin-dialog .prepared-coin-submit { background: #7d37d7; border-color: #7d37d7; color: #fff; }
+.prepared-coin-dialog button:disabled { opacity: .52; cursor: not-allowed; }
+.prepared-coin-error { color: light-dark(#aa274d, #ff99b5); margin: 0; font-size: 12px; }
