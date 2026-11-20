@@ -51,6 +51,7 @@ import GroupHomeworkReviewPanel from './GroupHomeworkReviewPanel.jsx';
 import {mergeLearningGroupSummaries} from '../utils/learningGroupRefresh.js';
 import LearningGroupChat from './LearningGroupChat';
 import GroupAvailability from './GroupAvailability';
+import StudentGroupHistory from './StudentGroupHistory.jsx';
 const GroupAvailabilityShare = React.lazy(() => import('./GroupAvailabilityShare'));
 import { PersonalGroupAvailability, TeacherGroupPlacement } from './GroupPlacement';
 import GroupPreparationRoster, { GroupPreparationCount } from './GroupPreparationRoster.jsx';
@@ -473,6 +474,10 @@ const LearningGroupsSection = ({
   openHomeworkRequest = null,
   scheduleGroupId = '',
   allowPersonalGroupPlacement = false,
+  studentRecords = false,
+  studentAvailabilityGroupId = '',
+  libraryRecordings,
+  onOpenLibraryRecording,
   onHomeworkRequestHandled = null,
   onAvailabilityRequestHandled = null,
   onOpenLessonRoom,
@@ -505,7 +510,7 @@ const LearningGroupsSection = ({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busyKey, setBusyKey] = useState('');
-  const [tab, setTab] = useState(scheduleGroupId ? 'assignments' : isTeacher ? 'overview' : 'availability');
+  const [tab, setTab] = useState(scheduleGroupId ? 'assignments' : isTeacher ? 'overview' : studentRecords ? 'recordings' : 'availability');
   const [replayLesson, setReplayLesson] = useState(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -695,7 +700,7 @@ const LearningGroupsSection = ({
   }, [refreshGroups, scheduleGroupId]);
 
   useEffect(() => {
-    if (!isTeacher || !openAvailabilityRequest?.groupId || loading) return;
+    if ((!isTeacher && !studentRecords) || !openAvailabilityRequest?.groupId || loading) return;
     if (groups.some(group => group.id === openAvailabilityRequest.groupId)) {
       setSelectedGroupId(openAvailabilityRequest.groupId);
       setTab('availability');
@@ -703,7 +708,7 @@ const LearningGroupsSection = ({
       setError('Мини-группа из уведомления больше недоступна.');
     }
     onAvailabilityRequestHandled?.();
-  }, [groups, isTeacher, loading, onAvailabilityRequestHandled, openAvailabilityRequest]);
+  }, [groups, isTeacher, studentRecords, loading, onAvailabilityRequestHandled, openAvailabilityRequest]);
 
   const loadGroupDetails = useCallback(async (groupId) => {
     const normalizedGroupId = cleanString(groupId);
@@ -1674,7 +1679,7 @@ const LearningGroupsSection = ({
       {replayLesson && <React.Suspense fallback={<p role="status">Загружаем запись занятия…</p>}>
         <LearningGroupLessonReplay key={`${replayLesson.groupId}:${replayLesson.lessonId}`} groupId={replayLesson.groupId} lessonId={replayLesson.lessonId} onClose={() => setReplayLesson(null)} />
       </React.Suspense>}
-      <header hidden={Boolean(scheduleGroupId)} className={`overflow-hidden rounded-3xl border border-violet-200/80 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-200/50 ${tab === 'availability' ? 'px-5 py-3' : 'p-5 sm:p-7'}`}>
+      {!studentRecords && <header hidden={Boolean(scheduleGroupId)} className={`overflow-hidden rounded-3xl border border-violet-200/80 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-200/50 ${tab === 'availability' ? 'px-5 py-3' : 'p-5 sm:p-7'}`}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className={`${tab === 'availability' ? 'hidden' : 'flex'} items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-violet-100`}>
@@ -1711,7 +1716,7 @@ const LearningGroupsSection = ({
             )}
           </div>
         </div>
-      </header>
+      </header>}
 
       {!scheduleGroupId && isTeacher && <details className="rounded-3xl border border-violet-200 bg-white" open>
         <summary className="cursor-pointer px-5 py-4 font-bold text-violet-700">Подбор группы по свободному времени</summary>
@@ -1804,8 +1809,8 @@ const LearningGroupsSection = ({
           ) : null}
         />
       ) : (
-        <div className={`grid min-h-[580px] gap-4 ${tab === 'availability' || scheduleGroupId ? '' : 'lg:grid-cols-[285px_minmax(0,1fr)]'}`}>
-          <aside hidden={Boolean(scheduleGroupId)} className={`min-w-0 self-start rounded-3xl border border-slate-200 bg-white p-3 shadow-sm ${tab === 'availability' ? '' : 'lg:sticky lg:top-4'}`}>
+        <div className={studentRecords ? 'sgl-own-group' : `grid min-h-[580px] gap-4 ${tab === 'availability' || scheduleGroupId ? '' : 'lg:grid-cols-[285px_minmax(0,1fr)]'}`}>
+          {!studentRecords && <aside hidden={Boolean(scheduleGroupId)} className={`min-w-0 self-start rounded-3xl border border-slate-200 bg-white p-3 shadow-sm ${tab === 'availability' ? '' : 'lg:sticky lg:top-4'}`}>
             <div className="mb-2 flex items-center justify-between gap-2 px-2 py-1">
               <span className="text-xs font-black uppercase tracking-[0.15em] text-slate-400">Ваши группы</span>
               {groups.some((group) => group.status === LEARNING_GROUP_STATUS_COMPLETED) && (
@@ -1856,13 +1861,27 @@ const LearningGroupsSection = ({
                 );
               })}
             </div>
-          </aside>
+          </aside>}
 
-          <main className="min-w-0 space-y-4">
+          <div className="min-w-0 space-y-4">
             {!selectedGroup ? (
               <EmptyState title="Выберите группу" text="Откройте группу слева, чтобы увидеть её рабочее пространство." />
             ) : (
               <>
+                {studentRecords ? <div className="sgl-own-controls">
+                  <div className="sgl-own-name"><Users size={18} aria-hidden="true"/>
+                    {groups.length > 1 ? <select aria-label="Моя группа" value={selectedGroup.id}
+                      onChange={event => { setSelectedGroupId(event.target.value); setTab('recordings'); }}>
+                      {groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
+                    </select> : <h2>{selectedGroup.name}</h2>}
+                  </div>
+                  <nav aria-label="Моя группа">
+                    <button type="button" aria-current={tab === 'recordings' ? 'page' : undefined} onClick={() => setTab('recordings')}>Прошедшие</button>
+                    {selectedGroup.status !== LEARNING_GROUP_STATUS_COMPLETED && <button type="button" aria-current={tab === 'schedule' ? 'page' : undefined} onClick={() => setTab('schedule')}>Расписание</button>}
+                    {(materials.length > 0 || tab === 'materials') && <button type="button" aria-current={tab === 'materials' ? 'page' : undefined} onClick={() => setTab('materials')}>Материалы</button>}
+                    {(tab === 'availability' || studentAvailabilityGroupId === selectedGroup.id) && <button type="button" aria-current={tab === 'availability' ? 'page' : undefined} onClick={() => setTab('availability')}>Выбрать время</button>}
+                  </nav>
+                </div> : <>
                 <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="min-w-0">
@@ -1955,6 +1974,12 @@ const LearningGroupsSection = ({
                   </div>
                 </div>
 
+                </>}
+                {studentRecords && ['recordings','schedule'].includes(tab) && <StudentGroupHistory key={selectedGroup.id+':'+tab}
+                  lessons={lessons} now={clockNowMs} overrunMs={LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS} schedule={tab === 'schedule'}
+                  loading={detailLoading} onOpenLesson={handleOpenLesson}
+                  libraryRecordings={libraryRecordings} onOpenLibraryRecording={onOpenLibraryRecording}
+                  onOpenReplay={lesson => setReplayLesson({groupId:selectedGroup.id,lessonId:getLessonId(lesson)})}/>}
                 {tab === 'availability' && (
                   <GroupAvailability key={`${selectedGroup.id}:${availabilityVersion}`} groupId={selectedGroup.id} userId={userId} isTeacher={isTeacher} students={isTeacher ? students : []}
                     onApproved={() => void loadGroupDetails(selectedGroup.id)}
@@ -2142,7 +2167,7 @@ const LearningGroupsSection = ({
                   </div>
                 )}
 
-                {tab === 'schedule' && (
+                {!studentRecords && tab === 'schedule' && (
                   <SectionCard
                     title="Расписание группы"
                     subtitle="Согласованные занятия и события из Google Календаря."
@@ -3171,7 +3196,7 @@ const LearningGroupsSection = ({
                 )}
               </>
             )}
-          </main>
+          </div>
         </div>
       )}
 

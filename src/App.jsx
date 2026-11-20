@@ -38,6 +38,7 @@ import { lessonAlarmAccountSync } from './services/lessonAlarmSync.js';
 import { isGroupAvailabilityNotification, groupAvailabilityNotificationSummary, teacherNotificationActionLabel } from './utils/teacherGroupAvailabilityNotification.js';
 import {groupNotebookBoard,groupNotebookCode} from './utils/groupNotebook.js';
 import { GROUP_SHARED_CODE_ID, groupCodeTabs } from './utils/groupCodeRooms.js';
+import { preparedTaskTitle } from './utils/preparedTaskTitle.js';
 import useGroupCodePresence from './hooks/useGroupCodePresence.js';
 import { hasHomeworkResources } from './utils/homeworkResourcePresence.js';
 import { parseTestsFileContent } from './utils/pythonTestData.js';
@@ -11183,6 +11184,16 @@ export const CollabSection = ({
             canReorder={isTeacher && !collabReadOnly}
             participants={isGroupLesson && !workspaceRoomId ? groupCodeTabs(orderedGroupParticipants, role, userId) : []}
             activeParticipantId={effectiveGroupParticipantId}
+            sharedTasks={isGroupLesson && !workspaceRoomId && !sharedGroupCode && !studentCodeFocus && preparedActive
+              ? preparedContext.run.cards.filter(card => card.kind !== 'theory').map(card => ({
+                id: card.id, name: preparedTaskTitle(card), setName: card.setName,
+              })) : undefined}
+            onSelectSharedTask={cardId => {
+              if (studentCodeFocus || solutionActionsBusy || runLoading || localRunBusyRef.current
+                || !preparedContext.select(cardId)) return;
+              setCompareSolutionId(null);
+              setActiveGroupParticipantId(GROUP_SHARED_CODE_ID);
+            }}
             participantPresence={groupCodePresence}
             onSelectParticipant={(participantId) => {
               if (studentCodeFocus) return;
@@ -20197,7 +20208,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const currentNavView = studentGroupView ? 'groups' : view;
   const studentRecordings = (
     <React.Suspense fallback={<div role="status">Открываем записи занятий…</div>}>
-      <StudentLessonRecordings key={user.id} userId={user.id} />
+      <StudentLessonRecordings key={user.id} userId={user.id} embedded={studentHasGroups} />
     </React.Suspense>
   );
   const nav = user.role === 'admin'
@@ -20230,7 +20241,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
       : [
         { id: 'schedule', label: 'Домашка', icon: Calendar },
         ...(!studentHasGroups ? [{ id:'student-recordings', label:'Записи', icon:Video }] : []),
-        ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups ? 'Группы и записи' : studentSeekingGroup ? 'Выбрать время' : 'Групповые занятия', icon: Users }] : []),
+        ...(studentHasGroups || studentSeekingGroup || studentHasLibraryAccess ? [{ id: 'groups', label: studentHasGroups ? 'Записи' : studentSeekingGroup ? 'Выбрать время' : 'Групповые занятия', icon: studentHasGroups ? Video : Users }] : []),
         { id: 'progress', label: 'Все задания', icon: BarChart2 },
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
@@ -22064,13 +22075,14 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         studentId: user.id,
         includeCompleted: true,
       });
+      const accessibleGroups = normalizeLearningGroupList(groupsPayload);
       const activeGroups = getStudentActiveLearningGroups(
-        normalizeLearningGroupList(groupsPayload),
+        accessibleGroups,
         user.id
       );
       if (studentLessonWorkspaceRequestRef.current !== requestId) return null;
       // Accessible archives still need a navigation entry for old materials.
-      setStudentGroupAccess({ userId: user.id, hasGroups: normalizeLearningGroupList(groupsPayload).length > 0, libraryAccess: groupsPayload?.libraryAccess === true, loaded: true });
+      setStudentGroupAccess({ userId: user.id, hasGroups: accessibleGroups.length > 0, groupIds: accessibleGroups.map(group => group.id), libraryAccess: groupsPayload?.libraryAccess === true, loaded: true });
       if (activeGroups.length === 0) {
         setStudentLessonWorkspace({ status: 'individual', group: null, error: '' });
         setActiveLearningLesson(null);
@@ -26648,7 +26660,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           {view === 'student-recordings' && user.role === 'student' && !studentGroupView && studentRecordings}
           {view === 'meetings' && user.role === 'teacher' && <GuestMeetingsSection user={user} theme={theme} />}
           {currentNavView === 'groups' && ['teacher', 'student'].includes(user.role) && (
-            <StudentGroupLibrary key={view} user={user} theme={theme}
+            <StudentGroupLibrary key={`${view}:${studentHasGroups}`} user={user} theme={theme}
+              ownGroupIds={studentHasGroups ? studentGroupAccess.groupIds : undefined}
+              libraryEnabled={studentHasLibraryAccess}
               initialTab={studentGroupView ? 'personal' : !studentHasGroups && !studentSeekingGroup && studentHasLibraryAccess ? 'recordings' : 'own'}
               personalRecordings={studentHasGroups ? studentRecordings : null}
               openOwnRequest={pendingGroupAvailabilityRequest || pendingGroupHomeworkRequest}>
@@ -26657,6 +26671,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               userId={user.id}
               teacherId={user.role === 'teacher' ? user.id : user.teacherId}
               allowPersonalGroupPlacement={studentSeekingGroup}
+              studentRecords={user.role === 'student' && studentHasGroups}
+              studentAvailabilityGroupId={studentAvailabilityState.userId === user.id ? studentAvailabilityState.prompt?.groupId : undefined}
               students={currentStudentsWithNicknames}
               studentsLoading={studentsLoading}
               activeLearningLesson={activeLearningLesson}

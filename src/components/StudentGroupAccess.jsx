@@ -16,7 +16,7 @@ export default function StudentGroupAccess({ student, onUpdated, transport = set
     try {
       const result = await transport(student.id, !enabled);
       onUpdated?.({ ...student, groupLibraryAccess: result.access });
-      setMessage(result.access.enabled ? 'Доступ открыт. Ученик может зайти в «Группы и записи».'
+      setMessage(result.access.enabled ? 'Доступ открыт. Ученику доступны записи групп и занятия в режиме слушателя.'
         : result.allowed ? 'Отдельное разрешение снято. Доступ по действующей группе сохраняется.' : 'Отдельный доступ закрыт.');
     } catch (err) {
       setError(err.message || 'Не удалось изменить доступ');

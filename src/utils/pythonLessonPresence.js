@@ -3,7 +3,7 @@ import {buildPythonSubsectionModel, getPythonTaskEntry} from './pythonSubsection
 export const PYTHON_PRESENCE = 'pythonLessonPresence';
 export const PYTHON_SUMMON = 'pythonLessonSummon';
 const text = value => typeof value === 'string' ? value.slice(0, 200) : '';
-const VIEWS = {python:'Изучение Python', homework:'Домашка', schedule:'Расписание', board:'Доска', collab:'Совместный код', call:'Звонок', notes:'Конспекты', review:'Задания', groups:'Группы и записи', progress:'Успеваемость'};
+const VIEWS = {python:'Изучение Python', homework:'Домашка', schedule:'Расписание', board:'Доска', collab:'Совместный код', call:'Звонок', notes:'Конспекты', review:'Задания', groups:'Записи', progress:'Успеваемость'};
 
 export function pythonPresenceLocation({task, questionIndex, testsDb, levelId, groupMode=false}) {
   if (groupMode) return {view:'python', groupMode:true};

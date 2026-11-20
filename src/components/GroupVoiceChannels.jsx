@@ -218,6 +218,8 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const visibleChannels = isTeacher ? channels : channels.filter(channel =>
     channel.kind === 'general' || channel.id === selected?.id
     || (ownWorkChannel ? channel.id === ownWorkChannel.id : channel.studentId === user.id));
+  const isOwnChannel = channel => !isTeacher && channel?.kind === 'student' && channel.studentId === user.id;
+  const channelLabel = channel => isOwnChannel(channel) ? 'Мой канал' : channel?.name;
   const statusLabel = callStatus === 'connected' ? 'Вы в канале' : callStatus === 'connecting' ? 'Подключение…' : 'Связь отключена';
 
   return (
@@ -252,11 +254,11 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                 return (
                   <div className={`group-voice__channel ${active ? 'is-active' : ''}`} key={channel.id}>
                     <div className="group-voice__channel-row">
-                    <button className="group-voice__join" type="button" disabled={!canConnect} onClick={() => chooseChannel(channel)} aria-pressed={active} aria-label={`Войти в канал ${channel.name}`}>
+                    <button className="group-voice__join" type="button" disabled={!canConnect} onClick={() => chooseChannel(channel)} aria-pressed={active} aria-label={isOwnChannel(channel) ? 'Войти в мой канал' : `Войти в канал ${channel.name}`}>
                       <Mic size={18} />
                       <span>
-                        <strong>{channel.name}</strong>
-                        {active ? <small>{statusLabel}</small> : (ownWorkChannel ? channel.id === ownWorkChannel.id : channel.studentId === user.id) && <small>Ваш канал</small>}
+                        <strong>{channelLabel(channel)}</strong>
+                        {active && <small>{statusLabel}</small>}
                       </span>
                       {participants.length > 0 && <span className="group-voice__count">{participants.length}</span>}
                     </button>
@@ -296,7 +298,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
             {(!selected || !canConnect || callStatus !== 'connected') && (
               <div className="group-voice__empty">
                 {callStatus === 'connecting' && selected ? (
-                  <div className="group-voice__joining" role="status"><Loader2 size={20} className="animate-spin" /> Подключаемся к каналу «{selected.name}»</div>
+                  <div className="group-voice__joining" role="status"><Loader2 size={20} className="animate-spin" /> {isOwnChannel(selected) ? 'Подключаемся к вашему каналу…' : `Подключаемся к каналу «${channelLabel(selected)}»`}</div>
                 ) : (
                   <>
                     <Headphones size={32} aria-hidden="true" />

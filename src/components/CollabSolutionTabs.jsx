@@ -28,6 +28,8 @@ export default function CollabSolutionTabs({
   canReorder = false,
   participants = [],
   activeParticipantId = '',
+  sharedTasks = [],
+  onSelectSharedTask,
   onSelectParticipant,
   onReorderParticipants,
   onCompare,
@@ -65,6 +67,7 @@ export default function CollabSolutionTabs({
   const [dragging, setDragging] = useState(null);
   const [tabScroll, setTabScroll] = useState({ before: false, after: false });
   const hasParticipantTabs = participants.length > 0;
+  const showSharedSetLabels = new Set(sharedTasks.map(task => task.setName).filter(Boolean)).size > 1;
   const visibleSolutionTabs = hasParticipantTabs
     ? solutions.filter((solution) => solution.id !== mainSolutionId)
     : solutions;
@@ -342,7 +345,7 @@ export default function CollabSolutionTabs({
         data-collab-tab-kind={entry.kind}
         data-collab-tab-group={groupKey(entry)}
         aria-label={locked ? `${entry.name}, закрыто преподавателем` : entry.preparedGroup ? `${entry.preparedGroup.name} · ${entry.name}` : undefined}
-        className={`collab-solutions__tab${selected ? ' is-active' : ''}${isParticipant ? ' is-participant' : ''}${isDragged ? ' is-dragging' : ''}${isDropTarget ? ` is-drop-${dragging.side}` : ''}`}
+        className={`collab-solutions__tab${selected ? ' is-active' : ''}${isParticipant ? ' is-participant' : ''}${isParticipant && entry.id === activeParticipantId ? ' is-current-workspace' : ''}${isDragged ? ' is-dragging' : ''}${isDropTarget ? ` is-drop-${dragging.side}` : ''}`}
         disabled={disabled || locked}
         onPointerDown={(event) => startTabLongPress(event, entry)}
         onClick={() => {
@@ -390,6 +393,19 @@ export default function CollabSolutionTabs({
 
   return (
     <div className={`collab-solutions${dark ? ' collab-solutions--dark' : ''}`}>
+      {sharedTasks.length > 0 && <nav className="collab-solutions__shared-tasks" aria-label="Задачи общего кода">
+        <span><Layers3 size={13} aria-hidden="true"/> Общие задачи</span>
+        <div>
+          {sharedTasks.map((task,index) => <Fragment key={task.id}>
+            {showSharedSetLabels && task.setName && task.setName !== sharedTasks[index-1]?.setName
+              && <span className="collab-solutions__set-divider" title={task.setName}><span>{task.setName}</span></span>}
+            <button type="button" disabled={disabled}
+              aria-label={`Открыть общий код: ${showSharedSetLabels && task.setName ? task.setName+' · ' : ''}${task.name}`}
+              title={task.setName ? `${task.setName} · ${task.name}` : task.name}
+              onClick={() => onSelectSharedTask?.(task.id)}>{task.name}</button>
+          </Fragment>)}
+        </div>
+      </nav>}
       <div className="collab-solutions__row">
         <div className="collab-solutions__tabs-row">
           {(tabScroll.before || tabScroll.after) && <button type="button" className="collab-solutions__scroll" aria-label="Предыдущие вкладки кода" title="Прокрутить вкладки влево" disabled={!tabScroll.before} onClick={() => scrollTabs(-1)}><ChevronLeft size={15}/></button>}
