@@ -315,7 +315,7 @@ import {registerStudentStudyProgressRoutes} from './studentStudyProgress.js';
 import {registerGroupStudyProgressRoutes} from './groupStudyProgress.js';
 import {groupNotebookBoard,groupNotebookCode} from '../src/utils/groupNotebook.js';
 import {canAccessPracticeRoom, getActivePracticeRound, isPracticePageId, parsePracticeWorkspaceRoom, practiceVoiceChannelId, practiceWorkspaceRoom} from '../src/utils/groupPractice.js';
-import {practiceForViewer, savedGroupBoardRooms, setPracticeRoomStatus, startPracticeRound, validatePracticeAssignments} from './groupLessonPractice.js';
+import {practiceForViewer, setPracticeRoomStatus, startPracticeRound, validatePracticeAssignments} from './groupLessonPractice.js';
 import {isTrialLesson, trialRoomId, trialRoomGroup, trialRoomSession, trialRoomPayload} from './trialLessonRooms.js';
 import {registerEgeStudyPlanRoutes} from './egeStudyPlan.js';
 import {preparedTaskSource} from '../src/utils/preparedRunSources.js';
@@ -26811,36 +26811,6 @@ const sendPractice = (req, res, lesson, group) => {
     canManage:canManageLearningGroup(req.auth,group) && active,
   });
 };
-
-app.get('/api/learning-groups/:groupId/board-work', handleLearningRoute((req,res) => {
-  const group = ensureLearningGroupReadAccess(req,res,req.params.groupId);
-  if (!group) return;
-  if (!isStudentRole(req.auth)) return forbid(res);
-  const {pageId,roomId} = req.query;
-  if (!isPracticePageId(pageId)) failLearningRequest('Не найдена страница доски','invalid_practice_page');
-  const attendance = readLearningAttendanceDb();
-  const lessons = readLearningLessonSessionsDb().filter(lesson => lesson.groupId === group.id && lesson.practice
-    && canAccessLearningLessonSessionRecord(req.auth,lesson,{group,groups:[group],attendanceRecords:attendance})
-    && !getLearningSubscriptionRoomError(req.auth,{target:{session:lesson},readOnly:true}));
-  const rooms = savedGroupBoardRooms(lessons,{
-    studentId:req.auth.id,pageId,roomId,
-    isLive:lesson=>practiceSlotOpen(lesson,group),
-  });
-  if (!rooms) return forbid(res);
-  if (!roomId) rooms.unshift(boardPageRoom(groupNotebookBoard(group.id),pageId,req.auth.id));
-  const items = rooms.flatMap(room => {
-    const loaded = getLoadedCollabDocEntry(room)?.doc;
-    if (loaded) return loaded.getArray('items').toJSON();
-    const snapshot = new Y.Doc();
-    try {
-      return loadBoardDocSnapshot(room,snapshot) ? snapshot.getArray('items').toJSON() : [];
-    } finally {
-      snapshot.destroy();
-    }
-  });
-  res.set('Cache-Control','private, no-store');
-  return res.json({items});
-}));
 
 app.get('/api/learning-groups/:groupId/lessons/:lessonId/practice', handleLearningRoute((req,res) => {
   const group = ensureLearningGroupReadAccess(req,res,req.params.groupId);

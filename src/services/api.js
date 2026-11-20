@@ -1342,10 +1342,6 @@ export const api = {
       method: 'PUT', body: {studentId, absent},
     })
   ),
-  getLearningGroupBoardWork: (groupId, pageId, roomId) => {
-    const query = new URLSearchParams({pageId,...(roomId ? {roomId} : {})});
-    return requestLearningGroupJson(getLearningGroupApiPath(groupId,'board-work')+'?'+query);
-  },
   getLearningLessonPractice: (groupId, lessonId) =>
     requestLearningGroupJson(getLearningGroupApiPath(groupId, 'lessons', lessonId, 'practice')),
   changeLearningLessonPractice: (groupId, lessonId, body) =>

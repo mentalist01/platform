@@ -6,7 +6,7 @@ import useDesktopRecording from '../hooks/useDesktopRecording';
 import useRecorderShare from '../hooks/useRecorderShare';
 import './GroupVoiceChannels.css';
 
-export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onOpenCall, onBack }) {
+export default function GroupVoiceChannels({ lesson, user, students, theme, visible, onOpenCall, onBack }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -23,7 +23,6 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const [moving, setMoving] = useState('');
   const micPreferenceRef = useRef(true);
   const switchChannelRef = useRef(null);
-  const consumedChannel = useRef(null);
   const [notice, setNotice] = useState('');
   const refreshRef = useRef(null);
   const presenceRevisionRef = useRef(0);
@@ -122,7 +121,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     void refreshRef.current?.();
   }, [isTeacher, recorder.jobId]);
 
-  const join = useCallback((channelId) => {
+  const join = (channelId) => {
     if (!snapshot?.canJoin) return;
     if (selectedId === channelId && callStatus !== 'idle') return;
     if (selectedId && selectedId !== channelId) switchChannelRef.current?.();
@@ -131,14 +130,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
     setConnectionKey((key) => key + 1);
     setCallStatus('connecting');
     setNotice('');
-  }, [snapshot?.canJoin, selectedId, callStatus]);
-
-  useEffect(() => {
-    if (!requestedChannel || requestedChannel === consumedChannel.current || !snapshot?.canJoin
-      || !snapshot.channels.some(channel => channel.id === requestedChannel.channelId)) return;
-    consumedChannel.current = requestedChannel;
-    join(requestedChannel.channelId);
-  }, [join, requestedChannel, snapshot]);
+  };
 
   const renameChannel = async (reset = false) => {
     if (renaming || (!reset && !editedName.trim())) return;

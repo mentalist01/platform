@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  MAX_PRACTICE_ROOMS, canAccessPracticeRoom, getActivePracticeRound, isPracticePageId, isPracticeWorkId, normalizePracticeViewport, practiceWorkspaceRoom,
+  MAX_PRACTICE_ROOMS, canAccessPracticeRoom, getActivePracticeRound, isPracticePageId, isPracticeWorkId, normalizePracticeViewport,
 } from '../src/utils/groupPractice.js';
 
 const STATUSES = ['working', 'help', 'ready'];
@@ -61,26 +61,6 @@ export function setPracticeRoomStatus(practice, roomId, status, auth) {
   return { ...practice, rounds: practice.rounds.map(entry => entry.id === round.id
     ? { ...entry, rooms: entry.rooms.map(item => item.id === roomId ? { ...item, status } : item) }
     : entry) };
-}
-
-// Archived layers are returned once as a snapshot. Only the current writing
-// layer uses a live connection, even when a page contains work from many lessons.
-export function savedGroupBoardRooms(lessons, {studentId,pageId,roomId,isLive}) {
-  const candidates = lessons.slice().sort((a,b) => Date.parse(a.startAt)-Date.parse(b.startAt))
-    .flatMap(lesson => (lesson.practice?.rounds || []).filter(round => round.pageId === pageId)
-      .flatMap(round => round.rooms.filter(room => room.studentIds.includes(studentId))
-        .map(room => ({lesson,round,room}))));
-  const target = roomId ? candidates.find(entry => entry.room.id === roomId) : null;
-  if (roomId && !target) return null;
-  const comparable = room => !target || (target.room.studentIds.length === room.studentIds.length
-    && target.room.studentIds.every(id => room.studentIds.includes(id)));
-  const seen = new Set();
-  for (const {lesson,round,room} of candidates) {
-    if (room.id === roomId || !comparable(room) || (round.id === lesson.practice.activeRoundId && isLive(lesson))) continue;
-    const key = practiceWorkspaceRoom(lesson.id,room.id);
-    if (key) seen.add(key);
-  }
-  return [...seen];
 }
 
 export function practiceForViewer(practice, auth, active, students = []) {
