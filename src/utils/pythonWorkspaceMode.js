@@ -1,4 +1,23 @@
 import {buildLearningGroupTargetValue, LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS} from './lessonTargets.js';
+import {lessonControl, lessonEndDeadline} from './lessonEndControl.js';
+
+export function pythonGroupLessonTiming(lesson, now, recording) {
+  if (!lesson || ['completed', 'cancelled'].includes(lesson.status)) return null;
+  const startsAt = Date.parse(lesson.startsAt || lesson.startAt || '');
+  if (!Number.isFinite(startsAt) || now < startsAt) return null;
+  const scheduledEnd = startsAt + Math.max(15, Number(lesson.durationMinutes) || 60) * 60_000;
+  if (recording?.desired === 'record' && recording.occurrence?.lessonId === (lesson.lessonId || lesson.id)) {
+    const control = lessonControl(recording);
+    if (control?.mode === 'manual') return {mode:'manual'};
+    const endAt = lessonEndDeadline(recording);
+    if (control?.mode === 'timed' && endAt > now) return {mode:'timed', endAt};
+  }
+  if (now < scheduledEnd) return {mode:'scheduled', endAt:scheduledEnd};
+  if ((lesson.status === 'active' || lesson.replayActive) && now < scheduledEnd + LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS) {
+    return {mode:'overtime', endAt:scheduledEnd};
+  }
+  return null;
+}
 
 // Membership alone is not a lesson. A scheduled lesson applies only during its
 // time window; an explicitly active session can continue until it is finished.

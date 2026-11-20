@@ -1852,6 +1852,7 @@ const PythonReviewModal = ({
         <div className="python-runtime-modal-header mb-0.5 flex flex-col gap-1 md:mb-1">
           {lessonWorkspace && <PythonLessonToolbar teacher name={lessonWorkspace.name || groupName}
             connected={lessonWorkspace.connected} tasks={lessonTopics} taskNumber={task.number}
+            timing={lessonWorkspace.timing}
             onSelectTask={onSelectLessonTopic} peerCount={realtimePeerCount} presence={lessonWorkspace.presence} canSummon={lessonWorkspace.canSummon}
             editorPeerPresent={realtimeStatus==='connected' && editorPeerPresent}/>}
           <div className={`python-runtime-header-card rounded-[22px] border ${

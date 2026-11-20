@@ -4,6 +4,8 @@
 .python-lesson-toolbar__identity strong { font-size:13px; overflow-wrap:anywhere; }
 .python-lesson-toolbar__identity>span,.python-lesson-toolbar__status { color:var(--text-secondary,#65748c); font-size:11px; }
 .python-lesson-toolbar__status { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+.python-lesson-end-time { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border-radius:8px; background:#f3edff; color:#5b21b6; font-size:12px; font-weight:650; white-space:nowrap; }
+.python-lesson-end-time time { font-variant-numeric:tabular-nums; }
 .python-lesson-toolbar__topic { display:flex; align-items:center; gap:7px; margin-left:auto; min-width:0; font-size:12px; }
 .python-lesson-toolbar__topic>span { flex-shrink:0; }
 .python-lesson-toolbar__topic select { max-width:260px; min-width:0; padding:6px 8px; border:1px solid var(--border-color,#e2e5f0); border-radius:8px; background:var(--surface-card,#fff); color:inherit; font:inherit; }
@@ -11,5 +13,6 @@
 [data-runtime-theme="dark"] .python-lesson-toolbar__identity>span,[data-runtime-theme="dark"] .python-lesson-toolbar__status { color:#b6c1d4; }
 [data-runtime-theme="dark"] .python-lesson-toolbar__identity>svg { color:#c4b5fd; }
 [data-runtime-theme="dark"] .python-lesson-toolbar__topic select { background:#202b40; border-color:#475569; }
+[data-runtime-theme="dark"] .python-lesson-end-time, [data-theme="dark"] .python-lesson-end-time { background:#31244e; color:#e4d6ff; }
 @media(max-width:699px) { .python-lesson-toolbar { padding:8px; gap:5px 9px; } .python-lesson-toolbar__topic { width:100%; margin-left:0; } .python-lesson-toolbar__topic select { flex:1; width:0; max-width:none; } }
 @media(pointer:coarse) { .python-lesson-toolbar__topic select { min-height:44px; font-size:16px; } }

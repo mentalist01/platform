@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {currentPythonGroupLesson, resolvePythonWorkspaceMode} from './pythonWorkspaceMode.js';
+import {currentPythonGroupLesson, pythonGroupLessonTiming, resolvePythonWorkspaceMode} from './pythonWorkspaceMode.js';
 
 const start = Date.parse('2026-10-13T17:00:00Z');
 const lesson = {lessonId:'lesson-1', groupId:'group-2', participantIds:['pupil'], startsAt:new Date(start).toISOString(), durationMinutes:60, status:'scheduled'};
@@ -45,4 +45,18 @@ test('manual mode applies only to the same lesson and resets on completion or a 
 test('teacher selection remains explicit and independent of student automatic mode', () => {
   assert.equal(mode({teacher:true, initialGroupId:'group-2'}).target, 'learning-group:group-2');
   assert.equal(mode({teacher:true, initialGroupId:'group-2', manual:{scope:'teacher', target:''}}).target, '');
+});
+
+test('the Python toolbar displays the end of the matching current group lesson', () => {
+  const end = start + 3_600_000;
+  assert.deepEqual(pythonGroupLessonTiming(lesson,start),{mode:'scheduled',endAt:end});
+  assert.equal(pythonGroupLessonTiming(lesson,start-1),null);
+  assert.equal(pythonGroupLessonTiming(lesson,end),null);
+  assert.deepEqual(pythonGroupLessonTiming({...lesson,status:'active'},end),{mode:'overtime',endAt:end});
+  const recording = {desired:'record', occurrence:{lessonId:lesson.lessonId}, cutoffAt:end+600_000,
+    endControl:{version:1,mode:'timed',untilMs:end+600_000}};
+  assert.deepEqual(pythonGroupLessonTiming(lesson,end,recording),{mode:'timed',endAt:end+600_000});
+  assert.deepEqual(pythonGroupLessonTiming(lesson,end,{...recording,endControl:{version:1,mode:'manual'}}),{mode:'manual'});
+  assert.equal(pythonGroupLessonTiming({...lesson,lessonId:'other'},end,recording),null);
+  assert.equal(pythonGroupLessonTiming({...lesson,status:'completed'},end,recording),null);
 });

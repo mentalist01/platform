@@ -3,20 +3,21 @@ import {api, getStoredAuthToken} from '../services/api.js';
 import {loadYjsRuntime} from '../utils/collaborationRuntime.js';
 import {getCollabWsUrl} from '../utils/runtimeUrls.js';
 import {boardPageBookRoom} from '../utils/boardPages.js';
-import {buildLearningGroupTargetValue, parseLessonTargetValue, LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS} from '../utils/lessonTargets.js';
+import {buildLearningGroupTargetValue, parseLessonTargetValue, selectLearningGroupWorkspaceLesson, LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS} from '../utils/lessonTargets.js';
 import {pythonExplanationBoardRoom} from '../utils/pythonExplanationBoard.js';
 import {
   flushPythonLessonTask, livePythonLessonTask, pythonGroupBoardRoom, pythonLessonTaskControl,
   pythonLessonTeacherPresent,
 } from '../utils/pythonGroupWorkspace.js';
-import {resolvePythonWorkspaceMode} from '../utils/pythonWorkspaceMode.js';
+import {pythonGroupLessonTiming, resolvePythonWorkspaceMode} from '../utils/pythonWorkspaceMode.js';
 
-export default function usePythonLessonWorkspace({role, userId, teacherId, groups:providedGroups, initialGroupId, lesson, personalTask=false, activeStudentId, onSelectStudent}) {
+export default function usePythonLessonWorkspace({role, userId, teacherId, groups:providedGroups, initialGroupId, lesson, recordingJobs, personalTask=false, activeStudentId, onSelectStudent}) {
   const teacher = role === 'teacher';
   const [loadedGroups, setLoadedGroups] = useState([]);
   const [error, setError] = useState('');
   const [manual, setManual] = useState(null);
   const [clock, setClock] = useState(Date.now);
+  const [selectedGroupLesson, setSelectedGroupLesson] = useState(null);
   const [remoteTask, setRemoteTask] = useState(null);
   const [connectedRoom, setConnectedRoom] = useState('');
   const [teacherRoom, setTeacherRoom] = useState('');
@@ -26,25 +27,52 @@ export default function usePythonLessonWorkspace({role, userId, teacherId, group
   const selection = parseLessonTargetValue(mode.target);
   const group = selection.type === 'group' ? groups.find(item => item.id === selection.id) || null : null;
   const groupId = group?.id || '', owner = group?.teacherId || teacherId;
+  const openedGroupLesson = lesson?.groupId === groupId && groupId && !['completed','cancelled'].includes(lesson.status) ? lesson : null;
+  const displayedGroupLesson = openedGroupLesson || (selectedGroupLesson?.groupId === groupId ? selectedGroupLesson.lesson : null);
+  const clockLesson = teacher ? displayedGroupLesson : lesson;
+  const recording = recordingJobs?.find(job => job.desired === 'record' && job.occurrence?.lessonId === (displayedGroupLesson?.lessonId || displayedGroupLesson?.id));
+  const lessonTiming = groupId && pythonGroupLessonTiming(displayedGroupLesson, clock, recording);
   const studentId = teacher ? activeStudentId : userId;
   const roomId = groupId ? pythonGroupBoardRoom(groupId) : pythonExplanationBoardRoom(owner, studentId);
   const controlKey = pythonLessonTaskControl(groupId);
 
   useEffect(() => {
-    if (teacher || !lesson) return undefined;
-    const start = Date.parse(lesson.startsAt || lesson.startAt || '');
-    const end = start + Math.max(15, Number(lesson.durationMinutes) || 60) * 60_000;
-    const extra = lesson.status === 'active' || lesson.replayActive ? LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS : 0;
+    if (!clockLesson) return undefined;
+    const start = Date.parse(clockLesson.startsAt || clockLesson.startAt || '');
+    const end = start + Math.max(15, Number(clockLesson.durationMinutes) || 60) * 60_000;
+    const timedEnd = recording?.endControl?.mode === 'timed' ? recording.endControl.untilMs : null;
     let timer;
     const refresh = () => {
       const now = Date.now();
       setClock(now);
-      const boundary = [start, end + extra].find(time => Number.isFinite(time) && time > now);
-      if (boundary) timer = window.setTimeout(refresh, Math.min(boundary - now + 1, 2_147_000_000));
+      const boundary = Math.min(...[start, end, end + LEARNING_GROUP_LESSON_OVERRUN_GRACE_MS, timedEnd]
+        .filter(time => Number.isFinite(time) && time > now));
+      if (Number.isFinite(boundary)) timer = window.setTimeout(refresh, Math.min(boundary - now + 1, 2_147_000_000));
     };
     timer = window.setTimeout(refresh, 0);
     return () => window.clearTimeout(timer);
-  }, [teacher, lesson]);
+  }, [clockLesson, recording?.endControl?.mode, recording?.endControl?.untilMs]);
+
+  useEffect(() => {
+    if (!teacher || !groupId || openedGroupLesson) return undefined;
+    let disposed = false;
+    const refresh = async () => {
+      const now = Date.now();
+      try {
+        const {lessons} = await api.getLearningGroupLessons(groupId, {
+          from:new Date(now - 6 * 3600_000).toISOString(), to:new Date(now + 3600_000).toISOString(),
+        });
+        if (disposed) return;
+        const available = lessons.filter(entry => !['completed','cancelled'].includes(entry.status));
+        setSelectedGroupLesson({groupId, lesson:selectLearningGroupWorkspaceLesson(available, now)});
+      } catch {
+        // Keep the last known time during a temporary interruption.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [teacher, groupId, openedGroupLesson]);
 
   useEffect(() => {
     if (providedGroups) return undefined;
@@ -135,7 +163,7 @@ export default function usePythonLessonWorkspace({role, userId, teacherId, group
   }, [roomId, groupId, owner, studentId, teacher, flushTask, controlKey, mode.personalWork]);
 
   return {groups, group, groupId, targetValue:groupId ? buildLearningGroupTargetValue(groupId) : teacher ? activeStudentId || '' : '',
-    selectTarget, joinLesson, publishTask, remoteTask:!mode.personalWork && remoteTask?.workspaceRoom === roomId ? remoteTask : null,
+    selectTarget, joinLesson, publishTask, lessonTiming, remoteTask:!mode.personalWork && remoteTask?.workspaceRoom === roomId ? remoteTask : null,
     personalWork:mode.personalWork, lessonGroupId:mode.lessonGroupId,
     connected:Boolean(roomId && connectedRoom === roomId), teacherPresent:Boolean(!mode.personalWork && roomId && teacherRoom === roomId), error};
 }

@@ -23,6 +23,7 @@ import {isStudentViewTab,readStoredAuthUser,writeStoredAuthUser,removeStoredAuth
 import BoardMinimap from './components/BoardMinimap.jsx';
 import { BoardFileUpload, BoardFileDownloads } from './components/BoardFiles.jsx';
 import PreparedLessonBoard from './components/PreparedLessonBoard.jsx';
+import StudentCoinAward from './components/StudentCoinAward.jsx';
 import {preparedRuntimeCardForCode,preparedRuntimeFiles} from './utils/preparedRuntimeFiles.js';
 import {asPythonComments,useGroupPracticeComments,useGroupPracticeSolutions,usePythonCommentZone,useSharedCodePreview} from './hooks/useGroupPracticeComments.js';
 import {useGroupPracticeDrafts} from './hooks/useGroupPracticeDrafts.js';
@@ -19141,6 +19142,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [studentStreak, setStudentStreak] = useState(getDefaultStreak());
   const [_STUDENT_XP_TOTAL, setStudentXpTotal] = useState(0);
   const [studentCoinsTotal, setStudentCoinsTotal] = useState(0);
+  const [studentCoinNotice, setStudentCoinNotice] = useState(null);
   const [xpDisplayTotal, setXpDisplayTotal] = useState(0);
   const [xpDockVisible, setXpDockVisible] = useState(false);
   const [xpAnimationActive, setXpAnimationActive] = useState(false);
@@ -23274,17 +23276,31 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   useEffect(() => {
     if (user.role !== 'student') return undefined;
     let sequence = 0;
+    let noticeTimer;
     const unsubscribe = subscribeScheduleSync(event => {
       try {
         const update = JSON.parse(event.data);
         if (update.scope !== 'student-coins' || update.studentId !== user.id) return;
         const request = ++sequence;
-        void api.getStudentData(user.id).then(data => {
-          if (request === sequence) setStudentCoinsTotal(normalizeCoinsTotal(data.coinsTotal));
-        }).catch(() => {});
+        if (Number.isSafeInteger(update.coinsTotal) && update.coinsTotal >= 0) {
+          setStudentCoinsTotal(update.coinsTotal);
+        } else {
+          void api.getStudentData(user.id).then(data => {
+            if (request === sequence) setStudentCoinsTotal(normalizeCoinsTotal(data.coinsTotal));
+          }).catch(() => {});
+        }
+        if (update.action === 'lesson-task-reward' && Number.isSafeInteger(update.coinsAwarded) && update.coinsAwarded > 0) {
+          setStudentCoinNotice(current => ({
+            studentId: user.id,
+            amount: (current?.studentId === user.id ? current.amount : 0) + update.coinsAwarded,
+            sequence: request,
+          }));
+          clearTimeout(noticeTimer);
+          noticeTimer = setTimeout(() => setStudentCoinNotice(null), 4500);
+        }
       } catch { /* Ignore unrelated or malformed stream messages. */ }
     });
-    return () => { sequence++; unsubscribe(); };
+    return () => { sequence++; clearTimeout(noticeTimer); unsubscribe(); };
   }, [user.id, user.role]);
 
   useEffect(() => {
@@ -25570,6 +25586,9 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
           }}
         />
       )}
+      {user.role === 'student' && (
+        <StudentCoinAward award={studentCoinNotice?.studentId === user.id ? studentCoinNotice : null} />
+      )}
       {user.role === 'student' && !studentTourActive && (
         <StudentWeeklyRecap
           key={`weekly-recap-auto-${user.id}`}
@@ -27237,7 +27256,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               onSelectStudent={setActiveStudentId}
               groups={user.role==='teacher'?lessonTargetGroups:undefined}
               initialGroupId={user.role==='teacher'?activeLearningLesson?.groupId:''}
-              lesson={user.role==='student'?activeLearningLesson:undefined}
+              lesson={activeLearningLesson}
+              recordingJobs={user.role==='teacher'?desktopRecorder.settings?.jobs:undefined}
               studentsLoading={studentsLoading}
               openTask={pendingOpenTask}
               onOpenTaskHandled={() => setPendingOpenTask(null)}

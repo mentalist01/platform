@@ -8415,6 +8415,7 @@ const isScheduleSyncClientInterested = (client, payload) => {
   const role = String(client.role || '').trim();
   const teacherId = String(payload.teacherId || '').trim();
   const studentId = String(payload.studentId || '').trim();
+  if (payload.scope === 'student-coins') return role === 'student' && studentId === client.studentId;
   if (role === 'admin') return true;
   if (role === 'teacher') {
     return teacherId && teacherId === String(client.teacherId || '').trim();
@@ -8435,6 +8436,8 @@ const notifyScheduleSyncUpdate = ({
   teacherId = '',
   studentId = '',
   entryId = '',
+  coinsAwarded,
+  coinsTotal,
 } = {}) => {
   const normalizedTeacherId = String(teacherId || '').trim();
   const normalizedStudentId = String(studentId || '').trim();
@@ -8448,6 +8451,7 @@ const notifyScheduleSyncUpdate = ({
     teacherId: normalizedTeacherId || null,
     studentId: normalizedStudentId || null,
     entryId: normalizedEntryId || null,
+    ...(scope === 'student-coins' ? {coinsAwarded, coinsTotal} : {}),
     updatedAt: new Date().toISOString(),
   };
 
@@ -21959,7 +21963,9 @@ const preparedCoinRewards = createPreparedCoinRewards({
     }
     return studentProgressPayload({...data, coinsTotal}, db[studentId]);
   },
-  onGranted: (teacherId, studentId) => notifyScheduleSyncUpdate({scope:'student-coins', action:'lesson-task-reward', teacherId, studentId}),
+  onGranted: (teacherId, studentId, coinsAwarded, coinsTotal) => notifyScheduleSyncUpdate({
+    scope:'student-coins', action:'lesson-task-reward', teacherId, studentId, coinsAwarded, coinsTotal,
+  }),
 });
 const preparedLessonTasks = new PreparedLessonTasks({
   coinRewards: preparedCoinRewards,

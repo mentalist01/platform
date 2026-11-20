@@ -38,6 +38,7 @@ import PythonPracticePanel, { PythonPracticeBadge } from './PythonPracticePanel'
 import PythonExplanationBoard from './PythonExplanationBoard';
 import usePythonLessonWorkspace from '../hooks/usePythonLessonWorkspace';
 import PythonLessonPresence from './PythonLessonPresence';
+import {PythonLessonEndTime} from './PythonLessonToolbar';
 import {pythonPresenceLocation} from '../utils/pythonLessonPresence.js';
 import usePythonGroupProgress from '../hooks/usePythonGroupProgress';
 import { PythonGroupTopicProgress } from './PythonGroupProgress';
@@ -383,6 +384,7 @@ const PythonSection = ({
   groups,
   initialGroupId,
   lesson,
+  recordingJobs,
   lessonPresence = null,
   studentsLoading,
   openTask,
@@ -514,7 +516,7 @@ const PythonSection = ({
   const [mobilePythonPathCanvasWidth, setMobilePythonPathCanvasWidth] = useState(0);
   const studentsList = students || [];
   const personalTask = openTask?.personalWork === true;
-  const groupWorkspace=usePythonLessonWorkspace({role,userId:studentId,teacherId,groups,initialGroupId,lesson,personalTask,activeStudentId,onSelectStudent});
+  const groupWorkspace=usePythonLessonWorkspace({role,userId:studentId,teacherId,groups,initialGroupId,lesson,recordingJobs,personalTask,activeStudentId,onSelectStudent});
   const selectPythonTarget = groupWorkspace.selectTarget;
   const groupMode=Boolean(groupWorkspace.groupId);
   const groupProgressState=usePythonGroupProgress(groupWorkspace.groupId,role==='teacher'&&groupMode);
@@ -578,7 +580,7 @@ const PythonSection = ({
   }, [reportPythonLocation,currentPresenceTask,activeQuestionIndex,testsDb,PYTHON_LEVEL_ID,groupMode]);
   const lessonWorkspace = role === 'student' && !groupMode && !groupWorkspace.teacherPresent && !individualPresence
     ? null : {name:lessonWorkspaceName, connected:groupWorkspace.connected, followingTeacher,
-      presence:individualPresence, canSummon:Boolean(currentPresenceTask && Number.isInteger(activeQuestionIndex))};
+      presence:individualPresence, timing:groupWorkspace.lessonTiming, canSummon:Boolean(currentPresenceTask && Number.isInteger(activeQuestionIndex))};
   const openLessonTopic = number => {
     const task = taskList.find(item => Number(item.number) === Number(number));
     if (!task || followingTeacher) return;
@@ -2011,6 +2013,7 @@ const PythonSection = ({
           <Button variant="secondary" onClick={groupWorkspace.joinLesson}>Перейти к уроку группы</Button>
         )}
         {role==='student' && <span className="text-xs text-gray-500">{groupMode ? 'Урок группы · общий код' : 'Личный Python · ваши решения сохраняются отдельно'}</span>}
+        <PythonLessonEndTime timing={groupWorkspace.lessonTiming}/>
       </div>
     );
   };

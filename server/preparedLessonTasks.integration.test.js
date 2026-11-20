@@ -349,6 +349,31 @@ test('prepared task rewards pay the chosen group pupils once and show the receip
   const a = tokens['student-a'];
   const b = tokens['student-b'];
   const studentData = id => request('/api/student-data?studentId='+id, tokens[id]);
+  const streams = new AbortController();
+  const connect = async id => {
+    const stream = await fetch(base+'/api/schedule-sync/stream',{
+      headers:{Authorization:'Bearer '+tokens[id]},signal:streams.signal,
+    });
+    assert.equal(stream.status,200);
+    const reader = stream.body.pipeThrough(new TextDecoderStream()).getReader();
+    const updates = [];
+    let buffer = '';
+    const read = async () => {
+      const {value,done} = await reader.read();
+      if (done) return false;
+      buffer += value;
+      for (let end = buffer.indexOf('\n\n'); end >= 0; end = buffer.indexOf('\n\n')) {
+        const frame = buffer.slice(0,end);
+        buffer = buffer.slice(end+2);
+        if (frame.startsWith('event: schedule-sync\n')) {
+          updates.push(JSON.parse(frame.split('\ndata: ')[1]));
+        }
+      }
+      return true;
+    };
+    assert.ok(await read());
+    return {updates, read};
+  };
   try {
     const form = new FormData();
     const pixels = await sharp({create:{width:80,height:40,channels:4,background:'white'}}).png().toBuffer();
@@ -375,6 +400,9 @@ test('prepared task rewards pay the chosen group pupils once and show the receip
     await request(action,teacher,{...input,amount:1.5},'POST',400);
     assert.equal((await studentData('student-a')).coinsTotal,before[0].coinsTotal);
 
+    const [studentStreamA, studentStreamB, otherStream] = await Promise.all([
+      connect('student-a'), connect('student-b'), connect('student-c'),
+    ]);
     const replies = await Promise.all([request(action,teacher,input),request(action,teacher,input)]);
     for (const {run: updated} of replies) {
       assert.deepEqual(updated.cards[0].coinRewards.map(({id,amount})=>[id,amount]).sort(),[['student-a',10],['student-b',10]]);
@@ -385,6 +413,21 @@ test('prepared task rewards pay the chosen group pupils once and show the receip
     const [afterA,afterB] = await Promise.all([studentData('student-a'),studentData('student-b')]);
     assert.equal(afterA.coinsTotal,before[0].coinsTotal+10);
     assert.equal(afterB.coinsTotal,before[1].coinsTotal+10);
+    const awardedEvents = async stream => {
+      while (await stream.read()) {
+        const awards = stream.updates.filter(update=>update.scope === 'student-coins');
+        if (awards.length) return awards.map(update=>[update.studentId,update.coinsAwarded,update.coinsTotal]);
+      }
+      return [];
+    };
+    assert.deepEqual(await awardedEvents(studentStreamA),[['student-a',10,afterA.coinsTotal]]);
+    assert.deepEqual(await awardedEvents(studentStreamB),[['student-b',10,afterB.coinsTotal]]);
+
+    const otherAward = await Promise.race([
+      awardedEvents(otherStream), new Promise(resolve=>setTimeout(()=>resolve(null),300)),
+    ]);
+    assert.equal(otherAward,null,'An unrelated student must not receive a reward event');
+
     assert.deepEqual(afterA.progress,before[0].progress);
     assert.deepEqual(afterB.progress,before[1].progress);
     assert.equal(afterB.preparedTaskCoinRewards,undefined);
@@ -392,6 +435,7 @@ test('prepared task rewards pay the chosen group pupils once and show the receip
     assert.deepEqual((await request(view,teacher)).run.cards[0].coinRewards,refreshed.cards[0].coinRewards);
     assert.equal((await request(view,b)).run.cards[0].coinRewards,undefined);
   } finally {
+    streams.abort();
     await f.stop();
     fs.rmSync(f.root,{recursive:true,force:true});
   }

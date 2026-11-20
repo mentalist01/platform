@@ -59,7 +59,7 @@ export function createPreparedCoinRewards({read, write, roster, credit, onGrante
 
       // Receipts and balances are committed in the same progress write.
       write(next);
-      for (const id of awarded) onGranted?.(run.teacherId, id);
+      for (const id of awarded) onGranted?.(run.teacherId, id, amount, next[id].coinsTotal);
       return true;
     },
   };
