@@ -6,6 +6,7 @@ import path from 'node:path';
 import * as Y from 'yjs';
 import {PreparedLessonTasks} from './preparedLessonTasks.js';
 import {getCollabSolutionChannels} from '../src/utils/collabSolutions.js';
+import {preparedRuntimeFiles} from '../src/utils/preparedRuntimeFiles.js';
 
 function fixture(t){
   const directory=fs.mkdtempSync(path.join(os.tmpdir(),'prepared-update-')),docs=new Map(),codeDoc=new Y.Doc();
@@ -60,6 +61,27 @@ test('correct a live key and condition in one version; keep input, lease, ink, c
   assert.equal(run.cards[0].status,'solved');assert.equal(run.cards.length,1,'Editing does not advance the queue');
   const restarted=new PreparedLessonTasks(f.deps);
   assert.deepEqual(restarted.data.runs[run.id].tasks[0].answers,['9']);assert.deepEqual(restarted.data.runs[run.id].tasks[0].images,[f.replacement.id]);
+});
+
+test('a replacement Python input with the same name takes effect on an existing lesson', async t => {
+  const f = fixture(t), {store,auth} = f;
+  const original = store.putAsset(auth, Buffer.from('old data'), '17_3.txt', 'text/plain');
+  const replacement = store.putAsset(auth, Buffer.from('correct data'), '17_3.txt', 'text/plain');
+  let set = await f.make([{answers:['12','34'],attachments:[{assetId:original.id}]}], {taskNumber:17});
+  const initial = await store.start(auth, {room:'board-t-s',setId:set.id,x:0,y:0});
+  set = await store.saveSet(auth, {
+    ...set,
+    tasks: [{...set.tasks[0],attachments:[{assetId:replacement.id,runtimeName:'17_3.TXT'}]}],
+  }, set.id);
+
+  const updated = await f.sync(initial,set);
+  const [oldFile,newFile] = updated.cards[0].attachments;
+  assert.equal(oldFile.assetId, original.id);
+  assert.equal(oldFile.runtime, false);
+  assert.equal(newFile.assetId, replacement.id);
+  assert.deepEqual(preparedRuntimeFiles(updated.cards[0].attachments).map(file => file.assetId), [replacement.id]);
+  assert.equal(updated.cards[0].id, initial.cards[0].id);
+  assert.equal((await f.sync(updated,set)).version, updated.version);
 });
 
 test('apply only an owned, complete, current version; failed storage rolls back the lesson',async t=>{
