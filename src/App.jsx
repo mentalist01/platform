@@ -3745,7 +3745,18 @@ export const CollabSection = ({
   const teacherInCodeTab = remoteParticipants.some(participant =>
     participant.teachingLessonId === learningLessonId && participant.solutionId === activeSolutionId);
   const reviewingPracticeCode = Boolean(practiceSolutions?.length && !teacherInCodeTab && !compareSolutionId);
-  const codeExecutionDisabled = reviewingPracticeCode || collabReadOnly || runLoading || !collabDocumentReady || Boolean(compareSolutionId);
+  const practiceRunScope = JSON.stringify([roomId, preparedPage, activeSolutionId]);
+  const [practiceRun, setPracticeRun] = useState(null);
+  const [practiceRunChoice, setPracticeRunChoice] = useState(null);
+  const [practiceStdin, setPracticeStdin] = useState(null);
+  const practiceRunRef = useRef(null);
+  const practiceRunIndex = practiceRunChoice?.scope === practiceRunScope ? practiceRunChoice.index : 0;
+  const practiceRunSolution = practiceSolutions?.[practiceRunIndex] || practiceSolutions?.[0];
+  const currentPracticeRun = practiceRun?.scope === practiceRunScope && practiceRun.solution === practiceRunSolution ? practiceRun : null;
+  const practiceRunLoading = practiceRun?.status === 'running';
+  const practiceInput = practiceStdin?.scope === practiceRunScope ? practiceStdin.input : '';
+  const codeExecutionDisabled = collabReadOnly || runLoading || practiceRunLoading || !collabDocumentReady || Boolean(compareSolutionId);
+  const codeDebuggingDisabled = reviewingPracticeCode || codeExecutionDisabled;
   useGroupPracticeComments(editorRef, editorMountVersion, teacherInCodeTab && !compareSolutionId ? practiceSolutions : null);
   const reviewSharedCode = useSharedCodePreview(editorRef, editorMountVersion, reviewingPracticeCode);
   const toggleCodeFocus = async () => {
@@ -7184,8 +7195,52 @@ export const CollabSection = ({
     return { code: fullCode, mode: 'all' };
   };
 
+  const runPracticeSolution = async (input = practiceInput) => {
+    if (!practiceRunSolution || runLoading || localRunBusyRef.current || practiceRunRef.current) return;
+    const source = practiceRunSolution.text;
+    const context = {scope: practiceRunScope, solution: practiceRunSolution, input};
+    setOutputPanelOpen(true);
+    if (!source.trim()) {
+      setPracticeRun({...context, status: 'done', output: '', error: 'Код пустой.'});
+      return;
+    }
+    practiceRunRef.current = context;
+    setPracticeRun({...context, status: 'running', output: '', error: ''});
+    const update = (result, status) => {
+      if (practiceRunRef.current !== context) return;
+      setPracticeRun({...context, status, output: normalizeRunText(result.output), error: normalizeRunText(result.error),
+        turtleScene: result.turtleScene});
+    };
+    try {
+      const files = await resolveSelectedRuntimeFiles(preparedCodeCard?.attachments);
+      if (practiceRunRef.current !== context) return;
+      const result = await runPythonCode(source, input, progress => update(progress, 'running'), {files});
+      update(result, result.needsInput ? 'waiting-input' : 'done');
+    } catch (error) {
+      update({error: error?.message || 'Ошибка выполнения Python.'}, 'done');
+    } finally {
+      if (practiceRunRef.current === context) practiceRunRef.current = null;
+    }
+  };
+
+  const stopPracticeRun = () => {
+    const context = practiceRunRef.current;
+    if (!context) return;
+    practiceRunRef.current = null;
+    disposeRunWorker('Прервано пользователем.');
+    setPracticeRun(previous => previous?.status === 'running'
+      ? {...previous, status: 'stopped', error: 'Прервано пользователем (Ctrl+C).'}
+      : previous);
+  };
+  const stopPracticeRunRef = useRef(null);
+  stopPracticeRunRef.current = stopPracticeRun;
+
   const handleRunCode = async (mode = 'all', debug = false, resume = null) => {
-    if ((reviewingPracticeCode && !resume) || collabReadOnly || !collabDocumentReady || !editorRef.current || compareSolutionId || activeSolutionDeleted) return;
+    if (collabReadOnly || !collabDocumentReady || !editorRef.current || compareSolutionId || activeSolutionDeleted || practiceRunRef.current) return;
+    if (reviewingPracticeCode && !resume) {
+      if (!debug && mode === 'all') await runPracticeSolution();
+      return;
+    }
     outputPanelDismissedRunTokenRef.current = null;
     setOutputPanelOpen(true);
     const requestedDebug = Boolean(debug);
@@ -7439,6 +7494,14 @@ export const CollabSection = ({
   };
   const submitConsoleInput = (event) => {
     event.preventDefault();
+    if (reviewingPracticeCode) {
+      if (currentPracticeRun?.status !== 'waiting-input') return;
+      const value = new FormData(event.currentTarget).get('value');
+      const input = currentPracticeRun.input;
+      event.currentTarget.reset();
+      void runPracticeSolution(input + (input && !input.endsWith('\n') ? '\n' : '') + String(value ?? '') + '\n');
+      return;
+    }
     if (!pendingConsoleInput || runLoading) return;
     const nextInput = `${pendingConsoleInput.input}${consoleInputDraft}\n`;
     void handleRunCode('all', false, { code: pendingConsoleInput.code, input: nextInput });
@@ -7503,6 +7566,10 @@ export const CollabSection = ({
 
   const handleTopStop = useCallback(() => {
     if (collabReadOnly) return;
+    if (practiceRunRef.current) {
+      stopPracticeRunRef.current?.();
+      return;
+    }
     if (runLoading) {
       handleStopRun();
       return;
@@ -7523,7 +7590,7 @@ export const CollabSection = ({
       return false;
     };
     const handleKeyDown = (event) => {
-      if (!runLoading) return;
+      if (!runLoading && !practiceRunRef.current) return;
       if (!event.ctrlKey && !event.metaKey) return;
       const key = String(event.key || '').toLowerCase();
       const code = event.code;
@@ -7533,7 +7600,8 @@ export const CollabSection = ({
       const selectionText = typeof window !== 'undefined' ? window.getSelection?.()?.toString?.() : '';
       if (selectionText) return;
       event.preventDefault();
-      handleStopRun();
+      if (practiceRunRef.current) stopPracticeRunRef.current?.();
+      else handleStopRun();
     };
     if (typeof window === 'undefined') return undefined;
     window.addEventListener('keydown', handleKeyDown);
@@ -7586,6 +7654,10 @@ export const CollabSection = ({
 
   const handleClearRun = () => {
     if (collabReadOnly) return;
+    if (reviewingPracticeCode) {
+      setPracticeRun(null);
+      return;
+    }
     setPendingConsoleInput(null);
     setConsoleInputDraft('');
     setOutputPanelOpen(true);
@@ -8126,6 +8198,7 @@ export const CollabSection = ({
       if (disposed || localRunBusyRef.current || !listCollabCodePages(doc).some(page => page.id === pageId)
         || !listCollabSolutions(doc).some((item) => item.id === nextId)) return false;
       if (nextId === activeSolutionIdRef.current) return true;
+      stopPracticeRunRef.current?.();
       const editor = editorRef.current;
       solutionViews.set(activeSolutionIdRef.current, editor?.saveViewState?.());
       flushLessonReplayCodeSnapshot();
@@ -8215,6 +8288,7 @@ export const CollabSection = ({
       solutionPages.unobserve(syncSolutionCatalog);
       runSessionRef.current += 1;
       localRunBusyRef.current = false;
+      stopPracticeRunRef.current?.();
       disposeRunWorkerRef.current?.('Комната кода закрыта.');
       setRunLoading(false);
       provider.awareness.off('change', handleAwareness);
@@ -8751,7 +8825,7 @@ export const CollabSection = ({
   }, [testFileText]);
   const isTestFileMode = collabAuxPanelMode === COLLAB_AUX_PANEL_MODE_TEST_FILE;
   const isCollabDarkUi = isDarkTheme;
-  const stdinInputCharCount = String(runInput ?? '').length;
+  const stdinInputCharCount = String(reviewingPracticeCode ? practiceInput : runInput ?? '').length;
   const stdinToggleLabel = stdinPanelOpen
     ? 'Скрыть'
     : (stdinInputCharCount ? `Показать • ${formatCollabSymbolCount(stdinInputCharCount)}` : 'Показать');
@@ -9789,8 +9863,12 @@ export const CollabSection = ({
               </div>
             ) : (
               <textarea
-                value={runInput}
-                onChange={(e) => changeRunInput(e.target.value)}
+                value={reviewingPracticeCode ? practiceInput : runInput}
+                onChange={(event) => {
+                  const input = event.target.value;
+                  if (reviewingPracticeCode) setPracticeStdin({scope: practiceRunScope, input});
+                  else changeRunInput(input);
+                }}
                 disabled={collabReadOnly || !collabDocumentReady}
                 rows={auxTextareaRows}
                 placeholder="Если нужен ввод, вставьте его сюда."
@@ -10426,6 +10504,11 @@ export const CollabSection = ({
       )}
     </div>
   );
+  const consoleRunStatus = reviewingPracticeCode ? currentPracticeRun?.status || 'idle' : runStatus;
+  const consoleOutput = reviewingPracticeCode ? currentPracticeRun?.output || '' : runOutput;
+  const consoleError = reviewingPracticeCode ? currentPracticeRun?.error || '' : runError;
+  const consoleLastInput = reviewingPracticeCode ? currentPracticeRun?.input || '' : lastRunInput;
+  const consoleDrawing = reviewingPracticeCode ? currentPracticeRun?.turtleScene : collabTurtleScene;
   const resultConsoleClass = `collab-result-console rounded-xl border p-2 text-sm font-mono ${
     isFullscreenDark
       ? 'bg-slate-950/92 text-slate-100'
@@ -10433,7 +10516,7 @@ export const CollabSection = ({
   } ${
     isSplitCollabLayout ? 'min-h-0 h-full overflow-auto' : 'min-h-[160px]'
   } ${
-    runStatus === 'running'
+    consoleRunStatus === 'running'
       ? 'border-amber-300/70 shadow-[0_0_24px_rgba(251,191,36,0.25)]'
       : (isFullscreenDark ? 'border-slate-700/90' : 'border-gray-900')
   }`;
@@ -10449,11 +10532,13 @@ export const CollabSection = ({
 
   const resultConsole = (
     <div className={resultConsoleClass}>
-      {!String(editorModelValue).trim() && (runOutput || runError) && runStatus !== 'running' && (
+      {!reviewingPracticeCode && !String(editorModelValue).trim() && (runOutput || runError) && runStatus !== 'running' && (
         <p className="collab-run-context">Код в этой вкладке пуст. Ниже — сохранённый результат прошлого запуска.</p>
       )}
-      {runError && <CollabRunError key={`${activeSolutionId}:${runTimestampRef.current}`} error={runError} onRevealLine={!compareSolutionId && String(editorModelValue).trim() ? revealErrorLine : undefined} />}
-      {collabTurtleScene?.used && (
+      {consoleError && <CollabRunError key={`${activeSolutionId}:${reviewingPracticeCode ? 'practice' : runTimestampRef.current}`} error={consoleError}
+        onRevealLine={!reviewingPracticeCode && !compareSolutionId && String(editorModelValue).trim() ? revealErrorLine : undefined} />}
+      {reviewingPracticeCode && consoleDrawing?.used && <TurtleCanvas drawing={consoleDrawing} />}
+      {!reviewingPracticeCode && collabTurtleScene?.used && (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-2 text-[11px] text-emerald-100">
           <span>
             {`🐢 Рисунок Turtle${collabTurtleDisplayAuthor ? ` от ${collabTurtleDisplayAuthor}` : ''}: ${collabTurtleScene.primitives.length.toLocaleString('ru-RU')} элементов`}
@@ -10467,27 +10552,29 @@ export const CollabSection = ({
           </button>
         </div>
       )}
-      {runStatus === 'running' && (
+      {consoleRunStatus === 'running' && (
         <div className="mb-2 flex items-center gap-2 text-[11px] text-amber-300">
           <span className="inline-flex h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.9)] animate-pulse" />
           Выполняется...
         </div>
       )}
-      {runStatus === 'stopped' && (
+      {consoleRunStatus === 'stopped' && (
         <div className="mb-2 text-[11px] text-rose-300">Остановлено пользователем</div>
       )}
-      {runStatus === 'waiting-input' && (
+      {consoleRunStatus === 'waiting-input' && (
         <div className="mb-2 text-[11px] text-amber-300">Программа ожидает ввод с клавиатуры</div>
       )}
-      {lastRunInput && (
+      {consoleLastInput && (
         <div className="collab-run-input mb-3">
           <div className="text-[10px] uppercase tracking-widest text-slate-400">Ввод</div>
-          <pre className="mt-1 whitespace-pre-wrap break-words text-slate-200">{lastRunInput}</pre>
+          <pre className="mt-1 whitespace-pre-wrap break-words text-slate-200">{consoleLastInput}</pre>
         </div>
       )}
-      {(runOutput || runError) ? (
+      {reviewingPracticeCode && consoleOutput ? (
+        <pre aria-label="Вывод программы" className="mt-1 whitespace-pre-wrap break-words">{consoleOutput}</pre>
+      ) : (consoleOutput || consoleError) ? (
         <>
-          {runOutput && (
+          {consoleOutput && (
             <div className="mt-1">
               <div ref={outputViewportRef} className="relative">
                 {remoteOutputSelectionSegments.length > 0 && (
@@ -10531,13 +10618,14 @@ export const CollabSection = ({
         </>
       ) : (
         <div className="collab-result-empty text-slate-400">
-          {collabTurtleScene?.used ? 'Программа завершила построение рисунка.' : 'Здесь появится вывод программы.'}
+          {consoleDrawing?.used ? 'Программа завершила построение рисунка.' : 'Здесь появится вывод программы.'}
         </div>
       )}
-      {pendingConsoleInput && runStatus === 'waiting-input' && !collabReadOnly && (
-        <form onSubmit={submitConsoleInput} className="mt-3 flex items-center gap-2 rounded-lg border border-violet-400/45 bg-slate-900 px-2 py-1.5">
+      {(reviewingPracticeCode || pendingConsoleInput) && consoleRunStatus === 'waiting-input' && !collabReadOnly && (
+        <form key={reviewingPracticeCode ? 'practice' : 'shared'} onSubmit={submitConsoleInput} className="mt-3 flex items-center gap-2 rounded-lg border border-violet-400/45 bg-slate-900 px-2 py-1.5">
           <span className="text-violet-300">›</span>
-          <input autoFocus value={consoleInputDraft} onChange={(event) => setConsoleInputDraft(event.target.value)}
+          <input autoFocus name="value" value={reviewingPracticeCode ? undefined : consoleInputDraft}
+            onChange={reviewingPracticeCode ? undefined : (event) => setConsoleInputDraft(event.target.value)}
             aria-label="Ввод программы" placeholder="Введите значение и нажмите Enter"
             className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500" />
           <button type="submit" className="rounded-md bg-violet-600 px-2 py-1 text-xs font-semibold text-white">Enter</button>
@@ -10546,7 +10634,7 @@ export const CollabSection = ({
     </div>
   );
 
-  const debugPane = debugActive ? (
+  const debugPane = debugActive && !reviewingPracticeCode ? (
     <div className={`rounded-2xl border p-3 text-xs ${
       isFullscreenDark
         ? 'border-cyan-500/35 bg-slate-900/78 text-slate-100 shadow-[inset_0_1px_0_rgba(148,163,184,0.12)]'
@@ -10656,14 +10744,15 @@ export const CollabSection = ({
               <div className="collab-output-header-reference">
                 <div className="collab-output-identity">
                   <div className="collab-output-title-reference"><ChevronRight size={15} /><span>Вывод</span></div>
-                  <small title={currentSolutionName}>{currentSolutionName}</small>
-                  <span className={`collab-output-run-state ${runStatus === 'running' || runStatus === 'waiting-input' ? 'is-running' : runError ? 'is-error' : runStatus === 'done' ? 'is-success' : ''}`}>
-                    {runStatus === 'running' ? 'Выполняется' : runStatus === 'waiting-input' ? 'Ждёт ввод' : runStatus === 'stopped' ? 'Остановлен' : runError ? 'Ошибка' : runStatus === 'done' ? 'Готово' : ''}
+                  <small title={reviewingPracticeCode ? 'Моё решение' : currentSolutionName}>{reviewingPracticeCode ? 'Моё решение' : currentSolutionName}</small>
+                  <span className={`collab-output-run-state ${consoleRunStatus === 'running' || consoleRunStatus === 'waiting-input' ? 'is-running' : consoleError ? 'is-error' : consoleRunStatus === 'done' ? 'is-success' : ''}`}>
+                    {consoleRunStatus === 'running' ? 'Выполняется' : consoleRunStatus === 'waiting-input' ? 'Ждёт ввод' : consoleRunStatus === 'stopped' ? 'Остановлен' : consoleError ? 'Ошибка' : consoleRunStatus === 'done' ? 'Готово' : ''}
                   </span>
                 </div>
                 <div className="collab-output-actions-reference">
                   <button type="button" className="collab-output-clear-button" onClick={handleClearRun}
-                    disabled={collabReadOnly || !collabDocumentReady || !canClearRunState || runLoading || runStatus === 'running' || activeSolutionDeleted}
+                    disabled={collabReadOnly || !collabDocumentReady || consoleRunStatus === 'running' || activeSolutionDeleted
+                      || (reviewingPracticeCode ? !currentPracticeRun : !canClearRunState || runLoading)}
                     title="Очистить вывод и результат запуска текущего варианта" aria-label="Очистить вывод">
                     <Eraser size={14} /><span>Очистить</span>
                   </button>
@@ -10937,7 +11026,7 @@ export const CollabSection = ({
                 className={`${collabIconButtonBase} collab-code-pill-button is-run ${
                   codeExecutionDisabled ? collabIconButtonDisabled : collabIconButtonPrimary
                 }`}
-                title="Запустить код"
+                title={reviewingPracticeCode ? 'Запустить своё решение' : 'Запустить код'}
                 aria-label="Запустить код"
               >
                 <Play size={15} fill="currentColor" />
@@ -10948,9 +11037,9 @@ export const CollabSection = ({
                 <button
                   type="button"
                   onClick={() => handleRunCode('all', true)}
-                  disabled={codeExecutionDisabled}
+                  disabled={codeDebuggingDisabled}
                   className={`${collabIconButtonBase} collab-code-pill-button is-debug ${
-                    codeExecutionDisabled
+                    codeDebuggingDisabled
                       ? collabIconButtonDisabled
                       : (debugActive ? collabIconButtonPrimary : collabIconButtonNeutral)
                   }`}
@@ -10963,13 +11052,13 @@ export const CollabSection = ({
                 <button
                   type="button"
                   onClick={handleTopStop}
-                  disabled={collabReadOnly || (!runLoading && !debugActive)}
+                  disabled={collabReadOnly || (!practiceRunLoading && !runLoading && (!debugActive || reviewingPracticeCode))}
                   className={`${collabIconButtonBase} collab-code-pill-button is-stop is-icon-only ${
-                    collabReadOnly || (!runLoading && !debugActive)
+                    collabReadOnly || (!practiceRunLoading && !runLoading && (!debugActive || reviewingPracticeCode))
                       ? collabIconButtonDisabled
                       : collabIconButtonDanger
                   }`}
-                  title={runLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
+                  title={runLoading || practiceRunLoading ? 'Остановить выполнение (Ctrl+C)' : 'Выйти из дебага (Esc)'}
                   aria-label="Остановить"
                 >
                   <Square size={13} fill="currentColor" />
@@ -11017,7 +11106,7 @@ export const CollabSection = ({
                     ? collabIconButtonDisabled
                     : collabIconButtonPrimary
                 }`}
-                title="Запустить код (F5)"
+                title={reviewingPracticeCode ? 'Запустить своё решение (F5)' : 'Запустить код (F5)'}
                 aria-label="Запустить код"
               >
                 <Play size={19} />
@@ -11025,9 +11114,9 @@ export const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('selection')}
-                disabled={codeExecutionDisabled}
+                disabled={codeDebuggingDisabled}
                 className={`${collabIconButtonBase} ${
-                  codeExecutionDisabled
+                  codeDebuggingDisabled
                     ? collabIconButtonDisabled
                     : collabIconButtonNeutral
                 }`}
@@ -11039,9 +11128,9 @@ export const CollabSection = ({
               <button
                 type="button"
                 onClick={() => handleRunCode('all', true)}
-                disabled={codeExecutionDisabled}
+                disabled={codeDebuggingDisabled}
                 className={`${collabIconButtonBase} ${
-                  codeExecutionDisabled
+                  codeDebuggingDisabled
                     ? collabIconButtonDisabled
                     : (debugActive
                       ? collabIconButtonPrimary
@@ -11055,7 +11144,15 @@ export const CollabSection = ({
             </>
           )}
 
-          {collabTurtleScene?.used && (
+          {reviewingPracticeCode && practiceSolutions.length > 1 && (
+            <select className="collab-practice-run-variant rounded-lg border border-violet-200 px-2 py-1 text-xs"
+              aria-label="Решение для запуска" value={practiceRunIndex} disabled={practiceRunLoading}
+              onChange={(event) => setPracticeRunChoice({scope: practiceRunScope, index: Number(event.target.value)})}>
+              {practiceSolutions.map((solution, index) => <option key={index} value={index}>{solution.name}</option>)}
+            </select>
+          )}
+
+          {!reviewingPracticeCode && collabTurtleScene?.used && (
             <button
               type="button"
               onClick={() => setCollabTurtleWindowOpen(true)}
