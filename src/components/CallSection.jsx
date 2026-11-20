@@ -6546,7 +6546,7 @@ const CallSection = ({
                     disabled={!canStop}
                     className={`${compactControlButtonClass} call-control-btn--hangup border border-rose-300/60 bg-rose-500 text-white hover:bg-rose-400`}
                     aria-label="Выйти из звонка"
-                    title="Выйти из звонка. При переходе в Телемост продолжите урок по резервной ссылке."
+                    title={channelSelectionMode ? 'Выйти из канала' : 'Выйти из звонка. При переходе в Телемост продолжите урок по резервной ссылке.'}
                   >
                     <PhoneOff size={18} />
                     <span className="call-workspace-action-label">Выйти</span>

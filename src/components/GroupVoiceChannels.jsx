@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Headphones, Loader2, LogOut, Megaphone, Mic, Pencil, Plus, Users } from 'lucide-react';
+import { ArrowLeft, Headphones, Loader2, Megaphone, Mic, Pencil, Plus, Users } from 'lucide-react';
 import { api } from '../services/api';
 import CallSection from './CallSection';
 import useDesktopRecording from '../hooks/useDesktopRecording';
 import useRecorderShare from '../hooks/useRecorderShare';
 import './GroupVoiceChannels.css';
 
-export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onChannelSelection, onOpenCall, onBack }) {
+export default function GroupVoiceChannels({ lesson, user, students, theme, visible, requestedChannel, onConnectedChannelChange, onOpenCall, onBack }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -35,8 +35,8 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   useRecorderShare({ enabled: recorder.enabled && isTeacher, jobId: recorder.jobId, track: desktopShareTrack });
 
   useEffect(() => {
-    onChannelSelection?.({ lessonId, channelId: selectedId });
-  }, [lessonId, onChannelSelection, selectedId]);
+    onConnectedChannelChange?.({ lessonId, channelId: callStatus === 'connected' ? selectedId : '' });
+  }, [callStatus, lessonId, onConnectedChannelChange, selectedId]);
 
   useEffect(() => {
     let active = true;
@@ -206,6 +206,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
   const channels = snapshot?.channels || [];
   const selected = channels.find((channel) => channel.id === selectedId);
   const canConnect = snapshot?.canJoin;
+  const ownWorkChannel = !isTeacher && channels.find(channel => channel.kind === 'practice');
   const statusLabel = callStatus === 'connected' ? 'Вы в канале' : callStatus === 'connecting' ? 'Подключение…' : 'Связь отключена';
 
   return (
@@ -242,8 +243,11 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
                     <div className="group-voice__channel-row">
                     <button className="group-voice__join" type="button" disabled={!canConnect} onClick={() => join(channel.id)} aria-pressed={active} aria-label={`Войти в канал ${channel.name}`}>
                       <Mic size={18} />
-                      <span><strong>{channel.name}</strong><small>{active ? statusLabel : channel.studentId === user.id ? 'Ваш канал' : 'Нажмите, чтобы войти'}</small></span>
-                      <span className="group-voice__count">{participants.length}</span>
+                      <span>
+                        <strong>{channel.name}</strong>
+                        {active ? <small>{statusLabel}</small> : (ownWorkChannel ? channel.id === ownWorkChannel.id : channel.studentId === user.id) && <small>Ваш канал</small>}
+                      </span>
+                      {participants.length > 0 && <span className="group-voice__count">{participants.length}</span>}
                     </button>
                     {isTeacher && <button type="button" className="group-voice__rename" aria-label={`Переименовать канал ${channel.name}`} title="Переименовать канал" disabled={renaming} onClick={() => { setEditingId(channel.id); setEditedName(channel.name); setActionError(''); }}><Pencil size={14} /></button>}
                     </div>
@@ -279,19 +283,20 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
             <p className="group-voice__hint">Слышны только участники выбранного канала. Все участники занятия могут переходить между каналами.</p>
           </aside>
           <main className="group-voice__main">
-            {selected && canConnect && callStatus === 'connected' ? (
-              <div className="group-voice__current">
-                <span><Headphones size={18} /><strong>{selected.name}</strong></span>
-                <button type="button" onClick={leave}><LogOut size={17} /> Выйти из канала</button>
-              </div>
-            ) : (
+            {(!selected || !canConnect || callStatus !== 'connected') && (
               <div className="group-voice__empty">
-                <Headphones size={42} />
-                <h3>Выберите голосовой канал</h3>
-                <p>Соберитесь в общем канале для разбора или перейдите в отдельный для работы с преподавателем.</p>
-                {callStatus === 'connecting' ? <p role="status"><Loader2 size={18} className="animate-spin" /> Подключаемся: {selected?.name}…</p>
-                  : <button type="button" disabled={!canConnect} onClick={() => join(!isTeacher ? (channels.find(channel => channel.kind === 'practice')?.id || 'general') : 'general')}>{!isTeacher && channels.some(channel => channel.kind === 'practice') ? 'Войти в свой канал' : 'Войти в общий канал'}</button>}
-                <small>Микрофон включится после подключения. Камера — по желанию.</small>
+                {callStatus === 'connecting' && selected ? (
+                  <div className="group-voice__joining" role="status"><Loader2 size={20} className="animate-spin" /> Подключаемся к каналу «{selected.name}»</div>
+                ) : (
+                  <>
+                    <Headphones size={32} aria-hidden="true" />
+                    <h3>Подключитесь к уроку</h3>
+                    {canConnect && <>
+                      <button type="button" onClick={() => join(ownWorkChannel?.id || 'general')}>{ownWorkChannel ? 'Войти в свой канал' : 'Войти в общий канал'}</button>
+                      <small>Микрофон включится после подключения</small>
+                    </>}
+                  </>
+                )}
               </div>
             )}
             {/* Keep the call mounted when opening the board or editor. A channel

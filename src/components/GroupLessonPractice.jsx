@@ -3,7 +3,7 @@ import { Check, Hand, Headphones, PenLine, Users, X } from 'lucide-react';
 import { api } from '../services/api.js';
 import { boardPageBookRoom, boardPageRoom } from '../utils/boardPages.js';
 import { groupNotebookBoard } from '../utils/groupNotebook.js';
-import { buildPracticeAssignments } from '../utils/groupPractice.js';
+import { buildPracticeAssignments, practiceVoiceChannelId } from '../utils/groupPractice.js';
 import { lessonPageSelectionKey, readLessonPageSelection } from '../utils/lessonPageSelection.js';
 import './GroupLessonPractice.css';
 
@@ -104,7 +104,8 @@ export default function GroupLessonPractice({ lesson, user, students, selectedRo
   };
 
   if (!practice) return null;
-  const ownRoom = !teacher && voiceChannelId !== 'general' && active?.rooms.find(room => room.id === selectedRoomId);
+  const ownRoom = !teacher && voiceChannelId && active?.rooms.find(room =>
+    room.id === selectedRoomId && practiceVoiceChannelId(room.id) === voiceChannelId);
   if (teacher ? !practice.canManage && !active : !ownRoom) return null;
   return (
     <section className="group-practice" data-theme={theme} aria-label="Режим работы на уроке">

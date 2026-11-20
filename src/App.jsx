@@ -18998,7 +18998,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   const [activeLearningLesson, setActiveLearningLesson] = useState(null);
   const [practiceWorkspace, setPracticeWorkspace] = useState(null);
   const [practiceVoiceRequest, setPracticeVoiceRequest] = useState(null);
-  const [groupVoiceSelection, setGroupVoiceSelection] = useState(null);
+  const [groupVoiceConnection, setGroupVoiceConnection] = useState(null);
   const [studentGroupAccess, setStudentGroupAccess] = useState({ userId: '', hasGroups: false, loaded: false });
   const [studentAvailabilityState, setStudentAvailabilityState] = useState({ userId: '', prompt: null });
   const { hasGroups: studentHasGroups, seekingGroup: studentSeekingGroup } = getStudentGroupNavigationAccess(user.id, studentGroupAccess, studentAvailabilityState);
@@ -21851,7 +21851,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     } else if (!target.roomId) {
       setPracticeVoiceRequest(null);
     }
-    if (view === 'call' && (target.roomId || visit)) navigateToView('board');
+    if (view === 'call' && visit) navigateToView('board');
   }, [navigateToView,practiceGroupId,practiceLessonId,user.id,user.role,view]);
 
   const prefetchNavigationView = useCallback((nextView) => {
@@ -27003,7 +27003,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
             <React.Suspense fallback={null}>
               <GroupLessonPractice key={practiceLessonId} lesson={activeLearningLesson} user={user}
                 students={currentStudentsWithNicknames} selectedRoomId={currentPractice?.roomId}
-                voiceChannelId={groupVoiceSelection?.lessonId === practiceLessonId ? groupVoiceSelection.channelId : ''}
+                voiceChannelId={view !== 'call' && groupVoiceConnection?.lessonId === practiceLessonId ? groupVoiceConnection.channelId : ''}
                 onOpen={openPracticeWorkspace} theme={theme} />
             </React.Suspense>
           )}
@@ -27045,7 +27045,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               theme={theme}
               visible={view === 'call'}
               requestedChannel={practiceVoiceRequest?.lessonId === activeLearningLesson.lessonId ? practiceVoiceRequest : null}
-              onChannelSelection={user.role === 'student' ? setGroupVoiceSelection : undefined}
+              onConnectedChannelChange={user.role === 'student' ? setGroupVoiceConnection : undefined}
               onOpenCall={() => navigateToView('call')}
               onBack={handleLeaveLearningGroupLesson}
             />
