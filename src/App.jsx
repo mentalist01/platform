@@ -18893,7 +18893,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         ...(studentCanSeeReview ? ['review'] : []),
         'python',
         'rating',
-        'achievements',
         'collab',
         ...(STUDENT_CALL_SECTION_ENABLED ? ['call'] : []),
         'board',
@@ -18966,6 +18965,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     : null;
 
   const [view, setRenderedView] = useState(initialView);
+  const isStudentAchievementView = user.role === 'student' && view === 'achievements';
   const recordingPrivacy = useRecordingPrivacy(view, user.role);
   const setView = useCallback(next => recordingPrivacy.navigate(next, setRenderedView), [recordingPrivacy.navigate]);
   const [requestedNotesLocation, setRequestedNotesLocation] = useState(initialNotesLocation);
@@ -18973,10 +18973,10 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
 
   useEffect(() => {
     const allowedViewsList = allowedViewsKey ? allowedViewsKey.split('|') : [];
-    if (view && !allowedViewsList.includes(view)) {
+    if (view && !isStudentAchievementView && !allowedViewsList.includes(view)) {
       setView(defaultView);
     }
-  }, [allowedViewsKey, defaultView, view]);
+  }, [allowedViewsKey, defaultView, isStudentAchievementView, view]);
 
   const [teacherCommsTab, setTeacherCommsTab] = useState(initialTeacherCommsTab);
   const [teacherStudentChatId, setTeacherStudentChatId] = useState(initialTeacherStudentChatId);
@@ -20323,11 +20323,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
   }, []);
 
   useEffect(() => {
+    if (isStudentAchievementView) return;
     updateUserLocation(user, { view });
     if (view !== 'progress' && view !== 'python') {
       updateUserLocation(user, { openTask: null });
     }
-  }, [view, user]);
+  }, [isStudentAchievementView, view, user]);
 
   useEffect(() => {
     if (view === 'call') return;
@@ -20394,7 +20395,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
         ...(studentCanSeeReview ? [{ id: 'review', label: 'Повторение', icon: RefreshCcw, featured: true }] : []),
         { id: 'python', label: 'Изучение Python', icon: PythonLogoIcon },
         { id: 'rating', label: 'Рейтинг', icon: Trophy },
-        { id: 'achievements', label: 'Достижения', icon: Trophy },
         { id: 'collab', label: 'Совместный код', icon: Code2 },
         { id: 'call', label: '\u0421\u043e\u0437\u0432\u043e\u043d', icon: PlayCircle },
         { id: 'board', label: 'Доска', icon: Brush },
@@ -20442,7 +20442,7 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     ]
     : visibleNav;
   const studentDesktopToolNav = user.role === 'student'
-    ? ['python', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'rating', 'achievements']
+    ? ['python', ...(PLATFORM_CHATS_ENABLED ? ['chat'] : []), 'rating']
       .map((id) => visibleNav.find((item) => item.id === id))
       .filter(Boolean)
     : [];
@@ -20549,7 +20549,6 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     review: 'Повтор',
     lesson: '\u0423\u0440\u043e\u043a',
     rating: 'Рейтинг',
-    achievements: 'Награды',
     python: 'Python',
     collab: 'Код',
     call: '\u0417\u0432\u043e\u043d\u043e\u043a',
@@ -22032,6 +22031,12 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
     captureGoalFlySource(resolvedView);
     setView(resolvedView);
   }, [allowedViewsKey, captureGoalFlySource, stopGoalFlyAnimation, studentDefaultLessonView, user.role, view]);
+  const openStudentAchievements = () => {
+    if (isStudentAchievementView) return;
+    stopGoalFlyAnimation();
+    captureGoalFlySource('achievements');
+    setView('achievements');
+  };
   const practiceLessonId = activeLearningLesson?.lessonId;
   const practiceGroupId = activeLearningLesson?.groupId;
   const currentPractice = practiceWorkspace?.lessonId === practiceLessonId ? practiceWorkspace : null;
@@ -27102,7 +27107,8 @@ const DashboardLayout = ({ user, onLogout, progress, onUpdateProgress, theme, on
               getMockAnswerCountForTask={getMockAnswerCountForTask}
             />
           )}
-          {user.role === 'student' && <StudentAchievements key={user.id} user={user} onXpGain={handleXpGain} open={view === 'achievements'} onOpen={() => navigateToView('achievements')} />}
+          {user.role === 'student' && <StudentAchievements key={user.id} user={user} onXpGain={handleXpGain}
+            open={isStudentAchievementView} onOpen={openStudentAchievements} />}
           {user.role === 'teacher' && <PendingWorkbookParts key={`workbook-parts-${user.id}`} user={user}/>}
           {view === 'rating' && (
             <StudentLeaderboardSection

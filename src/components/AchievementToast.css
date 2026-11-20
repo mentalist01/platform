@@ -62,8 +62,8 @@ html[data-theme=dark] .achievement-toast--diamond { --toast-accent-ink: #c5a8f4;
   background: transparent;
   border: 0;
   border-radius: inherit;
-  cursor: pointer;
 }
+.achievement-toast button.achievement-toast-main { cursor: pointer; }
 .achievement-toast .achievement-toast-main:disabled { opacity: 1; }
 .achievement-toast-emblem {
   position: relative;

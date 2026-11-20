@@ -29,6 +29,8 @@ export default function AchievementToast({ item, badge, additionalCount = 0, onD
     setPaused(clock.isPaused());
   };
   const close = () => lifetime.current?.dismiss();
+  const Body = onOpen ? 'button' : 'div';
+  const open = onOpen ? () => { close(); callbacks.current.onOpen?.(); } : undefined;
   return <aside
     className={`achievement-toast achievement-toast--${item.rarity}`}
     data-phase={leaving ? 'leaving' : 'visible'} data-paused={paused}
@@ -40,7 +42,7 @@ export default function AchievementToast({ item, badge, additionalCount = 0, onD
     onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) hold('focus', false); }}
     onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); close(); } }}
   >
-    <button type="button" className="achievement-toast-main" onClick={() => { close(); callbacks.current.onOpen?.(); }} disabled={leaving}>
+    <Body type={onOpen ? 'button' : undefined} className="achievement-toast-main" onClick={open} disabled={onOpen ? leaving : undefined}>
       <span className="achievement-toast-emblem" aria-hidden="true">
         <span className="achievement-toast-halo" />
         <svg className="achievement-toast-orbit" viewBox="0 0 80 80"><circle cx="40" cy="40" r="36" pathLength="1" /></svg>
@@ -52,9 +54,9 @@ export default function AchievementToast({ item, badge, additionalCount = 0, onD
         <strong>{item.title}</strong>
         <span className="achievement-toast-description">{item.description}</span>
         {item.xpGained > 0 && <span className="achievement-toast-xp">+{item.xpGained.toLocaleString('ru-RU')} XP</span>}
-        <span className="achievement-toast-footer"><span className="achievement-toast-tier">{ACHIEVEMENT_RARITIES[item.rarity].title}{additionalCount > 0 && <span className="achievement-toast-count">+{additionalCount}</span>}</span><span className="achievement-toast-link">Коллекция <ArrowUpRight size={13} /></span></span>
+        {onOpen && <span className="achievement-toast-footer"><span className="achievement-toast-tier">{ACHIEVEMENT_RARITIES[item.rarity].title}{additionalCount > 0 && <span className="achievement-toast-count">+{additionalCount}</span>}</span><span className="achievement-toast-link">Коллекция <ArrowUpRight size={13} /></span></span>}
       </span>
-    </button>
+    </Body>
     <button type="button" className="achievement-toast-close" aria-label="Скрыть уведомление о достижении" disabled={leaving} onClick={close}><X size={15} /></button>
     <span className="achievement-toast-timer" aria-hidden="true"><i /></span>
   </aside>;

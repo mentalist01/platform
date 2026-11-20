@@ -69,7 +69,12 @@ export default function StudentAchievements({ user, open = false, onOpen, onXpGa
     window.addEventListener(ACHIEVEMENT_PROGRESS_EVENT, schedule); window.addEventListener('focus', focus); document.addEventListener('visibilitychange', focus);
     return () => { cancelled = true; clearTimeout(timer); clearInterval(interval); window.removeEventListener(ACHIEVEMENT_PROGRESS_EVENT, schedule); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus); };
   }, [user.id, retry]);
-  const current = queue[0] ? { ...queue[0], xpGained: queue.length > 3 ? queue.reduce((sum, item) => sum + (item.xpGained || 0), 0) : queue[0].xpGained } : null;
+  const firstSummary = queue.findIndex(item => item.summary);
+  const awardCount = firstSummary === -1 ? queue.length : firstSummary;
+  const batchSize = awardCount > 3 ? awardCount : 1;
+  const current = batchSize > 1
+    ? { ...queue[0], xpGained: queue.slice(0, batchSize).reduce((sum, item) => sum + (item.xpGained || 0), 0) }
+    : queue[0];
   const currentId = current?.id;
   useEffect(() => {
     if (!currentId) return;
@@ -88,7 +93,7 @@ export default function StudentAchievements({ user, open = false, onOpen, onXpGa
     && (filter === 'all' || (filter === 'earned' ? item.unlocked : !item.unlocked))
     && (!query.trim() || `${item.title} ${item.description}`.toLocaleLowerCase('ru').includes(query.trim().toLocaleLowerCase('ru')))), [data.items, category, filter, query, rarity]);
   const xpRemaining = item => Math.max(0, item.xpReward - Math.max(0, ...earned.filter(entry => entry.rewardChain === item.rewardChain).map(entry => entry.xpReward)));
-  const dismiss = () => setQueue(previous => previous.slice(previous.length > 3 ? previous.length : 1));
+  const dismiss = () => setQueue(previous => previous.slice(batchSize));
   const completion = data.items.length ? Math.round(earned.length / data.items.length * 100) : 0;
   return <>
     {open && <section className="achievements-page" aria-label="Достижения ученика">
@@ -125,6 +130,7 @@ export default function StudentAchievements({ user, open = false, onOpen, onXpGa
         <footer className="achievements-footer"><LockKeyhole size={14} /><p>Полученные достижения сохраняются. Перерыв в занятиях их не обнуляет.</p></footer>
       </>}
     </section>}
-    {current && createPortal(<AchievementToast key={current.id} item={current} badge={<Medal item={current} />} additionalCount={queue.length > 3 ? queue.length - 1 : 0} onDismiss={dismiss} onOpen={onOpen} />, toastHost)}
+    {current && createPortal(<AchievementToast key={current.id} item={current} badge={<Medal item={current} />}
+      additionalCount={batchSize - 1} onDismiss={dismiss} onOpen={current.summary ? undefined : onOpen} />, toastHost)}
   </>;
 }
