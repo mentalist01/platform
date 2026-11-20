@@ -230,7 +230,7 @@ export default function GroupVoiceChannels({ lesson, user, students, theme, visi
         <div className="group-voice__layout">
           <aside className="group-voice__sidebar" aria-label="Голосовые каналы занятия">
             <div className="group-voice__sidebar-title"><Users size={17} /> Каналы группы</div>
-            <button type="button" className="group-voice__back" onClick={onBack}><ArrowLeft size={15} /> К мини-группе</button>
+            {isTeacher && <button type="button" className="group-voice__back" onClick={onBack}><ArrowLeft size={15} /> К мини-группе</button>}
             {!snapshot && !loadError && <p className="group-voice__loading"><Loader2 size={18} className="animate-spin" /> Загружаем каналы…</p>}
             <div className="group-voice__channels">
               {visibleChannels.map((channel) => {
