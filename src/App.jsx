@@ -3504,7 +3504,8 @@ export const CollabSection = ({
     ? (isGroupLesson ? (activeGroupParticipantId === GROUP_SHARED_CODE_ID ? '' : activeGroupParticipantId) : activeStudentId)
     : role === 'student' ? userId : '';
   const codeFocus = useLessonCodeFocus(isSandbox || pythonExplanation ? '' : focusStudentId);
-  const studentCodeFocus = role === 'student' && !(unifiedStudentCode && workspaceRoomId) ? codeFocus.focus : null;
+  const focusApplies = !unifiedStudentCode || (!workspaceRoomId && codeFocus.focus?.room === groupNotebookCode(learningGroupId));
+  const studentCodeFocus = role === 'student' && focusApplies ? codeFocus.focus : null;
   const studentCodeFocusRef = useRef(null);
   studentCodeFocusRef.current = studentCodeFocus;
   const [codeFocusBusy, setCodeFocusBusy] = useState(false);
