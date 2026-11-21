@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { BookOpen, ArrowRight, Check } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { ArrowRight, BookOpen, Check, ChevronUp, Minus } from 'lucide-react';
 import { homeworkReminders, homeworkSuggestion, recentLessonReviews } from '../services/homeworkReminders';
 import {TeacherLessonReviewDialog} from './TeacherLessonReview';
 import './TeacherHomeworkReminders.css';
@@ -20,25 +20,47 @@ function HomeworkSuggestion({rows, group}) {
   </section>;
 }
 
-export function HomeworkReminderCard({ reminder, teacherId = '', count = 1, busy = false, error = '', onOpen, onDismiss, suggestion }) {
+export function HomeworkReminderCard({ reminder, teacherId = '', count = 1, busy = false, error = '', onOpen, onDismiss, suggestion, collapsed, onToggle }) {
+  const bodyId = useId();
   const date = new Date(reminder.endedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-  return <aside className="teacher-homework-reminder" role="status" aria-live="polite">
-    <div className="teacher-homework-reminder__heading"><span><BookOpen size={19} /></span>
-      <div><b>Не забыли задать домашку?</b><small>{reminder.groupId ? 'Мини-группа' : 'Ученик'} · {reminder.name} · {date}{reminder.lessonTime ? ` · ${reminder.lessonTime}` : ''}</small></div>
-      {count > 1 && <span className="teacher-homework-reminder__count">+{count - 1}</span>}
+  const toggleLabel = collapsed ? 'Развернуть напоминания о домашке' : 'Свернуть напоминание о домашке';
+  return <aside className={`teacher-homework-reminder${collapsed ? ' teacher-homework-reminder--collapsed' : ''}`} aria-label="Напоминания о домашке">
+    <div className="teacher-homework-reminder__heading">
+      {!collapsed && <>
+        <span><BookOpen size={19} aria-hidden="true" /></span>
+        <div role="status"><b>Не забыли задать домашку?</b><small>{reminder.groupId ? 'Мини-группа' : 'Ученик'} · {reminder.name} · {date}{reminder.lessonTime ? ` · ${reminder.lessonTime}` : ''}</small></div>
+        {count > 1 && <span className="teacher-homework-reminder__count">+{count - 1}</span>}
+      </>}
+      <button type="button" className="teacher-homework-reminder__toggle" onClick={onToggle}
+        aria-label={collapsed ? `${toggleLabel} (${count})` : toggleLabel} title={toggleLabel} aria-expanded={!collapsed} aria-controls={bodyId}>
+        {collapsed ? <><BookOpen size={17} aria-hidden="true" /> Домашка <span>{count}</span><ChevronUp size={15} aria-hidden="true" /></>
+          : <Minus size={17} aria-hidden="true" />}
+      </button>
     </div>
-    <p>Урок завершён, новой домашки пока нет.</p>
-    <HomeworkSuggestion rows={suggestion?.rows} group={Boolean(reminder.groupId)} />
-    <HomeworkLessonNotePreview teacherId={teacherId} studentId={reminder.studentId} groupId={reminder.groupId} compact />
-    {error && <p className="teacher-homework-reminder__error" role="alert">{error}</p>}
-    <div className="teacher-homework-reminder__actions">
-      <button type="button" disabled={busy} onClick={onOpen}>Перейти задать <ArrowRight size={16} /></button>
-      <button type="button" disabled={busy} onClick={onDismiss}><Check size={16} /> Я так и хотел</button>
+    <div id={bodyId} hidden={collapsed}>
+      <p>Урок завершён, новой домашки пока нет.</p>
+      <HomeworkSuggestion rows={suggestion?.rows} group={Boolean(reminder.groupId)} />
+      <HomeworkLessonNotePreview teacherId={teacherId} studentId={reminder.studentId} groupId={reminder.groupId} compact />
+      {error && <p className="teacher-homework-reminder__error" role="alert">{error}</p>}
+      <div className="teacher-homework-reminder__actions">
+        <button type="button" disabled={busy} onClick={onOpen}>Перейти задать <ArrowRight size={16} /></button>
+        <button type="button" disabled={busy} onClick={onDismiss}><Check size={16} /> Я так и хотел</button>
+      </div>
     </div>
   </aside>;
 }
 
 export default function TeacherHomeworkReminders({ userId, onOpen, students, onStudentUpdated, paused = false, noteContext = {}, lessonSignal }) {
+  const collapseKey = `homework-reminders-collapsed:${userId}`;
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(collapseKey) === '1'; }
+    catch { return false; }
+  });
+  const toggleCollapsed = () => {
+    setCollapsed(!collapsed);
+    try { localStorage.setItem(collapseKey, collapsed ? '0' : '1'); }
+    catch { /* The reminder remains usable without browser storage. */ }
+  };
   const [reminders, setReminders] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -145,7 +167,7 @@ export default function TeacherHomeworkReminders({ userId, onOpen, students, onS
       setSnoozed(current => ({...current,[request.id]:autoReviewSnoozedUntil.current}));
       onOpen?.(request);
     }}/>}
-    {reminder && !paused && !activeReview && <HomeworkReminderCard reminder={reminder} teacherId={userId} count={visible.length} busy={busy} error={error}
+    {reminder && !paused && !activeReview && <HomeworkReminderCard reminder={reminder} teacherId={userId} count={visible.length} busy={busy} error={error} collapsed={collapsed} onToggle={toggleCollapsed}
     suggestion={suggestion?.id === reminder.id && suggestion?.userId === userId ? suggestion : null}
     onDismiss={dismiss} onOpen={() => {
       const tasks = !reminder.groupId && suggestion?.id === reminder.id ? suggestion.rows?.find(row => row.studentId === reminder.studentId)?.tasks : [];
