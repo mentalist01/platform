@@ -3,6 +3,45 @@ import assert from 'node:assert/strict';
 import {createGroupHomeworkFixture} from './groupHomework.fixture.js';
 import {addCalendarDays,moscowDay,weekdayIndex,AVAILABILITY_WEEKDAYS} from '../src/utils/groupAvailability.js';
 
+test('a teacher moves one trial pupil from an earlier date into a future booking without duplicating them', {timeout:60000},async()=>{
+  const past=addCalendarDays(moscowDay(),-1),next=addCalendarDays(moscowDay(),2);
+  const source={id:'source',day:weekdayIndex(past),time:'14:00',durationMinutes:60,repeatFrom:past};
+  const target={id:'target',day:weekdayIndex(next),time:'19:00',durationMinutes:45,repeatFrom:past};
+  const originLink='https://telemost.yandex.ru/j/previous-trial',targetLink='https://telemost.yandex.ru/j/next-trial';
+  const row=(slot,id,date,studentIds,studentNames,meetingUrl)=>({id,slotId:slot.id,teacherId:'teacher-a',date,time:slot.time,
+    durationMinutes:slot.durationMinutes,studentIds,studentNames,meetingUrl,revision:2,syncStatus:'synced'});
+  const f=await createGroupHomeworkFixture(undefined,write=>write('trial-slots',{
+    teachers:{'teacher-a':{revision:3,slots:[source,target]}},
+    bookings:{
+      [`teacher-a:source:${past}`]:row(source,'earlier',past,['student-a','student-b'],['Анна','Дарья'],originLink),
+      [`teacher-a:target:${next}`]:row(target,'later',next,['student-b'],['Дарья'],targetLink),
+    },
+  }));
+  try{
+    const teacher=f.tokens['teacher-a'],route=`/api/trial-slots/source/${past}/participants/student-a/move`;
+    const data={planRevision:3,revision:2,target:{slotId:'target',date:next,revision:2}};
+    const schedule=()=>f.request('/api/student-schedule?purpose=lesson',f.tokens['student-a']);
+    assert.deepEqual((await schedule()).filter(row=>row.trialBookingId).map(row=>row.date),[past]);
+    await f.request(route,f.tokens['student-a'],data,'POST',403);
+    await f.request(route,f.tokens['teacher-b'],data,'POST',404);
+    await f.request(route,teacher,{...data,target:{...data.target,revision:1}},'POST',409);
+    assert.deepEqual((await schedule()).filter(row=>row.trialBookingId).map(row=>row.date),[past]);
+    const results=await Promise.all([f.request(route,teacher,data),f.request(route,teacher,data)]);
+    for(const result of results){
+      const from=result.bookings.find(row=>row.id==='earlier'),to=result.bookings.find(row=>row.id==='later');
+      assert.deepEqual(from.studentIds,['student-b']);
+      assert.deepEqual(to.studentIds,['student-b','student-a']);
+      assert.equal(to.meetingUrl,targetLink);
+      assert.equal(from.meetingUrl,originLink);
+      assert.equal(to.durationMinutes,45);
+      assert.equal(result.revision,3);
+      assert.equal(to.syncStatus,'pending');
+    }
+    const own=(await schedule()).filter(row=>row.trialBookingId);
+    assert.deepEqual(own.map(row=>[row.trialBookingId,row.time,row.meetingUrl]),[['later','19:00',targetLink]]);
+  }finally{await f.stop();}
+});
+
 test('saved trial links reach teacher and enrolled student schedules, update without re-enrollment and stay private', {timeout:60000},async()=>{
   const f=await createGroupHomeworkFixture();
   try{

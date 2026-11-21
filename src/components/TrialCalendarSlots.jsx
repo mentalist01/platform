@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarClock, Check, Clock3, Copy, LockKeyhole, Plus, RefreshCcw, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { ArrowRight, CalendarClock, Check, Clock3, Copy, LockKeyhole, Plus, RefreshCcw, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { api } from '../services/api';
 import { preparedRequest } from '../services/preparedLessonTasks.js';
 import useStudentNameAvailability from '../hooks/useStudentNameAvailability';
@@ -11,11 +11,13 @@ import StudentContactFields from './StudentContactFields';
 import StudentContactLinks from './StudentContactLinks';
 import TrialInvitation, {TrialInvitationButton} from './TrialInvitation.jsx';
 import {studentAccessMessage,trialInvitationMessage} from '../utils/trialInvitation.js';
-import { AVAILABILITY_DAY_NAMES, clockTime, weekdayIndex } from '../utils/groupAvailability';
+import { addCalendarDays, AVAILABILITY_DAY_NAMES, clockTime, moscowDay, weekdayIndex } from '../utils/groupAvailability';
 import './TrialCalendarSlots.css';
 
 const minute=time=>Number(time.slice(0,2))*60+Number(time.slice(3));
-function Participant({person,busy,onRemove,invitation}){
+const dateLabel=date=>new Date(`${date}T12:00:00+03:00`).toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/Moscow'});
+
+function Participant({person,busy,onRemove,onMove,invitation,children}){
   const [copying,setCopying]=useState(false),[copied,setCopied]=useState(false),[error,setError]=useState('');
   const [contactsOpen,setContactsOpen]=useState(false);
   const copy=async()=>{
@@ -29,7 +31,40 @@ function Participant({person,busy,onRemove,invitation}){
   };
   return <div className="trial-slots__participant"><div className="trial-slots__person"><span>{person.name?.[0]}</span><strong>{person.name}</strong><button type="button" disabled={busy||copying} onClick={copy} aria-label={`${copied?'Код скопирован':'Копировать код'}: ${person.name}`}>
     {copied?<Check size={14}/>:<Copy size={14}/>}<span>{copying?'Загружаем…':copied?'Скопировано':'Копировать код'}</span>
-  </button><button type="button" aria-expanded={contactsOpen} onClick={()=>setContactsOpen(value=>!value)}>Контакты</button>{onRemove&&<button type="button" disabled={busy} onClick={onRemove}>Снять запись</button>}</div><TrialInvitationButton person={person} message={invitation} disabled={busy}/>{contactsOpen&&<div className="trial-slots__contact-panel"><StudentContactLinks studentId={person.id} studentName={person.name}/></div>}{copied&&<span className="sr-only" role="status">Код ученика {person.name} скопирован</span>}{error&&<p role="alert" className="trial-slots__error">{error}</p>}</div>;
+  </button><button type="button" aria-expanded={contactsOpen} onClick={()=>setContactsOpen(value=>!value)}>Контакты</button>{onMove&&<button type="button" disabled={busy} onClick={onMove} aria-expanded={Boolean(children)} aria-label={`Перенести запись: ${person.name}`}><ArrowRight size={14}/>Перенести</button>}{onRemove&&<button type="button" disabled={busy} onClick={onRemove}>Снять запись</button>}</div><TrialInvitationButton person={person} message={invitation} disabled={busy}/>{contactsOpen&&<div className="trial-slots__contact-panel"><StudentContactLinks studentId={person.id} studentName={person.name}/></div>}{children}{copied&&<span className="sr-only" role="status">Код ученика {person.name} скопирован</span>}{error&&<p role="alert" className="trial-slots__error">{error}</p>}</div>;
+}
+
+function futureTrialOccurrences(plan,source,weeks) {
+  const now=Date.now(),today=moscowDay(now),result=[];
+  for(let offset=0;offset<weeks*7;offset++){
+    const date=addCalendarDays(today,offset);
+    for(const slot of plan.slots){
+      if(weekdayIndex(date)!==slot.day || date<slot.repeatFrom || (slot.id===source.slotId && date===source.date))continue;
+      const booking=plan.bookings.find(row=>row.slotId===slot.id&&row.date===date);
+      const time=booking?.time || slot.time;
+      if(Date.parse(`${date}T${time}:00+03:00`)<=now)continue;
+      result.push({key:`${slot.id}:${date}`,slotId:slot.id,date,time,revision:booking?.revision || 0,studentIds:booking?.studentIds || []});
+    }
+  }
+  return result;
+}
+
+function MoveParticipant({plan,source,person,busy,error,onCancel,onMove}){
+  const [weeks,setWeeks]=useState(4),[chosen,setChosen]=useState('');
+  const options=futureTrialOccurrences(plan,source,weeks).filter(option=>option.studentIds.length<30 || option.studentIds.includes(person.id));
+  const destination=options.find(option=>option.key===chosen);
+  return <form className="trial-slots__move-person" onSubmit={event=>{event.preventDefault();if(destination)void onMove(destination);}}>
+    <label>Новое пробное для {person.name}<select value={chosen} onChange={event=>setChosen(event.target.value)} disabled={busy} required>
+      <option value="">Выберите дату и время</option>
+      {options.map(option=><option key={option.key} value={option.key}>{dateLabel(option.date)} · {option.time} МСК{option.studentIds.length?` · записано ${option.studentIds.length}`:''}</option>)}
+    </select></label>
+    {error&&<p role="alert" className="trial-slots__error">{error}</p>}
+    <div className="trial-slots__move-actions">
+      <button type="button" disabled={busy} onClick={()=>setWeeks(value=>value+4)}>Ещё даты</button>
+      <button type="button" disabled={busy} onClick={onCancel}>Отмена</button>
+      <button className="trial-slots__primary" disabled={busy||!destination}>{busy?'Переносим…':'Подтвердить перенос'}</button>
+    </div>
+  </form>;
 }
 function Dialog({title,subtitle,onClose,children}){
   return createPortal(<div className="trial-slots__backdrop" onClick={onClose}><section className="trial-slots__dialog" role="dialog" aria-modal="true" aria-label={title} onClick={event=>event.stopPropagation()}><header><span className="trial-slots__icon"><CalendarClock size={24}/></span><div><small>ПРОБНЫЕ ЗАНЯТИЯ</small><h2>{title}</h2><p>{subtitle}</p></div><button aria-label="Закрыть пробные слоты" onClick={onClose}><X size={20}/></button></header>{children}</section></div>,document.body);
@@ -62,12 +97,13 @@ function MoveSlot({teacherId,plan,move,onSaved,onClose}){
     {error&&<p role="alert" className="trial-slots__error">{error}</p>}
   </div><footer>{!affected.length?<button type="button" disabled={busy} onClick={()=>void apply(true)}><Trash2 size={14}/>Удалить резерв</button>:<small>Участники останутся записаны.</small>}<button className="trial-slots__primary" disabled={busy}>{busy?'Сохраняем…':'Сохранить изменение'}</button></footer></form></Dialog>;
 }
-function Participants({teacherId,plan,selection,students,onSaved,onClose,onEdit}){
+function Participants({teacherId,plan,selection,students,onSaved,onClose,onEdit,onSelect}){
   const slot=plan.slots.find(s=>s.id===selection.slotId),booking=plan.bookings.find(row=>row.slotId===selection.slotId&&row.date===selection.date);
   const [mode,setMode]=useState('existing'),[studentId,setStudentId]=useState(''),[created,setCreated]=useState(null);
   const [name,setName]=useState(''),[nickname,setNickname]=useState('');
   const [parentDraft,setParentDraft]=useState(()=>studentContactDraft()),[pupilDraft,setPupilDraft]=useState(()=>studentContactDraft());
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[codeCopied,setCodeCopied]=useState(false);
+  const [moving,setMoving]=useState(null),[moved,setMoved]=useState(null);
   const availability=useStudentNameAvailability(name,nickname,teacherId);
   const time=booking?.time || slot?.time,duration=booking?.durationMinutes || slot?.durationMinutes;
   const future=time && Date.parse(`${selection.date}T${time}:00+03:00`)>Date.now();
@@ -89,10 +125,26 @@ function Participants({teacherId,plan,selection,students,onSaved,onClose,onEdit}
   };
   const enrolled=booking?.participants || [];
   const createdEnrolled=!!created&&enrolled.some(person=>person.id===created.id);
-  return <Dialog title={enrolled.length?'Участники пробного':'Кто придёт на пробное?'} subtitle={`${new Date(`${selection.date}T12:00:00`).toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})} · ${time}–${time?clockTime(minute(time)+duration):''} · Москва`} onClose={()=>!busy&&onClose()}><div className="trial-slots__body">
+  const movePerson=(person,destination)=>run(async()=>{
+    const {slotId,date,revision}=destination;
+    const result=await api.moveTrialParticipant(teacherId,selection.slotId,selection.date,person.id,{
+      planRevision:plan.revision,revision:booking.revision,target:{slotId,date,revision},
+    });
+    setMoving(null);setMoved({...destination,personName:person.name,
+      pending:result.bookings.some(row=>row.syncStatus==='pending'&&((row.slotId===slotId&&row.date===date)||row.id===booking.id))});
+    return result;
+  });
+  return <Dialog title={enrolled.length?'Участники пробного':'Кто придёт на пробное?'} subtitle={`${dateLabel(selection.date)} · ${time}–${time?clockTime(minute(time)+duration):''} · Москва`} onClose={()=>!busy&&onClose()}><div className="trial-slots__body">
     <div className={`trial-slots__attendance ${enrolled.length?'has-people':''}`}><Users size={22}/><div><strong>{enrolled.length?`Записано: ${enrolled.length}`:'Пока никого нет'}</strong><p>{enrolled.length?'Все участники придут в одно и то же время.':'Резерв занят в расписании, но урока и уведомления пока нет.'}</p></div></div>
     <TrialInvitation teacherId={teacherId} plan={plan} selection={selection} booking={booking} busy={busy} onBusyChange={setBusy} onSaved={onSaved}/>
-    {enrolled.map(person=><Participant key={person.id} person={person} busy={busy} invitation={trialInvitationMessage(plan.invitationTemplate,booking?.meetingUrl || '')} onRemove={future?()=>run(()=>api.removeTrialParticipant(teacherId,selection.slotId,selection.date,person.id,booking.revision)):null}/>)}
+    {moved&&<div className="trial-slots__move-result"><div role="status"><strong>Перенос подтверждён. {moved.personName} · {dateLabel(moved.date)} в {moved.time} МСК</strong>
+      {moved.pending&&<p>Запись перенесена. Google Calendar ещё обновляется.</p>}</div>
+      <button type="button" disabled={busy} onClick={()=>onSelect({slotId:moved.slotId,date:moved.date})}>Открыть новый слот <ArrowRight size={14}/></button></div>}
+    {enrolled.map(person=><Participant key={person.id} person={person} busy={busy} invitation={trialInvitationMessage(plan.invitationTemplate,booking?.meetingUrl || '')}
+      onMove={plan.slots.length?()=>{setMoving(value=>value===person.id?null:person.id);setError('');}:null}
+      onRemove={future?()=>run(()=>api.removeTrialParticipant(teacherId,selection.slotId,selection.date,person.id,booking.revision)):null}>
+      {moving===person.id&&<MoveParticipant plan={plan} source={selection} person={person} busy={busy} error={error} onCancel={()=>{setMoving(null);setError('');}} onMove={destination=>movePerson(person,destination)}/>}
+    </Participant>)}
     {booking?.syncStatus==='pending'&&<div className="trial-slots__sync" role="status"><span>{booking.syncError || 'Обновляем Google Calendar…'}</span><button disabled={busy} onClick={()=>run(()=>api.syncTrialBooking(teacherId,selection.slotId,selection.date))}><RefreshCcw size={14}/>Повторить</button></div>}
     {booking?.syncStatus==='synced'&&<p className="trial-slots__synced"><Check size={14}/>{enrolled.length?'Есть в Google Calendar · напоминания как обычно':'Событие убрано из Google · резерв остаётся'}</p>}
     {future&&slot&&<><div className="trial-slots__tabs"><button disabled={busy||!!created&&!createdEnrolled} aria-pressed={mode==='existing'} onClick={()=>setMode('existing')}>Существующий ученик</button><button disabled={busy||!!created&&!createdEnrolled} aria-pressed={mode==='new'} onClick={()=>setMode('new')}><UserPlus size={15}/>Новый ученик</button></div>{!(mode==='new'&&createdEnrolled)&&<form onSubmit={add}>
@@ -107,10 +159,10 @@ function Participants({teacherId,plan,selection,students,onSaved,onClose,onEdit}
     </form>}</>}
     {created&&<div className="trial-slots__credentials"><strong>{createdEnrolled?'Создан и записан':'Аккаунт создан'}: {created.name}</strong><span>Код входа: <b>{created.code}</b></span><button type="button" onClick={async()=>{try{await copyParentMessage(studentAccessMessage(created.code));setCodeCopied(true);}catch(failure){setError(failure.message);}}}><Copy size={14}/>{codeCopied?'Скопировано':'Скопировать код'}</button></div>}
     {createdEnrolled&&<button type="button" onClick={()=>{setCreated(null);setName('');setNickname('');setParentDraft(studentContactDraft());setPupilDraft(studentContactDraft());setCodeCopied(false);setMode('new');}}><UserPlus size={15}/>Создать ещё одного ученика</button>}
-    {error&&<p role="alert" className="trial-slots__error">{error}</p>}
+    {error&&!moving&&<p role="alert" className="trial-slots__error">{error}</p>}
   </div><footer><small>Участники записаны только на эту дату.</small>{slot&&<button type="button" disabled={busy} onClick={()=>onEdit({slotId:slot.id})}><Clock3 size={14}/>Изменить слот</button>}<button onClick={()=>!busy&&onClose()} disabled={busy}>Готово</button></footer></Dialog>;
 }
-export function TrialSlotDialogs({teacherId,plan,selection,configure,move,onMove,students,onSaved,onClose}){
+export function TrialSlotDialogs({teacherId,plan,selection,configure,move,onMove,students,onSaved,onClose,onSelect}){
   const [roster,setRoster]=useState(students);
   useEffect(()=>{
     let cancelled=false;
@@ -118,6 +170,6 @@ export function TrialSlotDialogs({teacherId,plan,selection,configure,move,onMove
     return ()=>{cancelled=true;};
   },[teacherId,selection]);
   if(!plan)return null;
-  return move?<MoveSlot key={move.slotId} teacherId={teacherId} plan={plan} move={move} onSaved={onSaved} onClose={onClose}/>:configure?<Configure teacherId={teacherId} plan={plan} onSaved={onSaved} onClose={onClose}/>:selection?<Participants key={`${selection.slotId}:${selection.date}`} teacherId={teacherId} plan={plan} selection={selection} students={roster || students} onSaved={onSaved} onClose={onClose} onEdit={onMove}/>:null;
+  return move?<MoveSlot key={move.slotId} teacherId={teacherId} plan={plan} move={move} onSaved={onSaved} onClose={onClose}/>:configure?<Configure teacherId={teacherId} plan={plan} onSaved={onSaved} onClose={onClose}/>:selection?<Participants key={`${selection.slotId}:${selection.date}`} teacherId={teacherId} plan={plan} selection={selection} students={roster || students} onSaved={onSaved} onClose={onClose} onEdit={onMove} onSelect={onSelect}/>:null;
 }
 export { default as TrialSlotDay } from './TrialSlotDay.jsx';

@@ -26,11 +26,18 @@ export function createTrialSlotStore(file, now = Date.now) {
   const save = next => { fs.mkdirSync(path.dirname(file),{recursive:true}); fs.writeFileSync(file+'.tmp',JSON.stringify(next),{mode:0o600}); fs.renameSync(file+'.tmp',file); db=next;googleUids=null; };
   const configuration = teacherId => structuredClone(db.teachers[teacherId] || {revision:0,slots:[]});
   const bookings = teacherId => structuredClone(Object.values(db.bookings).filter(row=>row.teacherId===teacherId));
+  const putBookings = rows => {
+    const next = {...db.bookings};
+    for (const row of rows) next[`${row.teacherId}:${bookingKey(row.slotId,row.date)}`] = row;
+    save({...db,bookings:next});
+    return structuredClone(rows);
+  };
   return {
     configuration, bookings,
     allBookings:()=>structuredClone(Object.values(db.bookings)),
     getBooking:(teacherId,slotId,date)=>structuredClone(db.bookings[`${teacherId}:${bookingKey(slotId,date)}`] || null),
-    putBooking(row){save({...db,bookings:{...db.bookings,[`${row.teacherId}:${bookingKey(row.slotId,row.date)}`]:row}});return structuredClone(row);},
+    putBooking:row=>putBookings([row])[0],
+    putBookings,
     setInvitationTemplate(teacherId,template,revision){
       const previous=configuration(teacherId);
       if(previous.revision!==revision)fail('Настройки пробных изменились в другом окне. Обновите окно.',409);
@@ -200,6 +207,54 @@ export function registerTrialSlots(app,{store,getTeacher,getStudent,getEntries,a
       if(Date.parse(`${date}T${previous.time}:00+03:00`)<=now()) fail('Прошедшее пробное остаётся в истории.');
       const keep=previous.studentIds.map((id,index)=>({id,name:previous.studentNames[index]})).filter(person=>person.id!==studentId);
       await sync(store.putBooking({...previous,previousStudentIds:[...new Set([...(previous.previousStudentIds || []),...previous.studentIds])],studentIds:keep.map(p=>p.id),studentNames:keep.map(p=>p.name),revision:previous.revision+1,syncStatus:'pending'}));
+      return view(teacherId);
+    });
+  }));
+  app.post('/api/trial-slots/:slotId/:date/participants/:studentId/move',route(req=>{
+    const teacherId=access(req),{slotId,date,studentId}=req.params;
+    const target=req.body?.target;
+    return withTeacherCalendarLock(teacherId,async()=>{
+      if(!validTrialDate(date)||!validTrialDate(target?.date)||typeof target.slotId!=='string') fail('Выберите дату и пробный слот.');
+      if(slotId===target.slotId&&date===target.date) fail('Выберите другой пробный слот.');
+      const plan=store.configuration(teacherId);
+      const slot=plan.slots.find(value=>value.id===target.slotId);
+      if(!slot||target.date<slot.repeatFrom||weekdayIndex(target.date)!==slot.day) fail('Новый пробный слот не найден.',404);
+      const source=store.getBooking(teacherId,slotId,date);
+      if(!source) fail('Исходная запись не найдена.',404);
+      const destination=store.getBooking(teacherId,target.slotId,target.date);
+      const pupil=getStudent(studentId);
+      if(!pupil||pupil.deletedAt||pupil.teacherId!==teacherId) fail('Выберите своего ученика.',403);
+      const alreadyEnrolled=destination?.studentIds.includes(studentId);
+      if(!source.studentIds.includes(studentId)) {
+        if(alreadyEnrolled) return view(teacherId);
+        fail('Ученик больше не записан на это пробное.',409);
+      }
+      if(plan.revision!==req.body?.planRevision || source.revision!==req.body?.revision
+        || (destination?.revision || 0)!==target.revision) fail('Слоты изменились. Обновите календарь и выберите время снова.',409);
+      const time=destination?.time || slot.time,durationMinutes=destination?.durationMinutes || slot.durationMinutes;
+      const startsAt=Date.parse(`${target.date}T${time}:00+03:00`);
+      if(startsAt<=now()) fail('Выберите будущее пробное занятие.');
+      if(!alreadyEnrolled){
+        if((destination?.studentIds.length || 0)>=30) fail('В пробном слоте уже 30 участников.',409);
+        const entries=await getEntries(teacherId,true,target.date,{fromDay:target.date});access(req);
+        if(getStudent(studentId)?.teacherId!==teacherId||getStudent(studentId)?.deletedAt) fail('Ученик больше не закреплён за вами.',409);
+        if(startsAt<=now()) fail('Новое пробное уже началось. Выберите другое время.',409);
+        const conflict=expandRescheduleOccurrences(entries,target.date,1).find(entry=>entry.date===target.date
+          && !entry.trialReservation && (!destination||entry.trialBookingId!==destination.id) && overlaps(entry,{time,durationMinutes}));
+        if(conflict) fail('В новом слоте появилось другое событие. Проверьте календарь перед переносом.',409);
+      }
+      const removedIndex=source.studentIds.indexOf(studentId),updatedAt=new Date(now()).toISOString();
+      const from={...source,studentIds:source.studentIds.filter(id=>id!==studentId),
+        studentNames:source.studentNames.filter((_,index)=>index!==removedIndex),
+        previousStudentIds:[...new Set([...(source.previousStudentIds || []),studentId])],
+        revision:source.revision+1,syncStatus:'pending',syncError:'',updatedAt};
+      const rows=[from];
+      if(!alreadyEnrolled) rows.push({...destination,id:destination?.id || crypto.randomUUID(),teacherId,
+        slotId:slot.id,date:target.date,time,durationMinutes,
+        studentIds:[...(destination?.studentIds || []),studentId],studentNames:[...(destination?.studentNames || []),pupil.name],
+        revision:(destination?.revision || 0)+1,syncStatus:'pending',syncError:'',updatedAt});
+      // Persist both rosters together before either calendar update can fail.
+      for(const row of store.putBookings(rows)) await sync(row);
       return view(teacherId);
     });
   }));

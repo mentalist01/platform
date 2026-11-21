@@ -5274,7 +5274,7 @@ const TeacherCalendarSection = ({
           </div>
         </div>
       )}
-      {(trialSelection || trialConfigure || trialMove) && <TrialSlotDialogs teacherId={teacherId} plan={trialPlan} selection={trialSelection} configure={trialConfigure} move={trialMove} onMove={value=>{setTrialSelection(null);setTrialMove(value);}} students={students || []}
+      {(trialSelection || trialConfigure || trialMove) && <TrialSlotDialogs teacherId={teacherId} plan={trialPlan} selection={trialSelection} configure={trialConfigure} move={trialMove} onMove={value=>{setTrialSelection(null);setTrialMove(value);}} onSelect={setTrialSelection} students={students || []}
         onSaved={value=>{setTrialPlan(value);void loadTeacherCalendar({silent:true});}} onClose={()=>{setTrialSelection(null);setTrialConfigure(false);setTrialMove(null);}}/>}
       {quickCreateDraft && <CalendarEventEditor draft={quickCreateDraft} onChange={setQuickCreateDraft}
         anchor={quickCreateDraft.anchor} onClose={closeQuickCreate} onSubmit={handleQuickCreateSave}
